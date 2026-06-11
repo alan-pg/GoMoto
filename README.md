@@ -47,7 +47,8 @@ Todos rodam na raiz e são orquestrados pelo Turborepo.
 | `pnpm dev` | Sobe os apps em modo desenvolvimento (Turbo) |
 | `pnpm build` | Build de produção de todos os pacotes |
 | `pnpm lint` | Lint do workspace |
-| `pnpm test` | Roda testes (Playwright E2E no web) |
+| `pnpm test` | Roda unit tests (Vitest em `packages/core`; mais pacotes serão adicionados) |
+| `pnpm --filter web test:e2e` | Roda Playwright E2E no web (requer browsers e dev server) |
 | `pnpm typecheck` | Type-check em todos os pacotes |
 | `pnpm --filter web <cmd>` | Roda um comando só no pacote `web` |
 | `pnpm db:start` | Sobe o stack Supabase local (Docker) |
@@ -71,7 +72,8 @@ Todos rodam na raiz e são orquestrados pelo Turborepo.
 GoMoto/
 ├── apps/
 │   └── web/                ← Next.js 14 (src/, tests/, configs)
-├── packages/               ← vazio — Fases 2-4 vão preencher
+├── packages/
+│   └── core/               ← @gomoto/core (schemas Zod, types, utils puros)
 ├── supabase/               ← migrations versionadas + seed local
 ├── obsidian-notes/         ← documentação do produto
 ├── pnpm-workspace.yaml
@@ -93,7 +95,7 @@ Antes de propor qualquer mudança, leia [`CLAUDE.md`](./CLAUDE.md) na raiz. Ele 
 | 0 — Preparação | ✅ concluída |
 | 0.1 — Supabase local com Docker | ✅ concluída |
 | 1 — Estrutura de monorepo | ✅ concluída |
-| 2 — `packages/core` | ⚪ pendente |
+| 2 — `packages/core` | ✅ concluída |
 | 3 — Regras de negócio | ⚪ pendente |
 | 4 — `packages/data` | ⚪ pendente |
 | 4-bis — Bootstrap mobile | ⚪ pendente |

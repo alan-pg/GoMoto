@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'
 import { Header } from '@/components/layout/Header'
 import { Modal } from '@/components/ui/Modal'
-import type { Contract, Customer, Motorcycle } from '@/types'
+import type { Contract, Customer, Motorcycle } from '@gomoto/core'
 
 // ---------------------------------------------------------------------------
 // Tipos

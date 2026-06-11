@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { createClient } from '@/lib/supabase/client'
-import type { Process } from '@/types'
+import type { Process } from '@gomoto/core'
 
 /**
  * @type ProcessFormData

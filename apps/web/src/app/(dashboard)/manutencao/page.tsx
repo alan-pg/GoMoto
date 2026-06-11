@@ -8,7 +8,7 @@ import {
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { uploadMaintenancePhoto } from './actions'
-import type { Maintenance } from '@/types'
+import type { Maintenance } from '@gomoto/core'
 
 import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'

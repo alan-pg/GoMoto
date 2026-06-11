@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { CustomerSchema } from '@/lib/schemas'
+import { CustomerSchema } from '@gomoto/core'
 import { logAction } from '@/lib/audit'
 import { z } from 'zod'
 

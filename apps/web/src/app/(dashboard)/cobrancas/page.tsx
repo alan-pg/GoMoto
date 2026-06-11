@@ -28,7 +28,7 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import type { ChargeStatus } from '@/types'
+import type { ChargeStatus } from '@gomoto/core'
 
 /**
  * @type ChargeWithRelations

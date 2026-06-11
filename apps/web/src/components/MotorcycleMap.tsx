@@ -18,7 +18,7 @@
 import 'leaflet/dist/leaflet.css'
 
 import { useEffect, useRef, useState } from 'react'
-import type { Motorcycle, Contract, Customer } from '@/types'
+import type { Motorcycle, Contract, Customer } from '@gomoto/core'
 import { formatCurrency } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -60,7 +60,7 @@ Detalhes do fluxo: `obsidian-notes/Desenvolvimento Local.md`.
 
 ## Estado da migração para monorepo
 
-Fases concluídas: **0** (bootstrap), **0.1** (Supabase local), **1** (estrutura monorepo).
+Fases concluídas: **0** (bootstrap), **0.1** (Supabase local), **1** (estrutura monorepo), **2** (`packages/core`).
 
 Estrutura atual:
 
@@ -71,7 +71,8 @@ Estrutura atual:
 │       ├── src/
 │       ├── tests/     # Playwright E2E
 │       └── .env.local
-├── packages/          # vazio — Fases 2-4 vão preencher
+├── packages/
+│   └── core/          # @gomoto/core: Zod schemas, types, utils puros
 ├── supabase/          # migrations + seed
 ├── obsidian-notes/    # documentação fonte da verdade
 ├── tsconfig.base.json # base TS para todos os pacotes
@@ -81,7 +82,11 @@ Estrutura atual:
 
 Comandos padrão na raiz: `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm test`, `pnpm typecheck` — todos delegam para Turbo.
 
+`pnpm test` roda **unit tests** (Vitest). Para os Playwright E2E do web: `pnpm --filter web test:e2e` (requer browsers e dev server rodando).
+
 Para rodar só um pacote: `pnpm --filter web dev`.
+
+Schemas Zod, types e utils puros vivem em **`@gomoto/core`** (`packages/core/`). Use-os daí — não duplique em `apps/web`. Quando adicionar uma nova entidade, comece pelo schema no core.
 
 Use sempre o estado **atual** do código como verdade — não antecipe estrutura de fases futuras (`packages/core`, `packages/data`, `apps/mobile`) que ainda não foram criadas.
 

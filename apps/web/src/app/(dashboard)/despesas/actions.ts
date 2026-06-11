@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { ExpenseSchema } from '@/lib/schemas'
+import { ExpenseSchema } from '@gomoto/core'
 import { logAction } from '@/lib/audit'
 
 async function getAuthenticatedUser() {

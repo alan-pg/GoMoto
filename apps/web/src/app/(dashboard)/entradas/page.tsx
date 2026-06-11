@@ -26,7 +26,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Plus, Edit2, Trash2, TrendingUp, Calendar, DollarSign, Search, ChevronDown } from 'lucide-react';
 
 // Tipos
-import type { Income } from '@/types';
+import type { Income } from '@gomoto/core';
 
 // Supabase
 import { createClient } from '@/lib/supabase/client';

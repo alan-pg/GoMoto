@@ -62,7 +62,7 @@ import { Button }                    from '@/components/ui/Button'           // 
 import { Input, Select, Textarea }   from '@/components/ui/Input'            // Campos de formulário
 import { Modal }                     from '@/components/ui/Modal'            // Modal com backdrop
 import { formatCurrency, formatDate } from '@/lib/utils'                     // Formatadores de moeda e data
-import type { Expense, Motorcycle }  from '@/types'                          // Tipo da tabela `expenses`
+import type { Expense, Motorcycle }  from '@gomoto/core'                          // Tipo da tabela `expenses`
 
 // ─── TIPOS ────────────────────────────────────────────────────────────────────
 

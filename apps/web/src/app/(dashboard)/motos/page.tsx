@@ -56,7 +56,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
 
 // Importação de definições de tipos TypeScript globais
-import type { Motorcycle, MotorcycleStatus, Contract, Customer } from '@/types'
+import type { Motorcycle, MotorcycleStatus, Contract, Customer } from '@gomoto/core'
 
 /**
  * Importação dinâmica do mapa Leaflet sem SSR.

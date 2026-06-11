@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  transpilePackages: ['@gomoto/core'],
   async headers() {
     return [
       {
