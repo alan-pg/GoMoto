@@ -19,12 +19,12 @@ Este arquivo é a porta de entrada para qualquer agente IA trabalhar neste repos
 - **Português permitido** em: labels de UI, JSDoc, comentários, mensagens para o usuário.
 - **Tabelas e linhas** sempre em `h-9 text-[13px]` (preferência explícita do usuário).
 - **Toda nova tabela** precisa de: `tenant_id` (após Fase 5), RLS habilitada, trigger `update_updated_at_column`, política RLS por `auth.uid()` + `tenant_id`.
-- **`npm run build` deve passar** sem erros antes de qualquer commit.
+- **`pnpm build` deve passar** sem erros antes de qualquer commit (roda Turbo em todos os pacotes afetados).
 - **Atualizar nota Obsidian relevante** no mesmo PR que muda código de domínio ou tela.
 
 ## Padrões mortos (não usar como referência)
 
-- ❌ `src/app/**/actions.ts` — código morto. As páginas atuais usam Supabase direto via `createClient()` no client. Não copie esse padrão; quando refatorar uma tela, mova a lógica para `packages/core` (Fase 3) e o acesso a dados para `packages/data` (Fase 4).
+- ❌ `apps/web/src/app/**/actions.ts` — código morto. As páginas atuais usam Supabase direto via `createClient()` no client. Não copie esse padrão; quando refatorar uma tela, mova a lógica para `packages/core` (Fase 3) e o acesso a dados para `packages/data` (Fase 4).
 - ❌ Fetch direto via `createClient()` dentro de `page.tsx` — é o padrão atual mas é anti-padrão segundo a [arquitetura proposta](./obsidian-notes/Arquitetura%20Proposta.md). Novo código deve consumir hooks de `packages/data` quando ele existir.
 - ❌ Lógica de negócio dentro de handlers de UI — extrair para função pura em `packages/core/rules`.
 
@@ -41,8 +41,8 @@ O projeto tem **dois ambientes Supabase**:
 
 - **NUNCA** rode `supabase db push`, `psql` ou MCP Supabase contra o projeto cloud sem confirmação explícita do humano.
 - Toda mudança de schema vira **arquivo versionado** em `supabase/migrations/`. Use `supabase migration new <nome>` para criar.
-- Para reproduzir um bug ou testar localmente: `npm run db:reset` zera o estado e roda o seed.
-- Para gerar migration a partir de mudanças no Studio local: `npm run db:diff <nome>`.
+- Para reproduzir um bug ou testar localmente: `pnpm db:reset` zera o estado e roda o seed.
+- Para gerar migration a partir de mudanças no Studio local: `pnpm db:diff <nome>`.
 - O seed em `supabase/seed.sql` é a fonte de dados de desenvolvimento. Atualize-o se mudar entidades.
 
 Detalhes do fluxo: `obsidian-notes/Desenvolvimento Local.md`.
@@ -54,15 +54,36 @@ Detalhes do fluxo: `obsidian-notes/Desenvolvimento Local.md`.
    - Se mexe em domínio → função pura em `packages/core` + teste Vitest (após Fase 2).
    - Se mexe em acesso a dados → repositório em `packages/data` (após Fase 4).
    - Se mexe em UI → componente/tela em `apps/web/` ou `apps/mobile/`.
-3. **Validar**: `npm run build` (web), `npm run test` (E2E quando relevante), `npm run db:reset` se mexeu em schema.
+3. **Validar**: `pnpm build` (turbo, todos pacotes afetados), `pnpm test` (E2E quando relevante), `pnpm db:reset` se mexeu em schema.
 4. **Commit** com mensagem em português, prefixo convencional (`feat`, `fix`, `chore`, `docs`, `refactor`).
 5. **Push e PR** apenas se o humano pedir.
 
 ## Estado da migração para monorepo
 
-Estamos saindo de monolito Next.js para monorepo PNPM + Turborepo. Veja `obsidian-notes/Arquitetura Proposta.md` §13.
+Fases concluídas: **0** (bootstrap), **0.1** (Supabase local), **1** (estrutura monorepo).
 
-Enquanto a Fase 1 não terminar, a estrutura ainda é `src/` na raiz. Use sempre o estado **atual** do código como verdade — não antecipe estrutura de fases futuras em código que não foi migrado.
+Estrutura atual:
+
+```
+/
+├── apps/
+│   └── web/           # Next.js 14 (era a raiz antes da Fase 1)
+│       ├── src/
+│       ├── tests/     # Playwright E2E
+│       └── .env.local
+├── packages/          # vazio — Fases 2-4 vão preencher
+├── supabase/          # migrations + seed
+├── obsidian-notes/    # documentação fonte da verdade
+├── tsconfig.base.json # base TS para todos os pacotes
+├── turbo.json         # pipeline Turborepo
+└── pnpm-workspace.yaml
+```
+
+Comandos padrão na raiz: `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm test`, `pnpm typecheck` — todos delegam para Turbo.
+
+Para rodar só um pacote: `pnpm --filter web dev`.
+
+Use sempre o estado **atual** do código como verdade — não antecipe estrutura de fases futuras (`packages/core`, `packages/data`, `apps/mobile`) que ainda não foram criadas.
 
 ## Operações destrutivas
 

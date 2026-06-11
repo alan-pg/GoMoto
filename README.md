@@ -14,8 +14,8 @@ ERP de locadora de motocicletas. Web (Next.js 14) + Supabase. Em migração para
 
 ## Pré-requisitos
 
-- Node.js 22+
-- PNPM 11+ (migração em curso; `npm` ainda funciona enquanto a Fase 1 não termina)
+- Node.js 20+ (22 LTS recomendado)
+- PNPM 10+ (`npm i -g pnpm` ou `corepack enable`)
 - Docker + Docker Compose (para Supabase local)
 - Supabase CLI (`npm i -g supabase` ou via gestor de pacotes do SO)
 
@@ -23,34 +23,38 @@ ERP de locadora de motocicletas. Web (Next.js 14) + Supabase. Em migração para
 
 ```bash
 # 1. Variáveis de ambiente
-cp .env.local.example .env.local
-# Preencha com as chaves locais (saída de `supabase status`)
+cp apps/web/.env.local.example apps/web/.env.local
+# Preencha com as chaves locais (saída de `pnpm db:status`)
 
-# 2. Dependências
-npm install      # ou: pnpm install (após Fase 1)
+# 2. Dependências (workspace inteiro)
+pnpm install
 
 # 3. Banco local (Postgres + Auth + Storage + Studio)
-npm run db:start
-npm run db:reset    # aplica migrations + seed
+pnpm db:start
+pnpm db:reset       # aplica migrations + seed
 
-# 4. App web
-npm run dev
+# 4. App web (Turbo aciona o pacote `web`)
+pnpm dev
 # http://localhost:3000
 ```
 
 ## Comandos principais
 
+Todos rodam na raiz e são orquestrados pelo Turborepo.
+
 | Comando | Função |
 |---|---|
-| `npm run dev` | Sobe Next.js em modo desenvolvimento |
-| `npm run build` | Build de produção |
-| `npm run lint` | Lint do projeto |
-| `npm run test` | Playwright E2E |
-| `npm run db:start` | Sobe o stack Supabase local (Docker) |
-| `npm run db:stop` | Derruba o stack |
-| `npm run db:reset` | Reseta o banco local: roda migrations + seed |
-| `npm run db:diff` | Gera nova migration a partir de mudanças no Studio local |
-| `npm run db:status` | Mostra URLs e chaves do stack local |
+| `pnpm dev` | Sobe os apps em modo desenvolvimento (Turbo) |
+| `pnpm build` | Build de produção de todos os pacotes |
+| `pnpm lint` | Lint do workspace |
+| `pnpm test` | Roda testes (Playwright E2E no web) |
+| `pnpm typecheck` | Type-check em todos os pacotes |
+| `pnpm --filter web <cmd>` | Roda um comando só no pacote `web` |
+| `pnpm db:start` | Sobe o stack Supabase local (Docker) |
+| `pnpm db:stop` | Derruba o stack |
+| `pnpm db:reset` | Reseta o banco local: roda migrations + seed |
+| `pnpm db:diff` | Gera nova migration a partir de mudanças no Studio local |
+| `pnpm db:status` | Mostra URLs e chaves do stack local |
 
 ## Endpoints do Supabase local
 
@@ -65,14 +69,18 @@ npm run dev
 
 ```
 GoMoto/
-├── src/                    ← código Next.js (migra para apps/web/ na Fase 1)
+├── apps/
+│   └── web/                ← Next.js 14 (src/, tests/, configs)
+├── packages/               ← vazio — Fases 2-4 vão preencher
 ├── supabase/               ← migrations versionadas + seed local
-├── obsidian-notes/         ← documentação do produto (migra para docs/ na Fase 1)
-├── tests/                  ← Playwright
+├── obsidian-notes/         ← documentação do produto
+├── pnpm-workspace.yaml
+├── turbo.json
+├── tsconfig.base.json
 └── README.md
 ```
 
-A estrutura final do monorepo (apps/, packages/, docs/) está descrita em [`obsidian-notes/Arquitetura Proposta.md`](./obsidian-notes/Arquitetura%20Proposta.md), §10.
+A estrutura final do monorepo (com `packages/core`, `packages/data`, `apps/mobile`) está descrita em [`obsidian-notes/Arquitetura Proposta.md`](./obsidian-notes/Arquitetura%20Proposta.md), §10.
 
 ## Para agentes IA
 
@@ -82,9 +90,9 @@ Antes de propor qualquer mudança, leia [`CLAUDE.md`](./CLAUDE.md) na raiz. Ele 
 
 | Fase | Status |
 |---|---|
-| 0 — Preparação | 🟡 em andamento |
-| 0.1 — Supabase local com Docker | 🟡 em andamento |
-| 1 — Estrutura de monorepo | ⚪ pendente |
+| 0 — Preparação | ✅ concluída |
+| 0.1 — Supabase local com Docker | ✅ concluída |
+| 1 — Estrutura de monorepo | ✅ concluída |
 | 2 — `packages/core` | ⚪ pendente |
 | 3 — Regras de negócio | ⚪ pendente |
 | 4 — `packages/data` | ⚪ pendente |
