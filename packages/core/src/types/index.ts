@@ -371,3 +371,63 @@ export interface Process {
   updated_at: string;
 }
 
+/**
+ * @interface Billing
+ * @description Cobrança gerada para um cliente, vinculada ou não a um contrato.
+ */
+export interface Billing {
+  id: string;
+  contract_id: string | null;
+  customer_id: string;
+  description: string;
+  amount: number;
+  due_date: string;
+  status: ChargeStatus;
+  payment_date: string | null;
+  observations: string | null;
+  created_at: string;
+  updated_at: string;
+  customers?: { name: string; phone: string } | null;
+  contracts?: { id: string } | null;
+}
+
+/**
+ * @interface Fine
+ * @description Multa de trânsito associada a um cliente e a uma moto.
+ */
+export interface Fine {
+  id: string;
+  customer_id: string;
+  motorcycle_id: string;
+  description: string;
+  amount: number;
+  infraction_date: string;
+  due_date: string | null;
+  status: 'pending' | 'paid';
+  payment_date: string | null;
+  responsible: 'customer' | 'company';
+  observations: string | null;
+  created_at: string;
+  updated_at: string;
+  customers?: { name: string; phone: string } | null;
+  motorcycles?: { license_plate: string; model: string; make: string } | null;
+}
+
+/**
+ * @interface QueueEntry
+ * @description Entrada na fila de espera de clientes por uma moto disponível.
+ */
+export interface QueueEntry {
+  id: string;
+  customer_id: string;
+  position: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  customers?: {
+    name: string;
+    phone: string;
+    drivers_license: string;
+    drivers_license_validity: string | null;
+  } | null;
+}

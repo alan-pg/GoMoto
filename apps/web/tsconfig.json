@@ -8,7 +8,11 @@
     "noUncheckedIndexedAccess": false,
     "plugins": [{ "name": "next" }],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@gomoto/core": ["../../packages/core/src/index.ts"],
+      "@gomoto/core/*": ["../../packages/core/src/*"],
+      "@gomoto/data": ["../../packages/data/src/index.ts"],
+      "@gomoto/data/*": ["../../packages/data/src/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
