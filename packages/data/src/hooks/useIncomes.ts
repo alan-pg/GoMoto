@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useSupabaseContext } from '../context'
+import { useSupabaseContext, useRequiredTenantId } from '../context'
 import { listIncomes, createIncome, updateIncome, deleteIncome } from '../repositories/incomes'
 import type { Income } from '@gomoto/core'
 
@@ -12,9 +12,11 @@ export function useIncomes() {
 
 export function useCreateIncome() {
   const supabase = useSupabaseContext()
+  const getTenantId = useRequiredTenantId()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (payload: Omit<Income, 'id' | 'created_at'>) => createIncome(supabase, payload),
+    mutationFn: (payload: Omit<Income, 'id' | 'tenant_id' | 'created_at'>) =>
+      createIncome(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   })
 }

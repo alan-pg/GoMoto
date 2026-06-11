@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useSupabaseContext } from '../context'
+import { useSupabaseContext, useRequiredTenantId } from '../context'
 import { listExpenses, createExpense, updateExpense, deleteExpense } from '../repositories/expenses'
 import type { Expense } from '@gomoto/core'
 
@@ -12,10 +12,11 @@ export function useExpenses() {
 
 export function useCreateExpense() {
   const supabase = useSupabaseContext()
+  const getTenantId = useRequiredTenantId()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (payload: Omit<Expense, 'id' | 'created_at' | 'motorcycle'>) =>
-      createExpense(supabase, payload),
+    mutationFn: (payload: Omit<Expense, 'id' | 'tenant_id' | 'created_at' | 'motorcycle'>) =>
+      createExpense(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   })
 }

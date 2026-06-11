@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useSupabaseContext } from '../context'
+import { useSupabaseContext, useRequiredTenantId } from '../context'
 import {
   listQueueEntries,
   createQueueEntry,
@@ -17,10 +17,12 @@ export function useQueueEntries() {
 
 export function useCreateQueueEntry() {
   const supabase = useSupabaseContext()
+  const getTenantId = useRequiredTenantId()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (payload: Omit<QueueEntry, 'id' | 'created_at' | 'updated_at' | 'customers'>) =>
-      createQueueEntry(supabase, payload),
+    mutationFn: (
+      payload: Omit<QueueEntry, 'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'customers'>,
+    ) => createQueueEntry(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   })
 }

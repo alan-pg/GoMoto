@@ -81,6 +81,8 @@ export type ContractStatus = 'active' | 'closed' | 'cancelled' | 'broken';
 export interface Motorcycle {
   /** @property id - UUID único da motocicleta. */
   id: string;
+  /** @property tenant_id - Tenant ao qual o registro pertence (Fase 5). */
+  tenant_id: string;
   /** @property license_plate - Placa de identificação oficial do veículo. */
   license_plate: string;
   /** @property model - Modelo comercial da moto (ex: CG 160 Start). */
@@ -153,6 +155,8 @@ export interface CustomerRentalHistory {
 export interface Customer {
   /** @property id - UUID único do cliente. */
   id: string;
+  /** @property tenant_id - Tenant ao qual o registro pertence (Fase 5). */
+  tenant_id: string;
   /** @property name - Nome completo do locatário. */
   name: string;
   /** @property cpf - Cadastro de Pessoa Física. */
@@ -213,6 +217,8 @@ export interface Customer {
 export interface Contract {
   /** @property id - UUID único do contrato. */
   id: string;
+  /** @property tenant_id - Tenant ao qual o registro pertence (Fase 5). */
+  tenant_id: string;
   /** @property customer_id - Referência ao ID do cliente locatário. */
   customer_id: string;
   /** @property motorcycle_id - Referência ao ID da moto alugada. */
@@ -249,6 +255,8 @@ export interface Contract {
 export interface Income {
   /** @property id - UUID único da entrada. */
   id: string;
+  /** @property tenant_id - Tenant ao qual o registro pertence (Fase 5). */
+  tenant_id: string;
   /** @property description - Descrição livre da entrada (ex: "Aluguel semana 10/03"). */
   description?: string;
   /** @property vehicle - Identificador do veículo relacionado (geralmente a placa). */
@@ -281,6 +289,8 @@ export interface Income {
 export interface Expense {
   /** @property id - UUID único da despesa. */
   id: string;
+  /** @property tenant_id - Tenant ao qual o registro pertence (Fase 5). */
+  tenant_id: string;
   /** @property description - Detalhamento do gasto realizado. */
   description: string;
   /** @property amount - Valor pago na despesa. */
@@ -311,6 +321,8 @@ export interface Expense {
 export interface Maintenance {
   /** @property id - UUID único da manutenção. */
   id: string;
+  /** @property tenant_id - Tenant ao qual o registro pertence (Fase 5). */
+  tenant_id: string;
   /** @property motorcycle_id - ID da moto que recebe a manutenção. */
   motorcycle_id: string;
   /** @property standard_item_id - Vínculo com um item padrão, se aplicável. */
@@ -357,6 +369,8 @@ export interface Maintenance {
 export interface Process {
   /** @property id - UUID único do processo/pergunta. */
   id: string;
+  /** @property tenant_id - Tenant ao qual o registro pertence (Fase 5). */
+  tenant_id: string;
   /** @property question - Pergunta ou instrução do processo. */
   question: string;
   /** @property answer - Resposta configurada ou preenchida. */
@@ -377,6 +391,7 @@ export interface Process {
  */
 export interface Billing {
   id: string;
+  tenant_id: string;
   contract_id: string | null;
   customer_id: string;
   description: string;
@@ -397,6 +412,7 @@ export interface Billing {
  */
 export interface Fine {
   id: string;
+  tenant_id: string;
   customer_id: string;
   motorcycle_id: string;
   description: string;
@@ -419,6 +435,7 @@ export interface Fine {
  */
 export interface QueueEntry {
   id: string;
+  tenant_id: string;
   customer_id: string;
   position: number;
   notes: string | null;

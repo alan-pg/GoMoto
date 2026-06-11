@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useSupabaseContext } from '../context'
+import { useSupabaseContext, useRequiredTenantId } from '../context'
 import {
   listProcesses,
   createProcess,
@@ -17,10 +17,11 @@ export function useProcesses() {
 
 export function useCreateProcess() {
   const supabase = useSupabaseContext()
+  const getTenantId = useRequiredTenantId()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (payload: Omit<Process, 'id' | 'created_at' | 'updated_at'>) =>
-      createProcess(supabase, payload),
+    mutationFn: (payload: Omit<Process, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>) =>
+      createProcess(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   })
 }

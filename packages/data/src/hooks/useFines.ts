@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useSupabaseContext } from '../context'
+import { useSupabaseContext, useRequiredTenantId } from '../context'
 import { listFines, createFine, updateFine, deleteFine } from '../repositories/fines'
 import type { Fine } from '@gomoto/core'
 
@@ -12,11 +12,15 @@ export function useFines() {
 
 export function useCreateFine() {
   const supabase = useSupabaseContext()
+  const getTenantId = useRequiredTenantId()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (
-      payload: Omit<Fine, 'id' | 'created_at' | 'updated_at' | 'customers' | 'motorcycles'>,
-    ) => createFine(supabase, payload),
+      payload: Omit<
+        Fine,
+        'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'customers' | 'motorcycles'
+      >,
+    ) => createFine(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   })
 }

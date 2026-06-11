@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useSupabaseContext } from '../context'
+import { useSupabaseContext, useRequiredTenantId } from '../context'
 import {
   listBillings,
   createBilling,
@@ -17,11 +17,15 @@ export function useBillings() {
 
 export function useCreateBilling() {
   const supabase = useSupabaseContext()
+  const getTenantId = useRequiredTenantId()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (
-      payload: Omit<Billing, 'id' | 'created_at' | 'updated_at' | 'customers' | 'contracts'>,
-    ) => createBilling(supabase, payload),
+      payload: Omit<
+        Billing,
+        'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'customers' | 'contracts'
+      >,
+    ) => createBilling(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   })
 }

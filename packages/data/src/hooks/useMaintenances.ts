@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useSupabaseContext } from '../context'
+import { useSupabaseContext, useRequiredTenantId } from '../context'
 import {
   listMaintenances,
   listMaintenancesByMotorcycle,
@@ -27,10 +27,12 @@ export function useMaintenancesByMotorcycle(motorcycleId: string) {
 
 export function useCreateMaintenance() {
   const supabase = useSupabaseContext()
+  const getTenantId = useRequiredTenantId()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (payload: Omit<Maintenance, 'id' | 'created_at' | 'updated_at' | 'motorcycle'>) =>
-      createMaintenance(supabase, payload),
+    mutationFn: (
+      payload: Omit<Maintenance, 'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'motorcycle'>,
+    ) => createMaintenance(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   })
 }
