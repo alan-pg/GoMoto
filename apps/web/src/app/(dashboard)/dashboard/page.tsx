@@ -3,6 +3,7 @@ import { StatCard } from '@/components/ui/Card'
 import { createClient } from '@/lib/supabase/server'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { DashboardCharts } from './DashboardCharts'
+import { identifyCustomersWithMultipleOverdueCharges } from '@gomoto/core'
 import { AlertTriangle, Bike, CalendarClock, Wallet } from 'lucide-react'
 
 interface RecentContract {
@@ -92,13 +93,9 @@ async function getDashboardData() {
     ? Math.round((uniqueOverdueCustomers / activeClientsCount) * 100)
     : 0
 
-  const overdueCountByCustomer: Record<string, number> = {}
-  ;(overdueCustomersData || []).forEach((row) => {
-    overdueCountByCustomer[row.customer_id] = (overdueCountByCustomer[row.customer_id] || 0) + 1
-  })
-  const multipleOverdueCustomerIds = Object.entries(overdueCountByCustomer)
-    .filter(([, count]) => count >= 2)
-    .map(([id]) => id)
+  const multipleOverdueCustomerIds = identifyCustomersWithMultipleOverdueCharges(
+    (overdueCustomersData || []).map((row) => ({ customer_id: row.customer_id, status: 'overdue' })),
+  )
 
   let multipleOverdueCustomers: { name: string }[] = []
   if (multipleOverdueCustomerIds.length > 0) {

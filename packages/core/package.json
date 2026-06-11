@@ -9,7 +9,8 @@
     ".": "./src/index.ts",
     "./schemas": "./src/schemas/index.ts",
     "./types": "./src/types/index.ts",
-    "./utils": "./src/utils/index.ts"
+    "./utils": "./src/utils/index.ts",
+    "./rules": "./src/rules/index.ts"
   },
   "scripts": {
     "test": "vitest run",

@@ -29,6 +29,12 @@ import { Modal } from '@/components/ui/Modal'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import type { ChargeStatus } from '@gomoto/core'
+import {
+  calculateAverageTicket,
+  calculateDaysOverdue,
+  calculateDefaultRate,
+  calculatePunctualityRate,
+} from '@gomoto/core'
 
 /**
  * @type ChargeWithRelations
@@ -343,7 +349,7 @@ export default function CobrancasPage() {
 
     const paidCharges = charges.filter((c) => c.status === 'paid')
     const totalPaid = paidCharges.reduce((sum, c) => sum + c.amount, 0)
-    const averageTicket = paidCharges.length > 0 ? totalPaid / paidCharges.length : 0
+    const averageTicket = calculateAverageTicket(charges)
 
     const totalPending = charges.filter((c) => c.status === 'pending').reduce((sum, c) => sum + c.amount, 0)
     const projection30Days = charges
@@ -355,15 +361,11 @@ export default function CobrancasPage() {
       .filter((c) => c.status === 'overdue')
       .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
     const oldestCharge = sortedOverdue[0]
-    const daysOverdue = oldestCharge
-      ? Math.floor((today.getTime() - new Date(oldestCharge.due_date + 'T00:00:00').getTime()) / 86400000)
-      : 0
+    const daysOverdue = oldestCharge ? calculateDaysOverdue(oldestCharge, today) : 0
 
     const defaultersCount = charges.filter((c) => c.status === 'overdue' || c.status === 'loss').length
-    const defaultRate = charges.length > 0 ? (defaultersCount / charges.length) * 100 : 0
-
-    const paidOnTime = paidCharges.filter((c) => c.payment_date && c.payment_date <= c.due_date).length
-    const punctualityRate = paidCharges.length > 0 ? (paidOnTime / paidCharges.length) * 100 : 0
+    const defaultRate = calculateDefaultRate(charges)
+    const punctualityRate = calculatePunctualityRate(charges)
 
     const totalUnpaid = totalPending + totalOverdue
     const averageTime = paidCharges.length > 0

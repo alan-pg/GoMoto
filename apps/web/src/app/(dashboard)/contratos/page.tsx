@@ -13,6 +13,12 @@ import { StatusBadge } from '@/components/ui/Badge'
 import { Header } from '@/components/layout/Header'
 import { Modal } from '@/components/ui/Modal'
 import type { Contract, Customer, Motorcycle } from '@gomoto/core'
+import {
+  CONTRACT_TERMINATION_FINE_BRL,
+  calculateExpectedEndDate,
+  calculateMinimumEndDate,
+  getContractValidityLevel,
+} from '@gomoto/core'
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -80,7 +86,7 @@ const FILTERS: { key: StatusFilter; label: string }[] = [
   { key: 'broken', label: 'Rescindidos' },
 ]
 
-const FINE_AMOUNT = 1000
+const FINE_AMOUNT = CONTRACT_TERMINATION_FINE_BRL
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -132,18 +138,6 @@ function fmtBRL(value: number | null | undefined) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
 }
 
-function addMonths(date: Date, months: number): Date {
-  const d = new Date(date)
-  d.setMonth(d.getMonth() + months)
-  return d
-}
-
-function addYears(date: Date, years: number): Date {
-  const d = new Date(date)
-  d.setFullYear(d.getFullYear() + years)
-  return d
-}
-
 function timeRemaining(to: Date): string {
   const now = new Date()
   now.setHours(0, 0, 0, 0)
@@ -163,35 +157,30 @@ function timeRemaining(to: Date): string {
 }
 
 function getVigencia(contract: ContractRow) {
-  if (contract.status !== 'active') return null
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const start = new Date(contract.start_date + 'T00:00:00')
-  const type = contract.contract_type ?? 'rental'
-  const minEnd = type === 'loyalty' ? addYears(start, 2) : addMonths(start, 3)
-  const contractEnd = contract.end_date ? new Date(contract.end_date + 'T00:00:00') : null
-
-  if (contractEnd && today > contractEnd) {
-    return { level: 'red' as const, label: 'Vencido', detail: 'Este contrato passou da data de encerramento prevista.' }
+  const level = getContractValidityLevel(contract)
+  if (!level) return null
+  if (level === 'red') {
+    return { level, label: 'Vencido', detail: 'Este contrato passou da data de encerramento prevista.' }
   }
-  if (today < minEnd) {
+  if (level === 'orange') {
+    const minEnd = calculateMinimumEndDate(contract.start_date, contract.contract_type ?? 'rental')
     return {
-      level: 'orange' as const,
+      level,
       label: 'Dentro da vigência mínima',
       detail: `${timeRemaining(minEnd)} restantes. Encerramento antecipado gera multa de ${fmtBRL(FINE_AMOUNT)}.`,
     }
   }
   return {
-    level: 'green' as const,
+    level,
     label: 'Vigência mínima cumprida',
-    detail: contractEnd ? `Previsto para encerrar em ${fmt(contract.end_date)}.` : 'Sem data de encerramento definida.',
+    detail: contract.end_date ? `Previsto para encerrar em ${fmt(contract.end_date)}.` : 'Sem data de encerramento definida.',
   }
 }
 
 function expectedEndDate(contract: ContractRow): string {
-  const type = contract.contract_type ?? 'rental'
-  const start = new Date(contract.start_date + 'T00:00:00')
-  if (type === 'loyalty') return fmt(addYears(start, 2).toISOString().split('T')[0])
-  return contract.end_date ? fmt(contract.end_date) : '—'
+  const end = calculateExpectedEndDate(contract)
+  if (!end) return '—'
+  return fmt(end.toISOString().split('T')[0])
 }
 
 const supabase = createClient()
