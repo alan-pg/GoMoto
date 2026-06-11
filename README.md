@@ -1,36 +1,97 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GoMoto
 
-## Getting Started
+ERP de locadora de motocicletas. Web (Next.js 14) + Supabase. Em migração para monorepo PNPM/Turborepo, com app mobile (Expo) chegando em paralelo.
 
-First, run the development server:
+> Para a visão completa de arquitetura, regras de negócio e telas, veja a base de conhecimento em [`obsidian-notes/`](./obsidian-notes/GoMoto.md). Para a proposta de evolução desta arquitetura, veja [`obsidian-notes/Arquitetura Proposta.md`](./obsidian-notes/Arquitetura%20Proposta.md).
+
+## Stack atual
+
+- **Web:** Next.js 14 (App Router) · React 18 · TypeScript · TailwindCSS
+- **Backend:** Supabase (Postgres + Auth + Storage)
+- **UI:** Lucide · Leaflet · Recharts
+- **Validação:** Zod
+- **Testes:** Playwright E2E
+
+## Pré-requisitos
+
+- Node.js 22+
+- PNPM 11+ (migração em curso; `npm` ainda funciona enquanto a Fase 1 não termina)
+- Docker + Docker Compose (para Supabase local)
+- Supabase CLI (`npm i -g supabase` ou via gestor de pacotes do SO)
+
+## Setup local
 
 ```bash
+# 1. Variáveis de ambiente
+cp .env.local.example .env.local
+# Preencha com as chaves locais (saída de `supabase status`)
+
+# 2. Dependências
+npm install      # ou: pnpm install (após Fase 1)
+
+# 3. Banco local (Postgres + Auth + Storage + Studio)
+npm run db:start
+npm run db:reset    # aplica migrations + seed
+
+# 4. App web
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Comandos principais
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Comando | Função |
+|---|---|
+| `npm run dev` | Sobe Next.js em modo desenvolvimento |
+| `npm run build` | Build de produção |
+| `npm run lint` | Lint do projeto |
+| `npm run test` | Playwright E2E |
+| `npm run db:start` | Sobe o stack Supabase local (Docker) |
+| `npm run db:stop` | Derruba o stack |
+| `npm run db:reset` | Reseta o banco local: roda migrations + seed |
+| `npm run db:diff` | Gera nova migration a partir de mudanças no Studio local |
+| `npm run db:status` | Mostra URLs e chaves do stack local |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Endpoints do Supabase local
 
-## Learn More
+| Serviço | URL |
+|---|---|
+| API (Postgrest + Auth) | http://127.0.0.1:54321 |
+| Studio (admin web) | http://127.0.0.1:54323 |
+| Inbucket (capturador de emails) | http://127.0.0.1:54324 |
+| Postgres direto | `postgresql://postgres:postgres@127.0.0.1:54322/postgres` |
 
-To learn more about Next.js, take a look at the following resources:
+## Estrutura atual
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+GoMoto/
+├── src/                    ← código Next.js (migra para apps/web/ na Fase 1)
+├── supabase/               ← migrations versionadas + seed local
+├── obsidian-notes/         ← documentação do produto (migra para docs/ na Fase 1)
+├── tests/                  ← Playwright
+└── README.md
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+A estrutura final do monorepo (apps/, packages/, docs/) está descrita em [`obsidian-notes/Arquitetura Proposta.md`](./obsidian-notes/Arquitetura%20Proposta.md), §10.
 
-## Deploy on Vercel
+## Para agentes IA
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Antes de propor qualquer mudança, leia [`CLAUDE.md`](./CLAUDE.md) na raiz. Ele define os pontos de entrada da documentação Obsidian, as regras invioláveis (idioma, padrões mortos a evitar) e o fluxo esperado de PR.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Estado da migração
+
+| Fase | Status |
+|---|---|
+| 0 — Preparação | 🟡 em andamento |
+| 0.1 — Supabase local com Docker | 🟡 em andamento |
+| 1 — Estrutura de monorepo | ⚪ pendente |
+| 2 — `packages/core` | ⚪ pendente |
+| 3 — Regras de negócio | ⚪ pendente |
+| 4 — `packages/data` | ⚪ pendente |
+| 4-bis — Bootstrap mobile | ⚪ pendente |
+| 5 — Multi-tenancy + RLS | ⚪ pendente |
+| 6 — Edge Functions | ⚪ pendente |
+| 7 — Telas mobile (incremental) | ⚪ pendente |
+| 8 — Skills e CI para IA | ⚪ pendente |
+
+Plano completo em [`obsidian-notes/Arquitetura Proposta.md`](./obsidian-notes/Arquitetura%20Proposta.md), §13.
