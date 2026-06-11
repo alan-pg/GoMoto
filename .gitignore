@@ -36,6 +36,11 @@ yarn-error.log*
 # vercel
 .vercel
 
+# Supabase local (Docker) — manter migrations/, seed.sql, config.toml versionados
+supabase/.branches/
+supabase/.temp/
+supabase/volumes/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

@@ -1,0 +1,172 @@
+# Desenvolvimento Local
+
+Como rodar o GoMoto inteiramente offline, com Supabase em Docker, sem depender da nuvem.
+
+> **Por que ler isto?** Toda a Fase 0.1 de [[Arquitetura Proposta]] gira em torno de eliminar a dependência do projeto cloud `hcnxbqunescfanqzmsha` para o dia a dia. Migrations passam a ser versionadas em `supabase/migrations/` e validadas localmente antes de subir.
+
+---
+
+## Pré-requisitos
+
+| Ferramenta     | Versão mínima | Como instalar                                          |
+| -------------- | ------------- | ------------------------------------------------------ |
+| Node.js        | 20 LTS        | `nvm install 20`                                       |
+| pnpm           | 10+           | `npm i -g pnpm` (ou `corepack enable`)                 |
+| Docker Engine  | 24+           | https://docs.docker.com/engine/install/                |
+| Supabase CLI   | 2.x           | `npm i -g supabase` ou https://supabase.com/docs/guides/cli |
+
+Verifique:
+
+```bash
+node -v       # v20+ ou v22
+pnpm -v       # 10+
+docker -v     # 24+
+supabase -v   # 2.x
+```
+
+---
+
+## Primeira execução
+
+```bash
+# 1. Subir o stack do Supabase (Postgres + Auth + Storage + Studio)
+pnpm db:start
+# (na primeira vez baixa ~2 GB de imagens Docker — vá tomar um café)
+
+# 2. Ver as chaves geradas para o ambiente local
+pnpm db:status
+# Você verá algo como:
+#   API URL:        http://127.0.0.1:54321
+#   DB URL:         postgresql://postgres:postgres@127.0.0.1:54322/postgres
+#   Studio URL:     http://127.0.0.1:54323
+#   anon key:       eyJhbGciOi...
+#   service_role:   eyJhbGciOi...
+
+# 3. Criar seu .env.local a partir do template
+cp .env.local.example .env.local
+# Cole as chaves "anon key" e "service_role" do passo 2
+
+# 4. Aplicar migrations + seed do zero
+pnpm db:reset
+# Isso roda TODAS as migrations em supabase/migrations/ e depois supabase/seed.sql
+
+# 5. Subir a aplicação Next.js
+pnpm dev
+```
+
+Acesse:
+
+- **App:** http://localhost:3000
+- **Studio (gerenciar o DB local):** http://127.0.0.1:54323
+- **Login de teste:** `admin@gomoto.dev` / `gomoto123` (criado pelo seed)
+
+---
+
+## Comandos do dia a dia
+
+| Comando            | O que faz                                                              |
+| ------------------ | ---------------------------------------------------------------------- |
+| `pnpm db:start`    | Sobe os containers Docker (idempotente)                                |
+| `pnpm db:stop`     | Para os containers (preserva o volume — dados ficam)                   |
+| `pnpm db:reset`    | **DESTRUTIVO**: apaga o banco local e reaplica migrations + seed       |
+| `pnpm db:status`   | Mostra URLs e chaves do stack rodando                                  |
+| `pnpm db:diff -f <nome>` | Compara seu DB local com as migrations e gera uma nova migration |
+| `pnpm db:push`     | **CUIDADO**: aplica migrations no projeto cloud (ver regra abaixo)     |
+
+---
+
+## Fluxo de uma alteração de schema
+
+Você quer adicionar uma coluna `discount_pct` em `contracts`. Faça assim:
+
+```bash
+# 1. Suba o stack se ainda não estiver rodando
+pnpm db:start
+
+# 2. Edite o schema direto no Studio (http://127.0.0.1:54323)
+#    ou rode SQL ad-hoc: psql postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+# 3. Gere a migration a partir do diff
+pnpm db:diff -f add_discount_to_contracts
+# Cria: supabase/migrations/<timestamp>_add_discount_to_contracts.sql
+
+# 4. Revise o SQL gerado (sempre confira — a CLI às vezes inclui ruído)
+#    Ajuste comentários, ordem, etc.
+
+# 5. Valide do zero: descarta o banco e reaplica TUDO incluindo a nova migration
+pnpm db:reset
+
+# 6. Commit
+git add supabase/migrations/<arquivo>.sql
+git commit -m "feat(db): adiciona discount_pct em contracts"
+```
+
+---
+
+## Regra de ouro: nunca rode migrations contra a cloud direto
+
+O projeto cloud `hcnxbqunescfanqzmsha` ainda hospeda dados reais do MVP. Até a Fase 5 ([[Arquitetura Proposta#Fase 5]]) entrarem com multi-tenancy + ambientes separados (`dev`/`staging`/`prod`), tratamos a cloud como **somente leitura** para mudanças de schema.
+
+- ❌ **NÃO** rode `pnpm db:push` apontando para a cloud.
+- ❌ **NÃO** edite tabelas no Dashboard do Supabase cloud.
+- ✅ Toda mudança de schema **nasce local**, vira migration commitada, e só sobe para a cloud em um momento controlado (via PR + revisão).
+
+Veja também: [[CLAUDE.md]] (seção "Regras invioláveis").
+
+---
+
+## Solução de problemas
+
+### "Cannot connect to the Docker daemon"
+- Inicie o Docker: `sudo systemctl start docker` (Linux) ou abra o Docker Desktop.
+
+### "port is already allocated"
+- Outro stack do Supabase está rodando. `pnpm db:stop` e tente de novo.
+- Se o conflito for com Postgres do sistema: pare-o (`sudo systemctl stop postgresql`) ou ajuste portas em `supabase/config.toml`.
+
+### `db:reset` falha com erro de RLS
+- O `seed.sql` roda com privilégios de superuser, então RLS é ignorado lá. Se quebrou, provavelmente sua migration nova tem `CREATE POLICY` antes do `CREATE TABLE`. Reordene.
+
+### Chaves no `.env.local` ficaram inválidas após `db:reset`
+- `db:reset` **mantém** as chaves anon/service_role, mas se você fez `supabase stop --no-backup` + `start` novamente, elas podem mudar. Rode `pnpm db:status` e recopie.
+
+### Migration foi criada mas não aparece em `db:reset`
+- Verifique o nome do arquivo: precisa começar com timestamp (`YYYYMMDDHHMMSS_`). A CLI gera certo via `db:diff -f`; só dá problema se você renomeou manualmente.
+
+---
+
+## Estrutura de pastas relevante
+
+```
+supabase/
+├── config.toml              # Configuração do stack local (commit)
+├── migrations/              # Histórico de schema (commit)
+│   └── 20260611002632_initial_schema.sql
+├── seed.sql                 # Dados de desenvolvimento (commit)
+├── .branches/               # Branches locais — ignorado
+├── .temp/                   # Cache da CLI — ignorado
+└── volumes/                 # Dados do Postgres em disco — ignorado
+```
+
+O `.gitignore` da raiz já cobre `.branches/`, `.temp/` e `volumes/`. Migrations e seed **vão para o git**.
+
+---
+
+## Próximos passos previstos
+
+Quando a Fase 5 entrar:
+
+- `seed.sql` passará a criar **2 tenants** com dados isolados.
+- Surgirão ambientes `staging.gomoto.app` e `app.gomoto.app` com projetos Supabase distintos.
+- Criaremos `pnpm db:push:staging` e fluxo de PR-deploy que aplica migrations só após aprovação.
+
+Por enquanto, vivemos com **single-tenant local + cloud única** para o MVP.
+
+---
+
+## Veja também
+
+- [[Arquitetura Proposta]] — Fase 0.1 inteira
+- [[CLAUDE.md]] — regras para a IA sobre DB
+- [[Banco de Dados]] — descrição das tabelas
+- [[Variáveis de Ambiente]] — referência completa de envs

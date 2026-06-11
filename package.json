@@ -10,7 +10,13 @@
     "test": "playwright test",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
-    "test:report": "playwright show-report"
+    "test:report": "playwright show-report",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset",
+    "db:diff": "supabase db diff -f",
+    "db:push": "supabase db push",
+    "db:status": "supabase status"
   },
   "dependencies": {
     "@supabase/ssr": "^0.9.0",
