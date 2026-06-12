@@ -1,14 +1,21 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Upload, Eye, Search, FileEdit, FileDown,
   CheckCircle, Trash2, User, Bike, FileText,
   Settings2, AlertTriangle, XCircle, ChevronLeft,
   Building2, UserRound, Clock, CalendarDays,
 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
-import { useRequiredTenantId } from '@gomoto/data'
+import { useContracts, useSupabaseContext } from '@gomoto/data'
+import {
+  updateContract,
+  terminateContractByCustomer,
+  terminateContractByCompany,
+  upsertContractTemplate,
+  removeContractTemplate,
+} from './actions'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'
 import { Header } from '@/components/layout/Header'
@@ -184,17 +191,16 @@ function expectedEndDate(contract: ContractRow): string {
   return fmt(end.toISOString().split('T')[0])
 }
 
-const supabase = createClient()
-
 // ---------------------------------------------------------------------------
 // Componente
 // ---------------------------------------------------------------------------
 
 export default function ContratosPage() {
-  const getTenantId = useRequiredTenantId()
-  const [contracts, setContracts] = useState<ContractRow[]>([])
+  const supabase = useSupabaseContext()
+  const queryClient = useQueryClient()
+  const { data: contractsData = [], isLoading: loading } = useContracts()
+  const contracts = contractsData as unknown as ContractRow[]
   const [templates, setTemplates] = useState<ContractTemplate[]>(DEFAULT_TEMPLATES)
-  const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [search, setSearch] = useState('')
 
@@ -223,17 +229,8 @@ export default function ContratosPage() {
   }, [])
 
   // ---------------------------------------------------------------------------
-  // Fetch
+  // Fetch templates (one-off direct read; mutations go via Server Actions)
   // ---------------------------------------------------------------------------
-
-  const fetchContracts = useCallback(async () => {
-    const { data } = await supabase
-      .from('contracts')
-      .select('*, customer:customers(id, name, phone, cpf, rg, state, drivers_license, drivers_license_category, address, zip_code), motorcycle:motorcycles(id, model, make, license_plate, km_current, year_manufacture, year_model, renavam, chassis, color, fuel)')
-      .order('created_at', { ascending: false })
-    if (data) setContracts(data as ContractRow[])
-    setLoading(false)
-  }, [])
 
   const fetchTemplates = useCallback(async () => {
     const { data } = await supabase.from('contract_templates').select('*')
@@ -243,12 +240,16 @@ export default function ContratosPage() {
         return db ? { ...t, ...db } : t
       }))
     }
-  }, [])
+  }, [supabase])
 
   useEffect(() => {
-    fetchContracts()
     fetchTemplates()
-  }, [fetchContracts, fetchTemplates])
+  }, [fetchTemplates])
+
+  const invalidateContracts = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['contracts'] }),
+    [queryClient],
+  )
 
   const filtered = useMemo(() => {
     let rows = contracts
@@ -278,11 +279,11 @@ export default function ContratosPage() {
       const { error: upErr } = await supabase.storage.from('contract-templates').upload(path, file, { upsert: true })
       if (upErr) throw upErr
       const { data: urlData } = supabase.storage.from('contract-templates').getPublicUrl(path)
-      const { error: dbErr } = await supabase.from('contracts').update({ pdf_url: urlData.publicUrl }).eq('id', activeContractId)
-      if (dbErr) throw dbErr
+      const res = await updateContract(activeContractId, { pdf_url: urlData.publicUrl })
+      if (res.error) throw new Error(res.error)
       showToast('success', 'Contrato assinado enviado!')
       setSelectedContract(prev => prev?.id === activeContractId ? { ...prev, pdf_url: urlData.publicUrl } : prev)
-      fetchContracts()
+      invalidateContracts()
     } catch { showToast('error', 'Falha no upload do contrato') }
     finally {
       setUploadingContract(null); setActiveContractId(null)
@@ -305,11 +306,13 @@ export default function ContratosPage() {
       if (upErr) throw upErr
       const { data: urlData } = supabase.storage.from('contract-templates').getPublicUrl(path)
       const tpl = templates.find(t => t.slug === activeSlug)
-      const { error: dbErr } = await supabase.from('contract_templates').upsert({
-        slug: activeSlug, name: tpl?.name, description: tpl?.description,
-        file_url: urlData.publicUrl, updated_at: new Date().toISOString(),
-      }, { onConflict: 'slug' })
-      if (dbErr) throw dbErr
+      const res = await upsertContractTemplate({
+        slug: activeSlug,
+        name: tpl?.name ?? activeSlug,
+        description: tpl?.description ?? null,
+        file_url: urlData.publicUrl,
+      })
+      if (res.error) throw new Error(res.error)
       showToast('success', 'Modelo atualizado!')
       fetchTemplates()
     } catch { showToast('error', 'Falha no upload do modelo') }
@@ -321,7 +324,8 @@ export default function ContratosPage() {
 
   const handleRemoveTemplate = async (slug: string) => {
     if (!confirm('Remover este modelo?')) return
-    await supabase.from('contract_templates').update({ file_url: null, updated_at: null }).eq('slug', slug)
+    const res = await removeContractTemplate(slug)
+    if (res.error) { showToast('error', res.error); return }
     showToast('success', 'Modelo removido')
     fetchTemplates()
   }
@@ -419,24 +423,12 @@ export default function ContratosPage() {
     if (!selectedContract) return
     setTerminating(true)
     try {
-      const today = new Date().toISOString().split('T')[0]
-      await supabase.from('contracts').update({ status: 'cancelled', end_date: today }).eq('id', selectedContract.id)
-      await supabase.from('fines').insert({
-        customer_id: selectedContract.customer_id,
-        motorcycle_id: selectedContract.motorcycle_id,
-        description: 'Multa por rescisão antecipada de contrato',
-        amount: FINE_AMOUNT,
-        infraction_date: today,
-        due_date: today,
-        status: 'pending',
-        responsible: 'customer',
-        tenant_id: getTenantId(),
-      })
-      await supabase.from('motorcycles').update({ status: 'available' }).eq('id', selectedContract.motorcycle_id)
+      const res = await terminateContractByCustomer(selectedContract.id)
+      if (res.error) throw new Error(res.error)
       showToast('success', `Contrato encerrado. Multa de ${fmtBRL(FINE_AMOUNT)} gerada.`)
       setSelectedContract(null)
       setTerminateStep(null)
-      fetchContracts()
+      invalidateContracts()
     } catch { showToast('error', 'Erro ao encerrar contrato') }
     finally { setTerminating(false) }
   }
@@ -445,18 +437,13 @@ export default function ContratosPage() {
     if (!selectedContract || terminateReason.trim().length < 50) return
     setTerminating(true)
     try {
-      const today = new Date().toISOString().split('T')[0]
-      await supabase.from('contracts').update({
-        status: 'cancelled',
-        end_date: today,
-        observations: terminateReason.trim(),
-      }).eq('id', selectedContract.id)
-      await supabase.from('motorcycles').update({ status: 'available' }).eq('id', selectedContract.motorcycle_id)
+      const res = await terminateContractByCompany(selectedContract.id, terminateReason)
+      if (res.error) throw new Error(res.error)
       showToast('success', 'Contrato encerrado pela empresa.')
       setSelectedContract(null)
       setTerminateStep(null)
       setTerminateReason('')
-      fetchContracts()
+      invalidateContracts()
     } catch { showToast('error', 'Erro ao encerrar contrato') }
     finally { setTerminating(false) }
   }
