@@ -45,6 +45,9 @@ const MaintenanceSchema = z.object({
   completed: z.boolean().optional(),
   workshop: z.string().max(200).optional().nullable(),
   observations: z.string().max(2000).optional().nullable(),
+  responsibility: z.enum(['company', 'customer', 'split']).optional().nullable(),
+  odometer_photo_url: z.string().url().optional().nullable(),
+  invoice_photo_url: z.string().url().optional().nullable(),
 })
 
 export async function createMaintenance(rawData: unknown) {
