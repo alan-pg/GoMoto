@@ -45,10 +45,22 @@ Detalhes e tradeoffs registrados em [[decisions/0002-padrao-canonico-pagina-serv
 
 Nenhum bug crítico aberto.
 
+## 🧮 Regras de domínio em `@gomoto/core/rules`
+
+Fase 3 concluída para o escopo de **eliminar duplicação**. Cobertura atual (49 testes Vitest):
+
+- `contracts` — vigência mínima, vigência esperada, classificação de validade (red/orange/green), `CONTRACT_TERMINATION_FINE_BRL`.
+- `billings` — `isChargeOverdue`, `calculateDaysOverdue`, default rate, punctuality rate, ticket médio.
+- `motorcycles` — `isIdleMotorcycle`.
+- `customers` — `identifyCustomersWithMultipleOverdueCharges`.
+- `queue` — notas auditáveis do swap (`getMoveUpNote`, `getMoveDownNote`, `getMoveDownReasonNote`, `QUEUE_REORDER_UP_NOTE`).
+
+Auditoria em 2026-06-12 confirmou que `contratos`, `cobrancas` e `fila` consomem essas regras sem drift inline.
+
 ## 🚀 Roadmap imediato (ordem sugerida)
 
-1. **Fase 3 — extrair regras puras** para `packages/core/rules` (cálculo de multas, swap de fila, fechamento de contrato) + testes Vitest.
-2. **Geração de PDF** — completar contratos via Edge Function.
+1. **Geração de PDF** — completar contratos via Edge Function.
+2. **Extrair regime de manutenção** para `@gomoto/core/rules/maintenance` — tabela de intervalos por tipo, `KM_POR_DIA`, `diffKm`, cálculo de próxima manutenção. Atualmente inline em `manutencao/page.tsx`. *Não é eliminação de duplicação (não há lugar com cópia), mas é a maior concentração de regra de domínio fora do `core`.* Sessão dedicada, não cirúrgica.
 3. **Fase 4-bis — bootstrap `apps/mobile`** (Expo + Expo Router).
 4. **Resend** — emails de cobrança vencida, lembretes de manutenção.
 5. **Sentry** — monitoramento de erros em produção.
@@ -65,6 +77,8 @@ Nenhum bug crítico aberto.
 
 | Commit | Mensagem |
 |---|---|
+| `cb74995` | refactor(core): extrai rules/queue + fila consome calculateMinimumEndDate |
+| `cdd7063` | docs: ADR 0002 do padrão canônico de tela + atualiza Estado Atual |
 | `9751646` | refactor(fila): migra page.tsx para hooks de leitura + Server Actions |
 | `7119d7a` | refactor(manutencao): migra page.tsx para hooks de leitura + Server Actions |
 | `1887cc0` | refactor(contratos): migra page.tsx para hooks de leitura + Server Actions |
@@ -72,7 +86,6 @@ Nenhum bug crítico aberto.
 | `83c1d88` | refactor(multas): migra page.tsx para hooks de leitura + Server Actions |
 | `a1fa0cb` | refactor(entradas): migra page.tsx para hooks de leitura + Server Actions |
 | `65b6cc0` | refactor(cobrancas): migra page.tsx para hooks de leitura + Server Actions |
-| `42dca2c` | feat(web): injeta tenant_id em todas as escritas após Fase 5 |
 
 ## Tags
 `#projeto/estado` `#projeto/ativo`
