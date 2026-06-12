@@ -15,7 +15,13 @@ import {
   deleteMaintenance,
   updateMotorcycleKm,
 } from './actions'
-import type { Maintenance } from '@gomoto/core'
+import type { Maintenance, MaintenanceStatus } from '@gomoto/core'
+import {
+  KM_POR_DIA,
+  calculateMaintenanceStatus,
+  calculateNextMaintenance,
+  getInterval,
+} from '@gomoto/core'
 
 import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'
@@ -24,14 +30,6 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Header } from '@/components/layout/Header'
 
 // ─── TIPOS ──────────────────────────────────────────────────────────────────
-
-/**
- * @type MaintenanceStatus
- * @description Define os possíveis estados de uma manutenção no ciclo de vida do sistema.
- * Por que existe: Facilita a categorização, filtragem e a estilização (cores, ícones) das manutenções na interface. Serve como base para alertas e priorização.
- * Onde é usado: Na tipagem estendida `MaintenanceWithMoto`, cálculos de status, filtros de busca e na renderização visual dos badges de status.
- */
-type MaintenanceStatus = 'overdue' | 'upcoming' | 'scheduled' | 'completed'
 
 /**
  * @type Responsibility
@@ -157,51 +155,6 @@ const TYPE_LABEL_MAP: Record<string, string> = {
 }
 
 /**
- * @constant KM_POR_DIA
- * @description Estimativa média de quilômetros rodados por uma moto de aluguel/trabalho em um dia. É calculado dividindo 1000 km por 7 dias.
- * Impacto se alterado: Afeta as previsões de data para as próximas manutenções. Se aumentar, o sistema estimará que a manutenção ocorrerá mais cedo.
- */
-const KM_POR_DIA = 1000 / 7
-
-/**
- * @constant STANDARD_INTERVALS
- * @description Dicionário com os intervalos padrões (em quilometragem ou dias) para diferentes tipos de manutenções e vistorias de rotina.
- * Impacto se alterado: Afeta toda a lógica de alerta de manutenções próximas ou vencidas, além da sugestão automática de agendamento de novas manutenções quando uma é concluída.
- */
-const STANDARD_INTERVALS: Record<string, { interval_km?: number; interval_days?: number }> = {
-  // Óleo e filtros
-  'Troca de óleo':              { interval_km: 1000 },
-  'Troca de oleo':              { interval_km: 1000 },
-  'Troca de óleo e filtro':     { interval_km: 1000 },
-  'Filtro de óleo':             { interval_km: 4000 },
-  'Filtro de ar':               { interval_km: 4000 },
-  // Velas
-  'Vela de ignição':            { interval_km: 4000 },
-  'Velas de ignição':           { interval_km: 4000 },
-  // Transmissão
-  'Kit de transmissão':         { interval_km: 8000 },
-  // Pneus
-  'Pneu traseiro':              { interval_km: 8000 },
-  'Pneu dianteiro':             { interval_km: 16000 },
-  // Freios
-  'Freio dianteiro':            { interval_km: 10000 },
-  'Freio traseiro':             { interval_km: 8000 },
-  'Pastilha de freio dianteira':{ interval_km: 10000 },
-  'Pastilha de freio traseira': { interval_km: 8000 },
-  'Lona de freio traseira':     { interval_km: 8000 },
-  'Lona de freio dianteira':    { interval_km: 10000 },
-  // Amortecedores
-  'Amortecedor':                { interval_km: 15000 },
-  'Amortecedores':              { interval_km: 15000 },
-  // Revisão geral
-  'Revisão geral':              { interval_km: 6000 },
-  // Vistorias
-  'Vistoria de entrega':        { interval_days: 180 },
-  'Vistoria periódica':         { interval_days: 180 },
-  'Vistoria mensal':            { interval_days: 30 },
-}
-
-/**
  * @constant STATUS_COLORS
  * @description Mapeamento centralizado de cores mágicas para uso consistente nos badges e textos de cada status de manutenção.
  * Impacto se alterado: Reflete em toda a página onde o status é renderizado de forma visual sem alterar as classes originais em linha.
@@ -214,35 +167,6 @@ const STATUS_COLORS = {
 }
 
 // ─── HELPERS DE CÁLCULO ─────────────────────────────────────────────────────
-
-/**
- * @function normalize
- * @description Remove acentos e caracteres especiais, além de converter toda a string para letras minúsculas.
- * @param {string} s - String de entrada (ex: "Troca de óleo").
- * @returns {string} String normalizada e limpa (ex: "troca de oleo").
- * @example normalize('Atenção') // retorna 'atencao'
- */
-function normalize(s: string): string {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
-}
-
-/**
- * @function getInterval
- * @description Realiza uma busca tolerante a falhas no dicionário de intervalos. Ela verifica primeiro por match exato, depois ignorando maiúsculas e por último ignorando acentos/espaços em branco.
- * @param {string} description - Descrição da manutenção (ex: "troca de OLEO").
- * @returns {{ interval_km?: number; interval_days?: number } | undefined} Objeto contendo a quilometragem ou dias de intervalo, ou `undefined` se não encontrado.
- * @example getInterval('Troca de oleo') // retorna { interval_km: 1000 }
- */
-function getInterval(description: string) {
-  if (STANDARD_INTERVALS[description]) return STANDARD_INTERVALS[description]
-  const lower = description.toLowerCase()
-  const normalizedDesc = normalize(description)
-  for (const key of Object.keys(STANDARD_INTERVALS)) {
-    if (key.toLowerCase() === lower) return STANDARD_INTERVALS[key]
-    if (normalize(key) === normalizedDesc) return STANDARD_INTERVALS[key]
-  }
-  return undefined
-}
 
 /**
  * @function fmtKm
@@ -282,44 +206,18 @@ function diffDias(m: MaintenanceWithMoto): number | null {
 }
 
 /**
- * @function calcularStatus
- * @description Determina o status lógico de uma manutenção combinando as regras de distância em KM e/ou prazo em dias, além do status de finalização.
- * A função aplica um "limiar" (threshold) de 10% de antecedência para classificar uma manutenção como "Próxima" (`upcoming`), e a marca como `overdue` se ultrapassar as marcas.
- * @param {MaintenanceWithMoto} m - Objeto de manutenção com os dados da motocicleta.
- * @returns {MaintenanceStatus} O status correspondente (vencida, próxima, agendada, concluída).
- * @example calcularStatus(maintenanceObject) // retorna 'upcoming'
+ * Adapter local: `MaintenanceWithMoto` carrega a moto joinada do select do Supabase;
+ * o `calculateMaintenanceStatus` do core espera apenas `current_km` plano. Esta função
+ * só faz o mapeamento — toda regra de threshold e classificação mora em @gomoto/core.
  */
 function calcularStatus(m: MaintenanceWithMoto): MaintenanceStatus {
-  // Se a manutenção já foi concluída, não precisa de cálculos adicionais.
-  if (m.completed) return 'completed'
-  const kmCurrent = m.motorcycle?.km_current ?? 0
-
-  // Tratamento para manutenções controladas por odômetro (quilometragem)
-  if (m.predicted_km !== null && m.predicted_km !== undefined) {
-    if (kmCurrent >= m.predicted_km) return 'overdue'
-    const interval = getInterval(m.description)
-    // 10% do intervalo padrão ou 100km se não encontrar intervalo
-    const threshold = interval?.interval_km ? Math.round(interval.interval_km * 0.10) : 100
-    if (kmCurrent >= m.predicted_km - threshold) return 'upcoming'
-    return 'scheduled'
-  }
-
-  // Tratamento para manutenções baseadas no tempo (datas)
-  if (m.scheduled_date) {
-    const today = new Date()
-    const due = new Date(m.scheduled_date + 'T12:00:00')
-    if (today >= due) return 'overdue'
-    const interval = getInterval(m.description)
-    // 10% dos dias do intervalo padrão ou 18 dias como tolerância padrão
-    const thresholdDays = interval?.interval_days ? Math.round(interval.interval_days * 0.10) : 18
-    const thresholdDate = new Date(due)
-    thresholdDate.setDate(thresholdDate.getDate() - thresholdDays)
-    if (today >= thresholdDate) return 'upcoming'
-    return 'scheduled'
-  }
-
-  // Fallback seguro caso não haja data nem quilometragem (ex: adicionada sem previsão)
-  return 'scheduled'
+  return calculateMaintenanceStatus({
+    completed: m.completed,
+    description: m.description,
+    predicted_km: m.predicted_km,
+    scheduled_date: m.scheduled_date,
+    current_km: m.motorcycle?.km_current ?? 0,
+  })
 }
 
 // ─── COMPONENTES AUXILIARES ─────────────────────────────────────────────────
@@ -854,19 +752,18 @@ export default function MaintenancePage() {
       ]
 
       for (const item of itemsToSchedule) {
-        const interval = getInterval(item.description)
-        if (!interval) continue
+        const projection = calculateNextMaintenance({
+          description: item.description,
+          completionKm: actualKm,
+          completionDate,
+        })
+        if (!projection) continue
         const next: Record<string, unknown> = {
           motorcycle_id: item.motorcycle_id,
           type: item.type,
           description: item.description,
           completed: false,
-        }
-        if (interval.interval_km) next.predicted_km = actualKm + interval.interval_km
-        if (interval.interval_days) {
-          const d = new Date(completionDate)
-          d.setDate(d.getDate() + interval.interval_days)
-          next.scheduled_date = d.toISOString().split('T')[0]
+          ...projection,
         }
         const res = await createMaintenance(next)
         if (res.error) { alert(`Erro ao agendar próxima manutenção: ${res.error}`); return }
