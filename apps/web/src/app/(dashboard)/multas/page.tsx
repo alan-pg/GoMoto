@@ -36,7 +36,7 @@
 
 // ─── IMPORTAÇÕES ──────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 
 // Ícones do Lucide — cada um tem função específica na UI:
 import {
@@ -52,10 +52,13 @@ import {
   FileText,      // Ícone no KPI card de total e no estado vazio
   CheckCircle2,  // Ícone no KPI card de pagas no mês
 } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+
+// Camada de dados compartilhada (@gomoto/data) + Server Actions (façade de auditoria)
+import { useFines, useCustomers, useMotorcycles, useActiveContracts } from '@gomoto/data'
+import { createFine, updateFine, markFineAsPaid, deleteFine } from './actions'
 
 // Infraestrutura do projeto
-import { createClient } from '@/lib/supabase/client'  // Cliente Supabase para chamadas ao banco
-import { useRequiredTenantId } from '@gomoto/data'
 import { Header }        from '@/components/layout/Header'  // Header padrão com título, subtítulo e ações
 import { Button }        from '@/components/ui/Button'       // Botão do design system
 import { Input, Select, Textarea } from '@/components/ui/Input'  // Campos de formulário
@@ -187,14 +190,6 @@ const DEFAULT_FORM = {
   observations:    '',          // Campo livre para anotações
 }
 
-// ─── CLIENTE SUPABASE ─────────────────────────────────────────────────────────
-
-/**
- * Instância singleton do cliente Supabase para o browser.
- * Criada fora do componente para evitar recriar a conexão a cada render.
- */
-const supabase = createClient()
-
 // ─── SUB-COMPONENTES ──────────────────────────────────────────────────────────
 
 /**
@@ -289,37 +284,73 @@ function calcFineStatus(fine: FineWithRelations): FineStatus {
  * para gerenciar estado local e interações do usuário.
  */
 export default function MultasPage() {
-  const getTenantId = useRequiredTenantId()
+  const queryClient = useQueryClient()
 
-  // ── ESTADOS: Dados vindos do banco ──────────────────────────────────────────
+  // ── DADOS: hooks compartilhados de @gomoto/data ─────────────────────────────
+  const finesQuery = useFines()
+  const customersQuery = useCustomers()
+  const motorcyclesQuery = useMotorcycles()
+  const activeContractsQuery = useActiveContracts()
 
   /** Lista completa de multas com joins (customers + motorcycles) */
-  const [fines, setFines] = useState<FineWithRelations[]>([])
+  const fines = useMemo<FineWithRelations[]>(
+    () => (finesQuery.data ?? []) as unknown as FineWithRelations[],
+    [finesQuery.data],
+  )
 
   /** Clientes ativos disponíveis para seleção no formulário */
-  const [customers, setCustomers] = useState<{ id: string; name: string }[]>([])
+  const customers = useMemo(
+    () =>
+      (customersQuery.data ?? [])
+        .filter((c) => c.active)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((c) => ({ id: c.id, name: c.name })),
+    [customersQuery.data],
+  )
 
   /** Motos disponíveis para seleção no formulário */
-  const [motorcycles, setMotorcycles] = useState<{
-    id: string; license_plate: string; model: string; make: string
-  }[]>([])
+  const motorcycles = useMemo(
+    () =>
+      (motorcyclesQuery.data ?? [])
+        .map((m) => ({ id: m.id, license_plate: m.license_plate, model: m.model, make: m.make }))
+        .sort((a, b) => a.license_plate.localeCompare(b.license_plate)),
+    [motorcyclesQuery.data],
+  )
 
   /**
    * Contratos ativos: usados para auto-vincular cliente ↔ moto no formulário.
    * Ao selecionar um cliente, buscamos o contrato ativo e preenchemos a moto, e vice-versa.
    */
-  const [contracts, setContracts] = useState<{ customer_id: string; motorcycle_id: string }[]>([])
+  const contracts = useMemo(
+    () =>
+      (activeContractsQuery.data ?? []).map((c) => ({
+        customer_id: c.customer_id,
+        motorcycle_id: c.motorcycle_id,
+      })),
+    [activeContractsQuery.data],
+  )
 
   // ── ESTADOS: Controle de UI ─────────────────────────────────────────────────
 
   /** Indica se está carregando dados do banco (exibe spinner) */
-  const [loading, setLoading] = useState(true)
+  const loading =
+    finesQuery.isLoading ||
+    customersQuery.isLoading ||
+    motorcyclesQuery.isLoading ||
+    activeContractsQuery.isLoading
 
   /** Mensagem de erro global — exibida no topo da página se não nula */
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(
+    finesQuery.error instanceof Error
+      ? 'Não foi possível carregar os dados. Tente novamente.'
+      : null,
+  )
 
   /** Indica se uma operação de escrita (save/delete) está em andamento */
   const [saving, setSaving] = useState(false)
+
+  /** Invalida o cache de fines após mutação bem-sucedida. */
+  const invalidateFines = () => queryClient.invalidateQueries({ queryKey: ['fines'] })
 
   /** Controla a visibilidade do modal de criar/editar multa */
   const [modalOpen, setModalOpen] = useState(false)
@@ -370,55 +401,6 @@ export default function MultasPage() {
    * Por padrão o histórico fica oculto — aparece apenas quando o usuário clica.
    */
   const [historyGroups, setHistoryGroups] = useState<Set<string>>(new Set())
-
-  // ─── BUSCA DE DADOS ────────────────────────────────────────────────────────
-
-  /**
-   * fetchAllData — Busca em paralelo todos os dados necessários para a página.
-   *
-   * Usa Promise.all para executar as 4 queries simultaneamente, reduzindo
-   * o tempo de carregamento total (soma dos tempos → máximo dos tempos).
-   *
-   * Queries executadas:
-   *   1. fines → todas as multas com joins de customers e motorcycles
-   *   2. customers → clientes ativos ordenados por nome
-   *   3. motorcycles → motos ordenadas por placa
-   *   4. contracts → apenas contratos ativos (para auto-vincular cliente ↔ moto)
-   */
-  const fetchAllData = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const [finesRes, customersRes, motosRes, contractsRes] = await Promise.all([
-        supabase
-          .from('fines')
-          .select('*, customers(name, phone), motorcycles(license_plate, model, make)')
-          .order('infraction_date', { ascending: false }),  // mais recentes primeiro
-        supabase.from('customers').select('id, name').eq('active', true).order('name'),
-        supabase.from('motorcycles').select('id, license_plate, model, make').order('license_plate'),
-        supabase.from('contracts').select('customer_id, motorcycle_id').eq('status', 'active'),
-      ])
-
-      // Propaga o primeiro erro encontrado (fail-fast)
-      if (finesRes.error)     throw finesRes.error
-      if (customersRes.error) throw customersRes.error
-      if (motosRes.error)     throw motosRes.error
-      if (contractsRes.error) throw contractsRes.error
-
-      setFines(finesRes.data as FineWithRelations[])
-      setCustomers(customersRes.data ?? [])
-      setMotorcycles(motosRes.data ?? [])
-      setContracts(contractsRes.data ?? [])
-    } catch {
-      setError('Não foi possível carregar os dados. Tente novamente.')
-    } finally {
-      // Sempre desativa o loading, mesmo em caso de erro
-      setLoading(false)
-    }
-  }
-
-  // Executa a busca apenas uma vez ao montar o componente
-  useEffect(() => { fetchAllData() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── HANDLERS DE ACCORDION ─────────────────────────────────────────────────
 
@@ -516,22 +498,17 @@ export default function MultasPage() {
     }
 
     try {
-      if (editingId) {
-        // Modo edição: atualiza apenas a linha com o ID correspondente
-        const { error: updateError } = await supabase
-          .from('fines').update(payload).eq('id', editingId)
-        if (updateError) throw updateError
-      } else {
-        // Modo criação: toda multa nova começa como 'pending'
-        const { error: insertError } = await supabase
-          .from('fines').insert({ ...payload, status: 'pending', tenant_id: getTenantId() })
-        if (insertError) throw insertError
+      const result = editingId
+        ? await updateFine(editingId, payload)
+        : await createFine(payload)
+
+      if ('error' in result) {
+        setError('Erro ao salvar. Verifique os dados e tente novamente.')
+        return
       }
 
       handleCloseModal()
-      await fetchAllData()  // Recarrega para refletir as mudanças
-    } catch {
-      setError('Erro ao salvar. Verifique os dados e tente novamente.')
+      await invalidateFines()
     } finally {
       setSaving(false)
     }
@@ -554,17 +531,14 @@ export default function MultasPage() {
     if (!payingFine) return
     setSaving(true)
     try {
-      const { error: payError } = await supabase
-        .from('fines')
-        .update({ status: 'paid', payment_date: paymentDateInput })
-        .eq('id', payingFine.id)
-      if (payError) throw payError
-
-      // Limpa o estado do modal de pagamento
+      const result = await markFineAsPaid(payingFine.id, paymentDateInput)
+      if ('error' in result) {
+        setError('Erro ao registrar pagamento.')
+        return
+      }
       setPayingFine(null)
       setPaymentDateInput('')
-      await fetchAllData()
-    } catch {
+      await invalidateFines()
     } finally {
       setSaving(false)
     }
@@ -578,13 +552,13 @@ export default function MultasPage() {
     if (!deleting) return
     setSaving(true)
     try {
-      const { error: deleteError } = await supabase
-        .from('fines').delete().eq('id', deleting.id)
-      if (deleteError) throw deleteError
-
+      const result = await deleteFine(deleting.id)
+      if ('error' in result) {
+        setError('Erro ao excluir a multa.')
+        return
+      }
       setDeleting(null)
-      await fetchAllData()
-    } catch {
+      await invalidateFines()
     } finally {
       setSaving(false)
     }
