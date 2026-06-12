@@ -27,6 +27,10 @@ import { useState, useCallback, useMemo } from 'react'
 import { useQueueEntries, useMotorcycles, useSupabaseContext } from '@gomoto/data'
 import { useQueryClient } from '@tanstack/react-query'
 
+// Regra canônica de vigência mínima — única fonte para "rental = +3 meses, loyalty = +2 anos".
+// O shim local `calcEndDate` só adapta o `Date` retornado para a string ISO que os <Input type="date"> exigem.
+import { calculateMinimumEndDate } from '@gomoto/core'
+
 // Server Actions para todas as mutações: garantem auditoria (logAction) server-side
 import {
   addCustomerToQueue,
@@ -227,17 +231,14 @@ const MOVE_DOWN_REASONS = [
 // =============================================================================
 
 /**
- * @function calcEndDate
- * @description Calcula a data de término de um contrato com base no tipo.
- * `rental` adiciona 3 meses, `loyalty` adiciona 2 anos. Mantida no client
- * porque o modal preenche o campo no momento em que o usuário muda o tipo.
+ * Adapter: o modal precisa preencher um <Input type="date"> em ISO `YYYY-MM-DD`
+ * conforme o operador troca o tipo de contrato. A regra real de "rental = +3 meses,
+ * loyalty = +2 anos" mora em `calculateMinimumEndDate` (@gomoto/core); aqui só
+ * tratamos o caso de start vazio e serializamos o Date.
  */
 function calcEndDate(startDate: string, type: 'rental' | 'loyalty'): string {
   if (!startDate) return ''
-  const d = new Date(startDate + 'T00:00:00')
-  if (type === 'loyalty') d.setFullYear(d.getFullYear() + 2)
-  else d.setMonth(d.getMonth() + 3)
-  return d.toISOString().split('T')[0]
+  return calculateMinimumEndDate(startDate, type).toISOString().split('T')[0]
 }
 
 // =============================================================================

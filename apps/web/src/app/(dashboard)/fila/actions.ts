@@ -2,7 +2,13 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { CustomerSchema } from '@gomoto/core'
+import {
+  CustomerSchema,
+  QUEUE_REORDER_UP_NOTE,
+  getMoveDownNote,
+  getMoveDownReasonNote,
+  getMoveUpNote,
+} from '@gomoto/core'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { z } from 'zod'
@@ -74,15 +80,6 @@ function revalidateContractPaths() {
   revalidatePath('/contratos')
   revalidatePath('/motos')
   revalidatePath('/entradas')
-}
-
-function getMoveDownNote(reason: string) {
-  const mappedReasons: Record<string, string> = {
-    'Possui caução e documentos completos': 'Desceu na fila: Outro candidato possui caução e documentos completos',
-    'Aguardando há mais tempo na fila': 'Desceu na fila: Outro candidato aguardava há mais tempo',
-  }
-
-  return mappedReasons[reason] ?? 'Desceu na fila: Reordenação da fila'
 }
 
 async function normalizeQueuePositions(supabase: Awaited<ReturnType<typeof createClient>>) {
@@ -275,7 +272,7 @@ export async function updateQueueEntryPosition(entryId: string, rawData: unknown
       .from('queue_entries')
       .update({
         position: currentEntry.position - 1,
-        notes: `Subiu na fila: ${parsed.data.reason}`,
+        notes: getMoveUpNote(parsed.data.reason),
       })
       .eq('id', currentEntry.id)
       .select()
@@ -290,7 +287,7 @@ export async function updateQueueEntryPosition(entryId: string, rawData: unknown
       .from('queue_entries')
       .update({
         position: currentEntry.position,
-        notes: 'Subiu na fila: Reordenação da fila',
+        notes: QUEUE_REORDER_UP_NOTE,
       })
       .eq('id', otherEntry.id)
       .select()
@@ -302,7 +299,7 @@ export async function updateQueueEntryPosition(entryId: string, rawData: unknown
       .from('queue_entries')
       .update({
         position: currentEntry.position + 1,
-        notes: `Desceu na fila: ${parsed.data.reason}`,
+        notes: getMoveDownReasonNote(parsed.data.reason),
       })
       .eq('id', currentEntry.id)
       .select()
