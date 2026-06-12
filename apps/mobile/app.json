@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "GoMoto Mobile",
+    "slug": "gomoto-mobile",
+    "version": "0.1.0",
+    "scheme": "gomoto",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.gomoto.mobile"
+    },
+    "android": {
+      "package": "com.gomoto.mobile"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
