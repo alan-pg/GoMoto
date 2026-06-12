@@ -191,6 +191,82 @@ function expectedEndDate(contract: ContractRow): string {
   return fmt(end.toISOString().split('T')[0])
 }
 
+/**
+ * Gera o blob `.docx` preenchido a partir do template no Storage e dos dados do contrato.
+ * Extraída para ser reutilizada tanto pelo download direto quanto pelo fluxo "imprimir PDF"
+ * (que renderiza o mesmo blob via docx-preview antes de abrir o print dialog). Mantém o
+ * fix de tags `{{...}}` quebradas em runs XML que o Word costuma introduzir.
+ */
+async function buildContractDocxBlob(
+  templateUrl: string,
+  contract: ContractRow,
+): Promise<Blob> {
+  const res = await fetch(templateUrl)
+  if (!res.ok) throw new Error(`Falha ao buscar template: ${res.status} ${res.statusText}`)
+  const arrayBuffer = await res.arrayBuffer()
+  const PizZip = (await import('pizzip')).default
+  const Docxtemplater = (await import('docxtemplater')).default
+  const zip = new PizZip(arrayBuffer)
+
+  const xmlFiles = Object.keys(zip.files).filter(
+    n => /^word\/(document|header\d*|footer\d*)\.xml$/.test(n),
+  )
+  for (const fname of xmlFiles) {
+    let xml = (zip.files[fname] as { asText: () => string }).asText()
+    let prev = ''
+    while (prev !== xml) {
+      prev = xml
+      const boundary = '(<\\/w:t><\\/w:r>(?:<w:bookmarkStart[^>]*\\/>)*(?:<w:bookmarkEnd[^>]*\\/>)*<w:r>(?:<w:rPr>[\\s\\S]*?<\\/w:rPr>)?<w:t(?:[^>]*)>)'
+      xml = xml.replace(new RegExp(`\\{${boundary}\\{`, 'g'), '{{$1')
+      xml = xml.replace(new RegExp(`\\}${boundary}\\}`, 'g'), '}}$1')
+    }
+    zip.file(fname, xml)
+  }
+
+  const doc = new Docxtemplater(zip, {
+    paragraphLoop: true,
+    linebreaks: true,
+    nullGetter: () => '',
+    delimiters: { start: '{{', end: '}}' },
+  })
+  const c = contract.customer
+  const m = contract.motorcycle
+  const ano_fabricacao = m?.year_manufacture?.trim() ?? ''
+  const ano_modelo = m?.year_model?.trim() ?? ano_fabricacao
+  const rg_cliente = [c?.rg, c?.state ? `DETRAN ${c.state}` : ''].filter(Boolean).join(' ')
+  doc.render({
+    data_hoje: new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' }),
+    data_inicio: fmtLong(contract.start_date),
+    nome_cliente: c?.name ?? '',
+    cpf_cliente: c?.cpf ?? '',
+    rg_cliente,
+    cnh_cliente: c?.drivers_license ?? '',
+    categoria_cnh: c?.drivers_license_category ?? '',
+    endereco_cliente: c?.address ?? '',
+    cep_cliente: c?.zip_code ?? '',
+    placa_moto: m?.license_plate ?? '',
+    marca_moto: m?.make ?? '',
+    modelo_moto: m ? `${m.make} ${m.model}` : '',
+    ano_fabricacao_moto: ano_fabricacao,
+    ano_modelo_moto: ano_modelo,
+    ano_fab_mod_moto: ano_modelo ? `${ano_fabricacao}/${ano_modelo}` : ano_fabricacao,
+    renavam_moto: m?.renavam ?? '',
+    chassi_moto: m?.chassis ?? '',
+    cor_moto: m?.color ?? '',
+    combustivel_moto: m?.fuel ?? '',
+    km_inicial: String(m?.km_current ?? ''),
+    valor_semanal: (() => {
+      const v = contract.monthly_amount ?? 0
+      const num = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2 }).format(v)
+      return `${num} (${numberToWords(v)})`
+    })(),
+  })
+  return doc.getZip().generate({
+    type: 'blob',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Componente
 // ---------------------------------------------------------------------------
@@ -339,68 +415,7 @@ export default function ContratosPage() {
     if (!template?.file_url) { showToast('error', 'Configure um modelo .docx primeiro'); return }
     setDownloading(contract.id + templateSlug)
     try {
-      const res = await fetch(template.file_url)
-      if (!res.ok) throw new Error(`Falha ao buscar template: ${res.status} ${res.statusText}`)
-      const arrayBuffer = await res.arrayBuffer()
-      const PizZip = (await import('pizzip')).default
-      const Docxtemplater = (await import('docxtemplater')).default
-      const zip = new PizZip(arrayBuffer)
-
-      // Word splits {{tag}} across multiple XML runs — fix before docxtemplater processes
-      const xmlFiles = Object.keys(zip.files).filter(
-        n => /^word\/(document|header\d*|footer\d*)\.xml$/.test(n)
-      )
-      for (const fname of xmlFiles) {
-        let xml = (zip.files[fname] as { asText: () => string }).asText()
-        let prev = ''
-        while (prev !== xml) {
-          prev = xml
-          const boundary = '(<\\/w:t><\\/w:r>(?:<w:bookmarkStart[^>]*\\/>)*(?:<w:bookmarkEnd[^>]*\\/>)*<w:r>(?:<w:rPr>[\\s\\S]*?<\\/w:rPr>)?<w:t(?:[^>]*)>)'
-          xml = xml.replace(new RegExp(`\\{${boundary}\\{`, 'g'), '{{$1')
-          xml = xml.replace(new RegExp(`\\}${boundary}\\}`, 'g'), '}}$1')
-        }
-        zip.file(fname, xml)
-      }
-
-      const doc = new Docxtemplater(zip, {
-        paragraphLoop: true,
-        linebreaks: true,
-        nullGetter: () => '',
-        delimiters: { start: '{{', end: '}}' },
-      })
-      const c = contract.customer
-      const m = contract.motorcycle
-      const ano_fabricacao = m?.year_manufacture?.trim() ?? ''
-      const ano_modelo = m?.year_model?.trim() ?? ano_fabricacao
-      const rg_cliente = [c?.rg, c?.state ? `DETRAN ${c.state}` : ''].filter(Boolean).join(' ')
-      doc.render({
-        data_hoje: new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' }),
-        data_inicio: fmtLong(contract.start_date),
-        nome_cliente: c?.name ?? '',
-        cpf_cliente: c?.cpf ?? '',
-        rg_cliente,
-        cnh_cliente: c?.drivers_license ?? '',
-        categoria_cnh: c?.drivers_license_category ?? '',
-        endereco_cliente: c?.address ?? '',
-        cep_cliente: c?.zip_code ?? '',
-        placa_moto: m?.license_plate ?? '',
-        marca_moto: m?.make ?? '',
-        modelo_moto: m ? `${m.make} ${m.model}` : '',
-        ano_fabricacao_moto: ano_fabricacao,
-        ano_modelo_moto: ano_modelo,
-        ano_fab_mod_moto: ano_modelo ? `${ano_fabricacao}/${ano_modelo}` : ano_fabricacao,
-        renavam_moto: m?.renavam ?? '',
-        chassi_moto: m?.chassis ?? '',
-        cor_moto: m?.color ?? '',
-        combustivel_moto: m?.fuel ?? '',
-        km_inicial: String(m?.km_current ?? ''),
-        valor_semanal: (() => {
-          const v = contract.monthly_amount ?? 0
-          const num = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2 }).format(v)
-          return `${num} (${numberToWords(v)})`
-        })(),
-      })
-      const blob = doc.getZip().generate({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+      const blob = await buildContractDocxBlob(template.file_url, contract)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -411,6 +426,63 @@ export default function ContratosPage() {
       console.error('[download contrato]', err)
       const msg = err instanceof Error ? err.message : String(err)
       showToast('error', msg.slice(0, 80) || 'Erro ao gerar contrato preenchido')
+    }
+    finally { setDownloading(null) }
+  }, [templates, showToast])
+
+  /**
+   * Gera o mesmo DOCX preenchido e abre o print dialog do browser sobre uma
+   * pré-visualização renderizada via docx-preview num iframe oculto. O usuário
+   * escolhe "Salvar como PDF" no destino do print para obter o arquivo final.
+   * Evita libs de conversão DOCX→PDF (jspdf/html2canvas têm problemas de page break);
+   * o motor de impressão do browser respeita @page e margens nativamente.
+   */
+  const handleGeneratePdf = useCallback(async (contract: ContractRow, templateSlug: string) => {
+    const template = templates.find(t => t.slug === templateSlug)
+    if (!template?.file_url) { showToast('error', 'Configure um modelo .docx primeiro'); return }
+    const loadingKey = contract.id + templateSlug + ':pdf'
+    setDownloading(loadingKey)
+    try {
+      const blob = await buildContractDocxBlob(template.file_url, contract)
+      const { renderAsync } = await import('docx-preview')
+
+      const iframe = document.createElement('iframe')
+      iframe.style.position = 'fixed'
+      iframe.style.right = '0'
+      iframe.style.bottom = '0'
+      iframe.style.width = '0'
+      iframe.style.height = '0'
+      iframe.style.border = '0'
+      document.body.appendChild(iframe)
+
+      const iframeDoc = iframe.contentDocument
+      if (!iframeDoc) throw new Error('Falha ao preparar área de impressão')
+      iframeDoc.open()
+      iframeDoc.write('<!DOCTYPE html><html><head><title>Contrato</title></head><body><div id="docx-container"></div></body></html>')
+      iframeDoc.close()
+
+      const container = iframeDoc.getElementById('docx-container')
+      if (!container) throw new Error('Container de impressão não encontrado')
+      await renderAsync(blob, container, undefined, {
+        className: 'docx',
+        inWrapper: false,
+      })
+
+      await new Promise(r => setTimeout(r, 200))
+
+      const win = iframe.contentWindow
+      if (!win) throw new Error('Janela de impressão não encontrada')
+      const cleanup = () => {
+        try { document.body.removeChild(iframe) } catch { /* já removido */ }
+      }
+      win.addEventListener('afterprint', cleanup, { once: true })
+      setTimeout(cleanup, 60_000)
+      win.focus()
+      win.print()
+    } catch (err) {
+      console.error('[gerar PDF contrato]', err)
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast('error', msg.slice(0, 80) || 'Erro ao gerar PDF')
     }
     finally { setDownloading(null) }
   }, [templates, showToast])
@@ -713,17 +785,28 @@ export default function ContratosPage() {
               {configuredTemplates.length > 0 ? (
                 <div className="flex gap-2 flex-wrap">
                   {configuredTemplates.map(tpl => (
-                    <Button
-                      key={tpl.slug}
-                      variant="secondary"
-                      size="sm"
-                      className="gap-1.5"
-                      loading={downloading === selectedContract.id + tpl.slug}
-                      onClick={() => handleDownloadFilled(selectedContract, tpl.slug)}
-                    >
-                      <FileDown className="w-4 h-4" />
-                      Gerar {tpl.name}
-                    </Button>
+                    <div key={tpl.slug} className="flex gap-1.5">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="gap-1.5"
+                        loading={downloading === selectedContract.id + tpl.slug}
+                        onClick={() => handleDownloadFilled(selectedContract, tpl.slug)}
+                      >
+                        <FileDown className="w-4 h-4" />
+                        Gerar {tpl.name}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="gap-1.5"
+                        loading={downloading === selectedContract.id + tpl.slug + ':pdf'}
+                        onClick={() => handleGeneratePdf(selectedContract, tpl.slug)}
+                      >
+                        <FileText className="w-4 h-4" />
+                        PDF
+                      </Button>
+                    </div>
                   ))}
                 </div>
               ) : (
