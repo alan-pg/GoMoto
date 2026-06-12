@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { ExpenseSchema } from '@gomoto/core'
 import { logAction } from '@/lib/audit'
+import { getCurrentTenantId } from '@/lib/auth/tenant'
 
 async function getAuthenticatedUser() {
   const supabase = await createClient()
@@ -15,12 +16,15 @@ export async function createExpense(rawData: unknown) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
 
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { error: 'Tenant não resolvido para o usuário' }
+
   const parsed = ExpenseSchema.safeParse(rawData)
   if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
 
   const { data, error } = await supabase
     .from('expenses')
-    .insert(parsed.data)
+    .insert({ ...parsed.data, tenant_id: tenantId })
     .select()
     .single()
 

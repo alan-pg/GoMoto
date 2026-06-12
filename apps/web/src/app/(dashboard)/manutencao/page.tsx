@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
+import { useRequiredTenantId } from '@gomoto/data'
 import { uploadMaintenancePhoto } from './actions'
 import type { Maintenance } from '@gomoto/core'
 
@@ -394,6 +395,7 @@ function SituacaoCell({ m }: { m: MaintenanceWithMoto }) {
  * @returns {JSX.Element} A interface principal de manutenções compilada com seus modais auxiliares.
  */
 export default function MaintenancePage() {
+  const getTenantId = useRequiredTenantId()
 
   // ── ESTADOS: Dados ────────────────────────────────────────────────────────
   
@@ -753,7 +755,7 @@ export default function MaintenancePage() {
         const { error } = await supabase.from('maintenances').update(payload).eq('id', editingMaintenance.id)
         if (error) { alert(`Erro ao atualizar: ${error.message}`); return }
       } else {
-        const { error } = await supabase.from('maintenances').insert([payload])
+        const { error } = await supabase.from('maintenances').insert([{ ...payload, tenant_id: getTenantId() }])
         if (error) { alert(`Erro ao salvar: ${error.message}`); return }
       }
       closeFormModal()
@@ -907,7 +909,7 @@ export default function MaintenancePage() {
           d.setDate(d.getDate() + interval.interval_days)
           next.scheduled_date = d.toISOString().split('T')[0]
         }
-        await supabase.from('maintenances').insert([next])
+        await supabase.from('maintenances').insert([{ ...next, tenant_id: getTenantId() }])
       }
 
       // Auto-corretor do Hodômetro da base das motocicletas baseado no que informaram. Nunca aceita medição que "diminui a KM", pois não faz sentido lógico e seria erro de form.

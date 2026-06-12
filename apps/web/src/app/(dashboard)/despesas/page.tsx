@@ -57,6 +57,7 @@ import {
 
 // Infraestrutura do projeto
 import { createClient }              from '@/lib/supabase/client'           // Cliente Supabase browser
+import { useRequiredTenantId }       from '@gomoto/data'
 import { Header }                    from '@/components/layout/Header'       // Header padrão do sistema
 import { Button }                    from '@/components/ui/Button'           // Botão do design system
 import { Input, Select, Textarea }   from '@/components/ui/Input'            // Campos de formulário
@@ -208,6 +209,7 @@ function KpiCard({ icon: Icon, label, value, sub }: { icon: React.ElementType, l
  *   expenses → [mês + busca] → filteredExpenses → [categoria] → groupedExpenses
  */
 export default function ExpensesPage() {
+  const getTenantId = useRequiredTenantId()
 
   // ── ESTADOS: Dados vindos do banco ──────────────────────────────────────────
 
@@ -488,7 +490,7 @@ export default function ExpensesPage() {
       await supabase.from('expenses').update(payload).eq('id', editing.id)
     } else {
       // Modo criação: insere nova linha na tabela expenses
-      await supabase.from('expenses').insert(payload)
+      await supabase.from('expenses').insert({ ...payload, tenant_id: getTenantId() })
     }
 
     setSaving(false)

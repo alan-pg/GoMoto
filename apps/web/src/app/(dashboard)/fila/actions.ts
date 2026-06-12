@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { CustomerSchema } from '@gomoto/core'
 import { logAction } from '@/lib/audit'
+import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { z } from 'zod'
 
 async function getAuthenticatedUser() {
@@ -113,6 +114,9 @@ export async function addCustomerToQueue(rawData: unknown) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
 
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { error: 'Tenant não resolvido para o usuário' }
+
   const parsed = AddCustomerToQueueSchema.safeParse(rawData)
   if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
 
@@ -123,6 +127,7 @@ export async function addCustomerToQueue(rawData: unknown) {
     observations: customerData.observations ?? queue_notes ?? null,
     in_queue: true,
     active: true,
+    tenant_id: tenantId,
   }
 
   const { data: lastEntry } = await supabase
@@ -148,6 +153,7 @@ export async function addCustomerToQueue(rawData: unknown) {
       customer_id: customer.id,
       position: nextPosition,
       notes: queue_notes ?? customerData.observations ?? null,
+      tenant_id: tenantId,
     })
     .select()
     .single()
@@ -370,6 +376,9 @@ export async function closeQueueContract(entryId: string, rawData: unknown) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
 
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { error: 'Tenant não resolvido para o usuário' }
+
   const parsedId = QueueIdSchema.safeParse(entryId)
   if (!parsedId.success) return { error: 'Identificador inválido' }
 
@@ -414,6 +423,7 @@ export async function closeQueueContract(entryId: string, rawData: unknown) {
       monthly_amount: parsed.data.weekly_amount,
       status: 'active',
       observations: observationParts.join(' | '),
+      tenant_id: tenantId,
     })
     .select()
     .single()
@@ -446,6 +456,7 @@ export async function closeQueueContract(entryId: string, rawData: unknown) {
         amount: parsed.data.deposit_amount,
         reference: 'Caucao',
         payment_method: parsed.data.deposit_payment_method ?? 'PIX',
+        tenant_id: tenantId,
       })
       .select()
       .single()

@@ -55,6 +55,7 @@ import {
 
 // Infraestrutura do projeto
 import { createClient } from '@/lib/supabase/client'  // Cliente Supabase para chamadas ao banco
+import { useRequiredTenantId } from '@gomoto/data'
 import { Header }        from '@/components/layout/Header'  // Header padrão com título, subtítulo e ações
 import { Button }        from '@/components/ui/Button'       // Botão do design system
 import { Input, Select, Textarea } from '@/components/ui/Input'  // Campos de formulário
@@ -288,6 +289,7 @@ function calcFineStatus(fine: FineWithRelations): FineStatus {
  * para gerenciar estado local e interações do usuário.
  */
 export default function MultasPage() {
+  const getTenantId = useRequiredTenantId()
 
   // ── ESTADOS: Dados vindos do banco ──────────────────────────────────────────
 
@@ -522,7 +524,7 @@ export default function MultasPage() {
       } else {
         // Modo criação: toda multa nova começa como 'pending'
         const { error: insertError } = await supabase
-          .from('fines').insert({ ...payload, status: 'pending' })
+          .from('fines').insert({ ...payload, status: 'pending', tenant_id: getTenantId() })
         if (insertError) throw insertError
       }
 

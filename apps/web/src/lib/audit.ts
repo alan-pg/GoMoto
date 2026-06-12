@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentTenantId } from '@/lib/auth/tenant'
 
 interface AuditParams {
   action: 'create' | 'update' | 'delete'
@@ -14,7 +15,11 @@ export async function logAction(params: AuditParams): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
+    const tenantId = await getCurrentTenantId(supabase)
+    if (!tenantId) return
+
     await supabase.from('audit_logs').insert({
+      tenant_id: tenantId,
       user_id: user.id,
       action: params.action,
       table_name: params.table,

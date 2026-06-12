@@ -8,6 +8,7 @@ import {
   Building2, UserRound, Clock, CalendarDays,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useRequiredTenantId } from '@gomoto/data'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'
 import { Header } from '@/components/layout/Header'
@@ -190,6 +191,7 @@ const supabase = createClient()
 // ---------------------------------------------------------------------------
 
 export default function ContratosPage() {
+  const getTenantId = useRequiredTenantId()
   const [contracts, setContracts] = useState<ContractRow[]>([])
   const [templates, setTemplates] = useState<ContractTemplate[]>(DEFAULT_TEMPLATES)
   const [loading, setLoading] = useState(true)
@@ -428,6 +430,7 @@ export default function ContratosPage() {
         due_date: today,
         status: 'pending',
         responsible: 'customer',
+        tenant_id: getTenantId(),
       })
       await supabase.from('motorcycles').update({ status: 'available' }).eq('id', selectedContract.motorcycle_id)
       showToast('success', `Contrato encerrado. Multa de ${fmtBRL(FINE_AMOUNT)} gerada.`)

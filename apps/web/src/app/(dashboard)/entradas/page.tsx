@@ -30,6 +30,7 @@ import type { Income } from '@gomoto/core';
 
 // Supabase
 import { createClient } from '@/lib/supabase/client';
+import { useRequiredTenantId } from '@gomoto/data';
 
 // Utilitários
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -113,6 +114,7 @@ const INITIAL_FORM_STATE: IncomeFormState = {
  */
 export default function EntradasPage() {
   const supabase = createClient();
+  const getTenantId = useRequiredTenantId();
 
   // --- Estados de Dados ---
   /**
@@ -496,7 +498,7 @@ export default function EntradasPage() {
         const { error } = await supabase.from('incomes').update(payload).eq('id', currentIncome.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from('incomes').insert([payload]);
+        const { error } = await supabase.from('incomes').insert([{ ...payload, tenant_id: getTenantId() }]);
         if (error) throw error;
       }
 

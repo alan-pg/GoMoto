@@ -25,6 +25,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 
 // Cliente Supabase no lado do browser — usado para todas as operações de leitura/escrita
 import { createClient } from '@/lib/supabase/client'
+import { useRequiredTenantId } from '@gomoto/data'
 
 // Utilitário para formatar datas no padrão brasileiro (dd/mm/aaaa)
 import { formatDate } from '@/lib/utils'
@@ -357,6 +358,7 @@ function DocumentUploadSection({
 export default function QueuePage() {
   // Cliente Supabase estabilizado com useMemo para não criar nova instância a cada render
   const supabase = useMemo(() => createClient(), [])
+  const getTenantId = useRequiredTenantId()
 
   // ---------------------------------------------------------------------------
   // ESTADOS DE DADOS
@@ -736,6 +738,7 @@ export default function QueuePage() {
           observations: addForm.notes || null,
           in_queue: true,  // Marca como candidato na fila, não cliente ativo
           active: true,
+          tenant_id: getTenantId(),
         })
         .select('id')
         .single()
@@ -754,6 +757,7 @@ export default function QueuePage() {
         customer_id: newCustomer.id,
         position: nextPosition,
         notes: addForm.notes || null,
+        tenant_id: getTenantId(),
       })
 
       if (insertQueueError) throw insertQueueError
@@ -1150,6 +1154,7 @@ export default function QueuePage() {
         contract_type: contractForm.contract_type,
         status: 'active',
         observations: 'KM inicial: ' + initial_km,
+        tenant_id: getTenantId(),
       })
 
       if (contractError) throw contractError
@@ -1175,6 +1180,7 @@ export default function QueuePage() {
           amount: parseFloat(deposit_amount),
           reference: 'Caucao',
           payment_method: deposit_payment_method,
+          tenant_id: getTenantId(),
         })
         if (incomeError) throw incomeError
       }

@@ -4,6 +4,7 @@ import { createClient as createServerClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { logAction } from '@/lib/audit'
+import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { z } from 'zod'
 
 export async function uploadMaintenancePhoto(formData: FormData, prefix: string): Promise<string | null> {
@@ -50,12 +51,15 @@ export async function createMaintenance(rawData: unknown) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
 
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { error: 'Tenant não resolvido para o usuário' }
+
   const parsed = MaintenanceSchema.safeParse(rawData)
   if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
 
   const { data, error } = await supabase
     .from('maintenances')
-    .insert(parsed.data)
+    .insert({ ...parsed.data, tenant_id: tenantId })
     .select()
     .single()
 

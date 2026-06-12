@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { logAction } from '@/lib/audit'
+import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { z } from 'zod'
 
 async function getAuthenticatedUser() {
@@ -25,12 +26,15 @@ export async function createContract(rawData: unknown) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
 
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { error: 'Tenant não resolvido para o usuário' }
+
   const parsed = ContractSchema.safeParse(rawData)
   if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
 
   const { data, error } = await supabase
     .from('contracts')
-    .insert({ ...parsed.data, status: parsed.data.status ?? 'active' })
+    .insert({ ...parsed.data, status: parsed.data.status ?? 'active', tenant_id: tenantId })
     .select()
     .single()
 

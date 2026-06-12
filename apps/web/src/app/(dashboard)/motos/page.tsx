@@ -26,7 +26,7 @@
 'use client' // Diretiva para indicar que este é um Client Component (interatividade React)
 
 // Importação de hooks do React para gerenciamento de estado local e efeitos colaterais
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 // Importação dinâmica para componentes que não suportam SSR (como mapas com Leaflet)
 import dynamic from 'next/dynamic'
 // Importação de ícones da biblioteca Lucide para auxílio visual na interface
@@ -49,8 +49,16 @@ import { StatusBadge } from '@/components/ui/Badge'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 
-// Importação do cliente Supabase para acesso ao banco de dados
-import { createClient } from '@/lib/supabase/client'
+// Importação de hooks compartilhados e contexto Supabase (multi-tenant) do @gomoto/data
+import {
+  useMotorcycles,
+  useActiveContracts,
+  useCreateMotorcycle,
+  useUpdateMotorcycle,
+  useDeleteMotorcycle,
+  useSupabaseContext,
+  useRequiredTenantId,
+} from '@gomoto/data'
 
 // Importação de funções utilitárias
 import { formatCurrency } from '@/lib/utils'
@@ -202,19 +210,28 @@ function motorcycleToForm(motorcycle: Motorcycle) {
  * @description Gerencia toda a lógica e renderização da tela de frota.
  */
 export default function MotorcyclesPage() {
-  /* 
+  /*
    * GERENCIAMENTO DE ESTADOS (React State):
+   * Leitura via hooks de @gomoto/data (TanStack Query gerencia cache + invalidação).
    */
-  // Lista principal de motos exibida na tela.
-  const [motorcycles, setMotorcycles] = useState<Motorcycle[]>([])
-  // Contratos ativos com dados do cliente embutidos (para tabela e mapa).
-  const [contracts, setContracts] = useState<ContractWithCustomer[]>([])
-  // Estado de carregamento inicial dos dados.
-  const [loading, setLoading] = useState(true)
-  // Mensagem de erro caso a busca de dados falhe — exibida ao usuário em vez de lista vazia silenciosa.
-  const [fetchError, setFetchError] = useState<string | null>(null)
-  // Estado de salvamento/deleção para os botões.
-  const [saving, setSaving] = useState(false)
+  const supabase = useSupabaseContext()
+  const getTenantId = useRequiredTenantId()
+  const motorcyclesQuery = useMotorcycles()
+  const contractsQuery = useActiveContracts()
+  const createMotorcycleMutation = useCreateMotorcycle()
+  const updateMotorcycleMutation = useUpdateMotorcycle()
+  const deleteMotorcycleMutation = useDeleteMotorcycle()
+
+  const motorcycles = (motorcyclesQuery.data ?? []) as Motorcycle[]
+  const contracts = (contractsQuery.data ?? []) as ContractWithCustomer[]
+  const loading = motorcyclesQuery.isLoading
+  const fetchError = motorcyclesQuery.error
+    ? 'Não foi possível carregar a frota. Verifique a conexão e tente novamente.'
+    : null
+  const saving =
+    createMotorcycleMutation.isPending ||
+    updateMotorcycleMutation.isPending ||
+    deleteMotorcycleMutation.isPending
   // Valor atual do filtro de status (todas, disponivel, etc).
   const [filter, setFilter] = useState('all')
   // Texto digitado no campo de busca para filtragem dinâmica.
@@ -235,48 +252,6 @@ export default function MotorcyclesPage() {
   const [selectedMotoId, setSelectedMotoId] = useState<string | null>(null)
   // Mapa de valores (KM ou Data) informados no passo 2 do cadastro.
   const [bootstrapItems, setBootstrapItems] = useState<Record<string, string>>({})
-
-  /**
-   * @function fetchMotorcycles
-   * @description Busca motos e contratos ativos do Supabase em paralelo com Promise.all.
-   *
-   * Usa useCallback para estabilizar a referência da função entre renders,
-   * permitindo seu uso seguro no useEffect sem causar loops infinitos.
-   *
-   * Em caso de falha na requisição de motos, exibe mensagem de erro ao usuário
-   * em vez de deixar a lista silenciosamente vazia (tratamento explícito de erros).
-   */
-  const fetchMotorcycles = useCallback(async () => {
-    setLoading(true)
-    setFetchError(null) // Limpa erro anterior antes de nova tentativa
-
-    const supabase = createClient()
-
-    // Executa ambas as queries em paralelo para reduzir o tempo total de carregamento
-    const [{ data: motoData, error: motoError }, { data: contractData }] = await Promise.all([
-      supabase.from('motorcycles').select('*').order('created_at', { ascending: false }),
-      supabase.from('contracts').select('*, customer:customers(*)').eq('status', 'active'),
-    ])
-
-    if (motoError) {
-      // Informa o usuário sobre a falha em vez de mostrar lista vazia sem explicação
-      setFetchError('Não foi possível carregar a frota. Verifique a conexão e tente novamente.')
-    } else if (motoData) {
-      setMotorcycles(motoData as Motorcycle[])
-    }
-
-    // Contratos: falha silenciosa intencional — a tabela ainda funciona, só sem dados de cliente
-    if (contractData) {
-      setContracts(contractData as ContractWithCustomer[])
-    }
-
-    setLoading(false)
-  }, []) // Sem dependências: createClient() é estável e os setters do useState são garantidamente estáveis
-
-  // Busca inicial ao montar o componente
-  useEffect(() => {
-    fetchMotorcycles()
-  }, [fetchMotorcycles])
 
   /**
    * @const contractByMotoId
@@ -361,145 +336,118 @@ export default function MotorcyclesPage() {
 
   /**
    * @function handleSubmitFinal
-   * @description Consolida os dados do formulário e salva no banco de dados Supabase.
+   * @description Consolida os dados do formulário e salva via hooks de @gomoto/data.
+   * O `tenant_id` é injetado automaticamente pelos hooks de mutação.
    */
   async function handleSubmitFinal() {
-    setSaving(true)
-    const supabase = createClient()
-    
-    // Criação do objeto de dados higienizado
     /**
      * Sanitização robusta do valor FIPE:
      * Remove separadores de milhar (pontos) antes de converter a vírgula decimal,
-     * evitando NaN em entradas como "15.500,00" → correto: 15500.00
-     * A ordem importa: remove pontos de milhar ANTES de trocar vírgula por ponto.
+     * evitando NaN em entradas como "15.500,00" → correto: 15500.00.
      */
     const parsedFipeValue = form.fipeValue
       ? parseFloat(form.fipeValue.replace(/\./g, '').replace(',', '.'))
       : null
 
-    // Campos base que existem tanto na criação quanto na edição
     const motorcycleData = {
-      license_plate: form.licensePlate.toUpperCase(),   // Padrão Mercosul exige maiúsculas
-      model:         form.model,
-      make:          form.make.toUpperCase(),
+      license_plate: form.licensePlate.toUpperCase(),
+      model: form.model,
+      make: form.make.toUpperCase(),
       year_manufacture: form.yearManufacture,
-      year_model:    form.yearModel || null,
-      color:         form.color.toUpperCase(),
-      renavam:       form.renavam,
-      chassis:       form.chassis.toUpperCase(),
-      fuel:          form.fuel,
-      engine_capacity:       form.engineCapacity || null,
-      previous_owner:        form.previousOwnerName || null,
-      previous_owner_cpf:    form.previousOwnerDocument || null,
-      purchase_date:         form.purchaseDate || null,
-      fipe_value:            isNaN(parsedFipeValue as number) ? null : parsedFipeValue,
+      year_model: form.yearModel || undefined,
+      color: form.color.toUpperCase(),
+      renavam: form.renavam,
+      chassis: form.chassis.toUpperCase(),
+      fuel: form.fuel,
+      engine_capacity: form.engineCapacity || undefined,
+      previous_owner: form.previousOwnerName || undefined,
+      previous_owner_cpf: form.previousOwnerDocument || undefined,
+      purchase_date: form.purchaseDate || undefined,
+      fipe_value: isNaN(parsedFipeValue as number) ? undefined : parsedFipeValue ?? undefined,
       maintenance_up_to_date: form.maintenanceUpToDate === 'true',
-      status:        form.status as MotorcycleStatus,
-      observations:  form.observations || null,
+      status: form.status as MotorcycleStatus,
+      observations: form.observations || undefined,
     }
 
-    if (editingId) {
-      /**
-       * CASO EDIÇÃO: Não inclui km_current no update.
-       * Motivo: o campo currentKm é zerado ao abrir o modal de edição (não há valor pré-carregado),
-       * então salvar km_current: 0 causaria regressão de quilometragem — dado crítico de manutenção.
-       * A quilometragem real é gerenciada pelo módulo de Manutenção.
-       */
-      await supabase.from('motorcycles').update(motorcycleData).eq('id', editingId)
-    } else {
-      /**
-       * CASO CRIAÇÃO: Inclui km_current como quilometragem inicial de entrada na frota.
-       * Após inserir a moto, semeia automaticamente os registros de manutenção preventiva
-       * com base nos dados coletados no Passo 2 (bootstrapItems).
-       */
-      const { data: newMoto, error: insertError } = await supabase
-        .from('motorcycles')
-        .insert({
+    try {
+      if (editingId) {
+        /**
+         * EDIÇÃO: não inclui km_current — currentKm é zerado ao abrir o modal de edição,
+         * então salvar km_current: 0 causaria regressão de quilometragem.
+         */
+        await updateMotorcycleMutation.mutateAsync({ id: editingId, payload: motorcycleData })
+      } else {
+        const newMoto = await createMotorcycleMutation.mutateAsync({
           ...motorcycleData,
           km_current: form.currentKm ? parseInt(form.currentKm, 10) : 0,
         })
-        .select('id')
-        .single()
 
-      if (insertError || !newMoto?.id) {
-        setSaving(false)
-        return
-      }
+        const newMotoId = newMoto.id
+        const currentKm = form.currentKm ? parseInt(form.currentKm, 10) : 0
+        const today = new Date().toISOString().split('T')[0]
+        const tenantId = getTenantId()
 
-      const newMotoId = newMoto.id
-      const currentKm = form.currentKm ? parseInt(form.currentKm, 10) : 0
-      const today = new Date().toISOString().split('T')[0]
+        const maintenanceRecords: Record<string, unknown>[] = []
 
-      /**
-       * Semente de manutenções: para cada item da lista padrão, criamos UM registro pendente
-       * representando a PRÓXIMA revisão agendada. A referência de quando foi feita pela última vez
-       * (KM ou data informados no Passo 2) é usada apenas para calcular o vencimento.
-       * Se não informado, assume-se 0 km / data de hoje — podendo gerar itens já vencidos
-       * caso a moto já tenha quilômetros rodados.
-       */
-      const maintenanceRecords: Record<string, unknown>[] = []
+        for (const item of BOOTSTRAP_MAINTENANCE_ITEMS) {
+          if (item.type === 'km') {
+            const lastKm = bootstrapItems[item.id] ? parseInt(bootstrapItems[item.id], 10) : 0
+            const nextDueKm = lastKm + item.interval
 
-      for (const item of BOOTSTRAP_MAINTENANCE_ITEMS) {
-        if (item.type === 'km') {
-          const lastKm = bootstrapItems[item.id] ? parseInt(bootstrapItems[item.id], 10) : 0
-          const nextDueKm = lastKm + item.interval
+            maintenanceRecords.push({
+              tenant_id: tenantId,
+              motorcycle_id: newMotoId,
+              type: 'preventive',
+              description: item.name,
+              predicted_km: nextDueKm,
+              completed: false,
+              observations: nextDueKm <= currentKm
+                ? `Vencida — deveria ter sido feita aos ${nextDueKm.toLocaleString('pt-BR')} km`
+                : lastKm === 0
+                  ? 'Sem histórico anterior — calculado a partir de 0 km na entrada da frota'
+                  : `Última realizada aos ${lastKm.toLocaleString('pt-BR')} km`,
+            })
+          } else {
+            const lastDateStr = bootstrapItems[item.id] || today
+            const lastDate = new Date(lastDateStr + 'T12:00:00')
+            const nextDueDate = new Date(lastDate)
+            nextDueDate.setDate(nextDueDate.getDate() + item.interval)
+            const nextDueDateStr = nextDueDate.toISOString().split('T')[0]
 
-          maintenanceRecords.push({
-            motorcycle_id: newMotoId,
-            type: 'preventive',
-            description: item.name,
-            predicted_km: nextDueKm,
-            completed: false,
-            observations: nextDueKm <= currentKm
-              ? `Vencida — deveria ter sido feita aos ${nextDueKm.toLocaleString('pt-BR')} km`
-              : lastKm === 0
-                ? 'Sem histórico anterior — calculado a partir de 0 km na entrada da frota'
-                : `Última realizada aos ${lastKm.toLocaleString('pt-BR')} km`,
-          })
-        } else {
-          // item.type === 'data'
-          const lastDateStr = bootstrapItems[item.id] || today
-          const lastDate = new Date(lastDateStr + 'T12:00:00')
-          const nextDueDate = new Date(lastDate)
-          nextDueDate.setDate(nextDueDate.getDate() + item.interval)
-          const nextDueDateStr = nextDueDate.toISOString().split('T')[0]
+            maintenanceRecords.push({
+              tenant_id: tenantId,
+              motorcycle_id: newMotoId,
+              type: 'inspection',
+              description: item.name,
+              scheduled_date: nextDueDateStr,
+              completed: false,
+              observations: `Última realizada em ${lastDateStr === today ? 'data não informada (assumido hoje)' : lastDateStr}`,
+            })
+          }
+        }
 
-          maintenanceRecords.push({
-            motorcycle_id: newMotoId,
-            type: 'inspection',
-            description: item.name,
-            scheduled_date: nextDueDateStr,
-            completed: false,
-            observations: `Última realizada em ${lastDateStr === today ? 'data não informada (assumido hoje)' : lastDateStr}`,
-          })
+        try {
+          await supabase.from('maintenances').insert(maintenanceRecords)
+        } catch {
+          /* falha silenciosa: bootstrap é nice-to-have, não bloqueia o cadastro */
         }
       }
-
-      // Insere todos os registros de manutenção em lote
-      try {
-        await supabase.from('maintenances').insert(maintenanceRecords)
-      } catch {
-      }
+    } finally {
+      closeModal()
     }
-
-    await fetchMotorcycles() // Recarrega os dados do banco
-    setSaving(false)
-    closeModal() // Fecha modal e limpa estados
   }
 
   /**
    * @function confirmDeletion
-   * @description Executa a remoção definitiva da moto do banco de dados.
+   * @description Executa a remoção definitiva da moto via hook compartilhado.
    */
   async function confirmDeletion() {
     if (!deletingMotorcycle) return
-    setSaving(true)
-    const supabase = createClient()
-    await supabase.from('motorcycles').delete().eq('id', deletingMotorcycle.id)
-    await fetchMotorcycles()
-    setSaving(false)
-    setDeletingMotorcycle(null) // Fecha modal de confirmação
+    try {
+      await deleteMotorcycleMutation.mutateAsync(deletingMotorcycle.id)
+    } finally {
+      setDeletingMotorcycle(null)
+    }
   }
 
   // Renderização principal do componente
@@ -521,7 +469,7 @@ export default function MotorcyclesPage() {
             <AlertCircle className="w-4 h-4 text-[#ff9c9a] flex-shrink-0" />
             <p className="text-[13px] text-[#ff9c9a]">{fetchError}</p>
             {/* Botão de nova tentativa para o usuário não precisar recarregar a página */}
-            <button onClick={fetchMotorcycles} className="ml-auto text-[12px] text-[#BAFF1A] hover:underline font-medium">
+            <button onClick={() => motorcyclesQuery.refetch()} className="ml-auto text-[12px] text-[#BAFF1A] hover:underline font-medium">
               Tentar novamente
             </button>
           </div>

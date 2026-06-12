@@ -2,81 +2,99 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { MotorcycleSchema, MaintenanceBootstrapSchema } from '@gomoto/core'
+import { MotorcycleSchema, MaintenanceBootstrapSchema, type Motorcycle } from '@gomoto/core'
+import {
+  createMotorcycle as repoCreateMotorcycle,
+  updateMotorcycle as repoUpdateMotorcycle,
+  deleteMotorcycle as repoDeleteMotorcycle,
+  getMotorcycle as repoGetMotorcycle,
+} from '@gomoto/data/repositories'
 import { logAction } from '@/lib/audit'
+import { getCurrentTenantId } from '@/lib/auth/tenant'
 
-async function getAuthenticatedUser() {
+async function getAuthenticatedContext() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  return { supabase, user }
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  const tenantId = user ? await getCurrentTenantId(supabase) : null
+  return { supabase, user, tenantId }
 }
 
 export async function createMotorcycle(rawData: unknown, initialMaintenances?: unknown[]) {
-  const { supabase, user } = await getAuthenticatedUser()
+  const { supabase, user, tenantId } = await getAuthenticatedContext()
   if (!user) return { error: 'Não autorizado' }
+  if (!tenantId) return { error: 'Tenant não resolvido para o usuário' }
 
   const parsed = MotorcycleSchema.safeParse(rawData)
   if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
 
-  const { data, error } = await supabase
-    .from('motorcycles')
-    .insert(parsed.data)
-    .select()
-    .single()
+  try {
+    const payload = { ...parsed.data, tenant_id: tenantId } as Omit<
+      Motorcycle,
+      'id' | 'created_at' | 'updated_at'
+    >
+    const data = await repoCreateMotorcycle(supabase, payload)
+    await logAction({ action: 'create', table: 'motorcycles', recordId: data.id, newData: data })
 
-  if (error) return { error: 'Erro ao cadastrar moto' }
-
-  await logAction({ action: 'create', table: 'motorcycles', recordId: data.id, newData: data })
-
-  // Bootstrap initial maintenance records if provided
-  if (initialMaintenances && initialMaintenances.length > 0) {
-    const parsed2 = MaintenanceBootstrapSchema.safeParse(initialMaintenances)
-    if (parsed2.success) {
-      const records = parsed2.data.map((m) => ({
-        ...m,
-        motorcycle_id: data.id,
-      }))
-      await supabase.from('maintenances').insert(records)
+    if (initialMaintenances && initialMaintenances.length > 0) {
+      const parsed2 = MaintenanceBootstrapSchema.safeParse(initialMaintenances)
+      if (parsed2.success) {
+        const records = parsed2.data.map((m) => ({
+          ...m,
+          motorcycle_id: data.id,
+          tenant_id: tenantId,
+        }))
+        await supabase.from('maintenances').insert(records)
+      }
     }
-  }
 
-  revalidatePath('/motos')
-  return { data }
+    revalidatePath('/motos')
+    return { data }
+  } catch {
+    return { error: 'Erro ao cadastrar moto' }
+  }
 }
 
 export async function updateMotorcycle(id: string, rawData: unknown) {
-  const { supabase, user } = await getAuthenticatedUser()
+  const { supabase, user } = await getAuthenticatedContext()
   if (!user) return { error: 'Não autorizado' }
 
   const parsed = MotorcycleSchema.partial().safeParse(rawData)
   if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
 
-  const { data: before } = await supabase.from('motorcycles').select().eq('id', id).single()
-
-  const { data, error } = await supabase
-    .from('motorcycles')
-    .update(parsed.data)
-    .eq('id', id)
-    .select()
-    .single()
-
-  if (error) return { error: 'Erro ao atualizar moto' }
-
-  await logAction({ action: 'update', table: 'motorcycles', recordId: id, oldData: before, newData: data })
-  revalidatePath('/motos')
-  return { data }
+  try {
+    const before = await repoGetMotorcycle(supabase, id)
+    const data = await repoUpdateMotorcycle(
+      supabase,
+      id,
+      parsed.data as Partial<Omit<Motorcycle, 'id' | 'created_at' | 'updated_at'>>,
+    )
+    await logAction({
+      action: 'update',
+      table: 'motorcycles',
+      recordId: id,
+      oldData: before,
+      newData: data,
+    })
+    revalidatePath('/motos')
+    return { data }
+  } catch {
+    return { error: 'Erro ao atualizar moto' }
+  }
 }
 
 export async function deleteMotorcycle(id: string) {
-  const { supabase, user } = await getAuthenticatedUser()
+  const { supabase, user } = await getAuthenticatedContext()
   if (!user) return { error: 'Não autorizado' }
 
-  const { data: before } = await supabase.from('motorcycles').select().eq('id', id).single()
-  const { error } = await supabase.from('motorcycles').delete().eq('id', id)
-
-  if (error) return { error: 'Erro ao excluir moto' }
-
-  await logAction({ action: 'delete', table: 'motorcycles', recordId: id, oldData: before })
-  revalidatePath('/motos')
-  return { success: true }
+  try {
+    const before = await repoGetMotorcycle(supabase, id)
+    await repoDeleteMotorcycle(supabase, id)
+    await logAction({ action: 'delete', table: 'motorcycles', recordId: id, oldData: before })
+    revalidatePath('/motos')
+    return { success: true }
+  } catch {
+    return { error: 'Erro ao excluir moto' }
+  }
 }

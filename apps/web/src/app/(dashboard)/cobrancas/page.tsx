@@ -28,6 +28,7 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
+import { useRequiredTenantId } from '@gomoto/data'
 import type { ChargeStatus } from '@gomoto/core'
 import {
   calculateAverageTicket,
@@ -94,6 +95,7 @@ const defaultForm = {
  * realiza operações de escrita em tempo real.
  */
 export default function CobrancasPage() {
+  const getTenantId = useRequiredTenantId()
   /** @state charges - Lista de cobranças carregada do Supabase. */
   const [charges, setCharges] = useState<ChargeWithRelations[]>([])
   /** @state clientes - Lista de clientes ativos para o select do formulário. */
@@ -236,6 +238,7 @@ export default function CobrancasPage() {
           due_date: form.due_date,
           status: 'pending',
           observations: form.notes || null,
+          tenant_id: getTenantId(),
         })
         if (error) throw error
       }

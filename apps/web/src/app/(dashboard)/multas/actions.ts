@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { FineSchema } from '@gomoto/core'
 import { logAction } from '@/lib/audit'
+import { getCurrentTenantId } from '@/lib/auth/tenant'
 
 async function getAuthenticatedUser() {
   const supabase = await createClient()
@@ -15,12 +16,15 @@ export async function createFine(rawData: unknown) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
 
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { error: 'Tenant não resolvido para o usuário' }
+
   const parsed = FineSchema.safeParse(rawData)
   if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
 
   const { data, error } = await supabase
     .from('fines')
-    .insert({ ...parsed.data, status: 'pending' })
+    .insert({ ...parsed.data, status: 'pending', tenant_id: tenantId })
     .select()
     .single()
 
