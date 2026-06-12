@@ -47,24 +47,28 @@ Nenhum bug crítico aberto.
 
 ## 🧮 Regras de domínio em `@gomoto/core/rules`
 
-Fase 3 concluída para o escopo de **eliminar duplicação**. Cobertura atual (49 testes Vitest):
+Fase 3 concluída. Cobertura atual (70 testes Vitest):
 
 - `contracts` — vigência mínima, vigência esperada, classificação de validade (red/orange/green), `CONTRACT_TERMINATION_FINE_BRL`.
 - `billings` — `isChargeOverdue`, `calculateDaysOverdue`, default rate, punctuality rate, ticket médio.
 - `motorcycles` — `isIdleMotorcycle`.
 - `customers` — `identifyCustomersWithMultipleOverdueCharges`.
 - `queue` — notas auditáveis do swap (`getMoveUpNote`, `getMoveDownNote`, `getMoveDownReasonNote`, `QUEUE_REORDER_UP_NOTE`).
+- `maintenance` — `STANDARD_INTERVALS`, `KM_POR_DIA`, `getInterval`, `calculateMaintenanceStatus`, `calculateNextMaintenance`.
 
-Auditoria em 2026-06-12 confirmou que `contratos`, `cobrancas` e `fila` consomem essas regras sem drift inline.
+Auditoria em 2026-06-12 confirmou que `contratos`, `cobrancas`, `fila` e `manutencao` consomem essas regras sem drift inline.
 
 ## 🚀 Roadmap imediato (ordem sugerida)
 
-1. **Geração de PDF** — completar contratos via Edge Function.
-2. **Extrair regime de manutenção** para `@gomoto/core/rules/maintenance` — tabela de intervalos por tipo, `KM_POR_DIA`, `diffKm`, cálculo de próxima manutenção. Atualmente inline em `manutencao/page.tsx`. *Não é eliminação de duplicação (não há lugar com cópia), mas é a maior concentração de regra de domínio fora do `core`.* Sessão dedicada, não cirúrgica.
-3. **Fase 4-bis — bootstrap `apps/mobile`** (Expo + Expo Router).
-4. **Resend** — emails de cobrança vencida, lembretes de manutenção.
-5. **Sentry** — monitoramento de erros em produção.
-6. **Upstash Redis** — migrar rate-limit de in-memory pra persistente.
+1. **Fase 4-bis — bootstrap `apps/mobile`** (Expo + Expo Router).
+2. **Resend** — emails de cobrança vencida, lembretes de manutenção.
+3. **Upstash Redis** — migrar rate-limit de in-memory pra persistente.
+4. **Sentry** — monitoramento de erros em produção (adiado pro final, fechar quando subir pra prod real).
+
+## ✅ Recentemente entregue
+
+- **Geração de PDF de contratos** (commit `683a233`, 2026-06-12) — botão "PDF" lado a lado com "Gerar [template]" usa `docx-preview` + print dialog nativo. Validação visual pendente.
+- **Fase 3 — extrair regime de manutenção** (commit `521b9ca`, 2026-06-12) — última concentração grande de regra inline migrada para `@gomoto/core`.
 
 ## 📈 Métricas de build
 
@@ -77,6 +81,9 @@ Auditoria em 2026-06-12 confirmou que `contratos`, `cobrancas` e `fila` consomem
 
 | Commit | Mensagem |
 |---|---|
+| `521b9ca` | refactor(core): extrai rules/maintenance + manutencao consome do @gomoto/core |
+| `683a233` | feat(contratos): botão "PDF" gera contrato via docx-preview + print dialog |
+| `4950798` | docs: fecha Fase 3 e separa "extrair manutenção" como item próprio |
 | `cb74995` | refactor(core): extrai rules/queue + fila consome calculateMinimumEndDate |
 | `cdd7063` | docs: ADR 0002 do padrão canônico de tela + atualiza Estado Atual |
 | `9751646` | refactor(fila): migra page.tsx para hooks de leitura + Server Actions |
