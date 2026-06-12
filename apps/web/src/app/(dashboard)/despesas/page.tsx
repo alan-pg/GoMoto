@@ -35,7 +35,7 @@
 
 // ─── IMPORTAÇÕES ──────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 
 // Ícones do Lucide — cada um tem função específica na UI:
 import {
@@ -54,10 +54,13 @@ import {
   ExternalLink,
   X
 } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+
+// Camada de dados compartilhada (@gomoto/data) + Server Actions (façade de auditoria)
+import { useExpenses, useMotorcycles, useSupabaseContext } from '@gomoto/data'
+import { createExpense, updateExpense, deleteExpense } from './actions'
 
 // Infraestrutura do projeto
-import { createClient }              from '@/lib/supabase/client'           // Cliente Supabase browser
-import { useRequiredTenantId }       from '@gomoto/data'
 import { Header }                    from '@/components/layout/Header'       // Header padrão do sistema
 import { Button }                    from '@/components/ui/Button'           // Botão do design system
 import { Input, Select, Textarea }   from '@/components/ui/Input'            // Campos de formulário
@@ -157,7 +160,6 @@ const CATEGORY_OPTIONS = [
  *   Criado uma única vez ao carregar o módulo. Se estivesse dentro do componente,
  *   seria recriado a cada render, abrindo múltiplas conexões desnecessariamente.
  */
-const supabase = createClient()
 
 // ─── SUB-COMPONENTES ──────────────────────────────────────────────────────────
 
@@ -209,24 +211,29 @@ function KpiCard({ icon: Icon, label, value, sub }: { icon: React.ElementType, l
  *   expenses → [mês + busca] → filteredExpenses → [categoria] → groupedExpenses
  */
 export default function ExpensesPage() {
-  const getTenantId = useRequiredTenantId()
+  // Cliente Supabase apenas para uploads em Storage (não é mutação em tabela de domínio).
+  const supabase = useSupabaseContext()
+  const queryClient = useQueryClient()
 
-  // ── ESTADOS: Dados vindos do banco ──────────────────────────────────────────
+  // ── DADOS: hooks compartilhados de @gomoto/data ─────────────────────────────
+  const expensesQuery = useExpenses()
+  const motorcyclesQuery = useMotorcycles()
 
   /**
-   * Lista completa de despesas carregadas do Supabase.
-   * Atualizada após cada operação de criar, editar ou excluir.
+   * Lista completa de despesas carregadas do banco (via hook).
    * Todos os filtros são aplicados sobre este array via useMemo (sem re-fetch).
    */
-  const [expenses, setExpenses] = useState<Expense[]>([])
+  const expenses = useMemo<Expense[]>(
+    () => (expensesQuery.data ?? []) as Expense[],
+    [expensesQuery.data],
+  )
 
   // ── ESTADOS: Controle de UI ─────────────────────────────────────────────────
 
-  /**
-   * Indica se o fetch inicial está em andamento.
-   * Enquanto true, exibe o spinner no lugar do accordion.
-   */
-  const [loading, setLoading] = useState(true)
+  /** Indica se o fetch inicial está em andamento. Enquanto true, exibe spinner. */
+  const loading = expensesQuery.isLoading || motorcyclesQuery.isLoading
+
+  const invalidateExpenses = () => queryClient.invalidateQueries({ queryKey: ['expenses'] })
 
   /**
    * Controla a visibilidade do modal de criar/editar despesa.
@@ -264,7 +271,13 @@ export default function ExpensesPage() {
   const [existingInvoiceUrl, setExistingInvoiceUrl] = useState<string | null>(null)
   const [existingAttachmentUrl, setExistingAttachmentUrl] = useState<string | null>(null)
   const [noInvoiceWarning, setNoInvoiceWarning] = useState(false)
-  const [motorcycles, setMotorcycles] = useState<Motorcycle[]>([])
+  const motorcycles = useMemo<Motorcycle[]>(
+    () =>
+      ((motorcyclesQuery.data ?? []) as Motorcycle[])
+        .slice()
+        .sort((a, b) => a.license_plate.localeCompare(b.license_plate)),
+    [motorcyclesQuery.data],
+  )
 
   // ── ESTADOS: Filtros ────────────────────────────────────────────────────────
 
@@ -305,42 +318,6 @@ export default function ExpensesPage() {
    * Usamos Set<string> para busca O(1) em vez de Array.includes() O(n).
    */
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
-
-  // ─── BUSCA DE DADOS ────────────────────────────────────────────────────────
-
-  /**
-   * @function fetchExpenses
-   * @description Busca todas as despesas do Supabase, ordenadas por data decrescente.
-   *
-   * Pré-condição: Cliente Supabase inicializado e autenticado via middleware.
-   * Efeitos colaterais: Atualiza `expenses` e `loading`.
-   *
-   * Por que buscar todas as despesas de uma vez (sem paginação)?
-   *   O volume esperado é baixo (locadora de 5 motos). Buscar tudo permite
-   *   filtros instantâneos no cliente sem round-trips ao banco a cada filtro.
-   */
-  async function fetchExpenses() {
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('expenses')
-      .select('*')
-      .order('date', { ascending: false }) // mais recentes primeiro
-
-    if (!error) {
-      setExpenses((data as Expense[]) ?? [])
-    }
-
-    const { data: motoData } = await supabase
-      .from('motorcycles')
-      .select('id, license_plate, model')
-      .order('license_plate', { ascending: true })
-    setMotorcycles((motoData as Motorcycle[]) ?? [])
-
-    setLoading(false)
-  }
-
-  // Dispara o fetch uma única vez na montagem do componente
-  useEffect(() => { fetchExpenses() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── HANDLER DE ACCORDION ─────────────────────────────────────────────────
 
@@ -485,17 +462,19 @@ export default function ExpensesPage() {
       motorcycle_id: form.motorcycle_id || null,
     }
 
-    if (editing) {
-      // Modo edição: atualiza apenas a linha com o ID da despesa em edição
-      await supabase.from('expenses').update(payload).eq('id', editing.id)
-    } else {
-      // Modo criação: insere nova linha na tabela expenses
-      await supabase.from('expenses').insert({ ...payload, tenant_id: getTenantId() })
-    }
+    const result = editing
+      ? await updateExpense(editing.id, payload)
+      : await createExpense(payload)
 
     setSaving(false)
+
+    if ('error' in result) {
+      alert('Erro ao salvar a despesa: ' + result.error)
+      return
+    }
+
     handleCloseModal()
-    await fetchExpenses() // recarrega a lista para refletir a mudança
+    await invalidateExpenses()
   }
 
   /**
@@ -512,11 +491,16 @@ export default function ExpensesPage() {
     if (!deleting) return
 
     setSaving(true)
-    await supabase.from('expenses').delete().eq('id', deleting.id)
-
+    const result = await deleteExpense(deleting.id)
     setSaving(false)
-    setDeleting(null)    // fecha o modal de confirmação
-    await fetchExpenses() // recarrega a lista para remover o item excluído
+
+    if ('error' in result) {
+      alert('Erro ao excluir a despesa: ' + result.error)
+      return
+    }
+
+    setDeleting(null)
+    await invalidateExpenses()
   }
 
   // ─── DADOS COMPUTADOS (memoizados) ─────────────────────────────────────────

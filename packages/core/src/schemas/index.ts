@@ -76,6 +76,8 @@ export const ExpenseSchema = z.object({
   date: dateString,
   motorcycle_id: z.string().uuid().optional().nullable(),
   observations: z.string().trim().max(2000).optional().nullable(),
+  invoice_url: z.string().url().optional().nullable(),
+  attachment_url: z.string().url().optional().nullable(),
 })
 
 export const FineSchema = z.object({
