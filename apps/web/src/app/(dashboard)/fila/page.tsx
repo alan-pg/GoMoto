@@ -21,11 +21,20 @@
 'use client'
 
 // Hooks do React necessários para gerenciar os múltiplos estados da página
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 
-// Cliente Supabase no lado do browser — usado para todas as operações de leitura/escrita
-import { createClient } from '@/lib/supabase/client'
-import { useRequiredTenantId } from '@gomoto/data'
+// Hooks de leitura e contexto Supabase do pacote @gomoto/data — substituem o fetch direto
+import { useQueueEntries, useMotorcycles, useSupabaseContext } from '@gomoto/data'
+import { useQueryClient } from '@tanstack/react-query'
+
+// Server Actions para todas as mutações: garantem auditoria (logAction) server-side
+import {
+  addCustomerToQueue,
+  removeFromQueue,
+  updateQueueEntryPosition,
+  updateQueueCustomer,
+  closeQueueContract,
+} from './actions'
 
 // Utilitário para formatar datas no padrão brasileiro (dd/mm/aaaa)
 import { formatDate } from '@/lib/utils'
@@ -218,18 +227,10 @@ const MOVE_DOWN_REASONS = [
 // =============================================================================
 
 /**
- * @function getDownNote
- * @description Gera a observação que será salva no candidato que DESCEU na fila,
- * com base no motivo informado para quem SUBIU.
- *
- * @motivation
- * Quando o candidato A sobe porque "Possui caução e documentos completos",
- * o candidato B que desceu precisa de uma nota explicando o motivo de forma simétrica.
- * Essa função faz esse mapeamento automático para manter consistência no histórico.
- * Se o motivo não tiver mapeamento específico, usa uma nota genérica.
- *
- * @param upReason - O motivo pelo qual o candidato subiu na fila
- * @returns A nota a ser registrada no candidato que desceu
+ * @function calcEndDate
+ * @description Calcula a data de término de um contrato com base no tipo.
+ * `rental` adiciona 3 meses, `loyalty` adiciona 2 anos. Mantida no client
+ * porque o modal preenche o campo no momento em que o usuário muda o tipo.
  */
 function calcEndDate(startDate: string, type: 'rental' | 'loyalty'): string {
   if (!startDate) return ''
@@ -237,16 +238,6 @@ function calcEndDate(startDate: string, type: 'rental' | 'loyalty'): string {
   if (type === 'loyalty') d.setFullYear(d.getFullYear() + 2)
   else d.setMonth(d.getMonth() + 3)
   return d.toISOString().split('T')[0]
-}
-
-function getDownNote(upReason: string): string {
-  // Mapeamento dos motivos de subida para as notas correspondentes do candidato que desceu
-  const map: Record<string, string> = {
-    'Possui caução e documentos completos': 'Desceu na fila: Outro candidato possui caução e documentos completos',
-    'Aguardando há mais tempo na fila': 'Desceu na fila: Outro candidato aguardava há mais tempo',
-  }
-  // Se o motivo não tem mapeamento específico, usa nota genérica de reordenação
-  return map[upReason] ?? 'Desceu na fila: Reordenação da fila'
 }
 
 // =============================================================================
@@ -356,38 +347,63 @@ function DocumentUploadSection({
  * 4. O alerta visual indica quando há oportunidade de alocar (motos disponíveis + fila não vazia)
  */
 export default function QueuePage() {
-  // Cliente Supabase estabilizado com useMemo para não criar nova instância a cada render
-  const supabase = useMemo(() => createClient(), [])
-  const getTenantId = useRequiredTenantId()
+  // Cliente Supabase do contexto compartilhado de @gomoto/data — único ponto de criação por sessão
+  const supabase = useSupabaseContext()
+  const queryClient = useQueryClient()
 
   // ---------------------------------------------------------------------------
-  // ESTADOS DE DADOS
+  // ESTADOS DE DADOS (hooks de leitura @gomoto/data + derivações)
   // ---------------------------------------------------------------------------
 
   /**
-   * Lista ordenada de entradas da fila.
-   * Ordenada por `position` ASC para refletir a prioridade real.
-   * Atualizada após cada operação de escrita para manter a UI sincronizada com o banco.
+   * Fila ordenada por `position` ASC — `useQueueEntries` já faz o JOIN com customers
+   * (name, phone, drivers_license) e cuida da invalidação via TanStack Query.
    */
-  const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([])
+  const queueEntriesQuery = useQueueEntries()
+  const queueEntries = useMemo<QueueEntry[]>(
+    () => (queueEntriesQuery.data ?? []) as unknown as QueueEntry[],
+    [queueEntriesQuery.data],
+  )
 
   /**
-   * Quantidade de motos com status 'available' no momento.
-   * Usado no card de estatísticas e para disparar o alerta de oportunidade de alocação.
-   * Separado da fila pois é uma contagem simples (HEAD query), não precisa de dados detalhados.
+   * Lista completa de motos para derivar tanto a contagem total disponíveis quanto
+   * a sub-lista usada no modal de fechamento de contrato. Carregar uma única vez
+   * via hook compartilhado evita duas queries separadas (count + select).
    */
-  const [availableMotosCount, setAvailableMotosCount] = useState<number>(0)
+  const motorcyclesQuery = useMotorcycles()
+  const availableMotorcycles = useMemo<AvailableMotorcycle[]>(
+    () => (motorcyclesQuery.data ?? [])
+      .filter((m) => m.status === 'available')
+      .map((m) => ({
+        id: m.id,
+        license_plate: m.license_plate ?? '',
+        model: m.model ?? '',
+        make: m.make ?? '',
+        km_current: m.km_current ?? 0,
+      }))
+      .sort((a, b) => a.license_plate.localeCompare(b.license_plate)),
+    [motorcyclesQuery.data],
+  )
+  const availableMotosCount = availableMotorcycles.length
+
+  const invalidateQueueEntries = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['queue_entries'] }),
+    [queryClient],
+  )
+  const invalidateMotorcycles = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['motorcycles'] }),
+    [queryClient],
+  )
 
   // ---------------------------------------------------------------------------
   // ESTADOS DE CARREGAMENTO
   // ---------------------------------------------------------------------------
 
   /**
-   * Controla o estado de carregamento inicial da página.
-   * Enquanto `true`, exibe spinner/mensagem de carregamento em vez da tabela.
-   * Separado de `saving` pois são operações distintas: leitura inicial vs. escrita.
+   * Loading derivado dos hooks — `isLoading` é true apenas no fetch inicial,
+   * evitando flash de tabela vazia enquanto os dados chegam.
    */
-  const [loading, setLoading] = useState(true)
+  const loading = queueEntriesQuery.isLoading || motorcyclesQuery.isLoading
 
   /**
    * Controla se uma operação de escrita (add, remove, move) está em andamento.
@@ -428,12 +444,6 @@ export default function QueuePage() {
    * Necessário para acessar `customer_id` e o nome do candidato durante o processo.
    */
   const [contractEntry, setContractEntry] = useState<QueueEntry | null>(null)
-
-  /**
-   * Lista de motos disponíveis carregada ao abrir o modal de contrato.
-   * Carregada sob demanda (não na inicialização) para não fazer queries desnecessárias.
-   */
-  const [availableMotorcycles, setAvailableMotorcycles] = useState<AvailableMotorcycle[]>([])
 
   /**
    * Estado de carregamento específico do modal de contrato.
@@ -550,144 +560,12 @@ export default function QueuePage() {
   const resetAddForm = useCallback(() => setAddForm(DEFAULT_ADD_FORM), [])
 
   // =============================================================================
-  // FUNÇÕES DE LEITURA (FETCH)
-  // =============================================================================
-
-  /**
-   * @function fetchQueue
-   * @description Busca a lista completa da fila de espera ordenada por posição.
-   *
-   * @motivation
-   * Realiza JOIN com a tabela `customers` para exibir nome, telefone e CNH
-   * diretamente na tabela sem precisar de queries adicionais. Ordenar por `position`
-   * ASC garante que o primeiro da lista é sempre o candidato de maior prioridade.
-   * Chamada após cada operação de escrita para manter a UI sincronizada.
-   */
-  const fetchQueue = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('queue_entries')
-      .select('*, customers(name, phone, drivers_license)')
-      .order('position', { ascending: true })
-
-    if (error) {
-      return
-    }
-
-    // Cast necessário pois o Supabase não infere automaticamente o tipo do join aninhado
-    setQueueEntries((data as unknown as QueueEntry[]) || [])
-  }, [supabase])
-
-  /**
-   * @function fetchMotosCount
-   * @description Busca apenas a contagem de motos com status 'available'.
-   *
-   * @motivation
-   * Usar `count: 'exact'` com `head: true` faz uma query COUNT otimizada no banco,
-   * retornando apenas o número sem carregar os dados das motos. Isso é suficiente
-   * para exibir o card de estatísticas e disparar o alerta de oportunidade.
-   */
-  const fetchMotosCount = useCallback(async () => {
-    const { count, error } = await supabase
-      .from('motorcycles')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'available')
-
-    if (error) {
-      return
-    }
-
-    setAvailableMotosCount(count || 0)
-  }, [supabase])
-
-  /**
-   * @function fetchAvailableMotorcycles
-   * @description Busca a lista detalhada de motos disponíveis para o modal de contrato.
-   *
-   * @motivation
-   * Diferente de `fetchMotosCount`, esta função busca os dados completos das motos
-   * para popular o select no modal de fechamento de contrato. Inclui `km_current`
-   * para pré-preencher o campo "KM Inicial" automaticamente. Chamada sob demanda
-   * ao abrir o modal, não na inicialização, para evitar queries desnecessárias.
-   */
-  const fetchAvailableMotorcycles = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('motorcycles')
-      .select('id, license_plate, model, make, km_current')
-      .eq('status', 'available')
-      .order('license_plate')
-
-    if (error) {
-      return
-    }
-
-    setAvailableMotorcycles(data || [])
-  }, [supabase])
-
-  /**
-   * @function loadData
-   * @description Carrega todos os dados necessários para a página em paralelo.
-   *
-   * @motivation
-   * Usar `Promise.all` para buscar a fila e a contagem de motos simultaneamente
-   * reduz o tempo de carregamento inicial pela metade (duas queries em paralelo
-   * em vez de sequenciais). O estado `loading` garante que a tabela não apareça
-   * com dados incompletos enquanto as queries estão em andamento.
-   */
-  const loadData = useCallback(async () => {
-    setLoading(true)
-    try {
-      // Executa ambas as queries em paralelo para minimizar o tempo de carregamento
-      await Promise.all([fetchQueue(), fetchMotosCount()])
-    } catch {
-    } finally {
-      // Garante que o loading seja desativado mesmo se uma das queries falhar
-      setLoading(false)
-    }
-  }, [fetchQueue, fetchMotosCount])
-
-  // Carrega os dados uma única vez ao montar o componente
-  useEffect(() => {
-    loadData()
-  }, [loadData])
-
-  // =============================================================================
   // FUNÇÕES DE ESCRITA (MUTATIONS)
   // =============================================================================
-
-  /**
-   * @function reorderQueuePositions
-   * @description Reordena as posições da fila para eliminar buracos numéricos.
-   *
-   * @motivation
-   * Após remover um candidato da posição 2 de uma fila [1, 2, 3], as posições
-   * ficariam [1, 3] — um "buraco". Esta função normaliza para [1, 2], garantindo
-   * que as posições sejam sempre contínuas a partir de 1. Chamada após remoção
-   * e após fechar contrato para manter a integridade da numeração.
-   *
-   * As atualizações são feitas sequencialmente (não em paralelo) para evitar
-   * conflitos em caso de existir restrição única na coluna `position`.
-   */
-  const reorderQueuePositions = useCallback(async () => {
-    // Busca a fila atual em ordem para saber quais posições precisam ser corrigidas
-    const { data: currentQueue } = await supabase
-      .from('queue_entries')
-      .select('id, position')
-      .order('position', { ascending: true })
-
-    if (!currentQueue) return
-
-    // Percorre a fila e corrige apenas as entradas com posição fora do esperado
-    for (let i = 0; i < currentQueue.length; i++) {
-      const expectedPosition = i + 1
-      // Só atualiza se a posição atual diverge da esperada — evita updates desnecessários
-      if (currentQueue[i].position !== expectedPosition) {
-        await supabase
-          .from('queue_entries')
-          .update({ position: expectedPosition })
-          .eq('id', currentQueue[i].id)
-      }
-    }
-  }, [supabase])
+  //
+  // Toda mutação roda em Server Action (./actions.ts) para garantir audit log e
+  // injeção segura de `tenant_id`. A invalidação do cache é feita logo após a
+  // resposta de sucesso para refletir o novo estado na UI.
 
   /**
    * @function handleAddToQueue
@@ -717,62 +595,42 @@ export default function QueuePage() {
 
     setSaving(true)
     try {
-      // ETAPA 1: Criar o registro do cliente com in_queue: true
-      // O candidato ainda não é cliente ativo, por isso `in_queue: true` e `active: true`
-      const { data: newCustomer, error: insertCustomerError } = await supabase
-        .from('customers')
-        .insert({
-          name: addForm.name,
-          cpf: addForm.cpf,
-          rg: addForm.rg || null,
-          state: addForm.state || null,
-          phone: addForm.phone,
-          email: addForm.email || null,
-          address: addForm.address || null,
-          zip_code: addForm.zipCode || null,
-          emergency_contact: addForm.emergencyContact || null,
-          drivers_license: addForm.cnh || null,
-          drivers_license_validity: addForm.cnhExpiry || null,
-          drivers_license_category: addForm.cnhCategory || null,
-          birth_date: addForm.birthDate || null,
-          observations: addForm.notes || null,
-          in_queue: true,  // Marca como candidato na fila, não cliente ativo
-          active: true,
-          tenant_id: getTenantId(),
-        })
-        .select('id')
-        .single()
-
-      if (insertCustomerError) throw insertCustomerError
-
-      // ETAPA 2: Calcular a próxima posição disponível e inserir na fila
-      // Usa Math.max para pegar a maior posição existente e adicionar 1
-      // Se a fila estiver vazia, começa na posição 1
-      const nextPosition =
-        queueEntries.length > 0
-          ? Math.max(...queueEntries.map((e) => e.position)) + 1
-          : 1
-
-      const { error: insertQueueError } = await supabase.from('queue_entries').insert({
-        customer_id: newCustomer.id,
-        position: nextPosition,
-        notes: addForm.notes || null,
-        tenant_id: getTenantId(),
+      // ETAPA 1: Server Action cria o cliente, calcula a próxima posição e insere na fila,
+      // tudo dentro do mesmo contexto auditado (logAction para customers + queue_entries).
+      const result = await addCustomerToQueue({
+        name: addForm.name,
+        cpf: addForm.cpf,
+        rg: addForm.rg || null,
+        state: addForm.state || null,
+        phone: addForm.phone,
+        email: addForm.email || null,
+        address: addForm.address || null,
+        zip_code: addForm.zipCode || null,
+        emergency_contact: addForm.emergencyContact || null,
+        drivers_license: addForm.cnh || null,
+        drivers_license_validity: addForm.cnhExpiry || null,
+        drivers_license_category: addForm.cnhCategory || null,
+        birth_date: addForm.birthDate || null,
+        observations: addForm.notes || null,
+        queue_notes: addForm.notes || null,
       })
 
-      if (insertQueueError) throw insertQueueError
+      if ('error' in result || !result.data) {
+        alert(('error' in result && result.error) || 'Ocorreu um erro ao adicionar à fila.')
+        return
+      }
 
-      // ETAPA 3: Upload de documentos para o Supabase Storage
-      // Os paths seguem o padrão: customers/{id}/{tipo}_{timestamp}.{ext}
-      // O timestamp no nome evita conflitos caso o documento seja substituído depois
+      const newCustomerId = result.data.customer.id
+
+      // ETAPA 2: Upload de documentos para o Supabase Storage (client-side).
+      // Storage permanece no cliente — os timestamps evitam colisões em substituição.
       const urlUpdates: { drivers_license_photo_url?: string; document_photo_url?: string } = {}
 
       if (addForm.cnhFile) {
         const ext = addForm.cnhFile.name.split('.').pop()
-        const path = `customers/${newCustomer.id}/cnh_${Date.now()}.${ext}`
+        const path = `customers/${newCustomerId}/cnh_${Date.now()}.${ext}`
         const { error: uploadErr } = await supabase.storage.from('documents').upload(path, addForm.cnhFile)
         if (!uploadErr) {
-          // Gera URL pública para exibição futura no modal de detalhes do cliente
           const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
           urlUpdates.drivers_license_photo_url = urlData.publicUrl
         }
@@ -780,30 +638,28 @@ export default function QueuePage() {
 
       if (addForm.residenceFile) {
         const ext = addForm.residenceFile.name.split('.').pop()
-        const path = `customers/${newCustomer.id}/residencia_${Date.now()}.${ext}`
+        const path = `customers/${newCustomerId}/residencia_${Date.now()}.${ext}`
         const { error: uploadErr } = await supabase.storage.from('documents').upload(path, addForm.residenceFile)
         if (!uploadErr) {
-          // Gera URL pública para exibição futura no modal de detalhes do cliente
           const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
           urlUpdates.document_photo_url = urlData.publicUrl
         }
       }
 
-      // Só faz o UPDATE de URLs se pelo menos um documento foi enviado com sucesso
+      // ETAPA 3: Patch das URLs via Server Action (auditado em logAction)
       if (Object.keys(urlUpdates).length > 0) {
-        await supabase.from('customers').update(urlUpdates).eq('id', newCustomer.id)
+        await updateQueueCustomer(newCustomerId, urlUpdates)
       }
 
-      // Fecha o modal, limpa o formulário e atualiza a lista
       setIsAddModalOpen(false)
       resetAddForm()
-      await fetchQueue()
+      await invalidateQueueEntries()
     } catch {
       alert('Ocorreu um erro ao adicionar à fila. Verifique os dados e tente novamente.')
     } finally {
       setSaving(false)
     }
-  }, [supabase, addForm, queueEntries, fetchQueue, resetAddForm])
+  }, [supabase, addForm, invalidateQueueEntries, resetAddForm])
 
   /**
    * @function handleRemoveFromQueue
@@ -821,34 +677,21 @@ export default function QueuePage() {
 
     setSaving(true)
     try {
-      // Remove a entrada da fila de espera
-      const { error: deleteError } = await supabase
-        .from('queue_entries')
-        .delete()
-        .eq('id', selectedEntry.id)
+      // Server Action remove entrada, marca cliente fora da fila e reordena posições
+      // — tudo dentro do mesmo bloco auditado.
+      const result = await removeFromQueue(selectedEntry.id)
+      if ('error' in result && result.error) {
+        alert(result.error)
+        return
+      }
 
-      if (deleteError) throw deleteError
-
-      // Marca o cliente como fora da fila para que não apareça em relatórios de fila
-      const { error: updateError } = await supabase
-        .from('customers')
-        .update({ in_queue: false })
-        .eq('id', selectedEntry.customer_id)
-
-      if (updateError) throw updateError
-
-      // Renumera as posições restantes para evitar buracos (ex: 1, 3, 4 → 1, 2, 3)
-      await reorderQueuePositions()
-
-      // Fecha o modal e limpa a seleção
       setIsRemoveModalOpen(false)
       setSelectedEntry(null)
-      await fetchQueue()
-    } catch {
+      await invalidateQueueEntries()
     } finally {
       setSaving(false)
     }
-  }, [supabase, selectedEntry, reorderQueuePositions, fetchQueue])
+  }, [selectedEntry, invalidateQueueEntries])
 
   /**
    * @function openMoveModal
@@ -899,34 +742,22 @@ export default function QueuePage() {
 
     setSaving(true)
     try {
-      if (moveDirection === 'up') {
-        // Swap para CIMA: o candidato sobe 1 posição, o anterior desce 1
-        const prevEntry = queueEntries.find((e) => e.position === moveEntry.position - 1)
-        if (!prevEntry) return
-
-        // O candidato que DESCEU registra a nota de por que foi ultrapassado
-        await supabase.from('queue_entries').update({ position: moveEntry.position, notes: getDownNote(moveReason) }).eq('id', prevEntry.id)
-        // O candidato que SUBIU registra o motivo da sua promoção na fila
-        await supabase.from('queue_entries').update({ position: moveEntry.position - 1, notes: `Subiu na fila: ${moveReason}` }).eq('id', moveEntry.id)
-      } else {
-        // Swap para BAIXO: o candidato desce 1 posição, o próximo sobe 1
-        const nextEntry = queueEntries.find((e) => e.position === moveEntry.position + 1)
-        if (!nextEntry) return
-
-        // O candidato que SUBIU por consequência da descida do outro registra nota genérica
-        await supabase.from('queue_entries').update({ position: moveEntry.position, notes: 'Subiu na fila: Reordenação da fila' }).eq('id', nextEntry.id)
-        // O candidato que DESCEU registra o motivo da sua descida
-        await supabase.from('queue_entries').update({ position: moveEntry.position + 1, notes: `Desceu na fila: ${moveReason}` }).eq('id', moveEntry.id)
+      // Server Action faz o swap atômico (2 updates auditados + getDownNote idêntico ao legado)
+      const result = await updateQueueEntryPosition(moveEntry.id, {
+        direction: moveDirection,
+        reason: moveReason,
+      })
+      if ('error' in result && result.error) {
+        alert(result.error)
+        return
       }
 
       setIsMoveModalOpen(false)
-      await fetchQueue()
-    } catch {
-      alert('Erro ao mover candidato na fila.')
+      await invalidateQueueEntries()
     } finally {
       setSaving(false)
     }
-  }, [supabase, moveEntry, moveDirection, moveReason, queueEntries, fetchQueue])
+  }, [moveEntry, moveDirection, moveReason, invalidateQueueEntries])
 
   /**
    * @function openEditModal
@@ -1000,31 +831,30 @@ export default function QueuePage() {
 
     setEditSaving(true)
     try {
-      // Atualiza os dados textuais do cliente na tabela customers
-      const { error: updateError } = await supabase
-        .from('customers')
-        .update({
-          name: editForm.name,
-          cpf: editForm.cpf,
-          rg: editForm.rg || null,
-          state: editForm.state || null,
-          phone: editForm.phone,
-          email: editForm.email || null,
-          address: editForm.address || null,
-          zip_code: editForm.zipCode || null,
-          emergency_contact: editForm.emergencyContact || null,
-          drivers_license: editForm.cnh || null,
-          drivers_license_validity: editForm.cnhExpiry || null,
-          drivers_license_category: editForm.cnhCategory || null,
-          birth_date: editForm.birthDate || null,
-          observations: editForm.notes || null,
-        })
-        .eq('id', editingEntry.customer_id)
+      // Server Action atualiza os campos textuais com audit log
+      const updateResult = await updateQueueCustomer(editingEntry.customer_id, {
+        name: editForm.name,
+        cpf: editForm.cpf,
+        rg: editForm.rg || null,
+        state: editForm.state || null,
+        phone: editForm.phone,
+        email: editForm.email || null,
+        address: editForm.address || null,
+        zip_code: editForm.zipCode || null,
+        emergency_contact: editForm.emergencyContact || null,
+        drivers_license: editForm.cnh || null,
+        drivers_license_validity: editForm.cnhExpiry || null,
+        drivers_license_category: editForm.cnhCategory || null,
+        birth_date: editForm.birthDate || null,
+        observations: editForm.notes || null,
+      })
 
-      if (updateError) throw updateError
+      if ('error' in updateResult && updateResult.error) {
+        alert(updateResult.error)
+        return
+      }
 
-      // Upload de novos documentos se o operador selecionou arquivos
-      // O timestamp no path garante que o novo arquivo não sobrescreva o anterior (mantém histórico)
+      // Upload dos documentos via client (Storage) — timestamp evita sobrescrita do histórico
       const urlUpdates: { drivers_license_photo_url?: string; document_photo_url?: string } = {}
 
       if (editForm.cnhFile) {
@@ -1032,7 +862,6 @@ export default function QueuePage() {
         const path = `customers/${editingEntry.customer_id}/cnh_${Date.now()}.${ext}`
         const { error: uploadErr } = await supabase.storage.from('documents').upload(path, editForm.cnhFile)
         if (!uploadErr) {
-          // Atualiza a URL no banco para apontar para o documento mais recente
           const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
           urlUpdates.drivers_license_photo_url = urlData.publicUrl
         }
@@ -1043,25 +872,24 @@ export default function QueuePage() {
         const path = `customers/${editingEntry.customer_id}/residencia_${Date.now()}.${ext}`
         const { error: uploadErr } = await supabase.storage.from('documents').upload(path, editForm.residenceFile)
         if (!uploadErr) {
-          // Atualiza a URL no banco para apontar para o documento mais recente
           const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
           urlUpdates.document_photo_url = urlData.publicUrl
         }
       }
 
-      // Só faz o UPDATE de URLs se pelo menos um documento foi enviado com sucesso
+      // Patch das URLs via Server Action (auditado)
       if (Object.keys(urlUpdates).length > 0) {
-        await supabase.from('customers').update(urlUpdates).eq('id', editingEntry.customer_id)
+        await updateQueueCustomer(editingEntry.customer_id, urlUpdates)
       }
 
       setIsEditModalOpen(false)
-      await fetchQueue()
+      await invalidateQueueEntries()
     } catch {
       alert('Erro ao salvar. Verifique os dados e tente novamente.')
     } finally {
       setEditSaving(false)
     }
-  }, [supabase, editForm, editingEntry, fetchQueue])
+  }, [supabase, editForm, editingEntry, invalidateQueueEntries])
 
   /**
    * @function openRemoveModal
@@ -1089,11 +917,9 @@ export default function QueuePage() {
    *
    * @param entry - A entrada da fila que será convertida em contrato
    */
-  const openContractModal = useCallback(async (entry: QueueEntry) => {
+  const openContractModal = useCallback((entry: QueueEntry) => {
     setContractEntry(entry)
-    // Carrega motos disponíveis em tempo real para garantir dados atualizados
-    await fetchAvailableMotorcycles()
-    // Reseta o formulário com a data de início como hoje e end_date auto-calculado
+    // Lista de motos disponíveis vem derivada do useMotorcycles — sempre fresca via TanStack Query
     const today = new Date().toISOString().split('T')[0]
     setContractForm({
       motorcycle_id: '',
@@ -1107,7 +933,7 @@ export default function QueuePage() {
       initial_km: '',
     })
     setIsContractModalOpen(true)
-  }, [fetchAvailableMotorcycles])
+  }, [])
 
   /**
    * @function handleCloseContract
@@ -1143,76 +969,34 @@ export default function QueuePage() {
 
     setContractSaving(true)
     try {
-      // ETAPA 1: Criar o contrato ativo no banco
-      // `monthly_amount` recebe o valor SEMANAL (nome histórico da coluna, não alterar)
-      const { error: contractError } = await supabase.from('contracts').insert({
-        customer_id: contractEntry.customer_id,
+      // Server Action faz o fluxo composto auditado: cria contrato, atualiza moto,
+      // registra caução (se houver), tira o cliente da fila e reordena posições.
+      // Cada uma das 5 mutações tem entrada própria no audit log.
+      const result = await closeQueueContract(contractEntry.id, {
         motorcycle_id,
         start_date,
         end_date: end_date || null,
-        monthly_amount: parseFloat(weekly_amount), // Valor semanal — NÃO dividir por 4
-        contract_type: contractForm.contract_type,
-        status: 'active',
-        observations: 'KM inicial: ' + initial_km,
-        tenant_id: getTenantId(),
+        weekly_amount,
+        initial_km,
+        deposit_paid,
+        deposit_amount: deposit_paid ? deposit_amount : null,
+        deposit_payment_method: deposit_paid ? deposit_payment_method : null,
       })
 
-      if (contractError) throw contractError
-
-      // ETAPA 2: Atualizar status da moto para 'rented' e registrar o KM inicial
-      // O KM inicial é salvo em `km_current` para referência futura de manutenção e multas
-      const { error: motoError } = await supabase
-        .from('motorcycles')
-        .update({ status: 'rented', km_current: parseInt(initial_km, 10) })
-        .eq('id', motorcycle_id)
-
-      if (motoError) throw motoError
-
-      // ETAPA 3: Registrar caução como entrada financeira (somente se foi informado que foi paga)
-      if (deposit_paid && deposit_amount) {
-        // Busca os dados da moto selecionada para usar a placa no lançamento
-        const moto = availableMotorcycles.find(m => m.id === motorcycle_id)
-        const { error: incomeError } = await supabase.from('incomes').insert({
-          description: `Caução - ${contractEntry.customers?.name || ''}`,
-          vehicle: moto?.license_plate || '',
-          date: new Date().toISOString().split('T')[0],
-          lessee: contractEntry.customers?.name || '',
-          amount: parseFloat(deposit_amount),
-          reference: 'Caucao',
-          payment_method: deposit_payment_method,
-          tenant_id: getTenantId(),
-        })
-        if (incomeError) throw incomeError
+      if ('error' in result && result.error) {
+        alert(result.error)
+        return
       }
 
-      // ETAPA 4: Remover o candidato da fila — ele agora é um cliente ativo
-      const { error: customerError } = await supabase
-        .from('customers')
-        .update({ in_queue: false })
-        .eq('id', contractEntry.customer_id)
-
-      if (customerError) throw customerError
-
-      // ETAPA 5: Deletar a entrada da fila e reordenar as posições restantes
-      const { error: deleteError } = await supabase
-        .from('queue_entries')
-        .delete()
-        .eq('id', contractEntry.id)
-
-      if (deleteError) throw deleteError
-
-      // Renumera as posições para eliminar o "buraco" deixado pelo candidato que saiu
-      await reorderQueuePositions()
-
       setIsContractModalOpen(false)
-      // Recarrega tanto a fila quanto a contagem de motos (pois uma moto saiu do disponível)
-      loadData()
+      // Invalida fila e motos pois uma saiu de 'available' para 'rented'
+      await Promise.all([invalidateQueueEntries(), invalidateMotorcycles()])
     } catch {
       alert('Ocorreu um erro ao fechar o contrato. Tente novamente.')
     } finally {
       setContractSaving(false)
     }
-  }, [supabase, contractForm, contractEntry, availableMotorcycles, reorderQueuePositions, loadData])
+  }, [contractForm, contractEntry, invalidateQueueEntries, invalidateMotorcycles])
 
   // =============================================================================
   // RENDERIZAÇÃO

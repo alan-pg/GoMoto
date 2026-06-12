@@ -345,6 +345,11 @@ export async function updateQueueEntryNotes(entryId: string, rawData: unknown) {
   return { data }
 }
 
+const QueueCustomerUpdateSchema = CustomerSchema.partial().extend({
+  drivers_license_photo_url: z.string().url().optional().nullable(),
+  document_photo_url: z.string().url().optional().nullable(),
+})
+
 export async function updateQueueCustomer(customerId: string, rawData: unknown) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
@@ -352,7 +357,7 @@ export async function updateQueueCustomer(customerId: string, rawData: unknown) 
   const parsedId = QueueIdSchema.safeParse(customerId)
   if (!parsedId.success) return { error: 'Identificador inválido' }
 
-  const parsed = CustomerSchema.partial().safeParse(rawData)
+  const parsed = QueueCustomerUpdateSchema.safeParse(rawData)
   if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
 
   const { data: before } = await supabase.from('customers').select().eq('id', parsedId.data).single()
