@@ -18,7 +18,8 @@
 
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useMemo } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Plus, Edit2, Trash2, CheckCircle, AlertTriangle, Search, MessageCircle, CheckCircle2, Zap, DollarSign } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
@@ -27,47 +28,28 @@ import { Card } from '@/components/ui/Card'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { createClient } from '@/lib/supabase/client'
-import { useRequiredTenantId } from '@gomoto/data'
-import type { ChargeStatus } from '@gomoto/core'
+import { useBillings, useCustomers, useActiveContracts } from '@gomoto/data'
+import type { Billing } from '@gomoto/core'
 import {
   calculateAverageTicket,
   calculateDaysOverdue,
   calculateDefaultRate,
   calculatePunctualityRate,
 } from '@gomoto/core'
+import {
+  createBilling,
+  updateBilling,
+  markBillingAsPaid,
+  markBillingAsLoss,
+  deleteBilling,
+} from './actions'
 
 /**
  * @type ChargeWithRelations
- * @description Representa uma cobrança retornada pelo Supabase com joins de clientes e contratos.
+ * @description Alias para Billing — mantido para legibilidade interna desta tela.
+ * O shape `customers` / `contracts` vem dos joins feitos pelo repositório em @gomoto/data.
  */
-type ChargeWithRelations = {
-  id: string
-  contract_id: string | null
-  customer_id: string
-  description: string
-  amount: number
-  due_date: string
-  status: ChargeStatus
-  payment_date: string | null
-  observations: string | null
-  created_at: string
-  updated_at: string
-  /** Dados do cliente vinculado via join */
-  customers: { name: string; phone: string } | null
-  /** Dados do contrato vinculado via join */
-  contracts: { id: string } | null
-}
-
-/**
- * @type ContratoOption
- * @description Contrato com dados do cliente para exibição no select do formulário.
- */
-type ContratoOption = {
-  id: string
-  customer_id: string
-  customers: { name: string } | null
-}
+type ChargeWithRelations = Billing
 
 /** @constant tabs - Opções de filtragem por status para os botões de aba. */
 const tabs = [
@@ -95,20 +77,36 @@ const defaultForm = {
  * realiza operações de escrita em tempo real.
  */
 export default function CobrancasPage() {
-  const getTenantId = useRequiredTenantId()
-  /** @state charges - Lista de cobranças carregada do Supabase. */
-  const [charges, setCharges] = useState<ChargeWithRelations[]>([])
-  /** @state clientes - Lista de clientes ativos para o select do formulário. */
-  const [clientes, setClientes] = useState<{ id: string; name: string }[]>([])
-  /** @state contratos - Lista de contratos ativos para o select do formulário. */
-  const [contratos, setContratos] = useState<ContratoOption[]>([])
+  const queryClient = useQueryClient()
 
-  /** @state loading - Indica se os dados principais estão sendo carregados. */
-  const [loading, setLoading] = useState(true)
+  /** Reads via @gomoto/data — cache compartilhado entre telas, refetch automático após mutations. */
+  const billingsQuery = useBillings()
+  const customersQuery = useCustomers()
+  const contractsQuery = useActiveContracts()
+
+  const charges: ChargeWithRelations[] = useMemo(
+    () => (billingsQuery.data ?? []) as ChargeWithRelations[],
+    [billingsQuery.data],
+  )
+  const clientes = useMemo(
+    () => (customersQuery.data ?? []).filter((c) => c.active).map((c) => ({ id: c.id, name: c.name })),
+    [customersQuery.data],
+  )
+  const contratos = useMemo(
+    () =>
+      (contractsQuery.data ?? []).map((c) => ({
+        id: c.id,
+        customer_id: c.customer_id,
+        customers: c.customer ? { name: c.customer.name } : null,
+      })),
+    [contractsQuery.data],
+  )
+
+  const loading = billingsQuery.isLoading
+  const fetchError = billingsQuery.error instanceof Error ? billingsQuery.error.message : null
+
   /** @state saving - Bloqueia botões durante operações de escrita. */
   const [saving, setSaving] = useState(false)
-  /** @state fetchError - Mensagem de erro caso o carregamento falhe. */
-  const [fetchError, setFetchError] = useState<string | null>(null)
 
   /** @state activeTab - Filtro de status selecionado. */
   const [activeTab, setActiveTab] = useState('all')
@@ -131,53 +129,8 @@ export default function CobrancasPage() {
   /** @state deleting - Cobrança selecionada para exclusão. */
   const [deleting, setDeleting] = useState<ChargeWithRelations | null>(null)
 
-  /**
-   * @function fetchCharges
-   * @description Busca todas as cobranças do Supabase com join de clientes e contratos.
-   * Chamada na montagem do componente e após cada operação de escrita.
-   */
-  const fetchCharges = useCallback(async () => {
-    const supabase = createClient()
-    setLoading(true)
-    setFetchError(null)
-    try {
-      const { data, error } = await supabase
-        .from('billings')
-        .select('*, customers(name, phone), contracts(id)')
-        .order('due_date', { ascending: false })
-
-      if (error) throw error
-      setCharges((data as ChargeWithRelations[]) ?? [])
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
-      setFetchError(msg)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  /**
-   * @function fetchDependencies
-   * @description Busca clientes ativos e contratos ativos para popular os selects do formulário.
-   */
-  const fetchDependencies = useCallback(async () => {
-    const supabase = createClient()
-    try {
-      const [{ data: clientesData }, { data: contratosData }] = await Promise.all([
-        supabase.from('customers').select('id, name').eq('active', true).order('name'),
-        supabase.from('contracts').select('id, customer_id, customers(name)').eq('status', 'active'),
-      ])
-      setClientes(clientesData ?? [])
-      setContratos((contratosData as unknown as ContratoOption[]) ?? [])
-    } catch {
-    }
-  }, [])
-
-  /** Carrega os dados na montagem inicial do componente. */
-  useEffect(() => {
-    fetchCharges()
-    fetchDependencies()
-  }, [fetchCharges, fetchDependencies])
+  /** Invalida o cache de billings após cada mutation — substitui o antigo `fetchCharges()`. */
+  const invalidateBillings = () => queryClient.invalidateQueries({ queryKey: ['billings'] })
 
   /**
    * @function openNew
@@ -208,117 +161,74 @@ export default function CobrancasPage() {
   }
 
   /**
-   * @function handleSubmit
-   * @description Envia os dados do formulário ao Supabase para inserção ou atualização.
-   * @param e - Evento de submissão do formulário.
+   * Envia o formulário para a Server Action correspondente.
+   * As actions validam via Zod, injetam tenant_id e gravam audit_log automaticamente.
    */
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
-    const supabase = createClient()
-    try {
-      if (editingId) {
-        /** Atualização de cobrança existente */
-        const { error } = await supabase.from('billings').update({
-          customer_id: form.customer_id,
-          contract_id: form.contract_id || null,
-          description: form.description,
-          amount: parseFloat(form.amount),
-          due_date: form.due_date,
-          observations: form.notes || null,
-        }).eq('id', editingId)
-        if (error) throw error
-      } else {
-        /** Inserção de nova cobrança */
-        const { error } = await supabase.from('billings').insert({
-          customer_id: form.customer_id,
-          contract_id: form.contract_id || null,
-          description: form.description,
-          amount: parseFloat(form.amount),
-          due_date: form.due_date,
-          status: 'pending',
-          observations: form.notes || null,
-          tenant_id: getTenantId(),
-        })
-        if (error) throw error
-      }
-      setModalOpen(false)
-      await fetchCharges()
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro ao salvar'
-      alert('Erro ao salvar cobrança: ' + msg)
-    } finally {
-      setSaving(false)
+    const payload = {
+      customer_id: form.customer_id,
+      contract_id: form.contract_id || null,
+      description: form.description,
+      amount: parseFloat(form.amount),
+      due_date: form.due_date,
+      observations: form.notes || null,
     }
+    const result = editingId
+      ? await updateBilling(editingId, payload)
+      : await createBilling(payload)
+
+    if ('error' in result) {
+      alert('Erro ao salvar cobrança: ' + result.error)
+    } else {
+      setModalOpen(false)
+      await invalidateBillings()
+    }
+    setSaving(false)
   }
 
-  /**
-   * @function confirmPaid
-   * @description Atualiza o status para 'paid', registra a data de pagamento e o método utilizado.
-   */
+  /** Marca como pago via Server Action — concat de observations e audit_log feitos server-side. */
   async function confirmPaid() {
     if (!confirmingPaid || !paymentMethod) return
     setSaving(true)
-    const supabase = createClient()
-    try {
-      const obsAtual = confirmingPaid.observations ? confirmingPaid.observations + '\n' : ''
-      const { error } = await supabase.from('billings').update({
-        status: 'paid',
-        payment_date: new Date().toISOString().split('T')[0],
-        observations: `${obsAtual}Método: ${paymentMethod}`,
-      }).eq('id', confirmingPaid.id)
-      if (error) throw error
+    const result = await markBillingAsPaid(confirmingPaid.id, paymentMethod)
+    if ('error' in result) {
+      alert('Erro: ' + result.error)
+    } else {
       setConfirmingPaid(null)
       setPaymentMethod('')
-      await fetchCharges()
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro ao confirmar pagamento'
-      alert('Erro: ' + msg)
-    } finally {
-      setSaving(false)
+      await invalidateBillings()
     }
+    setSaving(false)
   }
 
-  /**
-   * @function confirmLoss
-   * @description Atualiza o status da cobrança para 'loss' (prejuízo irrecuperável).
-   */
+  /** Marca como prejuízo via Server Action. */
   async function confirmLoss() {
     if (!confirmingLoss) return
     setSaving(true)
-    const supabase = createClient()
-    try {
-      const { error } = await supabase.from('billings').update({ status: 'loss' }).eq('id', confirmingLoss.id)
-      if (error) throw error
+    const result = await markBillingAsLoss(confirmingLoss.id)
+    if ('error' in result) {
+      alert('Erro: ' + result.error)
+    } else {
       setConfirmingLoss(null)
-      await fetchCharges()
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro ao marcar como prejuízo'
-      alert('Erro: ' + msg)
-    } finally {
-      setSaving(false)
+      await invalidateBillings()
     }
+    setSaving(false)
   }
 
-  /**
-   * @function confirmDeletion
-   * @description Remove permanentemente uma cobrança do banco de dados.
-   */
+  /** Exclui via Server Action — audit_log da exclusão registrado server-side. */
   async function confirmDeletion() {
     if (!deleting) return
     setSaving(true)
-    const supabase = createClient()
-    try {
-      const { error } = await supabase.from('billings').delete().eq('id', deleting.id)
-      if (error) throw error
+    const result = await deleteBilling(deleting.id)
+    if ('error' in result) {
+      alert('Erro: ' + result.error)
+    } else {
       setDeleting(null)
-      await fetchCharges()
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro ao excluir'
-      alert('Erro: ' + msg)
-    } finally {
-      setSaving(false)
+      await invalidateBillings()
     }
+    setSaving(false)
   }
 
   /**
@@ -469,7 +379,7 @@ export default function CobrancasPage() {
               <p className="text-[13px] font-medium text-[#ff9c9a]">Erro ao carregar cobranças</p>
               <p className="text-[12px] text-[#9e9e9e] mt-0.5">{fetchError}</p>
             </div>
-            <Button variant="outline" size="sm" onClick={fetchCharges}>
+            <Button variant="outline" size="sm" onClick={() => billingsQuery.refetch()}>
               Tentar novamente
             </Button>
           </div>
