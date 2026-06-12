@@ -34,11 +34,11 @@ Detalhes e tradeoffs registrados em [[decisions/0002-padrao-canonico-pagina-serv
 
 | Item | Situação |
 |---|---|
-| PDF de contratos | Botão existe, mas não gera arquivo real |
+| PDF de contratos | Botão "PDF" gera via docx-preview + print dialog (commit `683a233`) |
 | Geolocalização de motos | Lat/lng simulados no mapa; GPS real comentado como "futuro" |
 | Emails transacionais | Settings preparado, mas não envia |
 | Webhooks/notificações | Não implementado |
-| App mobile | Estrutura `apps/mobile/` ainda não criada (Fase 4-bis) |
+| App mobile | Bootstrap pronto (Expo SDK 52 + Expo Router, commit `5e036ad`); telas de produto pendentes |
 | `packages/data` cobre só leituras | Mutações vivem em `actions.ts` por tela (decisão registrada na ADR 0002) |
 
 ## 🐛 Bugs conhecidos
@@ -60,13 +60,14 @@ Auditoria em 2026-06-12 confirmou que `contratos`, `cobrancas`, `fila` e `manute
 
 ## 🚀 Roadmap imediato (ordem sugerida)
 
-1. **Fase 4-bis — bootstrap `apps/mobile`** (Expo + Expo Router).
+1. **Fase 4-bis — telas de produto no mobile** (auth, listagem, etc.) — bootstrap concluído, falta migrar consumo de `@gomoto/data` (hooks precisam adaptar para RN sem SSR) e implementar fluxo de login.
 2. **Resend** — emails de cobrança vencida, lembretes de manutenção.
 3. **Upstash Redis** — migrar rate-limit de in-memory pra persistente.
 4. **Sentry** — monitoramento de erros em produção (adiado pro final, fechar quando subir pra prod real).
 
 ## ✅ Recentemente entregue
 
+- **Bootstrap `apps/mobile`** (commit `5e036ad`, 2026-06-12) — Expo SDK 52 + Expo Router + metro.config para monorepo PNPM. Validação pendente: rodar `pnpm --filter @gomoto/mobile dev` e abrir no Expo Go ou emulador.
 - **Geração de PDF de contratos** (commit `683a233`, 2026-06-12) — botão "PDF" lado a lado com "Gerar [template]" usa `docx-preview` + print dialog nativo. Validação visual pendente.
 - **Fase 3 — extrair regime de manutenção** (commit `521b9ca`, 2026-06-12) — última concentração grande de regra inline migrada para `@gomoto/core`.
 
