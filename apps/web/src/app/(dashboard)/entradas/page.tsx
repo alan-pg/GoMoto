@@ -20,17 +20,18 @@
 'use client';
 
 // React
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 
 // Libs externas
 import { Plus, Edit2, Trash2, TrendingUp, Calendar, DollarSign, Search, ChevronDown } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 
 // Tipos
 import type { Income } from '@gomoto/core';
 
-// Supabase
-import { createClient } from '@/lib/supabase/client';
-import { useRequiredTenantId } from '@gomoto/data';
+// Camada de dados compartilhada (@gomoto/data) + Server Actions (façade de auditoria)
+import { useIncomes, useMotorcycles, useSupabaseContext } from '@gomoto/data';
+import { createIncome, updateIncome, deleteIncome } from './actions';
 
 // Utilitários
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -113,36 +114,36 @@ const INITIAL_FORM_STATE: IncomeFormState = {
  * @description Página principal de gestão de entradas financeiras do GoMoto.
  */
 export default function EntradasPage() {
-  const supabase = createClient();
-  const getTenantId = useRequiredTenantId();
+  // Cliente Supabase apenas para o lookup pontual de locatário (read-only, não é mutação).
+  const supabase = useSupabaseContext();
+  const queryClient = useQueryClient();
 
-  // --- Estados de Dados ---
-  /**
-   * @type {Income[]}
-   * @description Armazena a lista de entradas financeiras carregadas do Supabase.
-   */
-  const [incomes, setIncomes] = useState<Income[]>([]);
-  /**
-   * @type {Motorcycle[]}
-   * @description Armazena a lista de motocicletas carregadas do Supabase, usada para autocomplete e seleção.
-   */
-  const [motorcycles, setMotorcycles] = useState<Motorcycle[]>([]);
+  // --- Camada de dados compartilhada ---
+  const incomesQuery = useIncomes();
+  const motorcyclesQuery = useMotorcycles();
 
-  // --- Estados de Carregamento e Ações ---
-  /**
-   * @type {boolean}
-   * @description Indica se os dados estão sendo carregados do Supabase.
-   */
-  const [loading, setLoading] = useState<boolean>(true);
-  /**
-   * @type {boolean}
-   * @description Indica se uma operação de salvar (criar/editar) está em andamento.
-   */
+  const allIncomes = useMemo(() => (incomesQuery.data ?? []) as Income[], [incomesQuery.data]);
+  const motorcycles = useMemo<Motorcycle[]>(
+    () =>
+      (motorcyclesQuery.data ?? [])
+        .map((m) => ({
+          id: m.id,
+          license_plate: m.license_plate,
+          model: m.model,
+          make: m.make,
+        }))
+        .sort((a, b) => a.license_plate.localeCompare(b.license_plate)),
+    [motorcyclesQuery.data],
+  );
+
+  const loading = incomesQuery.isLoading || motorcyclesQuery.isLoading;
+  const invalidateIncomes = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['incomes'] }),
+    [queryClient],
+  );
+
+  // --- Estados de Ações ---
   const [saving, setSaving] = useState<boolean>(false);
-  /**
-   * @type {boolean}
-   * @description Indica se uma operação de exclusão está em andamento.
-   */
   const [deleting, setDeleting] = useState<boolean>(false);
 
   // --- Estados de Filtro ---
@@ -199,53 +200,23 @@ export default function EntradasPage() {
    */
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-  // --- BUSCA DE DADOS ---
-
+  // --- FILTRAGEM POR MÊS (client-side) ---
   /**
-   * @function fetchData
-   * @description Busca as entradas e as motocicletas do Supabase, aplicando filtro por mês.
+   * @constant incomes
+   * @description Entradas do mês selecionado. O hook `useIncomes()` traz todas as entradas do tenant
+   *              (RLS aplica em backend); o recorte por mês é feito no cliente porque o dataset é
+   *              naturalmente limitado e o filtro só afeta visualização.
    */
-  const fetchData = useCallback(async (): Promise<void> => {
-    setLoading(true);
-    try {
-      const [yearStr, monthStr] = selectedMonth.split('-');
-      const year = parseInt(yearStr);
-      const month = parseInt(monthStr);
-
-      const firstDayOfMonth = `${year}-${String(month).padStart(2, '0')}-01`;
-      const lastDayOfMonth = new Date(year, month, 0).toISOString().split('T')[0];
-
-      const [incomesResult, motorcyclesResult] = await Promise.all([
-        supabase
-          .from('incomes')
-          .select('*')
-          .gte('date', firstDayOfMonth)
-          .lte('date', lastDayOfMonth)
-          .order('date', { ascending: false }),
-        supabase
-          .from('motorcycles')
-          .select('id, license_plate, model, make')
-          .order('license_plate'),
-      ]);
-
-      if (incomesResult.error) throw incomesResult.error;
-      if (motorcyclesResult.error) throw motorcyclesResult.error;
-
-      setIncomes((incomesResult.data as Income[]) || []);
-      setMotorcycles((motorcyclesResult.data as Motorcycle[]) || []);
-    } catch {
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedMonth, supabase]);
-
-  /**
-   * @hook useEffect
-   * @description Efeito para carregar os dados sempre que `fetchData` for atualizado (ex: mudança de mês).
-   */
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const incomes = useMemo<Income[]>(() => {
+    const [yearStr, monthStr] = selectedMonth.split('-');
+    const year = parseInt(yearStr);
+    const month = parseInt(monthStr);
+    const firstDay = `${year}-${String(month).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month, 0).toISOString().split('T')[0];
+    return allIncomes
+      .filter((i) => i.date >= firstDay && i.date <= lastDay)
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  }, [allIncomes, selectedMonth]);
 
   // --- OPÇÕES DO SELECT DE MOTOCICLETA ---
 
@@ -494,22 +465,21 @@ export default function EntradasPage() {
         observations: formData.observations || null,
       };
 
-      if (currentIncome) {
-        const { error } = await supabase.from('incomes').update(payload).eq('id', currentIncome.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('incomes').insert([{ ...payload, tenant_id: getTenantId() }]);
-        if (error) throw error;
+      const result = currentIncome
+        ? await updateIncome(currentIncome.id, payload)
+        : await createIncome(payload);
+
+      if ('error' in result) {
+        alert('Erro ao salvar: ' + result.error);
+        return;
       }
 
       handleCloseModal();
-      fetchData();
-    } catch {
-      alert('Erro ao salvar os dados. Verifique e tente novamente.');
+      await invalidateIncomes();
     } finally {
       setSaving(false);
     }
-  }, [formData, currentIncome, supabase, validateForm, handleCloseModal, fetchData]);
+  }, [formData, currentIncome, validateForm, handleCloseModal, invalidateIncomes]);
 
   /**
    * @function handleDelete
@@ -519,16 +489,17 @@ export default function EntradasPage() {
     if (!currentIncome) return;
     setDeleting(true);
     try {
-      const { error } = await supabase.from('incomes').delete().eq('id', currentIncome.id);
-      if (error) throw error;
+      const result = await deleteIncome(currentIncome.id);
+      if ('error' in result) {
+        alert('Erro ao excluir: ' + result.error);
+        return;
+      }
       handleCloseDeleteModal();
-      fetchData();
-    } catch {
-      alert('Erro ao excluir a entrada.');
+      await invalidateIncomes();
     } finally {
       setDeleting(false);
     }
-  }, [currentIncome, supabase, handleCloseDeleteModal, fetchData]);
+  }, [currentIncome, handleCloseDeleteModal, invalidateIncomes]);
 
   // --- RENDERIZAÇÃO ---
 
