@@ -60,7 +60,7 @@ Auditoria em 2026-06-12 confirmou que `contratos`, `cobrancas`, `fila` e `manute
 
 ## 🚀 Roadmap imediato (ordem sugerida)
 
-1. **Fase 4-bis — telas de produto no mobile** (auth, listagem, etc.) — bootstrap concluído, falta migrar consumo de `@gomoto/data` (hooks precisam adaptar para RN sem SSR) e implementar fluxo de login.
+1. **Fase 4-bis — telas de produto no mobile** — bootstrap + login concluídos. Próximos slices: listagens (motos, clientes, contratos) consumindo `@gomoto/data` — hooks precisam adaptar para RN (provider sem SSR + cliente supabase do mobile).
 2. **Resend** — emails de cobrança vencida, lembretes de manutenção.
 3. **Upstash Redis** — migrar rate-limit de in-memory pra persistente.
 4. **Sentry** — monitoramento de erros em produção (adiado pro final, fechar quando subir pra prod real).
