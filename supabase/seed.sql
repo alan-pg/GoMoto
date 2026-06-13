@@ -90,6 +90,70 @@ INSERT INTO tenant_members (tenant_id, user_id, role) VALUES
 ON CONFLICT (tenant_id, user_id) DO NOTHING;
 
 -- ============================================================
+-- USUÁRIO DE TESTE PARA O MOBILE (cliente)
+-- Email: cliente@gomoto.dev / Senha: gomoto123
+--
+-- `password_set: true` em raw_user_meta_data pula a tela de definir
+-- senha no primeiro login — vai direto pra home das tabs.
+-- O vínculo com customers.user_id é feito mais abaixo (Joao da Silva).
+-- ============================================================
+INSERT INTO auth.users (
+    instance_id,
+    id,
+    aud,
+    role,
+    email,
+    encrypted_password,
+    email_confirmed_at,
+    last_sign_in_at,
+    raw_app_meta_data,
+    raw_user_meta_data,
+    created_at,
+    updated_at,
+    confirmation_token,
+    email_change,
+    email_change_token_new,
+    recovery_token
+) VALUES (
+    '00000000-0000-0000-0000-000000000000',
+    'f0000000-0000-0000-0000-000000000002',
+    'authenticated',
+    'authenticated',
+    'cliente@gomoto.dev',
+    crypt('gomoto123', gen_salt('bf')),
+    NOW(),
+    NOW(),
+    '{"provider":"email","providers":["email"]}'::jsonb,
+    '{"name":"Joao da Silva","password_set":true}'::jsonb,
+    NOW(),
+    NOW(),
+    '',
+    '',
+    '',
+    ''
+) ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO auth.identities (
+    id,
+    user_id,
+    provider_id,
+    identity_data,
+    provider,
+    last_sign_in_at,
+    created_at,
+    updated_at
+) VALUES (
+    gen_random_uuid(),
+    'f0000000-0000-0000-0000-000000000002',
+    'f0000000-0000-0000-0000-000000000002',
+    format('{"sub":"%s","email":"%s"}', 'f0000000-0000-0000-0000-000000000002', 'cliente@gomoto.dev')::jsonb,
+    'email',
+    NOW(),
+    NOW(),
+    NOW()
+) ON CONFLICT (provider_id, provider) DO NOTHING;
+
+-- ============================================================
 -- SEED: maintenance_items (13 itens padrão)
 -- ============================================================
 INSERT INTO maintenance_items (tenant_id, name, km_interval, day_interval, type, tip) VALUES
@@ -132,10 +196,11 @@ INSERT INTO motorcycles (id, tenant_id, license_plate, model, make, year, color,
 -- ============================================================
 -- SEED: customers (3 clientes fictícios)
 -- ============================================================
-INSERT INTO customers (id, tenant_id, name, cpf, rg, state, phone, email, in_queue, active) VALUES
-('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '00000000-0000-0000-0000-000000000001', 'Joao da Silva',  '123.456.789-09', '12345678', 'SP', '(11) 98765-4321', 'joao.silva@email.com',     false, true),
-('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '00000000-0000-0000-0000-000000000001', 'Maria Santos',   '987.654.321-00', '87654321', 'SP', '(11) 91234-5678', 'maria.santos@email.com',   false, true),
-('cccccccc-cccc-cccc-cccc-cccccccccccc', '00000000-0000-0000-0000-000000000001', 'Pedro Oliveira', '111.222.333-44', '11223344', 'SP', '(11) 99988-7766', 'pedro.oliveira@email.com', true,  true);
+-- Joao da Silva é o cliente vinculado ao login mobile (cliente@gomoto.dev).
+INSERT INTO customers (id, tenant_id, user_id, name, cpf, rg, state, phone, email, in_queue, active) VALUES
+('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '00000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 'Joao da Silva',  '123.456.789-09', '12345678', 'SP', '(11) 98765-4321', 'cliente@gomoto.dev',       false, true),
+('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '00000000-0000-0000-0000-000000000001', NULL,                                  'Maria Santos',   '987.654.321-00', '87654321', 'SP', '(11) 91234-5678', 'maria.santos@email.com',   false, true),
+('cccccccc-cccc-cccc-cccc-cccccccccccc', '00000000-0000-0000-0000-000000000001', NULL,                                  'Pedro Oliveira', '111.222.333-44', '11223344', 'SP', '(11) 99988-7766', 'pedro.oliveira@email.com', true,  true);
 
 -- ============================================================
 -- SEED: contracts (2 contratos ativos)
