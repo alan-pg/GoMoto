@@ -12,13 +12,30 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+const NOT_A_CUSTOMER_ERROR = 'Esta conta não tem acesso ao app.'
+
+async function isCustomer(userId: string): Promise<boolean> {
+  const { data } = await supabase
+    .from('customers')
+    .select('id')
+    .eq('user_id', userId)
+    .limit(1)
+    .maybeSingle()
+  return data !== null
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (data.session && !(await isCustomer(data.session.user.id))) {
+        await supabase.auth.signOut()
+        setSession(null)
+      } else {
+        setSession(data.session)
+      }
       setLoading(false)
     })
 
@@ -32,8 +49,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   async function signIn(email: string, password: string) {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    return { error: error?.message ?? null }
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) return { error: error.message }
+
+    if (data.user && !(await isCustomer(data.user.id))) {
+      await supabase.auth.signOut()
+      return { error: NOT_A_CUSTOMER_ERROR }
+    }
+
+    return { error: null }
   }
 
   async function signOut() {

@@ -25,7 +25,8 @@ export default function LoginScreen() {
     setSubmitting(true)
     const { error: authError } = await signIn(email.trim(), password)
     if (authError) {
-      setError('Email ou senha incorretos.')
+      const isAccessDenied = authError === 'Esta conta não tem acesso ao app.'
+      setError(isAccessDenied ? authError : 'Email ou senha incorretos.')
       setSubmitting(false)
     }
   }
