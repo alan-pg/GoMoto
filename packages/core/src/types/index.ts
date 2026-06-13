@@ -157,6 +157,8 @@ export interface Customer {
   id: string;
   /** @property tenant_id - Tenant ao qual o registro pertence (Fase 5). */
   tenant_id: string;
+  /** @property user_id - Vínculo opcional com auth.users; presente quando o cliente recebeu acesso ao mobile. Ver ADR 0003. */
+  user_id?: string | null;
   /** @property name - Nome completo do locatário. */
   name: string;
   /** @property cpf - Cadastro de Pessoa Física. */

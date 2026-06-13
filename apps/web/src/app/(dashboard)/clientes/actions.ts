@@ -1,9 +1,12 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { CustomerSchema } from '@gomoto/core'
 import { logAction } from '@/lib/audit'
+
+const MOBILE_REDIRECT = 'gomoto://auth-callback'
 
 async function getAuthenticatedUser() {
   const supabase = await createClient()
@@ -32,6 +35,67 @@ export async function updateCustomer(id: string, rawData: unknown) {
   await logAction({ action: 'update', table: 'customers', recordId: id, oldData: before, newData: data })
   revalidatePath('/clientes')
   return { data }
+}
+
+export async function inviteCustomerToApp(id: string) {
+  const { supabase, user } = await getAuthenticatedUser()
+  if (!user) return { error: 'Não autorizado' }
+
+  const { data: customer, error: fetchErr } = await supabase
+    .from('customers')
+    .select('id, email, user_id, name')
+    .eq('id', id)
+    .single()
+
+  if (fetchErr || !customer) return { error: 'Cliente não encontrado' }
+  if (!customer.email) return { error: 'Cliente sem email cadastrado' }
+  if (customer.user_id) return { error: 'Cliente já tem acesso ao app' }
+
+  const serviceUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceUrl || !serviceKey) return { error: 'SUPABASE_SERVICE_ROLE_KEY ausente no servidor' }
+
+  const supabaseAdmin = createAdminClient(serviceUrl, serviceKey, { auth: { persistSession: false } })
+  const normalizedEmail = customer.email.trim().toLowerCase()
+
+  // Lookup primeiro: cliente pode já ser auth.users (cliente de outro tenant ou usuário reciclando email).
+  // listUsers é paginado; perPage=1000 atende MVP. Trocar por RPC SECURITY DEFINER se o volume crescer.
+  const { data: list, error: listErr } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 })
+  if (listErr) return { error: `Falha ao consultar usuários: ${listErr.message}` }
+
+  const existing = list.users.find((u) => u.email?.toLowerCase() === normalizedEmail)
+  let authUserId: string
+
+  if (existing) {
+    authUserId = existing.id
+  } else {
+    const { data: invited, error: inviteErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+      normalizedEmail,
+      { redirectTo: MOBILE_REDIRECT }
+    )
+    if (inviteErr || !invited.user) {
+      return { error: `Falha ao enviar convite: ${inviteErr?.message ?? 'erro desconhecido'}` }
+    }
+    authUserId = invited.user.id
+  }
+
+  // UPDATE via client autenticado para que RLS confine ao tenant ativo.
+  const { error: linkErr } = await supabase
+    .from('customers')
+    .update({ user_id: authUserId })
+    .eq('id', id)
+
+  if (linkErr) return { error: `Falha ao vincular conta: ${linkErr.message}` }
+
+  await logAction({
+    action: 'update',
+    table: 'customers',
+    recordId: id,
+    newData: { user_id: authUserId, invite_action: existing ? 'linked_existing' : 'invited' },
+  })
+  revalidatePath('/clientes')
+
+  return { success: true, alreadyExisted: !!existing }
 }
 
 export async function deleteCustomer(id: string) {

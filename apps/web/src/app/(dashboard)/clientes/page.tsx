@@ -23,8 +23,9 @@ import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   Edit2, Trash2, Eye, Search, MessageCircle,
-  Users, UserMinus,
+  Users, UserMinus, Smartphone, CheckCircle2,
 } from 'lucide-react'
+import { inviteCustomerToApp } from './actions'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -213,6 +214,9 @@ export default function ClientesPage() {
   /** @state deleting - True enquanto o botão Excluir aguarda resposta do Supabase. */
   const [deleting, setDeleting] = useState(false)
 
+  /** @state inviting - True enquanto a Server Action de convite está em andamento. */
+  const [inviting, setInviting] = useState(false)
+
   // ── Formulário ─────────────────────────────────────────────────────────────
 
   /** @state formState - Valores atuais de todos os campos do modal de edição. */
@@ -375,6 +379,35 @@ export default function ClientesPage() {
       await fetchCustomers()
     }
     setDeleting(false)
+  }
+
+  /**
+   * @function handleInvite
+   * @description Dispara a Server Action `inviteCustomerToApp`. Vincula um auth.users
+   * existente OU envia magic link via Supabase Admin API. Ver ADR 0003 §4.
+   * @param {Customer} customer - Cliente a receber o convite.
+   */
+  const handleInvite = async (customer: Customer) => {
+    if (inviting) return
+    setInviting(true)
+    const result = await inviteCustomerToApp(customer.id)
+    if (result.error) {
+      alert(`Erro: ${result.error}`)
+    } else {
+      alert(result.alreadyExisted
+        ? 'Cliente já tinha conta — vínculo registrado.'
+        : 'Convite enviado por email. O cliente recebe um link para entrar no app.')
+      const { data: refreshed } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('id', customer.id)
+        .single()
+      if (refreshed) {
+        setCustomers((prev) => prev.map((c) => (c.id === refreshed.id ? refreshed : c)))
+        setViewingCustomer((current) => (current?.id === refreshed.id ? refreshed : current))
+      }
+    }
+    setInviting(false)
   }
 
   // ---------------------------------------------------------------------------
@@ -752,6 +785,39 @@ export default function ClientesPage() {
                   <p className="text-[13px] text-[#f5f5f5] bg-[#323232] border border-[#474747] rounded-lg px-3 py-2 leading-relaxed">
                     {viewingCustomer.observations}
                   </p>
+                </div>
+              )}
+            </div>
+
+            {/* Acesso ao app mobile — ADR 0003 §4 */}
+            <div className="pt-4 border-t border-[#323232]">
+              <h4 className="font-medium text-[#f5f5f5] mb-3 flex items-center gap-2">
+                <Smartphone className="h-4 w-4 text-[#BAFF1A]" />
+                Acesso ao app
+              </h4>
+              {viewingCustomer.user_id ? (
+                <div className="flex items-center gap-2 text-[13px] text-[#9ad36b]">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>Cliente já tem acesso ao app mobile.</span>
+                </div>
+              ) : !viewingCustomer.email ? (
+                <p className="text-[13px] text-[#9e9e9e]">
+                  Cadastre um email para enviar o convite de acesso.
+                </p>
+              ) : (
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <p className="text-[13px] text-[#9e9e9e]">
+                    Envia um link mágico para <span className="text-[#f5f5f5]">{viewingCustomer.email}</span>.
+                    No primeiro acesso o cliente define a senha.
+                  </p>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    loading={inviting}
+                    onClick={() => handleInvite(viewingCustomer)}
+                  >
+                    Enviar acesso ao app
+                  </Button>
                 </div>
               )}
             </div>
