@@ -5,19 +5,27 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native'
 import { AuthProvider, useAuth } from '../src/contexts/auth'
 
 function RootGate() {
-  const { session, loading } = useAuth()
+  const { session, loading, needsPasswordSetup } = useAuth()
   const router = useRouter()
   const segments = useSegments()
 
   useEffect(() => {
     if (loading) return
     const onLogin = segments[0] === 'login'
+    const onSetPassword = segments[0] === 'set-password'
+
     if (!session && !onLogin) {
       router.replace('/login')
-    } else if (session && onLogin) {
+      return
+    }
+    if (session && needsPasswordSetup && !onSetPassword) {
+      router.replace('/set-password')
+      return
+    }
+    if (session && !needsPasswordSetup && (onLogin || onSetPassword)) {
       router.replace('/')
     }
-  }, [session, loading, segments, router])
+  }, [session, loading, needsPasswordSetup, segments, router])
 
   if (loading) {
     return (
