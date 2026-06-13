@@ -19,9 +19,9 @@ config.resolver.nodeModulesPaths = [
   path.resolve(monorepoRoot, 'node_modules'),
 ]
 
-// 3. Desliga lookup hierárquico (sobe diretórios procurando node_modules) — quebra
-// em PNPM porque pode achar versões erradas via store global. As paths acima já
-// cobrem todos os casos legítimos.
-config.resolver.disableHierarchicalLookup = true
+// 3. Em PNPM, deps transitivas (ex.: whatwg-fetch do @expo/metro-runtime) ficam ao
+// lado do pacote dentro do store (node_modules/.pnpm/<pkg>@.../node_modules/<dep>).
+// Mantemos o lookup hierárquico ligado para que o Metro suba e encontre essas siblings.
+config.resolver.unstable_enableSymlinks = true
 
 module.exports = config
