@@ -11,6 +11,7 @@
   "dependencies": {
     "@expo/metro-runtime": "~56.0.15",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-navigation/bottom-tabs": "^7.18.0",
     "@supabase/supabase-js": "^2.108.1",
     "expo": "~56.0.11",
     "expo-constants": "~56.0.18",
