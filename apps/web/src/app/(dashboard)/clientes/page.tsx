@@ -32,6 +32,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import type { Customer } from '@gomoto/core'
+import { normalizeCpf } from '@gomoto/core'
 
 // ---------------------------------------------------------------------------
 // Cliente Supabase — instância única no módulo (mesmo padrão da manutenção)
@@ -314,7 +315,7 @@ export default function ClientesPage() {
       .from('customers')
       .update({
         name:                      formState.name,
-        cpf:                       formState.cpf,
+        cpf:                       normalizeCpf(formState.cpf),
         rg:                        formState.rg              || null,
         state:                     formState.state            || null,
         phone:                     formState.phone,

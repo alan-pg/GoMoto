@@ -1,3 +1,17 @@
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
+const supabaseHttpOrigin = supabaseUrl ? new URL(supabaseUrl).origin : ''
+const supabaseWsOrigin = supabaseHttpOrigin.replace(/^http/, 'ws')
+
+const csp = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  `img-src 'self' data: blob: ${supabaseHttpOrigin} https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://unpkg.com`,
+  `connect-src 'self' ${supabaseHttpOrigin} ${supabaseWsOrigin}`,
+  "frame-ancestors 'none'",
+].join('; ')
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: ['@gomoto/core'],
@@ -12,7 +26,7 @@ const nextConfig = {
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-          { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://hcnxbqunescfanqzmsha.supabase.co https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://unpkg.com; connect-src 'self' https://hcnxbqunescfanqzmsha.supabase.co wss://hcnxbqunescfanqzmsha.supabase.co; frame-ancestors 'none'" },
+          { key: 'Content-Security-Policy', value: csp },
         ],
       },
     ]

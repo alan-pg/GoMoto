@@ -1,6 +1,17 @@
 import { z } from 'zod'
+import { isCpfDigits, normalizeCpf } from '../identity/index'
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
+
+/**
+ * CPF aceita qualquer formato na entrada (com ou sem máscara) e
+ * normaliza para 11 dígitos antes de validar. Rejeita ausente/inválido —
+ * é identidade obrigatória do cliente (ADR 0004 §2).
+ */
+const cpfDigitsString = z
+  .string({ error: 'CPF é obrigatório' })
+  .transform((input) => normalizeCpf(input))
+  .refine((digits) => isCpfDigits(digits), { message: 'CPF inválido: precisa ter 11 dígitos' })
 
 export const MotorcycleSchema = z.object({
   license_plate: z.string().trim().max(10),
@@ -26,7 +37,7 @@ export const MotorcycleSchema = z.object({
 
 export const CustomerSchema = z.object({
   name: z.string().trim().min(1).max(200),
-  cpf: z.string().trim().max(14).optional().nullable(),
+  cpf: cpfDigitsString,
   rg: z.string().trim().max(20).optional().nullable(),
   state: z.string().trim().max(2).optional().nullable(),
   phone: z.string().trim().max(20).optional().nullable(),
@@ -91,6 +102,75 @@ export const FineSchema = z.object({
   payment_date: dateString.optional().nullable(),
   responsible: z.enum(['customer', 'company']).optional(),
   observations: z.string().trim().max(2000).optional().nullable(),
+})
+
+/**
+ * TenantSchema — usado na criação/edição de tenants pela área administrativa
+ * da plataforma. Slug obedece kebab-case (mesma convenção dos seeds).
+ */
+/**
+ * CNPJ aceita máscara na entrada, normaliza para 14 dígitos antes de
+ * validar. Opcional — a empresa pode entrar sem CNPJ formal (ex.: piloto).
+ */
+const cnpjDigitsOptional = z
+  .string()
+  .trim()
+  .transform((input) => input.replace(/\D+/g, ''))
+  .refine((digits) => digits === '' || /^[0-9]{14}$/.test(digits), {
+    message: 'CNPJ inválido: precisa ter 14 dígitos',
+  })
+  .optional()
+  .nullable()
+
+const cepDigits = z
+  .string()
+  .trim()
+  .transform((input) => input.replace(/\D+/g, ''))
+  .refine((digits) => /^[0-9]{8}$/.test(digits), { message: 'CEP precisa ter 8 dígitos' })
+
+const ufCode = z
+  .string()
+  .trim()
+  .transform((input) => input.toUpperCase())
+  .refine((v) => /^[A-Z]{2}$/.test(v), { message: 'UF precisa ter 2 letras' })
+
+export const TenantSchema = z.object({
+  name: z.string().trim().min(2).max(200),
+  slug: z
+    .string()
+    .trim()
+    .min(2)
+    .max(100)
+    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Use apenas letras minúsculas, números e hífens (ex.: gomoto-norte)'),
+  legal_name: z.string().trim().min(2, 'Razão social é obrigatória').max(200),
+  cnpj: cnpjDigitsOptional,
+  contact_email: z.string().trim().toLowerCase().email('Email de contato inválido').max(200),
+  contact_phone: z.string().trim().min(8, 'Telefone obrigatório').max(30),
+  address_zip: cepDigits,
+  address_street: z.string().trim().min(2, 'Logradouro obrigatório').max(200),
+  address_number: z.string().trim().min(1, 'Número obrigatório').max(20),
+  address_complement: z.string().trim().max(100).optional().nullable(),
+  address_district: z.string().trim().min(2, 'Bairro obrigatório').max(100),
+  address_city: z.string().trim().min(2, 'Cidade obrigatória').max(100),
+  address_state: ufCode,
+})
+
+/**
+ * Cadastro completo de empresa (tenant + owner principal).
+ * O owner é criado em auth.users pelo RPC; a senha é definida pelo
+ * platform_admin no momento do cadastro (cliente troca depois).
+ */
+export const CreateTenantWithOwnerSchema = z.object({
+  tenant: TenantSchema,
+  owner: z.object({
+    name: z.string().trim().min(2, 'Nome do responsável é obrigatório').max(200),
+    email: z.string().trim().toLowerCase().email('Email do owner inválido').max(200),
+    password: z.string().min(8, 'Senha precisa de no mínimo 8 caracteres').max(72),
+  }),
+})
+
+export const TenantSuspendSchema = z.object({
+  reason: z.string().trim().min(1, 'Informe o motivo da suspensão').max(500),
 })
 
 export const MaintenanceBootstrapSchema = z.array(z.object({

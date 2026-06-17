@@ -99,11 +99,10 @@ export default function LoginPage() {
       return
     }
 
-    /**
-     * Sucesso no Login:
-     * Redireciona o usuário para a página principal do sistema.
-     */
-    router.push('/dashboard')
+    // Separação de planos: platform_admin vai pro control plane;
+    // tenant_member vai pro cockpit. Cada papel só vê o seu universo.
+    const { data: platformRole } = await supabase.rpc('get_platform_role')
+    router.push(platformRole === 'owner' || platformRole === 'operator' ? '/admin/dashboard' : '/dashboard')
   }
 
   return (

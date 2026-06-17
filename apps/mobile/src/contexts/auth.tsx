@@ -1,30 +1,52 @@
 import type { Session } from '@supabase/supabase-js'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import * as Linking from 'expo-linking'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { cpfShellEmail, normalizeCpf } from '@gomoto/core'
 
 import { supabase } from '../lib/supabase'
+
+export type TenantOption = {
+  id: string
+  name: string
+}
 
 type AuthContextValue = {
   session: Session | null
   loading: boolean
   needsPasswordSetup: boolean
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>
+  tenants: TenantOption[]
+  activeTenantId: string | null
+  needsTenantSelection: boolean
+  signIn: (cpf: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   setPassword: (password: string) => Promise<{ error: string | null }>
+  selectTenant: (tenantId: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 const NOT_A_CUSTOMER_ERROR = 'Esta conta não tem acesso ao app.'
+const ACTIVE_TENANT_KEY = 'gomoto.activeTenantId'
 
-async function isCustomer(userId: string): Promise<boolean> {
+async function fetchCustomerTenants(userId: string): Promise<TenantOption[]> {
+  // RLS de `customers.user_id = auth.uid()` + read policy nos tenants visíveis pelo
+  // próprio link garantem que essa query só devolve tenants em que esse user é cliente.
   const { data } = await supabase
     .from('customers')
-    .select('id')
+    .select('tenant_id, tenants:tenant_id ( id, name )')
     .eq('user_id', userId)
-    .limit(1)
-    .maybeSingle()
-  return data !== null
+
+  if (!data) return []
+
+  const map = new Map<string, TenantOption>()
+  for (const row of data) {
+    const tenant = Array.isArray(row.tenants) ? row.tenants[0] : row.tenants
+    if (tenant?.id && tenant?.name) {
+      map.set(tenant.id, { id: tenant.id, name: tenant.name })
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
 }
 
 // Magic link da invite vem como `gomoto://auth-callback#access_token=...&refresh_token=...&type=invite`.
@@ -43,14 +65,46 @@ async function consumeAuthCallback(url: string | null): Promise<void> {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [tenants, setTenants] = useState<TenantOption[]>([])
+  const [activeTenantId, setActiveTenantId] = useState<string | null>(null)
+
+  // Carrega tenants do cliente e resolve qual fica ativo. Chamada após cada
+  // mudança de session (login, logout, refresh via magic link).
+  async function syncTenantsFor(userId: string | null): Promise<TenantOption[]> {
+    if (!userId) {
+      setTenants([])
+      setActiveTenantId(null)
+      await AsyncStorage.removeItem(ACTIVE_TENANT_KEY)
+      return []
+    }
+    const list = await fetchCustomerTenants(userId)
+    setTenants(list)
+
+    const stored = await AsyncStorage.getItem(ACTIVE_TENANT_KEY)
+    if (list.length === 1) {
+      // Único tenant — entra direto. Sobrescreve qualquer escolha antiga inválida.
+      setActiveTenantId(list[0].id)
+      await AsyncStorage.setItem(ACTIVE_TENANT_KEY, list[0].id)
+    } else if (stored && list.some((t) => t.id === stored)) {
+      setActiveTenantId(stored)
+    } else {
+      // Sem escolha salva ou escolha não pertence mais ao cliente: força picker.
+      setActiveTenantId(null)
+    }
+    return list
+  }
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
-      if (data.session && !(await isCustomer(data.session.user.id))) {
-        await supabase.auth.signOut()
-        setSession(null)
-      } else {
-        setSession(data.session)
+      if (data.session) {
+        const list = await syncTenantsFor(data.session.user.id)
+        if (list.length === 0) {
+          // Não é cliente em nenhum tenant — encerra a sessão.
+          await supabase.auth.signOut()
+          setSession(null)
+        } else {
+          setSession(data.session)
+        }
       }
       setLoading(false)
     })
@@ -60,8 +114,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       void consumeAuthCallback(event.url)
     })
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, next) => {
       setSession(next)
+      if (next?.user) {
+        await syncTenantsFor(next.user.id)
+      } else {
+        await syncTenantsFor(null)
+      }
     })
 
     return () => {
@@ -70,13 +129,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  async function signIn(email: string, password: string) {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+  async function signIn(cpf: string, password: string) {
+    const digits = normalizeCpf(cpf)
+    if (digits.length !== 11) {
+      return { error: 'Informe um CPF válido (11 dígitos).' }
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: cpfShellEmail(digits),
+      password,
+    })
     if (error) return { error: error.message }
 
-    if (data.user && !(await isCustomer(data.user.id))) {
-      await supabase.auth.signOut()
-      return { error: NOT_A_CUSTOMER_ERROR }
+    if (data.user) {
+      const list = await syncTenantsFor(data.user.id)
+      if (list.length === 0) {
+        await supabase.auth.signOut()
+        return { error: NOT_A_CUSTOMER_ERROR }
+      }
     }
 
     return { error: null }
@@ -84,6 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signOut() {
     await supabase.auth.signOut()
+    await syncTenantsFor(null)
   }
 
   async function setPassword(password: string) {
@@ -98,12 +169,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null }
   }
 
+  async function selectTenant(tenantId: string) {
+    if (!tenants.some((t) => t.id === tenantId)) return
+    setActiveTenantId(tenantId)
+    await AsyncStorage.setItem(ACTIVE_TENANT_KEY, tenantId)
+  }
+
   const needsPasswordSetup =
     !!session && session.user.user_metadata?.password_set !== true
 
+  const needsTenantSelection = !!session && tenants.length > 1 && !activeTenantId
+
   return (
     <AuthContext.Provider
-      value={{ session, loading, needsPasswordSetup, signIn, signOut, setPassword }}
+      value={{
+        session,
+        loading,
+        needsPasswordSetup,
+        tenants,
+        activeTenantId,
+        needsTenantSelection,
+        signIn,
+        signOut,
+        setPassword,
+        selectTenant,
+      }}
     >
       {children}
     </AuthContext.Provider>

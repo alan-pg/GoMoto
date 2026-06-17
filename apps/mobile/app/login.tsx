@@ -10,23 +10,38 @@ import {
   View,
 } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
+import { formatCpf, normalizeCpf } from '@gomoto/core'
 
 import { useAuth } from '../src/contexts/auth'
 
+const NOT_A_CUSTOMER_ERROR = 'Esta conta não tem acesso ao app.'
+
 export default function LoginScreen() {
   const { signIn } = useAuth()
-  const [email, setEmail] = useState('')
+  const [cpf, setCpf] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  function handleCpfChange(value: string) {
+    const digits = normalizeCpf(value).slice(0, 11)
+    // Mascara em tempo real quando o usuário já digitou os 11 dígitos —
+    // antes disso, mostra os números crus pra não atrapalhar a digitação.
+    setCpf(digits.length === 11 ? formatCpf(digits) : digits)
+  }
+
   async function handleSubmit() {
     setError(null)
     setSubmitting(true)
-    const { error: authError } = await signIn(email.trim(), password)
+    const { error: authError } = await signIn(cpf, password)
     if (authError) {
-      const isAccessDenied = authError === 'Esta conta não tem acesso ao app.'
-      setError(isAccessDenied ? authError : 'Email ou senha incorretos.')
+      if (authError === NOT_A_CUSTOMER_ERROR) {
+        setError(authError)
+      } else if (authError.startsWith('Informe')) {
+        setError(authError)
+      } else {
+        setError('CPF ou senha incorretos.')
+      }
       setSubmitting(false)
     }
   }
@@ -42,19 +57,19 @@ export default function LoginScreen() {
           <Text style={styles.logoText}>GM</Text>
         </View>
         <Text style={styles.title}>GoMoto</Text>
-        <Text style={styles.subtitle}>Sistema de Gestão</Text>
+        <Text style={styles.subtitle}>Entre com seu CPF</Text>
 
-        <Text style={styles.label}>Email</Text>
+        <Text style={styles.label}>CPF</Text>
         <TextInput
           style={styles.input}
-          value={email}
-          onChangeText={setEmail}
-          placeholder="seu@email.com"
+          value={cpf}
+          onChangeText={handleCpfChange}
+          placeholder="000.000.000-00"
           placeholderTextColor="#5c5c5c"
           autoCapitalize="none"
-          autoComplete="email"
-          keyboardType="email-address"
+          keyboardType="number-pad"
           editable={!submitting}
+          maxLength={14}
         />
 
         <Text style={styles.label}>Senha</Text>

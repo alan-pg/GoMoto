@@ -1,10 +1,11 @@
 # ADR 0003 — Escopo e autenticação do mobile (cliente final)
 
-- **Status:** Aceita
+- **Status:** Aceita (estendida por [[decisions/0004-control-plane-e-identidade-do-cliente|ADR 0004]] em 2026-06-15)
 - **Data:** 2026-06-12
 - **Autores:** Stakeholder + agente IA
 - **Substitui:** —
 - **Substituída por:** —
+- **Estendida por:** [[decisions/0004-control-plane-e-identidade-do-cliente|ADR 0004]] — formaliza CPF como identidade global (§2) e troca login email→CPF via shell email (§4), além do picker dedicado `/select-tenant` (§3).
 
 ## Contexto
 

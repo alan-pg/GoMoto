@@ -83,15 +83,35 @@ INSERT INTO auth.identities (
 ) ON CONFLICT (provider_id, provider) DO NOTHING;
 
 -- ============================================================
--- TENANT MEMBER: vincula admin@gomoto.dev ao tenant default como owner
+-- (admin@gomoto.dev NÃO é tenant_member em momento algum.)
+--
+-- O usuário acima é "dono do sistema" (platform_admin owner). Por
+-- decisão de produto, esse papel é EXCLUSIVO — quem opera a plataforma
+-- não acessa cockpit de tenant. O vínculo com tenants vem dos usuários
+-- de empresa cliente (bonze@gomoto.dev / norte@gomoto.dev, abaixo).
 -- ============================================================
-INSERT INTO tenant_members (tenant_id, user_id, role) VALUES
-('00000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', 'owner')
-ON CONFLICT (tenant_id, user_id) DO NOTHING;
+
+-- ============================================================
+-- PLATFORM ADMIN: promove admin@gomoto.dev a owner do control plane.
+--
+-- O bootstrap fica no SEED (e NÃO na migration) para que migrations
+-- de produção não falhem quando o usuário admin ainda não existe.
+-- Em produção, o primeiro platform_admin é criado via Studio/SQL
+-- direto após o primeiro signup do operador da plataforma.
+-- ============================================================
+INSERT INTO platform_admins (user_id, role) VALUES
+('f0000000-0000-0000-0000-000000000001', 'owner')
+ON CONFLICT (user_id) DO NOTHING;
 
 -- ============================================================
 -- USUÁRIO DE TESTE PARA O MOBILE (cliente)
--- Email: cliente@gomoto.dev / Senha: gomoto123
+-- Login: CPF 123.456.789-09 / Senha: gomoto123
+--
+-- O email no Supabase Auth é um "shell email" sintético gerado a
+-- partir do CPF (ADR 0004 §4): `{cpf-digits}@cliente.gomoto.app`.
+-- Esse email não recebe mensagens — é apenas o pivô técnico que o
+-- Supabase exige. O login no mobile usa CPF + senha, e por baixo o
+-- app traduz para o shell email antes de chamar signInWithPassword.
 --
 -- `password_set: true` em raw_user_meta_data pula a tela de definir
 -- senha no primeiro login — vai direto pra home das tabs.
@@ -119,7 +139,7 @@ INSERT INTO auth.users (
     'f0000000-0000-0000-0000-000000000002',
     'authenticated',
     'authenticated',
-    'cliente@gomoto.dev',
+    '12345678909@cliente.gomoto.app',
     crypt('gomoto123', gen_salt('bf')),
     NOW(),
     NOW(),
@@ -146,12 +166,84 @@ INSERT INTO auth.identities (
     gen_random_uuid(),
     'f0000000-0000-0000-0000-000000000002',
     'f0000000-0000-0000-0000-000000000002',
-    format('{"sub":"%s","email":"%s"}', 'f0000000-0000-0000-0000-000000000002', 'cliente@gomoto.dev')::jsonb,
+    format('{"sub":"%s","email":"%s"}', 'f0000000-0000-0000-0000-000000000002', '12345678909@cliente.gomoto.app')::jsonb,
     'email',
     NOW(),
     NOW(),
     NOW()
 ) ON CONFLICT (provider_id, provider) DO NOTHING;
+
+-- ============================================================
+-- SEGUNDO TENANT — "GoMoto Norte", para testar isolamento e multi-tenant.
+-- ============================================================
+INSERT INTO tenants (id, name, slug) VALUES
+('00000000-0000-0000-0000-000000000002', 'GoMoto Norte', 'gomoto-norte')
+ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================
+-- USUÁRIOS DE EMPRESA CLIENTE (tenant owners).
+-- Esses são os "donos da locadora" — operam o cockpit do tenant,
+-- nada do control plane. Mantemos uma conta por tenant para deixar
+-- o isolamento óbvio no smoke manual.
+--
+-- bonze@gomoto.dev → GoMoto Bonze   (senha: gomoto123)
+-- norte@gomoto.dev → GoMoto Norte   (senha: gomoto123)
+-- ============================================================
+INSERT INTO auth.users (
+    instance_id, id, aud, role, email, encrypted_password,
+    email_confirmed_at, last_sign_in_at, raw_app_meta_data, raw_user_meta_data,
+    created_at, updated_at,
+    confirmation_token, email_change, email_change_token_new, recovery_token
+) VALUES
+(
+    '00000000-0000-0000-0000-000000000000',
+    'f0000000-0000-0000-0000-000000000003',
+    'authenticated', 'authenticated',
+    'bonze@gomoto.dev',
+    crypt('gomoto123', gen_salt('bf')),
+    NOW(), NOW(),
+    '{"provider":"email","providers":["email"]}'::jsonb,
+    '{"name":"Owner Bonze"}'::jsonb,
+    NOW(), NOW(),
+    '', '', '', ''
+),
+(
+    '00000000-0000-0000-0000-000000000000',
+    'f0000000-0000-0000-0000-000000000004',
+    'authenticated', 'authenticated',
+    'norte@gomoto.dev',
+    crypt('gomoto123', gen_salt('bf')),
+    NOW(), NOW(),
+    '{"provider":"email","providers":["email"]}'::jsonb,
+    '{"name":"Owner Norte"}'::jsonb,
+    NOW(), NOW(),
+    '', '', '', ''
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO auth.identities (
+    id, user_id, provider_id, identity_data, provider, last_sign_in_at, created_at, updated_at
+) VALUES
+(
+    gen_random_uuid(),
+    'f0000000-0000-0000-0000-000000000003',
+    'f0000000-0000-0000-0000-000000000003',
+    format('{"sub":"%s","email":"%s"}', 'f0000000-0000-0000-0000-000000000003', 'bonze@gomoto.dev')::jsonb,
+    'email', NOW(), NOW(), NOW()
+),
+(
+    gen_random_uuid(),
+    'f0000000-0000-0000-0000-000000000004',
+    'f0000000-0000-0000-0000-000000000004',
+    format('{"sub":"%s","email":"%s"}', 'f0000000-0000-0000-0000-000000000004', 'norte@gomoto.dev')::jsonb,
+    'email', NOW(), NOW(), NOW()
+)
+ON CONFLICT (provider_id, provider) DO NOTHING;
+
+INSERT INTO tenant_members (tenant_id, user_id, role) VALUES
+('00000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000003', 'owner'),
+('00000000-0000-0000-0000-000000000002', 'f0000000-0000-0000-0000-000000000004', 'owner')
+ON CONFLICT (tenant_id, user_id) DO NOTHING;
 
 -- ============================================================
 -- SEED: maintenance_items (13 itens padrão)
@@ -198,9 +290,9 @@ INSERT INTO motorcycles (id, tenant_id, license_plate, model, make, year, color,
 -- ============================================================
 -- Joao da Silva é o cliente vinculado ao login mobile (cliente@gomoto.dev).
 INSERT INTO customers (id, tenant_id, user_id, name, cpf, rg, state, phone, email, in_queue, active) VALUES
-('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '00000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 'Joao da Silva',  '123.456.789-09', '12345678', 'SP', '(11) 98765-4321', 'cliente@gomoto.dev',       false, true),
-('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '00000000-0000-0000-0000-000000000001', NULL,                                  'Maria Santos',   '987.654.321-00', '87654321', 'SP', '(11) 91234-5678', 'maria.santos@email.com',   false, true),
-('cccccccc-cccc-cccc-cccc-cccccccccccc', '00000000-0000-0000-0000-000000000001', NULL,                                  'Pedro Oliveira', '111.222.333-44', '11223344', 'SP', '(11) 99988-7766', 'pedro.oliveira@email.com', true,  true);
+('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '00000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 'Joao da Silva',  '12345678909', '12345678', 'SP', '(11) 98765-4321', 'cliente@gomoto.dev',       false, true),
+('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '00000000-0000-0000-0000-000000000001', NULL,                                  'Maria Santos',   '98765432100', '87654321', 'SP', '(11) 91234-5678', 'maria.santos@email.com',   false, true),
+('cccccccc-cccc-cccc-cccc-cccccccccccc', '00000000-0000-0000-0000-000000000001', NULL,                                  'Pedro Oliveira', '11122233344', '11223344', 'SP', '(11) 99988-7766', 'pedro.oliveira@email.com', true,  true);
 
 -- ============================================================
 -- SEED: contracts (2 contratos ativos)
