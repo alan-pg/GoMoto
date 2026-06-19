@@ -1,29 +1,30 @@
 /**
  * @file src/app/(dashboard)/planos-manutencao/page.tsx
- * @description CRUD completo de planos de manutenção e seus itens (PRD 0003 F2.1/F2.2b/c).
+ * @description CRUD completo de planos de manutenção e seus itens (PRD 0003 F2.1/F2.2/R2).
  *
- * F2.2c adiciona o editor de itens dentro do detalhe do plano: chips de sugestão
- * (cópia direta de `SUGGESTED_PLAN_ITEMS`) + form livre para item customizado +
- * editar/remover linhas existentes.
+ * Pós-R2: itens não têm mais `category`/`type` — toda manutenção do plano é
+ * preventiva. O nome do item ganha autocomplete via <datalist> combinando
+ * `SUGGESTED_PLAN_ITEMS` (sugestões em código) + nomes dos itens já cadastrados
+ * no mesmo plano. Selecionar uma sugestão preenche intervalos/critical vazios
+ * sem sobrescrever o que o operador já digitou.
  */
 
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useId, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Wrench, ChevronDown, ChevronUp, Search, Plus, Star, Archive,
-  Edit2, MoreVertical, Copy, ArchiveRestore, Trash2, Sparkles, X,
+  Edit2, MoreVertical, Copy, ArchiveRestore, Trash2, X,
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
-import { Input, Select, Textarea } from '@/components/ui/Input'
+import { Input, Textarea } from '@/components/ui/Input'
 import { useMaintenancePlans, useMaintenancePlan } from '@gomoto/data'
-import type { MaintenancePlan, MaintenancePlanItem, MaintenancePlanItemCategory } from '@gomoto/core'
-import { SUGGESTED_PLAN_ITEMS, groupSuggestionsByCategory } from '@gomoto/core'
-import type { SuggestedPlanItem } from '@gomoto/core'
+import type { MaintenancePlan, MaintenancePlanItem } from '@gomoto/core'
+import { SUGGESTED_PLAN_ITEMS, findSuggestedItemByDescription } from '@gomoto/core'
 import {
   createMaintenancePlan,
   updateMaintenancePlan,
@@ -36,30 +37,6 @@ import {
   deleteMaintenancePlanItem,
 } from './actions'
 
-const CATEGORY_LABELS: Record<MaintenancePlanItemCategory, string> = {
-  oil: 'Óleo',
-  filter: 'Filtro',
-  brake: 'Freio',
-  tire: 'Pneu',
-  wear_part: 'Peça de desgaste',
-  inspection: 'Vistoria',
-  fluid: 'Fluido',
-  transmission: 'Transmissão',
-  other: 'Outros',
-}
-
-const CATEGORY_VARIANT: Record<MaintenancePlanItemCategory, 'info' | 'success' | 'warning' | 'muted' | 'brand' | 'danger' | 'orange'> = {
-  oil: 'brand',
-  filter: 'info',
-  brake: 'danger',
-  tire: 'warning',
-  wear_part: 'muted',
-  inspection: 'info',
-  fluid: 'success',
-  transmission: 'orange',
-  other: 'muted',
-}
-
 function formatInterval(item: MaintenancePlanItem): string {
   const parts: string[] = []
   if (item.interval_km) parts.push(`${item.interval_km.toLocaleString('pt-BR')} km`)
@@ -69,7 +46,7 @@ function formatInterval(item: MaintenancePlanItem): string {
 
 function PlanItemsList({ planId, onAddItem, onEditItem, onRemoveItem, busyItemId }: {
   planId: string
-  onAddItem: (planId: string) => void
+  onAddItem: (planId: string, existingNames: string[]) => void
   onEditItem: (item: MaintenancePlanItem) => void
   onRemoveItem: (item: MaintenancePlanItem) => void
   busyItemId: string | null
@@ -83,13 +60,14 @@ function PlanItemsList({ planId, onAddItem, onEditItem, onRemoveItem, busyItemId
     )
   }
   const items = plan?.items ?? []
+  const existingNames = items.map((i) => i.name)
   return (
     <div>
       <div className="flex items-center justify-between px-4 py-2 border-b border-[#323232]">
         <span className="text-[12px] text-[#9e9e9e]">
           {items.length === 0 ? 'Nenhum item ainda' : `${items.length} item(s)`}
         </span>
-        <Button size="sm" variant="secondary" onClick={() => onAddItem(planId)}>
+        <Button size="sm" variant="secondary" onClick={() => onAddItem(planId, existingNames)}>
           <Plus className="w-3.5 h-3.5" /> Adicionar item
         </Button>
       </div>
@@ -105,7 +83,6 @@ function PlanItemsList({ planId, onAddItem, onEditItem, onRemoveItem, busyItemId
             <thead>
               <tr className="h-9 border-b border-[#323232]">
                 <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Item</th>
-                <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Categoria</th>
                 <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Intervalo</th>
                 <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Alerta</th>
                 <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Crítico</th>
@@ -120,9 +97,6 @@ function PlanItemsList({ planId, onAddItem, onEditItem, onRemoveItem, busyItemId
                     {item.tip && (
                       <p className="text-[12px] text-[#616161]">{item.tip}</p>
                     )}
-                  </td>
-                  <td className="px-4">
-                    <Badge variant={CATEGORY_VARIANT[item.category]}>{CATEGORY_LABELS[item.category]}</Badge>
                   </td>
                   <td className="px-4 text-[#f5f5f5] text-[13px]">{formatInterval(item)}</td>
                   <td className="px-4 text-[#9e9e9e] text-[13px]">
@@ -178,7 +152,7 @@ function PlanCard({ plan, expanded, onToggle, onEdit, onSetDefault, onArchive, o
   onArchive: () => void
   onUnarchive: () => void
   onClone: () => void
-  onAddItem: (planId: string) => void
+  onAddItem: (planId: string, existingNames: string[]) => void
   onEditItem: (item: MaintenancePlanItem) => void
   onRemoveItem: (item: MaintenancePlanItem) => void
   busyItemId: string | null
@@ -299,8 +273,6 @@ const emptyForm: PlanFormState = { name: '', description: '', is_default: false 
 
 type ItemFormState = {
   name: string
-  category: MaintenancePlanItemCategory
-  type: 'preventive' | 'inspection'
   interval_km: string
   interval_days: string
   warn_threshold_pct: string
@@ -310,8 +282,6 @@ type ItemFormState = {
 
 const emptyItemForm: ItemFormState = {
   name: '',
-  category: 'oil',
-  type: 'preventive',
   interval_km: '',
   interval_days: '',
   warn_threshold_pct: '',
@@ -319,24 +289,9 @@ const emptyItemForm: ItemFormState = {
   tip: '',
 }
 
-function suggestionToForm(s: SuggestedPlanItem): ItemFormState {
-  return {
-    name: s.name,
-    category: s.category as MaintenancePlanItemCategory,
-    type: s.type,
-    interval_km: s.interval_km != null ? String(s.interval_km) : '',
-    interval_days: s.interval_days != null ? String(s.interval_days) : '',
-    warn_threshold_pct: '',
-    is_critical: s.is_critical,
-    tip: '',
-  }
-}
-
 function itemToForm(item: MaintenancePlanItem): ItemFormState {
   return {
     name: item.name,
-    category: item.category,
-    type: item.type,
     interval_km: item.interval_km != null ? String(item.interval_km) : '',
     interval_days: item.interval_days != null ? String(item.interval_days) : '',
     warn_threshold_pct: item.warn_threshold_pct != null ? String(item.warn_threshold_pct) : '',
@@ -344,18 +299,6 @@ function itemToForm(item: MaintenancePlanItem): ItemFormState {
     tip: item.tip ?? '',
   }
 }
-
-const CATEGORY_OPTIONS: { value: MaintenancePlanItemCategory; label: string }[] = [
-  { value: 'oil', label: 'Óleo' },
-  { value: 'filter', label: 'Filtro' },
-  { value: 'brake', label: 'Freio' },
-  { value: 'tire', label: 'Pneu' },
-  { value: 'wear_part', label: 'Peça de desgaste' },
-  { value: 'inspection', label: 'Vistoria' },
-  { value: 'fluid', label: 'Fluido' },
-  { value: 'transmission', label: 'Transmissão' },
-  { value: 'other', label: 'Outros' },
-]
 
 export default function MaintenancePlansPage() {
   const qc = useQueryClient()
@@ -374,10 +317,12 @@ export default function MaintenancePlansPage() {
   const [itemModalOpen, setItemModalOpen] = useState(false)
   const [itemModalPlanId, setItemModalPlanId] = useState<string | null>(null)
   const [editingItem, setEditingItem] = useState<MaintenancePlanItem | null>(null)
-  const [itemMode, setItemMode] = useState<'suggestions' | 'custom'>('suggestions')
   const [itemForm, setItemForm] = useState<ItemFormState>(emptyItemForm)
   const [itemSubmitting, setItemSubmitting] = useState(false)
   const [itemError, setItemError] = useState<string | null>(null)
+  // Nomes já cadastrados no plano sendo editado — alimentam o autocomplete
+  // junto das sugestões em código.
+  const [planItemNames, setPlanItemNames] = useState<string[]>([])
   const [busyItemId, setBusyItemId] = useState<string | null>(null)
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['maintenance_plans'] })
@@ -467,11 +412,11 @@ export default function MaintenancePlansPage() {
     invalidate()
   }
 
-  function openAddItem(planId: string) {
+  function openAddItem(planId: string, existingNames: string[]) {
     setItemModalPlanId(planId)
     setEditingItem(null)
     setItemForm(emptyItemForm)
-    setItemMode('suggestions')
+    setPlanItemNames(existingNames)
     setItemError(null)
     setItemModalOpen(true)
   }
@@ -480,15 +425,9 @@ export default function MaintenancePlansPage() {
     setItemModalPlanId(item.plan_id)
     setEditingItem(item)
     setItemForm(itemToForm(item))
-    // Editar já abre direto no form — sugestões só fazem sentido pra novo.
-    setItemMode('custom')
+    setPlanItemNames([])
     setItemError(null)
     setItemModalOpen(true)
-  }
-
-  function applySuggestion(s: SuggestedPlanItem) {
-    setItemForm(suggestionToForm(s))
-    setItemMode('custom')
   }
 
   function parseIntOrNull(s: string): number | null {
@@ -534,8 +473,6 @@ export default function MaintenancePlansPage() {
       if (editingItem) {
         const res = await updateMaintenancePlanItem(editingItem.id, {
           name: itemForm.name.trim(),
-          category: itemForm.category,
-          type: itemForm.type,
           interval_km,
           interval_days,
           warn_threshold_pct: warn,
@@ -550,8 +487,6 @@ export default function MaintenancePlansPage() {
         const res = await createMaintenancePlanItem({
           plan_id: itemModalPlanId,
           name: itemForm.name.trim(),
-          category: itemForm.category,
-          type: itemForm.type,
           interval_km,
           interval_days,
           warn_threshold_pct: warn,
@@ -739,11 +674,9 @@ export default function MaintenancePlansPage() {
         open={itemModalOpen}
         onClose={() => setItemModalOpen(false)}
         editingItem={editingItem}
-        mode={itemMode}
-        onModeChange={setItemMode}
         form={itemForm}
         setForm={setItemForm}
-        onApplySuggestion={applySuggestion}
+        planItemNames={planItemNames}
         onSubmit={handleSubmitItem}
         submitting={itemSubmitting}
         error={itemError}
@@ -753,22 +686,66 @@ export default function MaintenancePlansPage() {
 }
 
 function ItemEditorModal({
-  open, onClose, editingItem, mode, onModeChange, form, setForm,
-  onApplySuggestion, onSubmit, submitting, error,
+  open, onClose, editingItem, form, setForm, planItemNames,
+  onSubmit, submitting, error,
 }: {
   open: boolean
   onClose: () => void
   editingItem: MaintenancePlanItem | null
-  mode: 'suggestions' | 'custom'
-  onModeChange: (m: 'suggestions' | 'custom') => void
   form: ItemFormState
   setForm: (f: ItemFormState) => void
-  onApplySuggestion: (s: SuggestedPlanItem) => void
+  planItemNames: string[]
   onSubmit: (e: React.FormEvent) => void
   submitting: boolean
   error: string | null
 }) {
-  const grouped = useMemo(() => groupSuggestionsByCategory(), [])
+  const datalistId = useId()
+
+  /**
+   * Sugestões para o <datalist>: nomes em código (SUGGESTED_PLAN_ITEMS) +
+   * nomes já existentes no plano. Dedup por nome normalizado para evitar
+   * "Troca de óleo" listado duas vezes quando o plano já tem o item.
+   */
+  const autocompleteOptions = useMemo(() => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    const normalize = (s: string) =>
+      s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+    for (const s of SUGGESTED_PLAN_ITEMS) {
+      const key = normalize(s.name)
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(s.name)
+    }
+    for (const n of planItemNames) {
+      const key = normalize(n)
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(n)
+    }
+    return out
+  }, [planItemNames])
+
+  /**
+   * Quando o operador escolhe um nome que bate com uma sugestão canônica,
+   * pré-preenche os intervalos/critical SE estiverem vazios. Não sobrescreve
+   * o que o operador já tipou — sugestão é convite, não imposição.
+   */
+  useEffect(() => {
+    if (editingItem) return
+    const match = findSuggestedItemByDescription(form.name)
+    if (!match) return
+    setForm({
+      ...form,
+      interval_km: form.interval_km || (match.interval_km != null ? String(match.interval_km) : ''),
+      interval_days: form.interval_days || (match.interval_days != null ? String(match.interval_days) : ''),
+      is_critical: form.is_critical || match.is_critical,
+    })
+    // form.name é a única coisa que dispara — demais ficam fora pra não
+    // disparar o efeito em cada digit do operador nos outros campos.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.name, editingItem])
+
   return (
     <Modal
       open={open}
@@ -776,178 +753,98 @@ function ItemEditorModal({
       title={editingItem ? 'Editar item do plano' : 'Adicionar item ao plano'}
       size="lg"
     >
-      {!editingItem && (
-        <div className="flex border-b border-[#323232] mb-4">
-          <button
-            type="button"
-            onClick={() => onModeChange('suggestions')}
-            className={`px-4 py-2 text-[13px] font-medium border-b-2 transition-colors ${
-              mode === 'suggestions'
-                ? 'border-[#BAFF1A] text-[#f5f5f5]'
-                : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
-            }`}
-          >
-            <Sparkles className="inline-block w-3.5 h-3.5 mr-1 -mt-0.5" /> Da sugestão
-          </button>
-          <button
-            type="button"
-            onClick={() => onModeChange('custom')}
-            className={`px-4 py-2 text-[13px] font-medium border-b-2 transition-colors ${
-              mode === 'custom'
-                ? 'border-[#BAFF1A] text-[#f5f5f5]'
-                : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
-            }`}
-          >
-            Personalizado
-          </button>
-        </div>
-      )}
-
-      {mode === 'suggestions' && !editingItem ? (
-        <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-          <p className="text-[13px] text-[#9e9e9e]">
-            Clique numa sugestão para copiar os campos pro formulário. Você ainda
-            pode ajustar tudo antes de salvar.
-          </p>
-          {(Object.entries(grouped) as [MaintenancePlanItemCategory, SuggestedPlanItem[]][]).map(([category, items]) => (
-            <div key={category}>
-              <div className="flex items-center gap-2 mb-2">
-                <Badge variant={CATEGORY_VARIANT[category]}>{CATEGORY_LABELS[category]}</Badge>
-                <span className="text-[12px] text-[#616161]">{items.length} sugestão(ões)</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {items.map((s) => {
-                  const interval = s.interval_km
-                    ? `${s.interval_km.toLocaleString('pt-BR')} km`
-                    : `${s.interval_days} dias`
-                  return (
-                    <button
-                      key={s.name}
-                      type="button"
-                      onClick={() => onApplySuggestion(s)}
-                      className="px-3 py-2 rounded-lg bg-[#262626] border border-[#474747] hover:border-[#BAFF1A] hover:bg-[#323232] transition-colors text-left"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-[13px] text-[#f5f5f5] font-medium">{s.name}</span>
-                        {s.is_critical && <Badge variant="danger">Crítico</Badge>}
-                      </div>
-                      <span className="text-[12px] text-[#9e9e9e]">{interval}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
-          <div className="flex justify-between items-center pt-2 border-t border-[#323232]">
-            <span className="text-[12px] text-[#616161]">
-              {SUGGESTED_PLAN_ITEMS.length} sugestões disponíveis
-            </span>
-            <Button type="button" variant="ghost" onClick={() => onModeChange('custom')}>
-              Pular para personalizado
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <form onSubmit={onSubmit} className="space-y-3">
+      <form onSubmit={onSubmit} className="space-y-3">
+        <div>
           <Input
             label="Nome do item"
-            placeholder="Ex.: Troca de óleo"
+            list={datalistId}
+            placeholder="Comece a digitar para ver sugestões..."
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             required
             maxLength={200}
             autoFocus
+            hint="Itens básicos pré-cadastrados e itens deste plano aparecem como sugestão; selecionar pré-preenche os intervalos."
           />
-          <div className="grid grid-cols-2 gap-3">
-            <Select
-              label="Categoria"
-              options={CATEGORY_OPTIONS}
-              value={form.category}
-              onChange={(e) => setForm({ ...form, category: e.target.value as MaintenancePlanItemCategory })}
-            />
-            <Select
-              label="Tipo"
-              options={[
-                { value: 'preventive', label: 'Preventiva (peça/insumo)' },
-                { value: 'inspection', label: 'Vistoria' },
-              ]}
-              value={form.type}
-              onChange={(e) => setForm({ ...form, type: e.target.value as 'preventive' | 'inspection' })}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Intervalo (km)"
-              type="number"
-              min={1}
-              placeholder="Ex.: 1000"
-              value={form.interval_km}
-              onChange={(e) => setForm({ ...form, interval_km: e.target.value })}
-              hint="Deixe em branco se for só por data"
-            />
-            <Input
-              label="Intervalo (dias)"
-              type="number"
-              min={1}
-              placeholder="Ex.: 180"
-              value={form.interval_days}
-              onChange={(e) => setForm({ ...form, interval_days: e.target.value })}
-              hint="Deixe em branco se for só por km"
-            />
-          </div>
+          <datalist id={datalistId}>
+            {autocompleteOptions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
           <Input
-            label="Threshold de alerta (%)"
+            label="Intervalo (km)"
             type="number"
             min={1}
-            max={100}
-            placeholder="Default: 10%"
-            value={form.warn_threshold_pct}
-            onChange={(e) => setForm({ ...form, warn_threshold_pct: e.target.value })}
-            hint="Antecedência (% do intervalo) para marcar como 'Próxima'."
+            placeholder="Ex.: 1000"
+            value={form.interval_km}
+            onChange={(e) => setForm({ ...form, interval_km: e.target.value })}
+            hint="Deixe em branco se for só por data"
           />
-          <Textarea
-            label="Dica para o operador (opcional)"
-            rows={2}
-            placeholder="Ex.: Verificar nível de óleo no painel"
-            value={form.tip}
-            onChange={(e) => setForm({ ...form, tip: e.target.value })}
-            maxLength={2000}
+          <Input
+            label="Intervalo (dias)"
+            type="number"
+            min={1}
+            placeholder="Ex.: 180"
+            value={form.interval_days}
+            onChange={(e) => setForm({ ...form, interval_days: e.target.value })}
+            hint="Deixe em branco se for só por km"
           />
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={form.is_critical}
-              onChange={(e) => setForm({ ...form, is_critical: e.target.checked })}
-              className="mt-0.5 accent-[#BAFF1A]"
-            />
-            <div>
-              <p className="text-[13px] text-[#f5f5f5] font-medium">Item crítico</p>
-              <p className="text-[12px] text-[#9e9e9e]">
-                Reservado para o PRD futuro de bloqueio de locação por preventiva
-                vencida. Sem efeito operacional no V1 — pode marcar agora pra
-                evitar migração depois.
-              </p>
-            </div>
-          </label>
-
-          {error && (
-            <div className="px-3 py-2 rounded-lg bg-[#3a1010] border border-[#7c1c1c] text-[13px] text-[#ff9c9a] flex items-start gap-2">
-              <X className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /> {error}
-            </div>
-          )}
-
-          <div className="flex gap-3 justify-end pt-2">
-            <Button type="button" variant="ghost" onClick={onClose}>Cancelar</Button>
-            <Button type="submit" disabled={submitting || !form.name.trim()}>
-              {editingItem ? (
-                <><Edit2 className="w-4 h-4" /> Salvar alterações</>
-              ) : (
-                <><Plus className="w-4 h-4" /> Adicionar item</>
-              )}
-            </Button>
+        </div>
+        <Input
+          label="Threshold de alerta (%)"
+          type="number"
+          min={1}
+          max={100}
+          placeholder="Default: 10%"
+          value={form.warn_threshold_pct}
+          onChange={(e) => setForm({ ...form, warn_threshold_pct: e.target.value })}
+          hint="Antecedência (% do intervalo) para marcar como 'Próxima'."
+        />
+        <Textarea
+          label="Dica para o operador (opcional)"
+          rows={2}
+          placeholder="Ex.: Verificar nível de óleo no painel"
+          value={form.tip}
+          onChange={(e) => setForm({ ...form, tip: e.target.value })}
+          maxLength={2000}
+        />
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.is_critical}
+            onChange={(e) => setForm({ ...form, is_critical: e.target.checked })}
+            className="mt-0.5 accent-[#BAFF1A]"
+          />
+          <div>
+            <p className="text-[13px] text-[#f5f5f5] font-medium">Item crítico</p>
+            <p className="text-[12px] text-[#9e9e9e]">
+              Reservado para o PRD futuro de bloqueio de locação por preventiva
+              vencida. Sem efeito operacional no V1 — pode marcar agora pra
+              evitar migração depois.
+            </p>
           </div>
-        </form>
-      )}
+        </label>
+
+        {error && (
+          <div className="px-3 py-2 rounded-lg bg-[#3a1010] border border-[#7c1c1c] text-[13px] text-[#ff9c9a] flex items-start gap-2">
+            <X className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /> {error}
+          </div>
+        )}
+
+        <div className="flex gap-3 justify-end pt-2">
+          <Button type="button" variant="ghost" onClick={onClose}>Cancelar</Button>
+          <Button type="submit" disabled={submitting || !form.name.trim()}>
+            {editingItem ? (
+              <><Edit2 className="w-4 h-4" /> Salvar alterações</>
+            ) : (
+              <><Plus className="w-4 h-4" /> Adicionar item</>
+            )}
+          </Button>
+        </div>
+      </form>
     </Modal>
   )
 }

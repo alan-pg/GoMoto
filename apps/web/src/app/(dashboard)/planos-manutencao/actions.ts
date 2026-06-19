@@ -222,7 +222,7 @@ export async function cloneMaintenancePlan(sourceId: string, newName: string) {
 
   const { data: items } = await supabase
     .from('maintenance_plan_items')
-    .select('name, category, type, interval_km, interval_days, warn_threshold_pct, is_critical, tip, sort_order')
+    .select('name, interval_km, interval_days, warn_threshold_pct, is_critical, tip, sort_order')
     .eq('plan_id', sourceId)
     .order('sort_order', { ascending: true })
 
@@ -278,8 +278,6 @@ export async function createMaintenancePlanItem(rawData: unknown) {
       tenant_id: tenantId,
       plan_id: parsed.data.plan_id,
       name: parsed.data.name,
-      category: parsed.data.category,
-      type: parsed.data.type ?? 'preventive',
       interval_km: parsed.data.interval_km ?? null,
       interval_days: parsed.data.interval_days ?? null,
       warn_threshold_pct: parsed.data.warn_threshold_pct ?? null,
@@ -299,11 +297,6 @@ export async function createMaintenancePlanItem(rawData: unknown) {
 
 const PlanItemUpdateSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
-  category: z.enum([
-    'oil', 'filter', 'brake', 'tire', 'wear_part',
-    'inspection', 'fluid', 'transmission', 'other',
-  ]).optional(),
-  type: z.enum(['preventive', 'inspection']).optional(),
   interval_km: z.number().int().positive().nullable().optional(),
   interval_days: z.number().int().positive().nullable().optional(),
   warn_threshold_pct: z.number().int().min(1).max(100).nullable().optional(),
