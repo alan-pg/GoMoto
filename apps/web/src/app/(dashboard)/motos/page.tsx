@@ -41,6 +41,7 @@ import {
   Search,        // Ícone de lupa para o campo de busca
   MapPin,        // Ícone de localização para o mapa
   User,          // Ícone de usuário para o cliente
+  Upload,        // Ícone de upload para importar CRLV (PDF)
 } from 'lucide-react'
 
 // Importação de componentes de layout e UI personalizados do projeto
@@ -118,6 +119,36 @@ const fuelOptions = [
 ]
 
 /**
+ * @constant acquisitionTypeOptions
+ * @description Como a empresa adquiriu o veículo (PRD 0002).
+ * `zero_km` esconde os campos de dono anterior no Passo 2 (D5).
+ */
+const acquisitionTypeOptions = [
+  { value: 'purchase',    label: 'Compra (usada)' },
+  { value: 'zero_km',     label: 'Zero KM' },
+  { value: 'consignment', label: 'Consignação' },
+  { value: 'lease',       label: 'Leasing' },
+  { value: 'donation',    label: 'Doação' },
+  { value: 'other',       label: 'Outro' },
+]
+
+const ownerTypeOptions = [
+  { value: 'cpf',  label: 'CPF' },
+  { value: 'cnpj', label: 'CNPJ' },
+]
+
+const obligationStatusOptions = [
+  { value: 'pending', label: 'Pendente' },
+  { value: 'paid',    label: 'Pago' },
+  { value: 'exempt',  label: 'Isento' },
+]
+
+const ownershipTransferredOptions = [
+  { value: 'false', label: 'Ainda em nome do vendedor' },
+  { value: 'true',  label: 'Transferida para a empresa' },
+]
+
+/**
  * @constant BOOTSTRAP_MAINTENANCE_ITEMS
  * @description Lista de itens de manutenção preventiva padrão para motos 150/160cc.
  * O "porquê": Estes itens são a base para o sistema de previsão de manutenções.
@@ -158,11 +189,35 @@ const defaultFormState = {
   previousOwnerName: '',    // Nome do vendedor anterior
   previousOwnerDocument: '',// CPF do vendedor anterior
   purchaseDate: '',         // Data de aquisição
-  fipeValue: '',            // Valor de mercado
+  fipeValue: '',            // Valor de mercado FIPE (referência)
   currentKm: '',            // Quilometragem atual de entrada
   maintenanceUpToDate: 'true', // Status de manutenção inicial
   status: 'available',      // Status operacional inicial
   observations: '',         // Observações de vistoria de entrada
+  // PRD 0002 — aquisição
+  acquisitionType: 'purchase' as 'purchase' | 'zero_km' | 'consignment' | 'lease' | 'donation' | 'other',
+  acquisitionAmount: '',    // Valor pago pela empresa (≠ FIPE)
+  // PRD 0002 — identidade documental atual (CRV/CRLV vigente)
+  registeredOwnerName: '',
+  registeredOwnerDocument: '',
+  registeredOwnerType: 'cnpj' as 'cpf' | 'cnpj',
+  registrationState: '',    // UF (texto livre, D7)
+  ownershipTransferred: 'false' as 'true' | 'false',
+  ownershipTransferDate: '',
+  // PRD 0002 — CRV no Passo 2 (vira vehicle_documents)
+  crvNumber: '',
+  crvExerciseYear: '',
+}
+
+/**
+ * @constant defaultObligationsState
+ * @description Bloco "Documentação anual" do Passo 2 (opcional).
+ * Cada linha vira 1 INSERT em vehicle_obligations se `amount` for preenchido.
+ */
+const defaultObligationsState = {
+  ipva:      { amount: '', dueDate: '', status: 'pending' as 'pending' | 'paid' | 'exempt' },
+  licensing: { amount: '', dueDate: '', status: 'pending' as 'pending' | 'paid' | 'exempt' },
+  dpvat:     { amount: '', dueDate: '', status: 'exempt'  as 'pending' | 'paid' | 'exempt' },
 }
 
 /**
@@ -177,12 +232,79 @@ const statusColorMap: Record<string, string> = {
 }
 
 /**
+ * Mapeia o combustível extraído do CRLV para uma das opções do select.
+ * O CRLV usa "GASOLINA", "FLEX", "ÁLCOOL", "ETANOL", "DIESEL", "ELÉTRICO".
+ * Nosso select tem 3 opções; tudo que não casa vira null → mantém o valor anterior.
+ */
+function mapCombustivelToFuel(combustivel: string | null | undefined): string | null {
+  if (!combustivel) return null
+  const upper = combustivel.toUpperCase()
+  if (upper.includes('ELÉTR') || upper.includes('ELETR')) return 'ELÉTRICO'
+  if (upper.includes('FLEX') || upper.includes('ÁLCOOL') || upper.includes('ALCOOL') || upper.includes('ETANOL')) {
+    return 'ÁLCOOL/GASOLINA'
+  }
+  if (upper.includes('GASOLINA')) return 'GASOLINA'
+  return null
+}
+
+/**
+ * Detecta se o documento do proprietário é CPF (11 dígitos) ou CNPJ (14 dígitos).
+ * Aceita formatado ou só dígitos.
+ */
+function detectOwnerType(doc: string | null | undefined): 'cpf' | 'cnpj' | null {
+  if (!doc) return null
+  const digits = doc.replace(/\D/g, '')
+  if (digits.length === 11) return 'cpf'
+  if (digits.length === 14) return 'cnpj'
+  return null
+}
+
+/**
  * @function motorcycleToForm
  * @description Converte um objeto Moto (formato do banco) para o formato esperado pelo formulário (Strings).
  * O "porquê": Essencial para popular os campos durante a edição de um registro existente,
  * adaptando os tipos de dados (ex: number para string) para os inputs HTML.
  */
-function motorcycleToForm(motorcycle: Motorcycle) {
+/**
+ * @function describeMotorcycleError
+ * @description Traduz erros do Supabase em mensagens claras para o usuário.
+ * O Supabase joga `PostgrestError` cru ({ code, message, details, hint }),
+ * que não é instance de Error e cujo `.message` em inglês raramente ajuda
+ * o operador. Mapeamos os códigos mais comuns no fluxo de cadastro de moto.
+ */
+function describeMotorcycleError(err: unknown): string {
+  if (!err || typeof err !== 'object') {
+    return typeof err === 'string' ? err : 'Erro desconhecido.'
+  }
+  const e = err as { code?: string; message?: string; details?: string }
+
+  // 23505 = unique_violation. Inferimos a coluna pela mensagem/detalhes.
+  // license_plate, renavam e chassis são UNIQUE por (tenant_id, ·) — então a
+  // duplicação é sempre dentro da empresa atual.
+  if (e.code === '23505') {
+    const blob = `${e.message ?? ''} ${e.details ?? ''}`.toLowerCase()
+    if (blob.includes('license_plate')) {
+      return 'Já existe uma moto cadastrada com essa placa nesta empresa.'
+    }
+    if (blob.includes('renavam')) {
+      return 'Já existe uma moto cadastrada com esse RENAVAM nesta empresa.'
+    }
+    if (blob.includes('chassis')) {
+      return 'Já existe uma moto cadastrada com esse chassi nesta empresa.'
+    }
+    return 'Já existe um registro com esses dados (campo duplicado).'
+  }
+  if (e.code === '23502') {
+    return `Campo obrigatório não preenchido${e.message ? `: ${e.message}` : '.'}`
+  }
+  if (e.code === '23503') return 'Referência inválida — algum campo aponta para um registro inexistente.'
+  if (e.code === '23514') return 'Valor fora do permitido em algum dos campos.'
+  if (e.code === 'PGRST204') return e.message ?? 'Estrutura do banco fora de sincronia. Avise o time técnico.'
+
+  return e.message ?? 'Erro desconhecido.'
+}
+
+function motorcycleToForm(motorcycle: Motorcycle): typeof defaultFormState {
   return {
     licensePlate: motorcycle.license_plate,
     model: motorcycle.model,
@@ -202,6 +324,17 @@ function motorcycleToForm(motorcycle: Motorcycle) {
     maintenanceUpToDate: motorcycle.maintenance_up_to_date !== false ? 'true' : 'false',
     status: motorcycle.status,
     observations: motorcycle.observations ?? '',
+    // PRD 0002
+    acquisitionType: (motorcycle.acquisition_type ?? 'purchase') as typeof defaultFormState.acquisitionType,
+    acquisitionAmount: motorcycle.acquisition_amount ? String(motorcycle.acquisition_amount) : '',
+    registeredOwnerName: motorcycle.registered_owner_name ?? '',
+    registeredOwnerDocument: motorcycle.registered_owner_document ?? '',
+    registeredOwnerType: (motorcycle.registered_owner_type ?? 'cnpj') as typeof defaultFormState.registeredOwnerType,
+    registrationState: motorcycle.registration_state ?? '',
+    ownershipTransferred: motorcycle.ownership_transferred ? ('true' as const) : ('false' as const),
+    ownershipTransferDate: motorcycle.ownership_transfer_date ?? '',
+    crvNumber: '',
+    crvExerciseYear: '',
   }
 }
 
@@ -246,12 +379,34 @@ export default function MotorcyclesPage() {
   const [motorcycleDetails, setMotorcycleDetails] = useState<Motorcycle | null>(null)
   // Objeto da moto marcada para exclusão definitiva.
   const [deletingMotorcycle, setDeletingMotorcycle] = useState<Motorcycle | null>(null)
-  // Passo atual do Wizard de cadastro (1 = Dados Básicos, 2 = Manutenções Iniciais).
-  const [step, setStep] = useState<1 | 2>(1)
+  // Passo atual do Wizard de cadastro (PRD 0002):
+  //   1 = Identificação técnica
+  //   2 = Documentação e aquisição (CRV + obrigações anuais)
+  //   3 = Bootstrap de manutenção preventiva
+  const [step, setStep] = useState<1 | 2 | 3>(1)
   // ID da moto selecionada na tabela para centralizar no mapa.
   const [selectedMotoId, setSelectedMotoId] = useState<string | null>(null)
-  // Mapa de valores (KM ou Data) informados no passo 2 do cadastro.
+  // Mapa de valores (KM ou Data) informados no Passo 3 do cadastro.
   const [bootstrapItems, setBootstrapItems] = useState<Record<string, string>>({})
+  // Estado do bloco "Documentação anual" do Passo 2.
+  const [obligationsForm, setObligationsForm] = useState(defaultObligationsState)
+  // Anexo do CRV (Passo 2). Vai para storage.vehicle-documents no submit.
+  const [crvFile, setCrvFile] = useState<File | null>(null)
+  // Estado do botão "Importar CRLV (PDF)" do Passo 1.
+  const [crlvImporting, setCrlvImporting] = useState(false)
+  // Feedback inline do import: nº de campos aplicados ou mensagem de erro.
+  const [crlvImportMessage, setCrlvImportMessage] = useState<
+    | { kind: 'success'; found: number; total: number; fileName: string }
+    | { kind: 'error'; text: string }
+    | null
+  >(null)
+  // Erro do submit final do wizard — exibido no Passo 3 sem fechar o modal,
+  // para o usuário ler o motivo e tentar de novo sem perder o que digitou.
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  // Avisos pós-cadastro: a moto foi criada com sucesso, mas algum bloco
+  // opcional (upload do CRV, obrigações, bootstrap de manutenção) falhou.
+  // Exibido como banner dismissível no topo da página.
+  const [postSubmitNotice, setPostSubmitNotice] = useState<string[] | null>(null)
 
   /**
    * @const contractByMotoId
@@ -297,6 +452,10 @@ export default function MotorcyclesPage() {
     setEditingId(null)           // Modo: Criação
     setForm(defaultFormState)    // Limpa os campos
     setBootstrapItems({})        // Limpa manutenções
+    setObligationsForm(defaultObligationsState)
+    setCrvFile(null)
+    setCrlvImportMessage(null)
+    setSubmitError(null)
     setStep(1)                   // Volta ao passo 1
     setModalOpen(true)           // Abre o modal
   }
@@ -309,6 +468,10 @@ export default function MotorcyclesPage() {
     setModalOpen(false)
     setStep(1)
     setBootstrapItems({})
+    setObligationsForm(defaultObligationsState)
+    setCrvFile(null)
+    setCrlvImportMessage(null)
+    setSubmitError(null)
   }
 
   /**
@@ -322,16 +485,99 @@ export default function MotorcyclesPage() {
   }
 
   /**
+   * @function handleCrlvImport
+   * @description Sobe um PDF do CRLV-e para /api/crlv/parse, recebe os campos
+   * extraídos e aplica em `form`. O mesmo arquivo já fica em `crvFile` —
+   * reaproveitado pelo handleSubmitFinal para subir ao bucket vehicle-documents.
+   *
+   * Overwrite total: todos os campos parseados sobrescrevem o que estava no
+   * form (decisão do usuário — confiar no parser; operador pode editar
+   * manualmente antes de avançar).
+   */
+  async function handleCrlvImport(file: File) {
+    setCrlvImporting(true)
+    setCrlvImportMessage(null)
+
+    try {
+      const body = new FormData()
+      body.append('file', file)
+      const response = await fetch('/api/crlv/parse', { method: 'POST', body })
+      const payload = await response.json()
+
+      if (!response.ok) {
+        setCrlvImportMessage({ kind: 'error', text: payload?.error ?? 'Falha ao processar o PDF.' })
+        return
+      }
+
+      const { fields, stats } = payload as {
+        fields: Record<string, string | null>
+        stats: { found: number; total: number }
+      }
+
+      // Normaliza valores parseados → forma esperada pelos inputs.
+      // Cilindrada vem como "162 cc"; queremos só o número/uso bruto.
+      // O parser entrega tudo em maiúsculas — o submit ainda faz UPPER nos casos relevantes.
+      setForm((prev) => ({
+        ...prev,
+        licensePlate: fields.placa ?? prev.licensePlate,
+        renavam: fields.renavam ?? prev.renavam,
+        make: fields.marca ?? prev.make,
+        model: [fields.modelo, fields.versao].filter(Boolean).join(' ') || prev.model,
+        yearManufacture: fields.anoFabricacao ?? prev.yearManufacture,
+        yearModel: fields.anoModelo ?? prev.yearModel,
+        color: fields.cor ?? prev.color,
+        chassis: fields.chassi ?? prev.chassis,
+        engineCapacity: fields.cilindrada ?? prev.engineCapacity,
+        fuel: mapCombustivelToFuel(fields.combustivel) ?? prev.fuel,
+        // Passo 2 — identidade documental atual
+        registeredOwnerName: fields.proprietario ?? prev.registeredOwnerName,
+        registeredOwnerDocument: fields.cpfCnpj ?? prev.registeredOwnerDocument,
+        registeredOwnerType: detectOwnerType(fields.cpfCnpj) ?? prev.registeredOwnerType,
+        registrationState: fields.uf ?? prev.registrationState,
+        crvNumber: fields.numeroCrv ?? prev.crvNumber,
+        crvExerciseYear: fields.exercicio ?? prev.crvExerciseYear,
+      }))
+
+      // PDF importado vira o anexo do CRV (mesmo pipeline do botão de upload no Passo 2).
+      setCrvFile(file)
+
+      setCrlvImportMessage({
+        kind: 'success',
+        found: stats.found,
+        total: stats.total,
+        fileName: file.name,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'erro desconhecido'
+      setCrlvImportMessage({ kind: 'error', text: `Falha na rede: ${message}` })
+    } finally {
+      setCrlvImporting(false)
+    }
+  }
+
+  /**
    * @function handleStep1
    * @description Processa a submissão do passo 1. Se for edição, finaliza. Se for criação, avança.
    */
   function handleStep1(e: React.FormEvent) {
     e.preventDefault() // Evita recarregamento da página
     if (editingId) {
-      handleSubmitFinal() // Edição não passa pelo passo 2 (bootstrap)
+      handleSubmitFinal() // Edição salva direto com os dados do form completo
     } else {
-      setStep(2) // Avança para configuração de manutenções
+      setStep(2) // Avança para Documentação + Aquisição
     }
+  }
+
+  /**
+   * @function handleStep2
+   * @description Valida o Passo 2 (documentação/aquisição) e avança para o
+   * Passo 3 (bootstrap manutenção). Todos os campos do Passo 2 são opcionais,
+   * mas se `acquisitionType !== 'zero_km'` esperamos pelo menos o nome do
+   * vendedor — caso contrário o operador pode pular.
+   */
+  function handleStep2(e: React.FormEvent) {
+    e.preventDefault()
+    setStep(3)
   }
 
   /**
@@ -347,6 +593,9 @@ export default function MotorcyclesPage() {
      */
     const parsedFipeValue = form.fipeValue
       ? parseFloat(form.fipeValue.replace(/\./g, '').replace(',', '.'))
+      : null
+    const parsedAcquisitionAmount = form.acquisitionAmount
+      ? parseFloat(form.acquisitionAmount.replace(/\./g, '').replace(',', '.'))
       : null
 
     const motorcycleData = {
@@ -367,8 +616,26 @@ export default function MotorcyclesPage() {
       maintenance_up_to_date: form.maintenanceUpToDate === 'true',
       status: form.status as MotorcycleStatus,
       observations: form.observations || undefined,
+      // PRD 0002 — aquisição e identidade documental
+      acquisition_type: form.acquisitionType,
+      acquisition_amount: isNaN(parsedAcquisitionAmount as number) ? undefined : parsedAcquisitionAmount ?? undefined,
+      registered_owner_name: form.registeredOwnerName || undefined,
+      registered_owner_document: form.registeredOwnerDocument || undefined,
+      registered_owner_type: form.registeredOwnerDocument ? form.registeredOwnerType : undefined,
+      registration_state: form.registrationState || undefined,
+      ownership_transferred: form.ownershipTransferred === 'true',
+      ownership_transfer_date: form.ownershipTransferDate || undefined,
     }
 
+    setSubmitError(null)
+    const warnings: string[] = []
+
+    // ───────────────────────────────────────────────────────────────
+    // ETAPA PRINCIPAL: criar/atualizar a moto.
+    // Se isso falhar, NÃO fechamos o modal — usuário vê o erro inline
+    // e tenta de novo sem perder o que digitou.
+    // ───────────────────────────────────────────────────────────────
+    let newMotoId: string | null = null
     try {
       if (editingId) {
         /**
@@ -381,60 +648,157 @@ export default function MotorcyclesPage() {
           ...motorcycleData,
           km_current: form.currentKm ? parseInt(form.currentKm, 10) : 0,
         })
-
-        const newMotoId = newMoto.id
-        const currentKm = form.currentKm ? parseInt(form.currentKm, 10) : 0
-        const today = new Date().toISOString().split('T')[0]
-        const tenantId = getTenantId()
-
-        const maintenanceRecords: Record<string, unknown>[] = []
-
-        for (const item of BOOTSTRAP_MAINTENANCE_ITEMS) {
-          if (item.type === 'km') {
-            const lastKm = bootstrapItems[item.id] ? parseInt(bootstrapItems[item.id], 10) : 0
-            const nextDueKm = lastKm + item.interval
-
-            maintenanceRecords.push({
-              tenant_id: tenantId,
-              motorcycle_id: newMotoId,
-              type: 'preventive',
-              description: item.name,
-              predicted_km: nextDueKm,
-              completed: false,
-              observations: nextDueKm <= currentKm
-                ? `Vencida — deveria ter sido feita aos ${nextDueKm.toLocaleString('pt-BR')} km`
-                : lastKm === 0
-                  ? 'Sem histórico anterior — calculado a partir de 0 km na entrada da frota'
-                  : `Última realizada aos ${lastKm.toLocaleString('pt-BR')} km`,
-            })
-          } else {
-            const lastDateStr = bootstrapItems[item.id] || today
-            const lastDate = new Date(lastDateStr + 'T12:00:00')
-            const nextDueDate = new Date(lastDate)
-            nextDueDate.setDate(nextDueDate.getDate() + item.interval)
-            const nextDueDateStr = nextDueDate.toISOString().split('T')[0]
-
-            maintenanceRecords.push({
-              tenant_id: tenantId,
-              motorcycle_id: newMotoId,
-              type: 'inspection',
-              description: item.name,
-              scheduled_date: nextDueDateStr,
-              completed: false,
-              observations: `Última realizada em ${lastDateStr === today ? 'data não informada (assumido hoje)' : lastDateStr}`,
-            })
-          }
-        }
-
-        try {
-          await supabase.from('maintenances').insert(maintenanceRecords)
-        } catch {
-          /* falha silenciosa: bootstrap é nice-to-have, não bloqueia o cadastro */
-        }
+        newMotoId = newMoto.id
       }
-    } finally {
-      closeModal()
+    } catch (err) {
+      setSubmitError(describeMotorcycleError(err))
+      return // mantém o modal aberto para o usuário corrigir
     }
+
+    // Edição não tem bootstrap nem anexos — encerra aqui.
+    if (editingId || !newMotoId) {
+      closeModal()
+      return
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    // ETAPAS SECUNDÁRIAS (apenas no cadastro). Cada bloco falha de forma
+    // isolada e vira um aviso pós-cadastro — a moto principal já existe,
+    // então NÃO bloqueamos o usuário no modal.
+    // ───────────────────────────────────────────────────────────────
+    const currentKm = form.currentKm ? parseInt(form.currentKm, 10) : 0
+    const today = new Date().toISOString().split('T')[0]
+    const tenantId = getTenantId()
+
+    // ─── upload do CRV + insert em vehicle_documents ───
+    let crvFileUrl: string | null = null
+    if (crvFile) {
+      const ext = crvFile.name.split('.').pop()?.toLowerCase() || 'pdf'
+      const path = `${tenantId}/${newMotoId}/crv-${Date.now()}.${ext}`
+      try {
+        const { error: uploadError } = await supabase
+          .storage
+          .from('vehicle-documents')
+          .upload(path, crvFile, { upsert: false, contentType: crvFile.type })
+        if (uploadError) {
+          warnings.push(`Anexo do CRV não foi salvo: ${uploadError.message}`)
+        } else {
+          crvFileUrl = path
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'erro desconhecido'
+        warnings.push(`Anexo do CRV não foi salvo: ${message}`)
+      }
+    }
+
+    const hasCrvData =
+      form.crvNumber || form.crvExerciseYear || form.registeredOwnerName || crvFileUrl
+    if (hasCrvData) {
+      const { error: crvError } = await supabase.from('vehicle_documents').insert({
+        tenant_id: tenantId,
+        motorcycle_id: newMotoId,
+        type: 'crv',
+        exercise_year: form.crvExerciseYear ? parseInt(form.crvExerciseYear, 10) : null,
+        document_number: form.crvNumber || null,
+        registered_owner_name: form.registeredOwnerName || null,
+        registered_owner_document: form.registeredOwnerDocument || null,
+        registered_owner_type: form.registeredOwnerDocument ? form.registeredOwnerType : null,
+        file_url: crvFileUrl,
+        is_current: true,
+      })
+      if (crvError) {
+        warnings.push(`Registro do CRV não foi criado: ${crvError.message}`)
+      }
+    }
+
+    // ─── inserts em vehicle_obligations (IPVA/Licenciamento/DPVAT) ───
+    const obligationRows: Record<string, unknown>[] = []
+    const fallbackYear = new Date().getFullYear()
+    const isExempt = (s: 'pending' | 'paid' | 'exempt') => s === 'exempt'
+    const obligationEntries: { key: 'ipva' | 'licensing' | 'dpvat'; type: 'ipva' | 'licensing' | 'dpvat' }[] = [
+      { key: 'ipva',      type: 'ipva' },
+      { key: 'licensing', type: 'licensing' },
+      { key: 'dpvat',     type: 'dpvat' },
+    ]
+    for (const entry of obligationEntries) {
+      const row = obligationsForm[entry.key]
+      // Skip se nada útil foi informado (exempt + nenhum valor = nada para gravar).
+      if (!row.amount && !row.dueDate && !isExempt(row.status)) continue
+      // Sem dueDate e não isento: ainda assim grava se houver amount,
+      // mas precisa de uma data — usa hoje como fallback (operador pode editar depois).
+      const dueDate = row.dueDate || today
+      const refYear = dueDate ? parseInt(dueDate.slice(0, 4), 10) : fallbackYear
+      const parsedAmount = row.amount
+        ? parseFloat(row.amount.replace(/\./g, '').replace(',', '.'))
+        : 0
+      obligationRows.push({
+        tenant_id: tenantId,
+        motorcycle_id: newMotoId,
+        type: entry.type,
+        reference_year: refYear,
+        amount: isNaN(parsedAmount) ? 0 : parsedAmount,
+        due_date: dueDate,
+        status: row.status,
+        paid_at: row.status === 'paid' ? dueDate : null,
+      })
+    }
+    if (obligationRows.length > 0) {
+      const { error: obligationsError } = await supabase
+        .from('vehicle_obligations')
+        .insert(obligationRows)
+      if (obligationsError) {
+        warnings.push(`Obrigações anuais não foram salvas: ${obligationsError.message}`)
+      }
+    }
+
+    // ─── bootstrap de manutenção (preventiva por km + inspeções por data) ───
+    const maintenanceRecords: Record<string, unknown>[] = []
+    for (const item of BOOTSTRAP_MAINTENANCE_ITEMS) {
+      if (item.type === 'km') {
+        const lastKm = bootstrapItems[item.id] ? parseInt(bootstrapItems[item.id], 10) : 0
+        const nextDueKm = lastKm + item.interval
+        maintenanceRecords.push({
+          tenant_id: tenantId,
+          motorcycle_id: newMotoId,
+          type: 'preventive',
+          description: item.name,
+          predicted_km: nextDueKm,
+          completed: false,
+          observations: nextDueKm <= currentKm
+            ? `Vencida — deveria ter sido feita aos ${nextDueKm.toLocaleString('pt-BR')} km`
+            : lastKm === 0
+              ? 'Sem histórico anterior — calculado a partir de 0 km na entrada da frota'
+              : `Última realizada aos ${lastKm.toLocaleString('pt-BR')} km`,
+        })
+      } else {
+        const lastDateStr = bootstrapItems[item.id] || today
+        const lastDate = new Date(lastDateStr + 'T12:00:00')
+        const nextDueDate = new Date(lastDate)
+        nextDueDate.setDate(nextDueDate.getDate() + item.interval)
+        const nextDueDateStr = nextDueDate.toISOString().split('T')[0]
+        maintenanceRecords.push({
+          tenant_id: tenantId,
+          motorcycle_id: newMotoId,
+          type: 'inspection',
+          description: item.name,
+          scheduled_date: nextDueDateStr,
+          completed: false,
+          observations: `Última realizada em ${lastDateStr === today ? 'data não informada (assumido hoje)' : lastDateStr}`,
+        })
+      }
+    }
+
+    if (maintenanceRecords.length > 0) {
+      const { error: maintenanceError } = await supabase
+        .from('maintenances')
+        .insert(maintenanceRecords)
+      if (maintenanceError) {
+        warnings.push(`Bootstrap de manutenção não foi salvo: ${maintenanceError.message}`)
+      }
+    }
+
+    if (warnings.length > 0) setPostSubmitNotice(warnings)
+    closeModal()
   }
 
   /**
@@ -471,6 +835,28 @@ export default function MotorcyclesPage() {
             {/* Botão de nova tentativa para o usuário não precisar recarregar a página */}
             <button onClick={() => motorcyclesQuery.refetch()} className="ml-auto text-[12px] text-[#BAFF1A] hover:underline font-medium">
               Tentar novamente
+            </button>
+          </div>
+        )}
+
+        {/* BANNER DE AVISOS PÓS-CADASTRO — a moto foi criada mas algum bloco
+            secundário (anexo CRV, obrigações, manutenções) falhou. Dismissível. */}
+        {postSubmitNotice && postSubmitNotice.length > 0 && (
+          <div className="flex items-start gap-3 px-4 py-3 bg-[#3a2f00] border border-[#ffd166] rounded-xl">
+            <AlertCircle className="w-4 h-4 text-[#ffd166] flex-shrink-0 mt-0.5" />
+            <div className="flex-1 space-y-1">
+              <p className="text-[13px] text-[#ffd166] font-medium">
+                Moto cadastrada, mas alguns itens não foram salvos:
+              </p>
+              <ul className="list-disc list-inside text-[12px] text-[#ffd166] space-y-0.5">
+                {postSubmitNotice.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            </div>
+            <button
+              onClick={() => setPostSubmitNotice(null)}
+              className="text-[12px] text-[#ffd166] hover:underline font-medium"
+            >
+              Fechar
             </button>
           </div>
         )}
@@ -582,12 +968,57 @@ export default function MotorcyclesPage() {
       <Modal
         open={modalOpen}
         onClose={closeModal}
-        title={editingId ? 'Editar Dados da Moto' : step === 1 ? 'Cadastrar Moto — Passo 1: Identificação' : 'Cadastrar Moto — Passo 2: Configurar Revisões'}
+        title={
+          editingId
+            ? 'Editar Dados da Moto'
+            : step === 1
+              ? 'Cadastrar Moto — Passo 1: Identificação'
+              : step === 2
+                ? 'Cadastrar Moto — Passo 2: Documentação e aquisição'
+                : 'Cadastrar Moto — Passo 3: Configurar Revisões'
+        }
         size="lg"
       >
         {/* ── SEÇÃO: PASSO 1 - DADOS BÁSICOS E TÉCNICOS ──────────────────────────────── */}
         {(editingId || step === 1) && (
         <form onSubmit={handleStep1} className="space-y-5 p-1">
+          {/* IMPORTAR CRLV (PDF) — só aparece em cadastro novo */}
+          {!editingId && (
+            <div className="bg-[#282828] border border-[#474747] rounded-xl p-4 flex items-center gap-4">
+              <div className="w-10 h-10 bg-[#2d0363] border border-[#a880ff] rounded-full flex items-center justify-center flex-shrink-0">
+                <Upload className="w-4 h-4 text-[#a880ff]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-bold text-[#f5f5f5]">Importar CRLV (PDF)</p>
+                <p className="text-[12px] text-[#9e9e9e]">
+                  Acelere o cadastro enviando o CRLV-e — placa, RENAVAM, chassi, proprietário e demais campos são preenchidos automaticamente.
+                </p>
+                {crlvImportMessage?.kind === 'success' && (
+                  <p className="text-[12px] text-[#BAFF1A] mt-1.5">
+                    ✔ {crlvImportMessage.fileName} — {crlvImportMessage.found} de {crlvImportMessage.total} campos importados.
+                  </p>
+                )}
+                {crlvImportMessage?.kind === 'error' && (
+                  <p className="text-[12px] text-[#ff9c9a] mt-1.5">✘ {crlvImportMessage.text}</p>
+                )}
+              </div>
+              <label className={`flex-shrink-0 inline-flex items-center gap-2 h-9 px-4 rounded-full bg-[#a880ff] text-[#121212] text-[13px] font-bold cursor-pointer hover:bg-[#9166ff] transition-colors ${crlvImporting ? 'opacity-60 pointer-events-none' : ''}`}>
+                <input
+                  type="file"
+                  accept="application/pdf"
+                  className="hidden"
+                  disabled={crlvImporting}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) void handleCrlvImport(file)
+                    e.target.value = ''
+                  }}
+                />
+                {crlvImporting ? 'Lendo PDF...' : 'Selecionar PDF'}
+              </label>
+            </div>
+          )}
+
           {/* Identificação Legal */}
           <div className="grid grid-cols-2 gap-5">
             <Input
@@ -671,39 +1102,6 @@ export default function MotorcyclesPage() {
             />
           </div>
 
-          {/* HISTÓRICO DE AQUISIÇÃO: Detalhes de quem a GoMoto comprou o veículo */}
-          <div className="border-t border-[#323232] pt-4 mt-2">
-            <h5 className="text-[14px] font-bold text-[#BAFF1A] mb-4">Informações da Compra</h5>
-            <div className="grid grid-cols-2 gap-5">
-              <Input
-                label="Dono Anterior (Vendedor)"
-                placeholder="Nome conforme documento"
-                value={form.previousOwnerName}
-                onChange={(e) => setForm({ ...form, previousOwnerName: e.target.value })}
-              />
-              <Input
-                label="CPF do Vendedor"
-                placeholder="000.000.000-00"
-                value={form.previousOwnerDocument}
-                onChange={(e) => setForm({ ...form, previousOwnerDocument: e.target.value })}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-5 mt-5">
-              <Input
-                label="Data da Compra"
-                type="date"
-                value={form.purchaseDate}
-                onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })}
-              />
-              <Input
-                label="Valor de Aquisição / FIPE (R$)"
-                placeholder="0,00"
-                value={form.fipeValue}
-                onChange={(e) => setForm({ ...form, fipeValue: e.target.value })}
-              />
-            </div>
-          </div>
-
           {/* STATUS OPERACIONAL E USO ATUAL */}
           <div className="grid grid-cols-2 gap-5 border-t border-[#323232] pt-4">
             <Select
@@ -745,7 +1143,7 @@ export default function MotorcyclesPage() {
               ) : (
                 /* Botão se estiver criando nova moto */
                 <>
-                  PRÓXIMO PASSO: REVISÕES →
+                  PRÓXIMO PASSO: DOCUMENTAÇÃO →
                 </>
               )}
             </Button>
@@ -753,8 +1151,204 @@ export default function MotorcyclesPage() {
         </form>
         )}
 
-        {/* ── SEÇÃO: PASSO 2 - BOOTSTRAP DE MANUTENÇÃO (APENAS PARA NOVAS MOTOS) ─────────────────── */}
+        {/* ── SEÇÃO: PASSO 2 - DOCUMENTAÇÃO E AQUISIÇÃO (PRD 0002) ─────────────────── */}
         {!editingId && step === 2 && (
+          <form onSubmit={handleStep2} className="space-y-6 p-1">
+            <div className="bg-[#243300] border border-[#6b9900] rounded-xl p-4">
+              <p className="text-[13px] text-[#9e9e9e] leading-relaxed">
+                Registre a <strong className="text-[#f5f5f5]">documentação atual</strong> e como o veículo foi adquirido.
+                <br /><span className="text-[12px] text-[#616161]">DICA: campos do dono anterior aparecem só quando a aquisição não é Zero KM. Tudo no Passo 2 é opcional e pode ser completado depois.</span>
+              </p>
+            </div>
+
+            {/* BLOCO: AQUISIÇÃO */}
+            <div className="space-y-4">
+              <h5 className="text-[14px] font-bold text-[#BAFF1A]">Aquisição</h5>
+              <div className="grid grid-cols-2 gap-5">
+                <Select
+                  label="Tipo de aquisição"
+                  options={acquisitionTypeOptions}
+                  value={form.acquisitionType}
+                  onChange={(e) => setForm({ ...form, acquisitionType: e.target.value as typeof form.acquisitionType })}
+                />
+                <Input
+                  label="Data da compra"
+                  type="date"
+                  value={form.purchaseDate}
+                  onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-5">
+                <Input
+                  label="Valor pago pela empresa (R$)"
+                  placeholder="0,00"
+                  value={form.acquisitionAmount}
+                  onChange={(e) => setForm({ ...form, acquisitionAmount: e.target.value })}
+                />
+                <Input
+                  label="Valor FIPE de referência (R$)"
+                  placeholder="0,00"
+                  value={form.fipeValue}
+                  onChange={(e) => setForm({ ...form, fipeValue: e.target.value })}
+                />
+              </div>
+            </div>
+
+            {/* BLOCO: DONO ANTERIOR (condicional — D5 do PRD) */}
+            {form.acquisitionType !== 'zero_km' && (
+              <div className="space-y-4 border-t border-[#323232] pt-4">
+                <h5 className="text-[14px] font-bold text-[#BAFF1A]">Dono anterior</h5>
+                <div className="grid grid-cols-2 gap-5">
+                  <Input
+                    label="Nome do vendedor"
+                    placeholder="Nome conforme documento"
+                    value={form.previousOwnerName}
+                    onChange={(e) => setForm({ ...form, previousOwnerName: e.target.value })}
+                  />
+                  <Input
+                    label="CPF / CNPJ do vendedor"
+                    placeholder="000.000.000-00"
+                    value={form.previousOwnerDocument}
+                    onChange={(e) => setForm({ ...form, previousOwnerDocument: e.target.value })}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* BLOCO: CRV ATUAL */}
+            <div className="space-y-4 border-t border-[#323232] pt-4">
+              <h5 className="text-[14px] font-bold text-[#BAFF1A]">CRV atual</h5>
+              <div className="grid grid-cols-2 gap-5">
+                <Input
+                  label="Proprietário registrado (nome)"
+                  placeholder="Quem consta no CRV"
+                  value={form.registeredOwnerName}
+                  onChange={(e) => setForm({ ...form, registeredOwnerName: e.target.value })}
+                />
+                <div className="grid grid-cols-[120px_1fr] gap-3">
+                  <Select
+                    label="Tipo doc."
+                    options={ownerTypeOptions}
+                    value={form.registeredOwnerType}
+                    onChange={(e) => setForm({ ...form, registeredOwnerType: e.target.value as typeof form.registeredOwnerType })}
+                  />
+                  <Input
+                    label="CPF / CNPJ"
+                    placeholder="Documento do proprietário"
+                    value={form.registeredOwnerDocument}
+                    onChange={(e) => setForm({ ...form, registeredOwnerDocument: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-5">
+                <Input
+                  label="UF de registro"
+                  placeholder="SP"
+                  value={form.registrationState}
+                  onChange={(e) => setForm({ ...form, registrationState: e.target.value.toUpperCase() })}
+                />
+                <Input
+                  label="Número do CRV"
+                  placeholder="Ex: 1234567890"
+                  value={form.crvNumber}
+                  onChange={(e) => setForm({ ...form, crvNumber: e.target.value })}
+                />
+                <Input
+                  label="Ano-exercício"
+                  placeholder="Ex: 2025"
+                  value={form.crvExerciseYear}
+                  onChange={(e) => setForm({ ...form, crvExerciseYear: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-5">
+                <Select
+                  label="Transferência já realizada?"
+                  options={ownershipTransferredOptions}
+                  value={form.ownershipTransferred}
+                  onChange={(e) => setForm({ ...form, ownershipTransferred: e.target.value as typeof form.ownershipTransferred })}
+                />
+                {form.ownershipTransferred === 'true' && (
+                  <Input
+                    label="Data da transferência"
+                    type="date"
+                    value={form.ownershipTransferDate}
+                    onChange={(e) => setForm({ ...form, ownershipTransferDate: e.target.value })}
+                  />
+                )}
+              </div>
+              <div>
+                <label className="block text-[13px] font-normal text-[#9e9e9e] mb-1.5">
+                  Anexo do CRV (PDF, JPG, PNG ou WebP — até 10MB)
+                </label>
+                <input
+                  type="file"
+                  accept="application/pdf,image/jpeg,image/png,image/webp"
+                  onChange={(e) => setCrvFile(e.target.files?.[0] ?? null)}
+                  className="block w-full text-[13px] text-[#9e9e9e] file:mr-3 file:h-9 file:px-3 file:rounded-full file:border-0 file:bg-[#323232] file:text-[13px] file:text-[#f5f5f5] hover:file:bg-[#474747] cursor-pointer"
+                />
+                {crvFile && (
+                  <p className="text-[12px] text-[#a880ff] mt-1.5">
+                    {crvFile.name} ({Math.round(crvFile.size / 1024)} KB)
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* BLOCO: DOCUMENTAÇÃO ANUAL (opcional) */}
+            <div className="space-y-3 border-t border-[#323232] pt-4">
+              <h5 className="text-[14px] font-bold text-[#BAFF1A]">Documentação anual <span className="text-[12px] font-normal text-[#616161]">(opcional)</span></h5>
+              {([
+                { key: 'ipva',      label: 'IPVA'         },
+                { key: 'licensing', label: 'Licenciamento'},
+                { key: 'dpvat',     label: 'DPVAT'        },
+              ] as const).map((row) => (
+                <div key={row.key} className="grid grid-cols-[110px_1fr_1fr_150px] gap-3 items-end bg-[#282828] rounded-xl px-4 py-3">
+                  <span className="text-[13px] font-bold text-[#f5f5f5] pb-2.5">{row.label}</span>
+                  <Input
+                    label="Valor (R$)"
+                    placeholder="0,00"
+                    value={obligationsForm[row.key].amount}
+                    onChange={(e) => setObligationsForm((prev) => ({
+                      ...prev,
+                      [row.key]: { ...prev[row.key], amount: e.target.value },
+                    }))}
+                  />
+                  <Input
+                    label="Vencimento"
+                    type="date"
+                    value={obligationsForm[row.key].dueDate}
+                    onChange={(e) => setObligationsForm((prev) => ({
+                      ...prev,
+                      [row.key]: { ...prev[row.key], dueDate: e.target.value },
+                    }))}
+                  />
+                  <Select
+                    label="Status"
+                    options={obligationStatusOptions}
+                    value={obligationsForm[row.key].status}
+                    onChange={(e) => setObligationsForm((prev) => ({
+                      ...prev,
+                      [row.key]: { ...prev[row.key], status: e.target.value as 'pending' | 'paid' | 'exempt' },
+                    }))}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* AÇÕES DE NAVEGAÇÃO DO WIZARD */}
+            <div className="flex gap-4 justify-between pt-4 border-t border-[#323232]">
+              <Button type="button" variant="ghost" onClick={() => setStep(1)} className="px-6">
+                ← VOLTAR À IDENTIFICAÇÃO
+              </Button>
+              <Button type="submit" className="px-10">
+                PRÓXIMO PASSO: REVISÕES →
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {/* ── SEÇÃO: PASSO 3 - BOOTSTRAP DE MANUTENÇÃO (APENAS PARA NOVAS MOTOS) ─────────────────── */}
+        {!editingId && step === 3 && (
           <div className="space-y-6 p-1">
             <div className="bg-[#243300] border border-[#6b9900] rounded-xl p-4">
               <p className="text-[13px] text-[#9e9e9e] leading-relaxed">
@@ -808,12 +1402,21 @@ export default function MotorcyclesPage() {
               </div>
             )}
 
+            {/* FEEDBACK DE ERRO DO SUBMIT — exibido inline para o usuário corrigir
+                sem fechar o modal e sem perder o que digitou. */}
+            {submitError && (
+              <div className="flex items-start gap-3 px-4 py-3 bg-[#7c1c1c] border border-[#ff9c9a] rounded-xl">
+                <AlertCircle className="w-4 h-4 text-[#ff9c9a] flex-shrink-0 mt-0.5" />
+                <p className="text-[13px] text-[#ff9c9a] flex-1">{submitError}</p>
+              </div>
+            )}
+
             {/* AÇÕES DE NAVEGAÇÃO DO WIZARD */}
             <div className="flex gap-4 justify-between pt-4 border-t border-[#323232]">
-              <Button variant="ghost" onClick={() => setStep(1)} className="px-6">
-                ← VOLTAR AOS DADOS
+              <Button variant="ghost" onClick={() => setStep(2)} className="px-6" disabled={saving}>
+                ← VOLTAR À DOCUMENTAÇÃO
               </Button>
-              <Button onClick={handleSubmitFinal} className="px-10" loading={saving}>
+              <Button onClick={handleSubmitFinal} className="px-10" loading={saving} disabled={saving}>
                 <Plus className="w-4 h-4" />
                 CONCLUIR CADASTRO
               </Button>

@@ -121,10 +121,141 @@ export interface Motorcycle {
   km_current?: number;
   /** @property observations - Notas adicionais sobre o estado ou histórico do veículo. */
   observations?: string;
+  /** @property registered_owner_name - Proprietário registrado HOJE no CRV/CRLV vigente (PRD 0002). */
+  registered_owner_name?: string | null;
+  /** @property registered_owner_document - CPF/CNPJ do proprietário registrado vigente. */
+  registered_owner_document?: string | null;
+  /** @property registered_owner_type - Tipo do documento do proprietário registrado vigente. */
+  registered_owner_type?: 'cpf' | 'cnpj' | null;
+  /** @property registration_state - UF (livre, 2 letras) em que o veículo está emplacado. */
+  registration_state?: string | null;
+  /** @property ownership_transferred - Indica se a transferência para a locadora foi concluída. */
+  ownership_transferred?: boolean;
+  /** @property ownership_transfer_date - Data da transferência efetivada. */
+  ownership_transfer_date?: string | null;
+  /** @property acquisition_type - Como a empresa adquiriu o veículo (≠ FIPE). */
+  acquisition_type?: 'zero_km' | 'purchase' | 'consignment' | 'lease' | 'donation' | 'other' | null;
+  /** @property acquisition_amount - Valor pago pela empresa na aquisição. */
+  acquisition_amount?: number | null;
   /** @property created_at - Data de inserção do registro no banco de dados. */
   created_at: string;
   /** @property updated_at - Data da última modificação dos dados do veículo. */
   updated_at: string;
+}
+
+/**
+ * @type VehicleDocumentType
+ * @description Categoria do documento físico/digital do veículo (PRD 0002).
+ */
+export type VehicleDocumentType = 'crv' | 'crlv' | 'transfer_receipt' | 'other';
+
+/**
+ * @interface VehicleDocument
+ * @description Histórico do dossiê documental por veículo (PRD 0002).
+ * Apenas um documento por (motorcycle_id, type) pode ter is_current=true
+ * — restrição garantida por índice parcial no banco.
+ */
+export interface VehicleDocument {
+  id: string;
+  tenant_id: string;
+  motorcycle_id: string;
+  type: VehicleDocumentType;
+  exercise_year?: number | null;
+  document_number?: string | null;
+  issued_at?: string | null;
+  registered_owner_name?: string | null;
+  registered_owner_document?: string | null;
+  registered_owner_type?: 'cpf' | 'cnpj' | null;
+  file_url?: string | null;
+  is_current: boolean;
+  observations?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * @type VehicleObligationType
+ * @description Tipos de pagamento obrigatório (recorrente) ou opcional do veículo.
+ */
+export type VehicleObligationType =
+  | 'ipva'
+  | 'licensing'
+  | 'dpvat'
+  | 'insurance'
+  | 'crv_issuance'
+  | 'detran_fee'
+  | 'other';
+
+/**
+ * @type VehicleObligationStatus
+ * @description Estado de uma obrigação. `overdue` é derivado em runtime
+ * (rules/documentation) — só será gravado quando o PRD de alertas vier.
+ */
+export type VehicleObligationStatus = 'pending' | 'paid' | 'overdue' | 'exempt' | 'cancelled';
+
+/**
+ * @interface VehicleObligation
+ * @description Pagamento anual obrigatório (IPVA, licenciamento, DPVAT) ou
+ * opcional (seguro, taxa de emissão de CRV) por veículo (PRD 0002).
+ */
+export interface VehicleObligation {
+  id: string;
+  tenant_id: string;
+  motorcycle_id: string;
+  type: VehicleObligationType;
+  reference_year: number;
+  description?: string | null;
+  amount: number;
+  due_date: string;
+  status: VehicleObligationStatus;
+  paid_at?: string | null;
+  payment_method?: string | null;
+  payment_reference?: string | null;
+  receipt_url?: string | null;
+  observations?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * @interface MotorcycleCostSummary
+ * @description Linha da view `motorcycle_cost_summary` (PRD 0002 F1).
+ * Agregado de TCO por moto, sem duplicar lançamentos.
+ */
+export interface MotorcycleCostSummary {
+  motorcycle_id: string;
+  tenant_id: string;
+  obligations_paid: number;
+  obligations_due: number;
+  maintenance_cost: number;
+  fines_company_paid: number;
+  fines_customer_paid: number;
+  expenses_paid: number;
+}
+
+/**
+ * @type MotorcycleFinancialEventSource
+ * @description Origem do evento na view `motorcycle_financial_events`.
+ */
+export type MotorcycleFinancialEventSource = 'obligation' | 'maintenance' | 'fine' | 'expense';
+
+/**
+ * @interface MotorcycleFinancialEvent
+ * @description Linha da view `motorcycle_financial_events` (PRD 0002 F1).
+ * Schema uniforme cross-tipo para a aba "Custo total" e relatórios.
+ */
+export interface MotorcycleFinancialEvent {
+  event_id: string;
+  tenant_id: string;
+  motorcycle_id: string;
+  source: MotorcycleFinancialEventSource;
+  subtype: string;
+  description: string | null;
+  amount: number | null;
+  event_date: string | null;
+  paid_at: string | null;
+  status: string;
+  attachment_url: string | null;
 }
 
 /**
@@ -309,8 +440,14 @@ export interface Expense {
   invoice_url?: string | null;
   /** @property attachment_url - URL do arquivo adicional no Supabase Storage. */
   attachment_url?: string | null;
+  /** @property payment_status - Estado de pagamento (PRD 0002). Default 'paid' preserva semântica atual. */
+  payment_status?: 'pending' | 'paid' | null;
+  /** @property paid_at - Data em que a despesa foi efetivamente paga (PRD 0002). */
+  paid_at?: string | null;
   /** @property created_at - Registro de quando a despesa foi lançada. */
   created_at: string;
+  /** @property updated_at - Última alteração no registro. */
+  updated_at?: string;
   /** @property motorcycle - Dados da moto vinculada para relatórios por veículo. */
   motorcycle?: Motorcycle;
 }
@@ -410,12 +547,13 @@ export interface Billing {
 
 /**
  * @interface Fine
- * @description Multa de trânsito associada a um cliente e a uma moto.
+ * @description Multa de trânsito (PRD 0002): pertence ao veículo. O cliente
+ * é opcional — pode ser atribuído quando o condutor é identificado.
  */
 export interface Fine {
   id: string;
   tenant_id: string;
-  customer_id: string;
+  customer_id: string | null;
   motorcycle_id: string;
   description: string;
   amount: number;
@@ -425,6 +563,13 @@ export interface Fine {
   payment_date: string | null;
   responsible: 'customer' | 'company';
   observations: string | null;
+  // PRD 0002 — campos do AIT
+  ait_number?: string | null;
+  infraction_code?: string | null;
+  infraction_location?: string | null;
+  points?: number | null;
+  source?: 'detran' | 'cetran' | 'municipal' | 'private_area' | 'other' | null;
+  ticket_url?: string | null;
   created_at: string;
   updated_at: string;
   customers?: { name: string; phone: string } | null;

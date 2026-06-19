@@ -27,6 +27,7 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^0.577.0",
     "next": "14.2.35",
+    "pdf-parse": "^2.4.5",
     "pizzip": "^3.2.0",
     "react": "^18",
     "react-dom": "^18",
@@ -36,6 +37,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
+    "@types/pdf-parse": "^1.1.5",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "dotenv": "^17.4.2",

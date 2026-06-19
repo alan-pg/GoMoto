@@ -15,6 +15,11 @@ const csp = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: ['@gomoto/core'],
+  // pdf-parse@2 usa pdfjs-dist@5 (ESM puro). O webpack do Next quebra ao tentar empacotar
+  // — externalizamos para que o Node faça o require em runtime no route handler.
+  experimental: {
+    serverComponentsExternalPackages: ['pdf-parse', 'pdfjs-dist'],
+  },
   async headers() {
     return [
       {

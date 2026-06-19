@@ -33,6 +33,55 @@ export const MotorcycleSchema = z.object({
   photo_url: z.string().url().optional().nullable(),
   km_current: z.number().int().min(0).optional().nullable(),
   observations: z.string().trim().max(2000).optional().nullable(),
+  // PRD 0002 — identidade documental atual (CRV/CRLV vigente)
+  registered_owner_name: z.string().trim().max(200).optional().nullable(),
+  registered_owner_document: z.string().trim().max(20).optional().nullable(),
+  registered_owner_type: z.enum(['cpf', 'cnpj']).optional().nullable(),
+  registration_state: z.string().trim().max(2).optional().nullable(),
+  ownership_transferred: z.boolean().optional(),
+  ownership_transfer_date: dateString.optional().nullable(),
+  // PRD 0002 — aquisição pela empresa
+  acquisition_type: z.enum(['zero_km', 'purchase', 'consignment', 'lease', 'donation', 'other']).optional(),
+  acquisition_amount: z.number().positive().max(9999999).optional().nullable(),
+})
+
+/**
+ * VehicleDocumentSchema — CRV/CRLV/recibo de transferência (PRD 0002).
+ * Cada moto tem no máximo 1 documento `is_current=true` por tipo
+ * (garantido por índice parcial único na migration).
+ */
+export const VehicleDocumentSchema = z.object({
+  motorcycle_id: z.string().uuid(),
+  type: z.enum(['crv', 'crlv', 'transfer_receipt', 'other']),
+  exercise_year: z.number().int().min(1900).max(2100).optional().nullable(),
+  document_number: z.string().trim().max(50).optional().nullable(),
+  issued_at: dateString.optional().nullable(),
+  registered_owner_name: z.string().trim().max(200).optional().nullable(),
+  registered_owner_document: z.string().trim().max(20).optional().nullable(),
+  registered_owner_type: z.enum(['cpf', 'cnpj']).optional().nullable(),
+  file_url: z.string().url().optional().nullable(),
+  is_current: z.boolean().optional(),
+  observations: z.string().trim().max(2000).optional().nullable(),
+})
+
+/**
+ * VehicleObligationSchema — IPVA/licenciamento/DPVAT/seguro/taxa (PRD 0002).
+ * `overdue` é derivado em runtime (rules/documentation) e não deve ser
+ * gravado diretamente no V1, mas é aceito no enum para o futuro PRD de alertas.
+ */
+export const VehicleObligationSchema = z.object({
+  motorcycle_id: z.string().uuid(),
+  type: z.enum(['ipva', 'licensing', 'dpvat', 'insurance', 'crv_issuance', 'detran_fee', 'other']),
+  reference_year: z.number().int().min(1900).max(2100),
+  description: z.string().trim().max(300).optional().nullable(),
+  amount: z.number().min(0).max(9999999),
+  due_date: dateString,
+  status: z.enum(['pending', 'paid', 'overdue', 'exempt', 'cancelled']).optional(),
+  paid_at: dateString.optional().nullable(),
+  payment_method: z.string().trim().max(50).optional().nullable(),
+  payment_reference: z.string().trim().max(200).optional().nullable(),
+  receipt_url: z.string().url().optional().nullable(),
+  observations: z.string().trim().max(2000).optional().nullable(),
 })
 
 export const CustomerSchema = z.object({
@@ -89,10 +138,17 @@ export const ExpenseSchema = z.object({
   observations: z.string().trim().max(2000).optional().nullable(),
   invoice_url: z.string().url().optional().nullable(),
   attachment_url: z.string().url().optional().nullable(),
+  // PRD 0002 — despesas podem ser lançadas com vencimento futuro
+  payment_status: z.enum(['pending', 'paid']).optional(),
+  paid_at: dateString.optional().nullable(),
 })
 
+/**
+ * FineSchema — PRD 0002 (D3, D6): multa pertence ao veículo. customer_id
+ * é opcional (pode ser atribuído depois da identificação do condutor).
+ */
 export const FineSchema = z.object({
-  customer_id: z.string().uuid(),
+  customer_id: z.string().uuid().optional().nullable(),
   motorcycle_id: z.string().uuid(),
   description: z.string().trim().min(1).max(300),
   amount: z.number().positive().max(9999999),
@@ -102,6 +158,13 @@ export const FineSchema = z.object({
   payment_date: dateString.optional().nullable(),
   responsible: z.enum(['customer', 'company']).optional(),
   observations: z.string().trim().max(2000).optional().nullable(),
+  // PRD 0002 — campos do AIT (Auto de Infração de Trânsito)
+  ait_number: z.string().trim().max(50).optional().nullable(),
+  infraction_code: z.string().trim().max(20).optional().nullable(),
+  infraction_location: z.string().trim().max(2000).optional().nullable(),
+  points: z.number().int().min(0).max(7).optional().nullable(),
+  source: z.enum(['detran', 'cetran', 'municipal', 'private_area', 'other']).optional().nullable(),
+  ticket_url: z.string().url().optional().nullable(),
 })
 
 /**
