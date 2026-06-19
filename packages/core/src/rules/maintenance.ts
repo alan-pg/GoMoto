@@ -1,13 +1,18 @@
 /**
  * @file rules/maintenance.ts
- * @description Regras puras do regime de manutenção: tabela canônica de intervalos
- * por tipo, classificação dinâmica de status (vencida/próxima/agendada/concluída) e
- * previsão da próxima manutenção a partir de uma conclusão.
+ * @description Regras puras do regime de manutenção: classificação dinâmica de status
+ * (vencida/próxima/agendada/concluída) e previsão da próxima ocorrência a partir
+ * de uma conclusão.
  *
- * O `MaintenanceStatus` aqui é DERIVADO (calculado em runtime), não persistido — a
- * tabela `maintenances` só guarda `completed` e os campos de previsão (`predicted_km`,
- * `scheduled_date`). Tudo o mais é computado por estas funções, daí o cuidado de
- * deixar `today` injetável para os testes não dependerem de relógio real.
+ * **PRD 0003 / ADR 0006 §7**: estas funções deixaram de carregar tabela canônica
+ * embutida. Quem chama é responsável por resolver `interval_km`/`interval_days` —
+ * geralmente vindo de `maintenance_plan_items.plan_id` ou, no caso de manutenções
+ * legadas sem `plan_item_id`, do helper `findSuggestedItemByDescription()` em
+ * `@gomoto/core/data`.
+ *
+ * O `MaintenanceStatus` é DERIVADO em runtime, não persistido — a tabela
+ * `maintenances` só guarda `completed` e os campos de previsão. `today` fica
+ * injetável para os testes não dependerem de relógio real.
  */
 
 /**
@@ -21,8 +26,8 @@ export type MaintenanceStatus = 'overdue' | 'upcoming' | 'scheduled' | 'complete
  * ou ambos (raríssimo no domínio atual, mas suportado).
  */
 export interface MaintenanceInterval {
-  interval_km?: number
-  interval_days?: number
+  interval_km?: number | null
+  interval_days?: number | null
 }
 
 /**
@@ -32,62 +37,22 @@ export interface MaintenanceInterval {
 export const KM_POR_DIA = 1000 / 7
 
 /**
- * Intervalos canônicos por descrição de item. Tipos não listados retornam `undefined`
- * em `getInterval` — a UI então aplica fallbacks defensivos (100 km / 18 dias) no
- * cálculo de threshold. As chaves duplicadas com/sem acento existem porque a base
- * histórica de itens varia; `getInterval` faz match tolerante e cobre os dois.
+ * Default do threshold de alerta (em %). Sobrescrito por
+ * `maintenance_plan_items.warn_threshold_pct` (item) ou por
+ * `settings['maintenance.default_warn_threshold_pct']` (tenant) — ver F3 do PRD.
  */
-export const STANDARD_INTERVALS: Record<string, MaintenanceInterval> = {
-  'Troca de óleo':              { interval_km: 1000 },
-  'Troca de oleo':              { interval_km: 1000 },
-  'Troca de óleo e filtro':     { interval_km: 1000 },
-  'Filtro de óleo':             { interval_km: 4000 },
-  'Filtro de ar':               { interval_km: 4000 },
-  'Vela de ignição':            { interval_km: 4000 },
-  'Velas de ignição':           { interval_km: 4000 },
-  'Kit de transmissão':         { interval_km: 8000 },
-  'Pneu traseiro':              { interval_km: 8000 },
-  'Pneu dianteiro':             { interval_km: 16000 },
-  'Freio dianteiro':            { interval_km: 10000 },
-  'Freio traseiro':             { interval_km: 8000 },
-  'Pastilha de freio dianteira':{ interval_km: 10000 },
-  'Pastilha de freio traseira': { interval_km: 8000 },
-  'Lona de freio traseira':     { interval_km: 8000 },
-  'Lona de freio dianteira':    { interval_km: 10000 },
-  'Amortecedor':                { interval_km: 15000 },
-  'Amortecedores':              { interval_km: 15000 },
-  'Revisão geral':              { interval_km: 6000 },
-  'Vistoria de entrega':        { interval_days: 180 },
-  'Vistoria periódica':         { interval_days: 180 },
-  'Vistoria mensal':            { interval_days: 30 },
-}
-
-function normalize(s: string): string {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
-}
-
-/**
- * Lookup tolerante: match exato → case-insensitive → normalizado (sem acento, minúsculo,
- * trim). Retorna `undefined` se nada bater. Indispensável porque a UI deixa o operador
- * digitar livremente e queremos casar mesmo com acentuação inconsistente.
- */
-export function getInterval(description: string): MaintenanceInterval | undefined {
-  if (STANDARD_INTERVALS[description]) return STANDARD_INTERVALS[description]
-  const lower = description.toLowerCase()
-  const normalizedDesc = normalize(description)
-  for (const key of Object.keys(STANDARD_INTERVALS)) {
-    if (key.toLowerCase() === lower) return STANDARD_INTERVALS[key]
-    if (normalize(key) === normalizedDesc) return STANDARD_INTERVALS[key]
-  }
-  return undefined
-}
+export const DEFAULT_WARN_THRESHOLD_PCT = 10
 
 export interface MaintenanceStatusInput {
   completed: boolean
-  description: string
   predicted_km: number | null | undefined
   scheduled_date: string | null | undefined
   current_km: number
+  /** Intervalo canônico do plano. `null` quando a manutenção é avulsa/corretiva. */
+  interval_km?: number | null
+  interval_days?: number | null
+  /** Percentual de antecedência para `upcoming`. Default = 10. */
+  warn_threshold_pct?: number | null
 }
 
 /**
@@ -96,35 +61,39 @@ export interface MaintenanceStatusInput {
  * Regras:
  * - `completed=true` → `completed`, fim.
  * - Controle por KM (`predicted_km` definido): vencida se `current_km >= predicted_km`;
- *   próxima se faltar até 10% do intervalo padrão (ou 100 km se a descrição não tem
- *   mapeamento); senão agendada.
+ *   próxima se faltar até `warn_threshold_pct%` do `interval_km`; senão agendada.
+ *   Quando o `interval_km` não é informado (manutenção corretiva sem plano), o
+ *   estado fica `scheduled` até cruzar `predicted_km`.
  * - Controle por data (`scheduled_date` definido): vencida se hoje passou da data;
- *   próxima se faltar até 10% do intervalo padrão em dias (ou 18 dias); senão agendada.
- * - Sem KM nem data → `scheduled` (defensivo, não deveria acontecer).
+ *   próxima se faltar até `warn_threshold_pct%` do `interval_days`; senão agendada.
+ * - Sem KM nem data → `scheduled` (defensivo).
  */
 export function calculateMaintenanceStatus(
   input: MaintenanceStatusInput,
   today: Date = new Date(),
 ): MaintenanceStatus {
   if (input.completed) return 'completed'
+  const pct = input.warn_threshold_pct ?? DEFAULT_WARN_THRESHOLD_PCT
   const kmCurrent = input.current_km
 
   if (input.predicted_km !== null && input.predicted_km !== undefined) {
     if (kmCurrent >= input.predicted_km) return 'overdue'
-    const interval = getInterval(input.description)
-    const threshold = interval?.interval_km ? Math.round(interval.interval_km * 0.10) : 100
-    if (kmCurrent >= input.predicted_km - threshold) return 'upcoming'
+    if (input.interval_km && input.interval_km > 0) {
+      const threshold = Math.round(input.interval_km * (pct / 100))
+      if (kmCurrent >= input.predicted_km - threshold) return 'upcoming'
+    }
     return 'scheduled'
   }
 
   if (input.scheduled_date) {
     const due = new Date(input.scheduled_date + 'T12:00:00')
     if (today >= due) return 'overdue'
-    const interval = getInterval(input.description)
-    const thresholdDays = interval?.interval_days ? Math.round(interval.interval_days * 0.10) : 18
-    const thresholdDate = new Date(due)
-    thresholdDate.setDate(thresholdDate.getDate() - thresholdDays)
-    if (today >= thresholdDate) return 'upcoming'
+    if (input.interval_days && input.interval_days > 0) {
+      const thresholdDays = Math.round(input.interval_days * (pct / 100))
+      const thresholdDate = new Date(due)
+      thresholdDate.setDate(thresholdDate.getDate() - thresholdDays)
+      if (today >= thresholdDate) return 'upcoming'
+    }
     return 'scheduled'
   }
 
@@ -132,9 +101,10 @@ export function calculateMaintenanceStatus(
 }
 
 export interface NextMaintenanceInput {
-  description: string
   completionKm: number
   completionDate: string
+  interval_km?: number | null
+  interval_days?: number | null
 }
 
 export interface NextMaintenanceOutput {
@@ -143,8 +113,9 @@ export interface NextMaintenanceOutput {
 }
 
 /**
- * Previsão da próxima ocorrência dado uma conclusão atual. Retorna `null` se a descrição
- * não tem mapeamento canônico (o chamador decide se cria o registro mesmo assim ou pula).
+ * Previsão da próxima ocorrência dado uma conclusão atual. Retorna `null` quando
+ * nenhum intervalo é informado — chamador decide se cria registro sem previsão
+ * (manutenção corretiva avulsa) ou pula.
  *
  * Usamos `T12:00:00` ao parsear a data de conclusão para evitar drift de fuso horário no
  * arredondamento — sem isso, dias rodam para trás em timezones a oeste de UTC.
@@ -152,15 +123,17 @@ export interface NextMaintenanceOutput {
 export function calculateNextMaintenance(
   input: NextMaintenanceInput,
 ): NextMaintenanceOutput | null {
-  const interval = getInterval(input.description)
-  if (!interval) return null
+  const hasKm = input.interval_km != null && input.interval_km > 0
+  const hasDays = input.interval_days != null && input.interval_days > 0
+  if (!hasKm && !hasDays) return null
+
   const out: NextMaintenanceOutput = {}
-  if (interval.interval_km) {
-    out.predicted_km = input.completionKm + interval.interval_km
+  if (hasKm) {
+    out.predicted_km = input.completionKm + (input.interval_km as number)
   }
-  if (interval.interval_days) {
+  if (hasDays) {
     const d = new Date(input.completionDate + 'T12:00:00')
-    d.setDate(d.getDate() + interval.interval_days)
+    d.setDate(d.getDate() + (input.interval_days as number))
     out.scheduled_date = d.toISOString().split('T')[0]
   }
   return out

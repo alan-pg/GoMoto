@@ -20,7 +20,7 @@ import {
   KM_POR_DIA,
   calculateMaintenanceStatus,
   calculateNextMaintenance,
-  getInterval,
+  findSuggestedItemByDescription,
 } from '@gomoto/core'
 
 import { Button } from '@/components/ui/Button'
@@ -209,14 +209,20 @@ function diffDias(m: MaintenanceWithMoto): number | null {
  * Adapter local: `MaintenanceWithMoto` carrega a moto joinada do select do Supabase;
  * o `calculateMaintenanceStatus` do core espera apenas `current_km` plano. Esta função
  * só faz o mapeamento — toda regra de threshold e classificação mora em @gomoto/core.
+ *
+ * **F1.5/PRD 0003**: enquanto não há `plan_item_id` em manutenções legadas, usamos
+ * o helper `findSuggestedItemByDescription` para resolver intervalo a partir da
+ * descrição. Quando F2 backfillar o vínculo, o lookup vai vir direto do plano.
  */
 function calcularStatus(m: MaintenanceWithMoto): MaintenanceStatus {
+  const suggested = findSuggestedItemByDescription(m.description)
   return calculateMaintenanceStatus({
     completed: m.completed,
-    description: m.description,
     predicted_km: m.predicted_km,
     scheduled_date: m.scheduled_date,
     current_km: m.motorcycle?.km_current ?? 0,
+    interval_km: suggested?.interval_km,
+    interval_days: suggested?.interval_days,
   })
 }
 
@@ -752,10 +758,12 @@ export default function MaintenancePage() {
       ]
 
       for (const item of itemsToSchedule) {
+        const suggested = findSuggestedItemByDescription(item.description)
         const projection = calculateNextMaintenance({
-          description: item.description,
           completionKm: actualKm,
           completionDate,
+          interval_km: suggested?.interval_km,
+          interval_days: suggested?.interval_days,
         })
         if (!projection) continue
         const next: Record<string, unknown> = {
@@ -1061,7 +1069,7 @@ export default function MaintenancePage() {
                                     <p className="font-medium text-[#f5f5f5] text-[13px]">
                                       {item.description}
                                       {(() => {
-                                        const iv = getInterval(item.description)
+                                        const iv = findSuggestedItemByDescription(item.description)
                                         if (!iv) return null
                                         const hint = iv.interval_km
                                           ? `a cada ${iv.interval_km.toLocaleString('pt-BR')} km`
@@ -1457,11 +1465,11 @@ export default function MaintenancePage() {
 
                   type NextItem = { description: string; sortKm: number; label: string }
 
-                  // Mapeia novas provisões que o sistema fará automaticamente a partir deste conserto caso exista um intervalo padrão de reincidência na tabela STANDARD_INTERVALS
+                  // Mapeia novas provisões que o sistema fará automaticamente a partir deste conserto caso exista um intervalo padrão de reincidência (lookup via sugestão canônica enquanto F2 não vincula plan_item_id)
                   const fromCompleting: NextItem[] = completingItems
                     .map((item): NextItem | null => {
-                      const interval = getInterval(item.description)
-                      if (!interval) return null
+                      const interval = findSuggestedItemByDescription(item.description)
+                      if (!interval || (!interval.interval_km && !interval.interval_days)) return null
                       const parts: string[] = []
                       let sortKm = Infinity
                       if (interval.interval_km) {

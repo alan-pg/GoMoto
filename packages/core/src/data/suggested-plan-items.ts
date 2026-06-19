@@ -78,3 +78,31 @@ export function groupSuggestionsByCategory(): Record<SuggestedItemCategory, Sugg
   }
   return grouped
 }
+
+function normalizeName(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+}
+
+/**
+ * Lookup tolerante: match exato → case-insensitive → normalizado (sem acento,
+ * minúsculo, trim). Retorna `undefined` se nada bater.
+ *
+ * Existe para alimentar as manutenções legadas que ficaram sem `plan_item_id`
+ * (PRD 0003 §10.2). A tela `/manutencao` chama este helper como fallback antes
+ * de invocar `calculateMaintenanceStatus` / `calculateNextMaintenance`. Quando
+ * F2 backfillar `plan_item_id`, o helper continua útil para itens com
+ * descrição livre e nenhum plano amarrado.
+ */
+export function findSuggestedItemByDescription(description: string): SuggestedPlanItem | undefined {
+  if (!description) return undefined
+  for (const item of SUGGESTED_PLAN_ITEMS) {
+    if (item.name === description) return item
+  }
+  const lower = description.toLowerCase()
+  const normalized = normalizeName(description)
+  for (const item of SUGGESTED_PLAN_ITEMS) {
+    if (item.name.toLowerCase() === lower) return item
+    if (normalizeName(item.name) === normalized) return item
+  }
+  return undefined
+}
