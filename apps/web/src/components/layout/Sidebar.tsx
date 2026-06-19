@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: '/dashboard',     label: 'Dashboard',         icon: LayoutDashboard },
   { href: '/fila',          label: 'Fila de Locadores', icon: Clock },
   { href: '/manutencao',    label: 'Manutenção',        icon: Wrench },
+  { href: '/planos-manutencao', label: 'Planos de Manutenção', icon: Wrench },
   { href: '/multas',        label: 'Multas',            icon: AlertTriangle },
   { href: '/despesas',      label: 'Despesas',          icon: TrendingDown },
   { href: '/entradas',      label: 'Entradas',          icon: TrendingUp },
