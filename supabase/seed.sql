@@ -264,6 +264,44 @@ INSERT INTO maintenance_items (tenant_id, name, km_interval, day_interval, type,
 ('00000000-0000-0000-0000-000000000001', 'Vistoria mensal',                          NULL,    30, 'inspection', 'Vistoria obrigatoria mensal de todas as motos.');
 
 -- ============================================================
+-- SEED: maintenance_plans + maintenance_plan_items (PRD 0003 §10.1)
+-- 1 plano default por tenant com 5 itens espelhando SUGGESTED_PLAN_ITEMS.
+-- IDs fixos para facilitar smoke manual e E2E:
+--   Bonze: 10000000-0000-0000-0000-000000000001
+--   Norte: 10000000-0000-0000-0000-000000000002
+-- ============================================================
+INSERT INTO maintenance_plans (id, tenant_id, name, description, is_default) VALUES
+('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'Plano Padrão',
+    'Plano default do tenant Bonze. Cobre óleo, filtro, freio, pneu e vistoria mensal.', true),
+('10000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002', 'Plano Padrão',
+    'Plano default do tenant Norte. Mesma estrutura do Bonze para facilitar smoke entre tenants.', true);
+
+INSERT INTO maintenance_plan_items
+    (tenant_id, plan_id, name, category, type, interval_km, interval_days, is_critical, sort_order) VALUES
+-- Plano Bonze
+('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+    'Troca de óleo',               'oil',        'preventive', 1000,  NULL, false, 0),
+('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+    'Filtro de óleo',              'filter',     'preventive', 4000,  NULL, false, 1),
+('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+    'Pastilha de freio dianteira', 'brake',      'preventive', 8000,  NULL, true,  2),
+('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+    'Pneu dianteiro',              'tire',       'preventive', 16000, NULL, true,  3),
+('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+    'Vistoria mensal',             'inspection', 'inspection', NULL,  30,   true,  4),
+-- Plano Norte
+('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002',
+    'Troca de óleo',               'oil',        'preventive', 1000,  NULL, false, 0),
+('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002',
+    'Filtro de óleo',              'filter',     'preventive', 4000,  NULL, false, 1),
+('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002',
+    'Pastilha de freio dianteira', 'brake',      'preventive', 8000,  NULL, true,  2),
+('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002',
+    'Pneu dianteiro',              'tire',       'preventive', 16000, NULL, true,  3),
+('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002',
+    'Vistoria mensal',             'inspection', 'inspection', NULL,  30,   true,  4);
+
+-- ============================================================
 -- SEED: settings
 -- ============================================================
 INSERT INTO settings (tenant_id, key, value) VALUES
@@ -298,6 +336,14 @@ UPDATE motorcycles
    SET previous_owner     = 'José Vendedor Antigo',
        previous_owner_cpf = '11122233344'
  WHERE id = '44444444-4444-4444-4444-444444444444';
+
+-- PRD 0003 — amarra 4 das 5 motos do Bonze ao Plano Padrão. A Biz 125
+-- (44444444…) propositadamente fica sem plano para que o smoke da F2
+-- exiba o banner "Atribua um plano de manutenção" do PRD §10.3.
+UPDATE motorcycles
+   SET maintenance_plan_id = '10000000-0000-0000-0000-000000000001'
+ WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+   AND id <> '44444444-4444-4444-4444-444444444444';
 
 -- ============================================================
 -- SEED: vehicle_documents (PRD 0002 — CRLV vigente por moto)

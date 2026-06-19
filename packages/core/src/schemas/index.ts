@@ -246,3 +246,37 @@ export const MaintenanceBootstrapSchema = z.array(z.object({
   observations: z.string().trim().max(2000).optional().nullable(),
 }))
 
+/**
+ * Plano de manutenção (PRD 0003 §5.1). Cada tenant cria seus próprios planos;
+ * um único `is_default=true` ativo por tenant (índice parcial garante).
+ */
+export const MaintenancePlanSchema = z.object({
+  name: z.string().trim().min(1, 'Nome do plano é obrigatório').max(200),
+  description: z.string().trim().max(2000).optional().nullable(),
+  is_default: z.boolean().optional(),
+})
+
+/**
+ * Item canônico do plano (PRD 0003 §5.2). `category` alimenta as regras
+ * contratuais (F3). Pelo menos um de `interval_km` / `interval_days` é exigido —
+ * o CHECK no banco também garante.
+ */
+export const MaintenancePlanItemSchema = z.object({
+  plan_id: z.string().uuid(),
+  name: z.string().trim().min(1, 'Nome do item é obrigatório').max(200),
+  category: z.enum([
+    'oil', 'filter', 'brake', 'tire', 'wear_part',
+    'inspection', 'fluid', 'transmission', 'other',
+  ]),
+  type: z.enum(['preventive', 'inspection']).optional(),
+  interval_km: z.number().int().positive().optional().nullable(),
+  interval_days: z.number().int().positive().optional().nullable(),
+  warn_threshold_pct: z.number().int().min(1).max(100).optional().nullable(),
+  is_critical: z.boolean().optional(),
+  tip: z.string().trim().max(2000).optional().nullable(),
+  sort_order: z.number().int().min(0).optional(),
+}).refine(
+  (data) => data.interval_km != null || data.interval_days != null,
+  { message: 'Informe ao menos um intervalo (km ou dias)', path: ['interval_km'] },
+)
+

@@ -1,41 +1,59 @@
 # 🚀 Roadmap — [[GoMoto]]
 
-## Próximos passos (prioridade)
+## Manutenção Preventiva V1 — fases [[PRDs/0003-manutencao-preventiva|PRD 0003]]
+
+Bloco prioritário em andamento. Decisões fechadas em [[decisions/0006-manutencao-preventiva-plano-responsabilidade-registro|ADR 0006]].
+
+| Fase | Escopo | Esforço | Bloqueia |
+|---|---|---|---|
+| **F1** | Plano + core refatorado | 2-3 dias | F2 |
+| **F2** | Telas de plano + atribuição à moto (`/planos-manutencao` + wizard passo 3) | 2 dias | F3 |
+| **F3** | Responsabilidade contratual (`effective_*`, `contract_maintenance_rules`, modal sem `expenses`) | 2-3 dias | F6 (e libera F4 em paralelo) |
+| **F4** | Mobile lista de preventivas (hooks `@gomoto/data` adaptados pro RN) | 2-3 dias | F5 |
+| **F5** | Mobile registro pelo cliente (`maintenance_records` + bucket + form) | 2-3 dias | F6 |
+| **F6** | Aprovação no web (`/aprovacoes` + actions transacionais) | 2 dias | — |
+
+**Total: ~12-15 dias focados.** Ordem natural: F1 → F2 → F3 desbloqueia o web; F4 → F5 → F6 fecha o ciclo mobile. F4 pode rodar em paralelo a F3.
+
+**Pré-check antes do deploy de F1 (não da implementação):**
+- ✅ **Local** (2026-06-18): `count(*) FROM maintenances WHERE standard_item_id IS NOT NULL` = **0** (13 linhas órfãs em `maintenance_items`, nenhuma referenciada).
+- ⏳ **Cloud** (`hcnxbqunescfanqzmsha`): rodar a mesma query antes do `supabase db push` da F1. Hoje o CLI local não está linkado no projeto — humano roda via Studio cloud.
+
+**Fora do V1 (PRDs futuros consumindo este modelo):** rateio financeiro (`billings` a partir de `effective_*`), regras avançadas (bloqueio por preventiva crítica vencida, oficinas homologadas), Ordem de Serviço, automações (push/WhatsApp, cron de overdue).
+
+## Próximos passos de infra
 
 | # | Item | Descrição | Dependências |
 |---|---|---|---|
 | 1 | **Deploy no Vercel** | Primeiro deploy em produção. Conectar repo GitHub → Vercel. Adicionar env vars no painel. | — |
-| 2 | **GitHub Actions CI/CD** | Pipeline: `npm run build` + lint + Playwright em cada PR | Deploy no Vercel |
+| 2 | **GitHub Actions CI/CD** | Pipeline: `pnpm build` + lint + Playwright em cada PR | Deploy no Vercel |
 | 3 | **Resend — emails** | Enviar email quando cobrança vencer. Template de lembrete de manutenção. | Variável `RESEND_API_KEY` |
 | 4 | **Sentry** | Capturar erros em produção. Dashboard de incidentes. | Deploy |
-| 5 | **Geração de PDF de contrato** | Botão em `/contratos` gera PDF real (atualmente mockado) | Biblioteca de PDF (ex: `pdf-lib`) |
-| 6 | **Upstash Redis** | Migrar rate-limit de in-memory para Redis persistente (atual perde em restart) | Conta Upstash |
+| 5 | **Upstash Redis** | Migrar rate-limit de in-memory para Redis persistente (atual perde em restart) | Conta Upstash |
 
 ## Backlog (médio prazo)
 
 - **Assinatura digital de contratos** — DocuSign ou similar
-- **Notificações push / SMS** — alertas de vencimento para operador
+- **Notificações push / SMS** — alertas de vencimento para operador e cliente (sustenta automações de manutenção do PRD 0003 também)
 - **Integração bancária** — reconciliação automática de PIX/boleto
-- **Painel mobile responsivo** — layout otimizado para celular do operador em campo
 - **Exportação de relatórios** — CSV / Excel de cobranças, despesas, receitas
-- **Audit logs automatizados** — triggers no Supabase para `audit_logs` (estrutura já existe)
 - **Geolocalização real de motos** — integrar GPS tracker via API
+- **Rateio financeiro de manutenção** — PRD próprio consumindo `maintenances.effective_*` para gerar `billings`
+- **Ordem de Serviço** — PRD próprio com `service_orders` + peças + mecânico
 
 ## Longo prazo / Experimental
 
-- **Multi-tenancy** — isolar dados por empresa para virar SaaS (RLS já preparada)
-- **App mobile nativo** — React Native / Expo
 - **IA para análise de inadimplência** — score de risco por cliente
 - **Cálculo automático de seguro** — taxa de gerenciamento sobre FIPE
+- **Self-service signup de tenant** — onboarding sem CLI (ver ADR 0004 §9)
+- **Branding por tenant** — logo/cores do app por locadora
 
 ## O que está mockado hoje
 
 | Feature | Status | O que falta |
 |---|---|---|
-| PDF de contratos | Botão existe | Integrar biblioteca de geração |
 | Geolocalização de motos | Lat/lng simulados no mapa | GPS tracker real |
 | Emails transacionais | Settings preparado | Integrar Resend |
-| Audit logs | Tabela criada | Triggers ou chamadas no CRUD |
 | Assinatura digital | — | Nenhuma integração ainda |
 
 ## Tags
