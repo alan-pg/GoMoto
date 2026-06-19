@@ -257,18 +257,15 @@ export const MaintenancePlanSchema = z.object({
 })
 
 /**
- * Item canônico do plano (PRD 0003 §5.2). `category` alimenta as regras
- * contratuais (F3). Pelo menos um de `interval_km` / `interval_days` é exigido —
- * o CHECK no banco também garante.
+ * Item canônico do plano (PRD 0003 §5.2). Toda manutenção do plano é
+ * preventiva por contrato — `category`/`type` foram removidos do V1
+ * (decisão revisada do ADR 0006: quem paga é decidido pelo operador
+ * no momento, sem regra automática por categoria). Pelo menos um de
+ * `interval_km` / `interval_days` é exigido — o CHECK no banco também garante.
  */
 export const MaintenancePlanItemSchema = z.object({
   plan_id: z.string().uuid(),
   name: z.string().trim().min(1, 'Nome do item é obrigatório').max(200),
-  category: z.enum([
-    'oil', 'filter', 'brake', 'tire', 'wear_part',
-    'inspection', 'fluid', 'transmission', 'other',
-  ]),
-  type: z.enum(['preventive', 'inspection']).optional(),
   interval_km: z.number().int().positive().optional().nullable(),
   interval_days: z.number().int().positive().optional().nullable(),
   warn_threshold_pct: z.number().int().min(1).max(100).optional().nullable(),

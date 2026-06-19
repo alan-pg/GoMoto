@@ -277,29 +277,29 @@ INSERT INTO maintenance_plans (id, tenant_id, name, description, is_default) VAL
     'Plano default do tenant Norte. Mesma estrutura do Bonze para facilitar smoke entre tenants.', true);
 
 INSERT INTO maintenance_plan_items
-    (tenant_id, plan_id, name, category, type, interval_km, interval_days, is_critical, sort_order) VALUES
+    (tenant_id, plan_id, name, interval_km, interval_days, is_critical, sort_order) VALUES
 -- Plano Bonze
 ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
-    'Troca de óleo',               'oil',        'preventive', 1000,  NULL, false, 0),
+    'Troca de óleo',               1000,  NULL, false, 0),
 ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
-    'Filtro de óleo',              'filter',     'preventive', 4000,  NULL, false, 1),
+    'Filtro de óleo',              4000,  NULL, false, 1),
 ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
-    'Pastilha de freio dianteira', 'brake',      'preventive', 8000,  NULL, true,  2),
+    'Pastilha de freio dianteira', 8000,  NULL, true,  2),
 ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
-    'Pneu dianteiro',              'tire',       'preventive', 16000, NULL, true,  3),
+    'Pneu dianteiro',              16000, NULL, true,  3),
 ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
-    'Vistoria mensal',             'inspection', 'inspection', NULL,  30,   true,  4),
+    'Vistoria mensal',             NULL,  30,   true,  4),
 -- Plano Norte
 ('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002',
-    'Troca de óleo',               'oil',        'preventive', 1000,  NULL, false, 0),
+    'Troca de óleo',               1000,  NULL, false, 0),
 ('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002',
-    'Filtro de óleo',              'filter',     'preventive', 4000,  NULL, false, 1),
+    'Filtro de óleo',              4000,  NULL, false, 1),
 ('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002',
-    'Pastilha de freio dianteira', 'brake',      'preventive', 8000,  NULL, true,  2),
+    'Pastilha de freio dianteira', 8000,  NULL, true,  2),
 ('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002',
-    'Pneu dianteiro',              'tire',       'preventive', 16000, NULL, true,  3),
+    'Pneu dianteiro',              16000, NULL, true,  3),
 ('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002',
-    'Vistoria mensal',             'inspection', 'inspection', NULL,  30,   true,  4);
+    'Vistoria mensal',             NULL,  30,   true,  4);
 
 -- ============================================================
 -- SEED: settings

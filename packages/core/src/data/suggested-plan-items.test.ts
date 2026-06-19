@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   SUGGESTED_PLAN_ITEMS,
-  groupSuggestionsByCategory,
-  type SuggestedItemCategory,
+  findSuggestedItemByDescription,
 } from './suggested-plan-items'
 
 describe('SUGGESTED_PLAN_ITEMS', () => {
@@ -26,24 +25,6 @@ describe('SUGGESTED_PLAN_ITEMS', () => {
     expect(new Set(normalized).size).toBe(normalized.length)
   })
 
-  it('todas as categorias pertencem ao enum aceito no schema', () => {
-    const allowed: SuggestedItemCategory[] = [
-      'oil', 'filter', 'brake', 'tire', 'wear_part',
-      'inspection', 'fluid', 'transmission', 'other',
-    ]
-    for (const item of SUGGESTED_PLAN_ITEMS) {
-      expect(allowed).toContain(item.category)
-    }
-  })
-
-  it('itens de tipo "inspection" sempre têm intervalo (km ou dias) — D8 reservado', () => {
-    const inspections = SUGGESTED_PLAN_ITEMS.filter((i) => i.type === 'inspection')
-    expect(inspections.length).toBeGreaterThan(0)
-    for (const i of inspections) {
-      expect(i.interval_km != null || i.interval_days != null).toBe(true)
-    }
-  })
-
   it('freio/pneu/vistoria de entrega/vistoria mensal estão marcados como críticos', () => {
     const critical = SUGGESTED_PLAN_ITEMS.filter((i) => i.is_critical).map((i) => i.name)
     expect(critical).toEqual(expect.arrayContaining([
@@ -59,19 +40,19 @@ describe('SUGGESTED_PLAN_ITEMS', () => {
   })
 })
 
-describe('groupSuggestionsByCategory', () => {
-  it('todo item aparece exatamente uma vez em alguma categoria', () => {
-    const grouped = groupSuggestionsByCategory()
-    const flat = Object.values(grouped).flat()
-    expect(flat.length).toBe(SUGGESTED_PLAN_ITEMS.length)
+describe('findSuggestedItemByDescription', () => {
+  it('encontra match exato pelo nome', () => {
+    const item = findSuggestedItemByDescription('Troca de óleo')
+    expect(item?.name).toBe('Troca de óleo')
   })
 
-  it('cada item está agrupado na própria categoria', () => {
-    const grouped = groupSuggestionsByCategory()
-    for (const [category, items] of Object.entries(grouped)) {
-      for (const item of items) {
-        expect(item.category).toBe(category)
-      }
-    }
+  it('é tolerante a caixa e acentuação', () => {
+    expect(findSuggestedItemByDescription('troca de oleo')?.name).toBe('Troca de óleo')
+    expect(findSuggestedItemByDescription('TROCA DE ÓLEO')?.name).toBe('Troca de óleo')
+  })
+
+  it('retorna undefined para descrição vazia ou sem match', () => {
+    expect(findSuggestedItemByDescription('')).toBeUndefined()
+    expect(findSuggestedItemByDescription('item inexistente xyz')).toBeUndefined()
   })
 })

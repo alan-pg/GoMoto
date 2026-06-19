@@ -501,31 +501,6 @@ export interface Maintenance {
 }
 
 /**
- * @type MaintenancePlanItemCategory
- * @description Categorias canônicas do PRD 0003 §6.3. Alinhado com o CHECK
- * da coluna `maintenance_plan_items.category` e com `SuggestedItemCategory`
- * em `@gomoto/core/data`.
- */
-export type MaintenancePlanItemCategory =
-  | 'oil'
-  | 'filter'
-  | 'brake'
-  | 'tire'
-  | 'wear_part'
-  | 'inspection'
-  | 'fluid'
-  | 'transmission'
-  | 'other';
-
-/**
- * @type MaintenancePlanItemType
- * @description Distinção operacional do PRD 0003 §5.2: `preventive` é troca
- * de peça/insumo com intervalo recorrente; `inspection` é vistoria temporal.
- * Corretiva continua em `maintenances.type='corrective'` e nunca vem de plano.
- */
-export type MaintenancePlanItemType = 'preventive' | 'inspection';
-
-/**
  * @interface MaintenancePlan
  * @description Plano nomeado de manutenção criado pelo tenant (PRD 0003 §5.1).
  * Cada tenant pode ter vários planos; apenas um pode ter `is_default=true`
@@ -549,14 +524,13 @@ export interface MaintenancePlan {
  * @description Item canônico de um plano de manutenção (PRD 0003 §5.2).
  * Pelo menos um de `interval_km`/`interval_days` é exigido por CHECK no banco.
  * `warn_threshold_pct` sobrescreve o default global (10%) para este item.
+ * `is_critical` é flag reservada para o PRD futuro de bloqueio por crítica vencida.
  */
 export interface MaintenancePlanItem {
   id: string;
   tenant_id: string;
   plan_id: string;
   name: string;
-  category: MaintenancePlanItemCategory;
-  type: MaintenancePlanItemType;
   interval_km: number | null;
   interval_days: number | null;
   warn_threshold_pct: number | null;
