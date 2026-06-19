@@ -2,18 +2,18 @@
 
 ## Manutenção Preventiva V1 — fases [[PRDs/0003-manutencao-preventiva|PRD 0003]]
 
-Bloco prioritário em andamento. Decisões fechadas em [[decisions/0006-manutencao-preventiva-plano-responsabilidade-registro|ADR 0006]].
+Bloco prioritário em andamento. Decisões fechadas em [[decisions/0006-manutencao-preventiva-plano-responsabilidade-registro|ADR 0006]] (revisada em 2026-06-19 — D3/D4 parcialmente adiadas, ver §"Revisão" do ADR).
 
 | Fase | Escopo | Esforço | Bloqueia |
 |---|---|---|---|
-| **F1** | Plano + core refatorado | 2-3 dias | F2 |
-| **F2** | Telas de plano + atribuição à moto (`/planos-manutencao` + wizard passo 3) | 2 dias | F3 |
-| **F3** | Responsabilidade contratual (`effective_*`, `contract_maintenance_rules`, modal sem `expenses`) | 2-3 dias | F6 (e libera F4 em paralelo) |
+| ✅ **F1** | Plano + core refatorado | 2-3 dias | F2 |
+| 🚧 **F2** | Telas de plano + atribuição à moto (`/planos-manutencao` + wizard passo 3) | 2 dias | F3 |
+| **F3** | Snapshot + modal de conclusão (`effective_executor` / `effective_customer_payer_pct` preenchidos pelo operador; remove `INSERT INTO expenses`) | 1-2 dias | F5 (e libera F4 em paralelo) |
 | **F4** | Mobile lista de preventivas (hooks `@gomoto/data` adaptados pro RN) | 2-3 dias | F5 |
-| **F5** | Mobile registro pelo cliente (`maintenance_records` + bucket + form) | 2-3 dias | F6 |
-| **F6** | Aprovação no web (`/aprovacoes` + actions transacionais) | 2 dias | — |
+| **F5** | Mobile registro pelo cliente + aprovação web (`maintenance_records` + bucket + form + `/aprovacoes`) | 3-4 dias | — |
+| ⏸ ~~F3 original~~ | ~~Responsabilidade contratual (`contract_maintenance_rules`, `resolveResponsibility`)~~ | — | **Adiada (2026-06-19)** para PRD futuro de "regras de responsabilidade" — ver ADR 0006 §"Revisão". |
 
-**Total: ~12-15 dias focados.** Ordem natural: F1 → F2 → F3 desbloqueia o web; F4 → F5 → F6 fecha o ciclo mobile. F4 pode rodar em paralelo a F3.
+**Total: ~10-13 dias focados.** Ordem natural: F1 → F2 → F3 desbloqueia o web; F4 → F5 fecha o ciclo mobile. F4 pode rodar em paralelo a F3.
 
 **Pré-check antes do deploy de F1 (não da implementação):**
 - ✅ **Local** (2026-06-18): `count(*) FROM maintenances WHERE standard_item_id IS NOT NULL` = **0** (13 linhas órfãs em `maintenance_items`, nenhuma referenciada).

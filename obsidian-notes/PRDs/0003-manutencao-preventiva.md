@@ -19,7 +19,21 @@ tags:
 
 # PRD 0003 — Manutenção preventiva: planos, responsabilidade contratual e registro pelo cliente
 
-> 🟡 **Status: rascunho v1.0** em 2026-06-18. Substitui a versão "lista de fases sem schema" anterior. 9 decisões fechadas (ver §13). Próximo passo: implementar **F1** (schema + core refatorado) — ver §12.
+> 🟡 **Status: rascunho v1.1** em 2026-06-19. Substitui a versão "lista de fases sem schema" anterior. 9 decisões originais; D3 e D4 **revisadas em 2026-06-19** (ver §13). Próximo passo: concluir **F2** (telas de plano + atribuição à moto) — ver §12.
+
+> ✏️ **Revisão 2026-06-19 — simplificação de responsabilidade e remoção de `category`/`type`**
+>
+> Após implementar F1 e F2 percebemos que:
+> - **Toda manutenção do plano é preventiva** por contrato — `maintenance_plan_items.type` era ruído de UI sem variação útil.
+> - **Quem paga não cabe em regra automática** no V1 — a regra por categoria contratual (D3) virou cerimônia sem benefício claro. Operador decide caso a caso ao **criar/executar/dar baixa** em uma manutenção (já é o que acontece hoje no modal de conclusão).
+>
+> **Mudanças no escopo V1:**
+> - `category` e `type` saem de `maintenance_plan_items` (migration `drop_category_type_from_plan_items`).
+> - `contract_maintenance_rules`, `contracts.default_maintenance_*` e `resolveResponsibility()` ficam **adiados** para um PRD futuro de "regras de responsabilidade".
+> - Snapshot em `maintenances.effective_executor` / `effective_customer_payer_pct` **continua valendo** — é o operador quem preenche no modal de conclusão (sem pré-cálculo automático).
+> - `is_critical` **fica** no schema (reservado para PRD futuro de bloqueio por crítica vencida — D8, inalterado).
+>
+> As seções afetadas (§3.2, §5.2, §5.5, §5.6, §6.3, §6.4, §6.9, §7.3, §7.4, §12) ganharam markers `⏸ Adiado` ou foram editadas para refletir o novo escopo.
 
 ---
 
@@ -75,7 +89,7 @@ E ataca o débito acumulado: tira intervalos do código, persiste o snapshot de 
 - ✅ Tenant cria, edita e clona **planos de manutenção** próprios, com itens livres ou copiados de sugestões.
 - ✅ Cada moto tem **um plano atribuído**; bootstrap retroativo ajuda migração.
 - ✅ Tirar `STANDARD_INTERVALS` do código; refatorar `@gomoto/core/rules/maintenance` para funções 100% puras sem lookup interno.
-- ✅ Contrato pode definir **responsabilidade default** (executor + pagador) + override fino via `contract_maintenance_rules` (por categoria ou item).
+- ⏸ ~~Contrato pode definir **responsabilidade default** (executor + pagador) + override fino via `contract_maintenance_rules` (por categoria ou item).~~ **Adiado em 2026-06-19** — ver §3.2 e D3 revisado.
 - ✅ Conclusão de manutenção **persiste** o snapshot `effective_executor` + `effective_customer_payer_pct` em `maintenances`.
 - ✅ Remover o lançamento espelho em `expenses` na conclusão (alinha com PRD 0002 D1).
 - ✅ Cliente vê suas preventivas no mobile, com badge de executor ("Leve à oficina" vs "Registrar manutenção").
@@ -89,6 +103,8 @@ E ataca o débito acumulado: tira intervalos do código, persiste o snapshot de 
 - ❌ **Catálogo curado de itens pela plataforma** (tabela `maintenance_item_catalog`). Sugestões vivem em código como constante; tenant tem autonomia total.
 - ❌ **Rateio financeiro automático** (gerar `billings` pra cobrar a parte do cliente). O snapshot fica pronto em `maintenances.effective_*`, mas a geração de cobrança é PRD próprio.
 - ❌ **Bloqueio de locação por preventiva vencida**. Schema preparado (`is_critical`), lógica fora. PRD futuro de "regras avançadas". Decisão D8.
+- ❌ **Regra contratual de responsabilidade** (`contract_maintenance_rules`, `contracts.default_maintenance_*`, `resolveResponsibility`). ⏸ **Adiado (2026-06-19)** para um PRD futuro de "regras de responsabilidade". V1 deixa o operador escolher executor + pagador no momento de criar/executar/dar baixa em cada manutenção. Snapshot em `maintenances.effective_*` continua sendo persistido.
+- ❌ **Categoria de item de plano** (`maintenance_plan_items.category`). ⏸ **Adiado (2026-06-19)** junto com `contract_maintenance_rules`, pois sua principal serventia era amarrar regras contratuais por categoria. Reintroduzir quando o PRD de regras voltar.
 - ❌ **Ordem de Serviço** (`service_orders` + peças + mecânico + tempo). PRD próprio quando o V1 estiver consolidado. Decisão D9.
 - ❌ **Notificações push / WhatsApp / email** de manutenção próxima ou vencida. PRD futuro de "automações".
 - ❌ **Cron de "marcar como overdue automaticamente"**. Status é derivado em runtime (`calculateMaintenanceStatus`). Persistir overdue vira parte do PRD de automações.
@@ -144,6 +160,8 @@ CREATE TRIGGER trg_maintenance_plans_updated_at
 
 ### 5.2 Nova tabela `maintenance_plan_items`
 
+> ✏️ **Revisão 2026-06-19:** `category` e `type` foram dropados (migration `drop_category_type_from_plan_items`). Toda manutenção do plano é preventiva por contrato; categoria volta junto com o PRD futuro de regras de responsabilidade.
+
 ```sql
 CREATE TABLE maintenance_plan_items (
     id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -151,14 +169,6 @@ CREATE TABLE maintenance_plan_items (
     plan_id              UUID NOT NULL REFERENCES maintenance_plans(id) ON DELETE CASCADE,
 
     name                 VARCHAR(200) NOT NULL,
-    category             VARCHAR(20) NOT NULL CHECK (category IN (
-                            'oil','filter','brake','tire','wear_part',
-                            'inspection','fluid','transmission','other'
-                         )),
-    type                 VARCHAR(20) NOT NULL CHECK (type IN (
-                            'preventive','inspection'
-                         )) DEFAULT 'preventive',
-    -- Corretiva continua em maintenances.type='corrective' mas não vem de plano.
 
     interval_km          INTEGER CHECK (interval_km IS NULL OR interval_km > 0),
     interval_days        INTEGER CHECK (interval_days IS NULL OR interval_days > 0),
@@ -211,16 +221,21 @@ CREATE INDEX idx_maintenances_plan_item ON maintenances(plan_item_id);
 
 ### 5.5 Alterações em `contracts`
 
+> ⏸ **Adiado (2026-06-19)** — `default_maintenance_executor` e `default_customer_payer_pct` saem do V1 junto com o PRD futuro de regras de responsabilidade. `maintenance_approval_required` segue em V1 pois pertence ao fluxo de aprovação de registro pelo cliente (D6).
+
 ```sql
 ALTER TABLE contracts
-    ADD COLUMN default_maintenance_executor   VARCHAR(20) CHECK (default_maintenance_executor IN ('company','customer')),
-    ADD COLUMN default_customer_payer_pct     INTEGER CHECK (default_customer_payer_pct >= 0 AND default_customer_payer_pct <= 100),
     ADD COLUMN maintenance_approval_required  BOOLEAN;
 ```
 
-Todos nullable. `NULL` = herda do default do tenant (settings).
+`NULL` = herda do default do tenant (settings).
 
 ### 5.6 Nova tabela `contract_maintenance_rules`
+
+> ⏸ **Adiado (2026-06-19)** — `contract_maintenance_rules` sai do V1 e volta no PRD futuro de regras de responsabilidade. V1 deixa o operador escolher executor + pagador no momento de cada manutenção.
+
+<details>
+<summary>Schema original preservado para referência do PRD futuro</summary>
 
 ```sql
 CREATE TABLE contract_maintenance_rules (
@@ -256,6 +271,8 @@ CREATE TRIGGER trg_contract_maintenance_rules_updated_at
 ```
 
 Precedência aplicada por `resolveResponsibility()`: **item > categoria > default do contrato > NULL** (operador decide caso a caso).
+
+</details>
 
 ### 5.7 Nova tabela `maintenance_records`
 
@@ -373,7 +390,12 @@ calculateNextMaintenance({
 
 Recebe intervalo direto (do plan_item), sem lookup por descrição. Quem chama é responsável por buscar o item.
 
-### 6.3 `resolveResponsibility` — nova
+### 6.3 `resolveResponsibility` — ⏸ adiada (2026-06-19)
+
+> Adiada para o PRD futuro de "regras de responsabilidade". V1 não tem pré-cálculo: o operador escolhe executor + `customer_payer_pct` no modal de conclusão (ver §6.9 revisado). O snapshot continua sendo persistido em `maintenances.effective_*`.
+
+<details>
+<summary>Spec original preservada para o PRD futuro</summary>
 
 ```ts
 resolveResponsibility({
@@ -394,7 +416,14 @@ Cada campo (`executor`, `customerPayerPct`) é resolvido de forma independente �
 
 Função pura, sem side-effects.
 
-### 6.4 `splitMaintenanceCost` — nova
+</details>
+
+### 6.4 `splitMaintenanceCost` — ⏸ adiada (2026-06-19)
+
+> Função permanece pura e útil, mas como o V1 não tem rateio automático (sem cobrança ao cliente, sem snapshot calculado pelo sistema), ela fica para o PRD futuro junto com a geração de `billings` a partir do snapshot.
+
+<details>
+<summary>Spec original preservada</summary>
 
 ```ts
 splitMaintenanceCost(totalCost: number, customerPayerPct: number): {
@@ -406,6 +435,8 @@ splitMaintenanceCost(totalCost: number, customerPayerPct: number): {
 ```
 
 Round 2 casas decimais; empresa absorve a diferença de arredondamento (≤ R$ 0,01).
+
+</details>
 
 ### 6.5 `isApprovalRequired` — nova
 
@@ -444,9 +475,11 @@ Hoje o passo 3 do wizard pede ao operador "último KM/data de cada item padrão"
 
 ### 6.9 Conclusão de manutenção pelo operador
 
+> ✏️ **Revisão 2026-06-19** — sem pré-cálculo automático. O operador escolhe executor e pagador no modal a cada conclusão. Snapshot continua sendo gravado em `maintenances.effective_*`.
+
 - Operador abre modal de conclusão em `/manutencao` (fluxo atual).
-- Sistema pré-calcula via `resolveResponsibility(contract, planItem, rules)` para cada item — preenche os chips de executor/pagador.
-- Operador pode sobrescrever caso a caso (ex.: hoje empresa cobre tudo).
+- Modal exibe chips livres para executor (Empresa · Cliente) e pagador (Empresa 100% · Cliente 100% · 50/50 · Customizar…). Default = "Empresa 100%" (caso mais comum no operacional atual).
+- Operador escolhe caso a caso.
 - No save:
   - UPDATE `maintenances` SET `completed=true`, `actual_km`, `completed_date`, `cost`, `workshop`, `effective_executor`, `effective_customer_payer_pct`.
   - INSERT próximo `maintenances` (via `calculateNextMaintenance(planItem)`).
@@ -531,28 +564,24 @@ Depois:
 
 ### 7.3 `/contratos` — editar contrato
 
+> ✏️ **Revisão 2026-06-19** — seção "Manutenção" reduzida ao toggle de aprovação. Default executor/pagador saem com o PRD futuro de regras.
+
 Form principal mantém estrutura atual; adiciona seção **"Manutenção"**:
 
-- Select `default_maintenance_executor` (Empresa · Cliente · Decidir caso a caso).
-- Input `default_customer_payer_pct` (0-100, slider + número).
 - Toggle `maintenance_approval_required` com 3 valores: Sim · Não · Usar default do tenant.
 
 ### 7.4 Nova rota `/contratos/[id]/manutencao` (web)
 
-Tela dedicada a `contract_maintenance_rules`:
-
-- Tabela "Regras por categoria" + tabela "Regras por item" (escape hatch).
-- Cada linha: categoria/item · executor · customer_payer_pct.
-- Botão "Adicionar regra" → modal com radio (Categoria vs Item) e form correspondente.
-- Preview: "Resultado efetivo da responsabilidade por item do plano atribuído à frota deste contrato" — útil pra ver se as regras conflitam.
+> ⏸ **Adiado (2026-06-19)** — tela inteira sai do V1 e volta com o PRD futuro de regras de responsabilidade.
 
 ### 7.5 `/manutencao` — modal de conclusão refatorado
 
+> ✏️ **Revisão 2026-06-19** — sem pré-cálculo. Operador escolhe direto.
+
 Mudanças incrementais sobre o modal atual:
 
-- Pré-calcula executor + pagador via `resolveResponsibility(contract, planItem, rules)` (a tela já tem busca de contrato ativo da moto).
-- Chips de pagador: `Empresa 100%` · `Cliente 100%` · `50/50` · `Customizar…` (abre input de %).
-- Chips de executor: `Empresa` · `Cliente`.
+- Chips de pagador: `Empresa 100%` (default) · `Cliente 100%` · `50/50` · `Customizar…` (abre input de %).
+- Chips de executor: `Empresa` (default) · `Cliente`.
 - Após save, persiste em `effective_*` (lê de volta na UI ao reabrir item concluído).
 - **Remove** o lançamento em `expenses` que existia (operação invisível no save).
 
@@ -846,22 +875,23 @@ Se > 0, popular `plan_item_id` correspondente antes do drop (improvável — col
 
 ## 12. Faseamento sugerido
 
+> ✏️ **Revisão 2026-06-19** — F3 original (responsabilidade contratual) adiada para PRD futuro. Demais fases renumeradas. Snapshot em `maintenances.effective_*` é introduzido junto com o modal de conclusão revisado.
+
 | Fase | Escopo | Esforço |
 |---|---|---|
-| **F1 — Plano + core refatorado** | Migration de `maintenance_plans`/`maintenance_plan_items`, drop de `maintenance_items`. `SUGGESTED_PLAN_ITEMS` em `@gomoto/core`. `calculateMaintenanceStatus`/`calculateNextMaintenance` refatoradas. Testes Vitest. Hooks de leitura. | 2-3 dias |
-| **F2 — Telas de plano + atribuição à moto** | `/planos-manutencao` CRUD + clone + sugestões. Wizard passo 3 refatorado. | 2 dias |
-| **F3 — Responsabilidade contratual** | Migration de `maintenances.effective_*`, `contracts.default_*`, `contract_maintenance_rules`. `resolveResponsibility`, `splitMaintenanceCost`. Modal de conclusão atualizado. Remoção do insert em `expenses`. Tela `/contratos/[id]/manutencao`. | 2-3 dias |
-| **F4 — Mobile lista de preventivas** | Tela `(tabs)/manutencao.tsx` no mobile consumindo `@gomoto/data` (adaptar hooks pro RN se preciso). Badge de executor resolvido. | 2-3 dias |
-| **F5 — Mobile registro pelo cliente** | Migration de `maintenance_records` + bucket. Form de submissão (KM, oficina, valor, fotos obrigatórias). Tela de histórico do cliente. | 2-3 dias |
-| **F6 — Aprovação no web** | Tela `/aprovacoes`. Server Actions `approveMaintenanceRecord` + `rejectMaintenanceRecord`. Fluxo transacional + auto-aprovação. Atualização de settings de aprovação. | 2 dias |
+| **F1 — Plano + core refatorado** ✅ | Migration de `maintenance_plans`/`maintenance_plan_items`, drop de `maintenance_items`. `SUGGESTED_PLAN_ITEMS` em `@gomoto/core`. `calculateMaintenanceStatus`/`calculateNextMaintenance` refatoradas. Testes Vitest. Hooks de leitura. | 2-3 dias |
+| **F2 — Telas de plano + atribuição à moto** 🚧 | `/planos-manutencao` CRUD + clone + autocomplete (R2: sem category/type). Wizard passo 3 refatorado (próximo). | 2 dias |
+| **F3 — Modal de conclusão + snapshot de responsabilidade** | Migration `maintenances.effective_*` + `contracts.maintenance_approval_required`. Modal de conclusão pede executor + pagador (chips livres, default "Empresa 100%"). Remove insert em `expenses`. **Sem** `resolveResponsibility`, **sem** `contract_maintenance_rules`. | 1-2 dias |
+| **F4 — Mobile lista de preventivas** | Tela `(tabs)/manutencao.tsx` no mobile consumindo `@gomoto/data`. Badge de executor mostra apenas itens já concluídos com `effective_executor='customer'`. | 2-3 dias |
+| **F5 — Mobile registro pelo cliente + aprovação web** | Migration de `maintenance_records` + bucket. Form de submissão. Tela `/aprovacoes`. Server Actions `approveMaintenanceRecord` + `rejectMaintenanceRecord`. Fluxo transacional + auto-aprovação. | 3-4 dias |
 
-**Total V1 (F1-F6): ~12-15 dias focados.**
+**Total V1 (F1-F5): ~10-12 dias focados.**
 
 **Ordem de prioridade:**
 
-- **F1 → F2 → F3** desbloqueia o uso operacional novo no web (plano + responsabilidade + conclusão).
-- **F4 → F5 → F6** entrega o ciclo mobile completo do cliente.
-- F4 pode rodar em paralelo a F3 se houver banda (telas independentes).
+- **F1 → F2 → F3** desbloqueia o uso operacional novo no web (plano + snapshot de responsabilidade).
+- **F4 → F5** entrega o ciclo mobile completo do cliente.
+- F4 pode rodar em paralelo a F3 se houver banda.
 
 **Fora do V1 (PRDs futuros):**
 
@@ -872,14 +902,14 @@ Se > 0, popular `plan_item_id` correspondente antes do drop (improvável — col
 
 ---
 
-## 13. Decisões (fechadas em 2026-06-18)
+## 13. Decisões (fechadas em 2026-06-18; D3/D4 revisadas em 2026-06-19)
 
 | # | Decisão | Resolução |
 |---|---|---|
 | ✅ D1 | Escopo do plano de manutenção | **Tenant cria N planos próprios**; cada moto assignada a 1 plano. Override por moto fora do V1. |
-| ✅ D2 | Tratamento de `STANDARD_INTERVALS` hardcoded | Vira constante `SUGGESTED_PLAN_ITEMS` em `@gomoto/core` (com `category`, deduplicada). Chips na criação do plano **copiam** itens pra `maintenance_plan_items`. Sem FK de catálogo. Sem tabela global. |
-| ✅ D3 | Responsabilidade contratual: granularidade | Default por contrato + `contract_maintenance_rules` permite override por categoria (preferencial) ou item (escape). Precedência item > categoria > default. `resolveResponsibility()` pura. |
-| ✅ D4 | Modelagem executor × pagador + split | `executor` binário (`company`/`customer`) + `customer_payer_pct INTEGER 0-100`. Snapshot em `maintenances.effective_*`. `splitMaintenanceCost()` pura. **Lançamento espelho em `expenses` removido** na conclusão (alinha com PRD 0002 D1). |
+| ✅ D2 | Tratamento de `STANDARD_INTERVALS` hardcoded | Vira constante `SUGGESTED_PLAN_ITEMS` em `@gomoto/core`, deduplicada. ~~Inclui `category`~~ — **revisado 2026-06-19:** `category` removida das sugestões e do schema (ver D3 revisado). Chips na criação do plano **copiam** itens pra `maintenance_plan_items`. Sem FK de catálogo. Sem tabela global. |
+| ✏️ D3 | Responsabilidade contratual: granularidade | ~~Default por contrato + `contract_maintenance_rules` permite override por categoria/item. Precedência item > categoria > default. `resolveResponsibility()` pura.~~ **Revisado 2026-06-19 — adiado para PRD futuro.** Operador decide caso a caso ao criar/concluir manutenção. `contracts.default_maintenance_*`, `contract_maintenance_rules` e `resolveResponsibility()` saem do V1. `maintenance_plan_items.category` removida (não há mais granularidade por categoria). Snapshot em `maintenances.effective_*` permanece — preenchido manualmente no modal de conclusão. |
+| ✏️ D4 | Modelagem executor × pagador + split | `executor` binário (`company`/`customer`) + `customer_payer_pct INTEGER 0-100`. Snapshot em `maintenances.effective_*` **continua valendo**. **Lançamento espelho em `expenses` removido** na conclusão (alinha com PRD 0002 D1). ~~`splitMaintenanceCost()` pura.~~ **Revisado 2026-06-19:** `splitMaintenanceCost()` adiado junto com `resolveResponsibility()` — sem pré-cálculo no V1, operador escolhe o split direto no modal. |
 | ✅ D5 | Registro pelo cliente | Tabela separada `maintenance_records` com FK obrigatória pra `maintenances`. Índice parcial garante 1 `approved` por manutenção. N tentativas livres. Bucket dedicado `maintenance-records`. Aprovação transacional. |
 | ✅ D6 | Aprovação: obrigatória ou opcional | Default por tenant em `settings.maintenance.approval_required` + override por contrato (`contracts.maintenance_approval_required NULL = herda`). Estado `in_review` reservado no CHECK mas opcional no V1. `getMaintenanceSettings()` agrega chaves `maintenance.*`. |
 | ✅ D7 | Threshold "vencer em breve" | Default por tenant em settings (`maintenance.default_warn_threshold_pct`, default 10) + override percentual opcional por item (`maintenance_plan_items.warn_threshold_pct`). `calculateMaintenanceStatus` refatorada pra função pura. `STANDARD_INTERVALS`, `getInterval`, `normalize` morrem. |

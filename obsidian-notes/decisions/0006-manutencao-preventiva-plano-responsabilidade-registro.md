@@ -1,13 +1,23 @@
 # ADR 0006 — Manutenção preventiva: plano por tenant, responsabilidade contratual e registro pelo cliente
 
-- **Status:** Aceita
-- **Data:** 2026-06-18
+- **Status:** Aceita (revisada em 2026-06-19 — ver "Revisão" abaixo)
+- **Data:** 2026-06-18 (original) / 2026-06-19 (revisão D3/D4)
 - **Autores:** Stakeholder + agente IA
 - **Substitui:** —
 - **Substituída por:** —
 - **Relacionada:** [[decisions/0001-monorepo-pnpm-turborepo|ADR 0001]] (multi-tenancy P2), [[decisions/0002-padrao-canonico-pagina-server-actions|ADR 0002]] (Server Actions + `logAction`), [[decisions/0003-escopo-e-auth-do-mobile-cliente|ADR 0003]] (auth do cliente), [[decisions/0004-control-plane-e-identidade-do-cliente|ADR 0004]] (CPF como identidade global)
 - **PRD de origem:** [[PRDs/0003-manutencao-preventiva]]
 - **PRD irmão:** [[PRDs/0002-cadastro-de-motos-documentacao-e-tco]] (D1 — "cada custo na sua tabela; sem espelho em `expenses`")
+
+## Revisão 2026-06-19 — D3 e D4 (parte do split automático) adiadas
+
+Após implementar F1 + F2 percebemos que a regra contratual de responsabilidade (D3) virou cerimônia sem ganho real: na operação cotidiana o operador já decide caso a caso ao concluir cada manutenção, e nenhum tenant pediu o pré-cálculo automático. Resultado:
+
+- **D3 — adiada** para um PRD futuro "regras de responsabilidade". Saem do V1: `contracts.default_maintenance_*`, tabela `contract_maintenance_rules`, função `resolveResponsibility()` e a coluna `maintenance_plan_items.category` (cuja serventia era amarrar regras por categoria).
+- **D4 — parcialmente revisada.** Snapshot em `maintenances.effective_executor` / `effective_customer_payer_pct` **continua valendo** — é o que persiste a decisão do operador. O que sai é `splitMaintenanceCost()` (sem pré-cálculo no V1) e qualquer derivação automática a partir de regra contratual.
+- **D2 — revisada.** `SUGGESTED_PLAN_ITEMS` perde o campo `category` (ainda mantém `is_critical` reservado para D8).
+
+As seções §2, §3, §4 abaixo permanecem documentando a decisão original; trechos relativos a `contract_maintenance_rules`, `resolveResponsibility` e `splitMaintenanceCost` ficam como **referência histórica para o PRD futuro** — não execute essas mudanças no V1. A migration `drop_category_type_from_plan_items` (2026-06-19) já reflete o novo escopo no banco.
 
 ## Contexto
 
@@ -268,19 +278,16 @@ PRD futuro próprio cobrirá `service_orders` + `service_order_items` + `service
 - **Histórico cumulativo do cliente** ("seu Z já gastou R$ 1200 em óleo") como produto. Consome `maintenance_records` + view; PRD próprio.
 - **Notificações** (push, WhatsApp, email) de "sua manutenção vence em 200 km". PRD de automações.
 
-## Estado atual (2026-06-18)
+## Estado atual (2026-06-19)
 
-- Migrations F1–F3: **a criar** (3 arquivos novos em `supabase/migrations/`).
-- `maintenance_items` órfã: **a dropar** (após pré-check `SELECT count(*) FROM maintenances WHERE standard_item_id IS NOT NULL` em local e cloud).
-- `STANDARD_INTERVALS`, `getInterval`, `normalize` em `@gomoto/core/rules/maintenance.ts`: **a remover** (F1).
-- `SUGGESTED_PLAN_ITEMS`: **a criar** em `packages/core/src/data/suggested-plan-items.ts` (F1).
-- `calculateMaintenanceStatus` e `calculateNextMaintenance`: **a refatorar** para receber intervalo como input puro (F1).
-- `resolveResponsibility`, `splitMaintenanceCost`, `isApprovalRequired`, `getWarnThreshold`, `getMaintenanceSettings`: **a implementar** (F1/F3).
-- Modal de conclusão em `/manutencao` removendo `INSERT INTO expenses` e persistindo `effective_*`: **a refatorar** (F3).
-- Telas `/planos-manutencao`, `/contratos/[id]/manutencao`, `/aprovacoes`: **a criar** (F2/F3/F6).
-- Telas mobile `(tabs)/manutencao.tsx`, `manutencao/[id]/registrar.tsx`, `manutencao/historico.tsx`: **a criar** (F4–F5).
-- Settings `maintenance.approval_required` e `maintenance.default_warn_threshold_pct`: **a popular** nos tenants seed (F3).
-- Bucket `maintenance-records`: **a criar** (F5).
+- ✅ **F1 entregue** (2026-06-18): `maintenance_plans` + `maintenance_plan_items` + `motorcycles.maintenance_plan_id`; `STANDARD_INTERVALS`/`getInterval`/`normalize` removidos; `SUGGESTED_PLAN_ITEMS` no core; `calculateMaintenanceStatus`/`calculateNextMaintenance` puros; settings populados no seed.
+- ✅ **F2 parcial — `/planos-manutencao` web entregue** (2026-06-19): CRUD de planos, clone, itens com autocomplete via `<datalist>`. Migration `drop_category_type_from_plan_items` aplicada.
+- ⏸ **F2 restante (atribuição à moto)**: `maintenance_plan_id` no wizard de motos + banner em `/motos` quando NULL — em andamento.
+- ⏸ **Adiados (revisão D3)**: `contracts.default_maintenance_*`, `contract_maintenance_rules`, `resolveResponsibility`, `splitMaintenanceCost`, página `/contratos/[id]/manutencao`.
+- 🚧 **F3 revisada** (snapshot + modal de conclusão): refatorar `/manutencao` para remover `INSERT INTO expenses`, persistir `effective_executor` + `effective_customer_payer_pct` preenchidos pelo operador no modal.
+- 🚧 **F4–F5 mobile**: telas `(tabs)/manutencao.tsx`, `manutencao/[id]/registrar.tsx`, `manutencao/historico.tsx` + fluxo de aprovação.
+- 🚧 Bucket `maintenance-records`: **a criar** (F5).
+- ✅ `maintenance_items` órfã: removida em F1.
 
 ## Referências
 
