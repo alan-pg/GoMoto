@@ -1,8 +1,29 @@
 import { Stack, useRouter, useSegments } from 'expo-router'
-import { useEffect } from 'react'
+import { useEffect, useMemo, type ReactNode } from 'react'
 import { ActivityIndicator, StyleSheet, View } from 'react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { SupabaseProvider } from '@gomoto/data'
 
 import { AuthProvider, useAuth } from '../src/contexts/auth'
+import { supabase } from '../src/lib/supabase'
+
+// QueryClient é estável durante o ciclo do app. Defaults conservadores: dados
+// considerados frescos por 30 s (mobile alterna foreground/background bastante).
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
+})
+
+function DataProviders({ children }: { children: ReactNode }) {
+  const { activeTenantId } = useAuth()
+  // Re-cria o value só quando o tenant ativo muda — evita render desnecessário
+  // nos consumidores do contexto.
+  const tenantId = useMemo(() => activeTenantId, [activeTenantId])
+  return (
+    <SupabaseProvider client={supabase} tenantId={tenantId}>
+      {children}
+    </SupabaseProvider>
+  )
+}
 
 function RootGate() {
   const { session, loading, needsPasswordSetup, needsTenantSelection } = useAuth()
@@ -50,9 +71,13 @@ function RootGate() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <RootGate />
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <DataProviders>
+          <RootGate />
+        </DataProviders>
+      </AuthProvider>
+    </QueryClientProvider>
   )
 }
 

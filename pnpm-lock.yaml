@@ -30,6 +30,9 @@ importers:
       '@gomoto/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@gomoto/data':
+        specifier: workspace:*
+        version: link:../../packages/data
       '@react-native-async-storage/async-storage':
         specifier: 2.2.0
         version: 2.2.0(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@18.3.31)(react@19.2.3))
@@ -39,6 +42,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.108.1
         version: 2.108.1
+      '@tanstack/react-query':
+        specifier: ^5.80.5
+        version: 5.101.0(react@19.2.3)
       expo:
         specifier: ~56.0.11
         version: 56.0.11(@babel/core@7.29.7)(@expo/dom-webview@56.0.5)(@expo/metro-runtime@56.0.15)(expo-router@56.2.10)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-worklets@0.8.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@18.3.31)(react@19.2.3))(react@19.2.3))(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@18.3.31)(react@19.2.3))(react@19.2.3)(typescript@5.9.3)
@@ -6978,6 +6984,11 @@ snapshots:
     dependencies:
       '@tanstack/query-core': 5.101.0
       react: 18.3.1
+
+  '@tanstack/react-query@5.101.0(react@19.2.3)':
+    dependencies:
+      '@tanstack/query-core': 5.101.0
+      react: 19.2.3
 
   '@testing-library/dom@10.4.1':
     dependencies:
