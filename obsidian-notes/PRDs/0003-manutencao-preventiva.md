@@ -881,9 +881,9 @@ Se > 0, popular `plan_item_id` correspondente antes do drop (improvável — col
 |---|---|---|
 | **F1 — Plano + core refatorado** ✅ | Migration de `maintenance_plans`/`maintenance_plan_items`, drop de `maintenance_items`. `SUGGESTED_PLAN_ITEMS` em `@gomoto/core`. `calculateMaintenanceStatus`/`calculateNextMaintenance` refatoradas. Testes Vitest. Hooks de leitura. | 2-3 dias |
 | **F2 — Telas de plano + atribuição à moto** 🚧 | `/planos-manutencao` CRUD + clone + autocomplete (R2: sem category/type). Wizard passo 3 refatorado (próximo). | 2 dias |
-| **F3 — Modal de conclusão + snapshot de responsabilidade** | Migration `maintenances.effective_*` + `contracts.maintenance_approval_required`. Modal de conclusão pede executor + pagador (chips livres, default "Empresa 100%"). Remove insert em `expenses`. **Sem** `resolveResponsibility`, **sem** `contract_maintenance_rules`. | 1-2 dias |
-| **F4 — Mobile lista de preventivas** | Tela `(tabs)/manutencao.tsx` no mobile consumindo `@gomoto/data`. Badge de executor mostra apenas itens já concluídos com `effective_executor='customer'`. | 2-3 dias |
-| **F5 — Mobile registro pelo cliente + aprovação web** | Migration de `maintenance_records` + bucket. Form de submissão. Tela `/aprovacoes`. Server Actions `approveMaintenanceRecord` + `rejectMaintenanceRecord`. Fluxo transacional + auto-aprovação. | 3-4 dias |
+| **F3 — Modal de conclusão + snapshot de responsabilidade** ✅ | Migration `maintenances.effective_*` + `contracts.maintenance_approval_required`. Modal de conclusão pede executor + pagador (chips livres, default "Empresa 100%"). Remove insert em `expenses`. **Sem** `resolveResponsibility`, **sem** `contract_maintenance_rules`. | 1-2 dias |
+| **F4 — Mobile lista de preventivas** ✅ | Tela `(tabs)/manutencoes.tsx` no mobile consumindo `@gomoto/data`. Badge de executor mostra apenas itens já concluídos com `effective_executor='customer'`. | 2-3 dias |
+| **F5 — Mobile registro pelo cliente + aprovação web** ✅ | Migration de `maintenance_records` + reuso do bucket `maintenance-files`. Modal "Registrar conclusão" no mobile (foto hodômetro obrigatória, NF opcional, ArrayBuffer no upload pra contornar blob vazio do RN). Tela `/aprovacoes` com ações inline. Aprovação espelha `maintenance_records` em `maintenances` (sem Server Action — mutations diretas via `@gomoto/data`); rejeição exige motivo. Badge de pendentes na Sidebar + realtime via `supabase_realtime` invalidando cross-tab. | 3-4 dias |
 
 **Total V1 (F1-F5): ~10-12 dias focados.**
 

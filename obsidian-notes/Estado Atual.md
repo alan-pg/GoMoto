@@ -1,6 +1,6 @@
 # 📊 Estado Atual — [[GoMoto]]
 
-Snapshot em **2026-06-12**.
+Snapshot em **2026-06-20**.
 
 ## ✅ Funcionando end-to-end
 
@@ -12,7 +12,8 @@ Snapshot em **2026-06-12**.
 - CRUD de cobranças (com cálculo de atraso)
 - CRUD de entradas, despesas, multas
 - Fila de espera (cadastro com upload de documentos, swap auditado, fechamento de contrato em 5 mutações compostas)
-- Manutenção (bootstrap automático ao criar moto + registro manual + conclusão multi-item)
+- Manutenção (bootstrap automático ao criar moto + registro manual + conclusão multi-item via operador no web)
+- **Manutenção pelo cliente (mobile + web)** — cliente registra conclusão no Expo Go (KM, oficina, custo, fotos), operador revisa em `/aprovacoes` (aprova preenchendo executor/% pagador ou rejeita com motivo). Badge na sidebar conta pendentes; realtime cross-tab invalida cache automaticamente.
 - Processos (Q&A interno com ordenação)
 - Configurações da empresa
 - **Audit logs populados em todas as 7 telas de dashboard** (Fase 5 — gap fechado em 2026-06-12)
@@ -38,7 +39,7 @@ Detalhes e tradeoffs registrados em [[decisions/0002-padrao-canonico-pagina-serv
 | Geolocalização de motos | Lat/lng simulados no mapa; GPS real comentado como "futuro" |
 | Emails transacionais | Settings preparado, mas não envia |
 | Webhooks/notificações | Não implementado |
-| App mobile | Bootstrap pronto (Expo SDK 52 + Expo Router, commit `5e036ad`); telas de produto pendentes |
+| App mobile | Login CPF + listagem de manutenções + registro de conclusão. Outras telas de produto pendentes |
 | `packages/data` cobre só leituras | Mutações vivem em `actions.ts` por tela (decisão registrada na ADR 0002) |
 
 ## 🐛 Bugs conhecidos
@@ -60,13 +61,15 @@ Auditoria em 2026-06-12 confirmou que `contratos`, `cobrancas`, `fila` e `manute
 
 ## 🚀 Roadmap imediato (ordem sugerida)
 
-1. **Fase 4-bis — telas de produto no mobile** — bootstrap + login concluídos. Próximos slices: listagens (motos, clientes, contratos) consumindo `@gomoto/data` — hooks precisam adaptar para RN (provider sem SSR + cliente supabase do mobile).
+1. **PRD 0003 F2 — planos de manutenção no web** (`/planos-manutencao` + wizard passo 3) — última fase aberta do PRD 0003 V1.
 2. **Resend** — emails de cobrança vencida, lembretes de manutenção.
 3. **Upstash Redis** — migrar rate-limit de in-memory pra persistente.
 4. **Sentry** — monitoramento de erros em produção (adiado pro final, fechar quando subir pra prod real).
 
 ## ✅ Recentemente entregue
 
+- **PRD 0003 F5 — manutenção mobile + aprovação web** (4 commits, 2026-06-20) — `87c84ac` cria `maintenance_records` com RLS (operador via `tenant_isolation`, cliente via `customer_self_select/insert`). `899e42a` adiciona modal de registro no mobile (KM, oficina, custo, foto de hodômetro obrigatória, foto de nota opcional) — upload via `arrayBuffer()` (`fetch().blob()` no RN gera arquivo vazio na Storage). `1764f85` adiciona rota `/aprovacoes` no web com aprovação inline preenchendo `effective_executor`/`effective_customer_payer_pct` no `maintenances` e marcando o record. `bd3b5bb` corrige warn de `MediaTypeOptions` deprecado (substituído por `mediaTypes: ['images']`). `36b4dd0` adiciona badge de pendentes na sidebar + realtime cross-tab via publication `supabase_realtime`. **F3, F4 e F5 do PRD 0003 concluídas.**
+- **PRD 0003 F3/F4 — snapshot + mobile listagem** (commits anteriores) — `effective_executor`/`effective_customer_payer_pct` preenchidos na conclusão do operador (sem `INSERT INTO expenses` automático). Mobile lista preventivas com status calculado via `@gomoto/core/rules/maintenance`.
 - **Bootstrap `apps/mobile`** (commit `5e036ad`, 2026-06-12) — Expo SDK 52 + Expo Router + metro.config para monorepo PNPM. Bumpado para **SDK 56** (Expo `~56.0.11`, RN `0.85.3`, React `19.2.3`, expo-router `~56.2.10`) para casar com o Expo Go publicado nas lojas — SDK 54 deu `ClassCastException` no runtime do Expo Go atual. Override `@types/react: ^18` no `pnpm-workspace.yaml` evita que tipos React 19 do mobile vazem para o web (que ainda roda React 18 via lucide-react/radix). `metro.config.js` ajustado para PNPM (sem `disableHierarchicalLookup`, com `unstable_enableSymlinks`). Validação pendente: rodar `pnpm --filter @gomoto/mobile dev` e abrir no Expo Go.
 - **Geração de PDF de contratos** (commit `683a233`, 2026-06-12) — botão "PDF" lado a lado com "Gerar [template]" usa `docx-preview` + print dialog nativo. Validação visual pendente.
 - **Fase 3 — extrair regime de manutenção** (commit `521b9ca`, 2026-06-12) — última concentração grande de regra inline migrada para `@gomoto/core`.
@@ -78,10 +81,15 @@ Auditoria em 2026-06-12 confirmou que `contratos`, `cobrancas`, `fila` e `manute
 - Supabase local: `http://127.0.0.1:54321`
 - Projeto Supabase cloud: `hcnxbqunescfanqzmsha`
 
-## Últimos commits relevantes (2026-06-12)
+## Últimos commits relevantes (2026-06-20)
 
 | Commit | Mensagem |
 |---|---|
+| `36b4dd0` | feat(maintenance): F5.4 — badge de pendentes + realtime cross-tab |
+| `bd3b5bb` | fix(mobile): troca MediaTypeOptions.Images por ['images'] |
+| `1764f85` | feat(aprovacoes): F5.3 — rota web pra revisão de manutenção do mobile |
+| `899e42a` | feat(mobile): F5.2 — registrar conclusão de manutenção |
+| `87c84ac` | feat(maintenance): F5.1 — tabela maintenance_records + RLS de aprovação |
 | `521b9ca` | refactor(core): extrai rules/maintenance + manutencao consome do @gomoto/core |
 | `683a233` | feat(contratos): botão "PDF" gera contrato via docx-preview + print dialog |
 | `4950798` | docs: fecha Fase 3 e separa "extrair manutenção" como item próprio |
