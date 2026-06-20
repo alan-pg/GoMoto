@@ -1,21 +1,21 @@
 # 🚀 Roadmap — [[GoMoto]]
 
-## Manutenção Preventiva V1 — fases [[PRDs/0003-manutencao-preventiva|PRD 0003]]
+## Manutenção Preventiva V1 — ✅ concluída ([[PRDs/0003-manutencao-preventiva|PRD 0003]])
 
-Bloco prioritário em andamento. Decisões fechadas em [[decisions/0006-manutencao-preventiva-plano-responsabilidade-registro|ADR 0006]] (revisada em 2026-06-19 — D3/D4 parcialmente adiadas, ver §"Revisão" do ADR).
+V1 fechada em **2026-06-20**. Decisões em [[decisions/0006-manutencao-preventiva-plano-responsabilidade-registro|ADR 0006]] (revisada em 2026-06-19 — D3/D4 parcialmente adiadas, ver §"Revisão" do ADR).
 
 | Fase | Escopo | Esforço | Bloqueia |
 |---|---|---|---|
 | ✅ **F1** | Plano + core refatorado | 2-3 dias | F2 |
-| 🚧 **F2** | Telas de plano + atribuição à moto (`/planos-manutencao` + wizard passo 3) | 2 dias | F3 |
+| ✅ **F2** | Telas de plano + atribuição à moto (`/planos-manutencao` CRUD + clone + autocomplete; wizard `/motos` passo 3 com plano default + bootstrap por item) | 2 dias | F3 |
 | ✅ **F3** | Snapshot + modal de conclusão (`effective_executor` / `effective_customer_payer_pct` preenchidos pelo operador; remove `INSERT INTO expenses`) | 1-2 dias | F5 (e libera F4 em paralelo) |
 | ✅ **F4** | Mobile lista de preventivas (hooks `@gomoto/data` adaptados pro RN) | 2-3 dias | F5 |
 | ✅ **F5** | Mobile registro pelo cliente + aprovação web (`maintenance_records` + bucket + form + `/aprovacoes` + badge realtime) | 3-4 dias | — |
 | ⏸ ~~F3 original~~ | ~~Responsabilidade contratual (`contract_maintenance_rules`, `resolveResponsibility`)~~ | — | **Adiada (2026-06-19)** para PRD futuro de "regras de responsabilidade" — ver ADR 0006 §"Revisão". |
 
-**Total: ~10-13 dias focados.** Ordem natural: F1 → F2 → F3 desbloqueia o web; F4 → F5 fecha o ciclo mobile. F4 pode rodar em paralelo a F3.
+**Total: ~10-13 dias focados.** Ordem natural seguida: F1 → F2 → F3 → F4/F5.
 
-**Status (2026-06-20):** F3, F4 e F5 entregues. F5 saiu em 4 commits: `87c84ac` (F5.1 tabela + RLS), `899e42a` (F5.2 mobile), `1764f85` (F5.3 /aprovacoes), `36b4dd0` (F5.4 badge + realtime). Resta apenas F2 (planos no web) pra fechar o PRD 0003 V1.
+**Status (2026-06-20):** F1–F5 entregues. F5 saiu em 4 commits: `87c84ac` (F5.1 tabela + RLS), `899e42a` (F5.2 mobile), `1764f85` (F5.3 /aprovacoes), `36b4dd0` (F5.4 badge + realtime). F2 já estava implementada (`/planos-manutencao` + wizard passo 3 do `/motos`) — smoke test no DB local confirmou bootstrap end-to-end: plano com 5 itens → moto criada → 5 maintenances geradas.
 
 **Pré-check antes do deploy de F1 (não da implementação):**
 - ✅ **Local** (2026-06-18): `count(*) FROM maintenances WHERE standard_item_id IS NOT NULL` = **0** (13 linhas órfãs em `maintenance_items`, nenhuma referenciada).

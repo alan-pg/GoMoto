@@ -12,7 +12,8 @@ Snapshot em **2026-06-20**.
 - CRUD de cobranças (com cálculo de atraso)
 - CRUD de entradas, despesas, multas
 - Fila de espera (cadastro com upload de documentos, swap auditado, fechamento de contrato em 5 mutações compostas)
-- Manutenção (bootstrap automático ao criar moto + registro manual + conclusão multi-item via operador no web)
+- Manutenção (bootstrap a partir do plano atribuído à moto + registro manual + conclusão multi-item via operador no web, com snapshot `effective_executor` / `effective_customer_payer_pct`)
+- **Planos de manutenção** — `/planos-manutencao` com CRUD de planos e itens, autocomplete via `SUGGESTED_PLAN_ITEMS`, clone, arquivar, set default. Wizard `/motos` passo 3 atribui plano à moto e materializa `maintenances` previstas por item.
 - **Manutenção pelo cliente (mobile + web)** — cliente registra conclusão no Expo Go (KM, oficina, custo, fotos), operador revisa em `/aprovacoes` (aprova preenchendo executor/% pagador ou rejeita com motivo). Badge na sidebar conta pendentes; realtime cross-tab invalida cache automaticamente.
 - Processos (Q&A interno com ordenação)
 - Configurações da empresa
@@ -61,13 +62,17 @@ Auditoria em 2026-06-12 confirmou que `contratos`, `cobrancas`, `fila` e `manute
 
 ## 🚀 Roadmap imediato (ordem sugerida)
 
-1. **PRD 0003 F2 — planos de manutenção no web** (`/planos-manutencao` + wizard passo 3) — última fase aberta do PRD 0003 V1.
-2. **Resend** — emails de cobrança vencida, lembretes de manutenção.
-3. **Upstash Redis** — migrar rate-limit de in-memory pra persistente.
-4. **Sentry** — monitoramento de erros em produção (adiado pro final, fechar quando subir pra prod real).
+1. **Deploy no Vercel** — primeiro deploy em produção; conectar repo + env vars no painel.
+2. **GitHub Actions CI/CD** — `pnpm build` + lint + Playwright em cada PR.
+3. **Resend** — emails de cobrança vencida, lembretes de manutenção.
+4. **Upstash Redis** — migrar rate-limit de in-memory pra persistente.
+5. **Sentry** — monitoramento de erros em produção (fechar junto com deploy real).
+
+PRD 0003 V1 (manutenção preventiva) — ✅ fechada em 2026-06-20.
 
 ## ✅ Recentemente entregue
 
+- **PRD 0003 V1 — fechada** (2026-06-20) — F1 a F5 entregues. Smoke test end-to-end no DB local confirma o bootstrap: plano default com 5 itens → moto criada → 5 maintenances `preventive`/`inspection` materializadas. F2 (planos + wizard passo 3) já estava em código quando reabrimos a auditoria — só faltava marcar como concluída nas notas.
 - **PRD 0003 F5 — manutenção mobile + aprovação web** (4 commits, 2026-06-20) — `87c84ac` cria `maintenance_records` com RLS (operador via `tenant_isolation`, cliente via `customer_self_select/insert`). `899e42a` adiciona modal de registro no mobile (KM, oficina, custo, foto de hodômetro obrigatória, foto de nota opcional) — upload via `arrayBuffer()` (`fetch().blob()` no RN gera arquivo vazio na Storage). `1764f85` adiciona rota `/aprovacoes` no web com aprovação inline preenchendo `effective_executor`/`effective_customer_payer_pct` no `maintenances` e marcando o record. `bd3b5bb` corrige warn de `MediaTypeOptions` deprecado (substituído por `mediaTypes: ['images']`). `36b4dd0` adiciona badge de pendentes na sidebar + realtime cross-tab via publication `supabase_realtime`. **F3, F4 e F5 do PRD 0003 concluídas.**
 - **PRD 0003 F3/F4 — snapshot + mobile listagem** (commits anteriores) — `effective_executor`/`effective_customer_payer_pct` preenchidos na conclusão do operador (sem `INSERT INTO expenses` automático). Mobile lista preventivas com status calculado via `@gomoto/core/rules/maintenance`.
 - **Bootstrap `apps/mobile`** (commit `5e036ad`, 2026-06-12) — Expo SDK 52 + Expo Router + metro.config para monorepo PNPM. Bumpado para **SDK 56** (Expo `~56.0.11`, RN `0.85.3`, React `19.2.3`, expo-router `~56.2.10`) para casar com o Expo Go publicado nas lojas — SDK 54 deu `ClassCastException` no runtime do Expo Go atual. Override `@types/react: ^18` no `pnpm-workspace.yaml` evita que tipos React 19 do mobile vazem para o web (que ainda roda React 18 via lucide-react/radix). `metro.config.js` ajustado para PNPM (sem `disableHierarchicalLookup`, com `unstable_enableSymlinks`). Validação pendente: rodar `pnpm --filter @gomoto/mobile dev` e abrir no Expo Go.

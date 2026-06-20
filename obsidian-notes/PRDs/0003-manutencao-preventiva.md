@@ -880,18 +880,19 @@ Se > 0, popular `plan_item_id` correspondente antes do drop (improvável — col
 | Fase | Escopo | Esforço |
 |---|---|---|
 | **F1 — Plano + core refatorado** ✅ | Migration de `maintenance_plans`/`maintenance_plan_items`, drop de `maintenance_items`. `SUGGESTED_PLAN_ITEMS` em `@gomoto/core`. `calculateMaintenanceStatus`/`calculateNextMaintenance` refatoradas. Testes Vitest. Hooks de leitura. | 2-3 dias |
-| **F2 — Telas de plano + atribuição à moto** 🚧 | `/planos-manutencao` CRUD + clone + autocomplete (R2: sem category/type). Wizard passo 3 refatorado (próximo). | 2 dias |
+| **F2 — Telas de plano + atribuição à moto** ✅ | `/planos-manutencao` CRUD + clone + autocomplete (R2: sem category/type). Wizard `/motos` passo 3 refatorado: `useMaintenancePlans` + plano default pré-selecionado, bootstrap por item gerando `maintenances` previstas, banner "X motos sem plano" + badge "Sem plano" na linha. | 2 dias |
 | **F3 — Modal de conclusão + snapshot de responsabilidade** ✅ | Migration `maintenances.effective_*` + `contracts.maintenance_approval_required`. Modal de conclusão pede executor + pagador (chips livres, default "Empresa 100%"). Remove insert em `expenses`. **Sem** `resolveResponsibility`, **sem** `contract_maintenance_rules`. | 1-2 dias |
 | **F4 — Mobile lista de preventivas** ✅ | Tela `(tabs)/manutencoes.tsx` no mobile consumindo `@gomoto/data`. Badge de executor mostra apenas itens já concluídos com `effective_executor='customer'`. | 2-3 dias |
 | **F5 — Mobile registro pelo cliente + aprovação web** ✅ | Migration de `maintenance_records` + reuso do bucket `maintenance-files`. Modal "Registrar conclusão" no mobile (foto hodômetro obrigatória, NF opcional, ArrayBuffer no upload pra contornar blob vazio do RN). Tela `/aprovacoes` com ações inline. Aprovação espelha `maintenance_records` em `maintenances` (sem Server Action — mutations diretas via `@gomoto/data`); rejeição exige motivo. Badge de pendentes na Sidebar + realtime via `supabase_realtime` invalidando cross-tab. | 3-4 dias |
 
-**Total V1 (F1-F5): ~10-12 dias focados.**
+**Total V1 (F1-F5): ~10-12 dias focados.** **V1 fechada em 2026-06-20.**
 
-**Ordem de prioridade:**
+**Ordem executada:**
 
-- **F1 → F2 → F3** desbloqueia o uso operacional novo no web (plano + snapshot de responsabilidade).
-- **F4 → F5** entrega o ciclo mobile completo do cliente.
-- F4 pode rodar em paralelo a F3 se houver banda.
+- **F1 → F2 → F3** entregou o uso operacional novo no web (plano + snapshot de responsabilidade).
+- **F4 → F5** entregou o ciclo mobile completo do cliente.
+
+**Smoke test final (2026-06-20):** bootstrap end-to-end no DB local — plano default com 5 itens → moto criada → 5 maintenances `preventive`/`inspection` geradas. `pnpm build` verde.
 
 **Fora do V1 (PRDs futuros):**
 
