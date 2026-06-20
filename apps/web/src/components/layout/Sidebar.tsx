@@ -6,6 +6,7 @@ import {
   LayoutDashboard, Bike, Users, FileText, DollarSign,
   TrendingUp, TrendingDown, AlertTriangle, Wrench,
   Clock, BarChart2, HelpCircle, Settings, LogOut, MoreVertical,
+  ClipboardCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -13,6 +14,7 @@ const NAV_ITEMS = [
   { href: '/dashboard',     label: 'Dashboard',         icon: LayoutDashboard },
   { href: '/fila',          label: 'Fila de Locadores', icon: Clock },
   { href: '/manutencao',    label: 'Manutenção',        icon: Wrench },
+  { href: '/aprovacoes',    label: 'Aprovações',        icon: ClipboardCheck },
   { href: '/planos-manutencao', label: 'Planos de Manutenção', icon: Wrench },
   { href: '/multas',        label: 'Multas',            icon: AlertTriangle },
   { href: '/despesas',      label: 'Despesas',          icon: TrendingDown },
