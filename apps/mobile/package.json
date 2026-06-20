@@ -9,15 +9,16 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@expo/metro-runtime": "~56.0.15",
     "@gomoto/core": "workspace:*",
     "@gomoto/data": "workspace:*",
-    "@expo/metro-runtime": "~56.0.15",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/bottom-tabs": "^7.18.0",
     "@supabase/supabase-js": "^2.108.1",
     "@tanstack/react-query": "^5.80.5",
     "expo": "~56.0.11",
     "expo-constants": "~56.0.18",
+    "expo-image-picker": "^56.0.18",
     "expo-linking": "~56.0.14",
     "expo-router": "~56.2.10",
     "expo-status-bar": "~56.0.4",

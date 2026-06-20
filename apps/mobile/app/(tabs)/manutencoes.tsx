@@ -1,6 +1,7 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ActivityIndicator,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -9,13 +10,21 @@ import {
 } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useMaintenances, useMotorcycles } from '@gomoto/data'
+import {
+  useCustomers,
+  useMaintenanceRecords,
+  useMaintenances,
+  useMotorcycles,
+} from '@gomoto/data'
 import {
   calculateMaintenanceStatus,
   type Maintenance,
+  type MaintenanceRecord,
   type MaintenanceStatus,
   type Motorcycle,
 } from '@gomoto/core'
+import { useAuth } from '../../src/contexts/auth'
+import { RegisterMaintenanceModal } from '../../src/components/RegisterMaintenanceModal'
 
 const STATUS_ORDER: Record<MaintenanceStatus, number> = {
   overdue: 0,
@@ -67,12 +76,18 @@ function formatDate(date: string | null): string {
 }
 
 export default function ManutencoesTab() {
+  const { activeTenantId } = useAuth()
   const maintenancesQuery = useMaintenances()
   const motorcyclesQuery = useMotorcycles()
+  const recordsQuery = useMaintenanceRecords()
+  const customersQuery = useCustomers()
 
-  const loading = maintenancesQuery.isLoading || motorcyclesQuery.isLoading
+  const [selected, setSelected] = useState<Maintenance | null>(null)
+
+  const loading =
+    maintenancesQuery.isLoading || motorcyclesQuery.isLoading || customersQuery.isLoading
   const refreshing = maintenancesQuery.isFetching && !maintenancesQuery.isLoading
-  const error = maintenancesQuery.error ?? motorcyclesQuery.error
+  const error = maintenancesQuery.error ?? motorcyclesQuery.error ?? recordsQuery.error
 
   const motorcyclesById = useMemo(() => {
     const map = new Map<string, Motorcycle>()
@@ -80,12 +95,27 @@ export default function ManutencoesTab() {
     return map
   }, [motorcyclesQuery.data])
 
+  // Cliente tem 1 customer por tenant — pega o da locadora ativa.
+  const customerId = useMemo(() => {
+    const list = customersQuery.data ?? []
+    return list.find((c) => c.tenant_id === activeTenantId)?.id ?? null
+  }, [customersQuery.data, activeTenantId])
+
+  // Mapa de pending por maintenance_id: presença = "Aguardando aprovação"
+  // → desabilita botão e troca o CTA pela tag.
+  const pendingByMaintenanceId = useMemo(() => {
+    const map = new Map<string, MaintenanceRecord>()
+    for (const r of recordsQuery.data ?? []) {
+      if (r.status === 'pending' && r.maintenance_id) map.set(r.maintenance_id, r)
+    }
+    return map
+  }, [recordsQuery.data])
+
   const { upcoming, history } = useMemo(() => {
     const items = (maintenancesQuery.data ?? []).map((m) => ({
       ...m,
       _status: deriveStatus(m, motorcyclesById.get(m.motorcycle_id)),
     }))
-    // Próximas = não concluídas, do mais vencido → mais distante.
     const upcoming = items
       .filter((m) => m._status !== 'completed')
       .sort((a, b) => {
@@ -95,7 +125,6 @@ export default function ManutencoesTab() {
         const bDate = b.scheduled_date ?? ''
         return aDate.localeCompare(bDate)
       })
-    // Histórico = concluídas, mais recentes primeiro, limitado a 10.
     const history = items
       .filter((m) => m._status === 'completed')
       .sort((a, b) => (b.completed_date ?? '').localeCompare(a.completed_date ?? ''))
@@ -120,6 +149,7 @@ export default function ManutencoesTab() {
             onRefresh={() => {
               maintenancesQuery.refetch()
               motorcyclesQuery.refetch()
+              recordsQuery.refetch()
             }}
           />
         }
@@ -139,7 +169,14 @@ export default function ManutencoesTab() {
                 <EmptyCard text="Nenhuma manutenção pendente — sua moto está em dia." />
               ) : (
                 upcoming.map((m) => (
-                  <MaintenanceCard key={m.id} item={m} motorcycle={motorcyclesById.get(m.motorcycle_id)} />
+                  <MaintenanceCard
+                    key={m.id}
+                    item={m}
+                    motorcycle={motorcyclesById.get(m.motorcycle_id)}
+                    pendingRecord={pendingByMaintenanceId.get(m.id)}
+                    canRegister={!!customerId}
+                    onRegister={() => setSelected(m)}
+                  />
                 ))
               )}
             </Section>
@@ -149,13 +186,25 @@ export default function ManutencoesTab() {
                 <EmptyCard text="Nenhuma manutenção concluída ainda." />
               ) : (
                 history.map((m) => (
-                  <MaintenanceCard key={m.id} item={m} motorcycle={motorcyclesById.get(m.motorcycle_id)} />
+                  <MaintenanceCard
+                    key={m.id}
+                    item={m}
+                    motorcycle={motorcyclesById.get(m.motorcycle_id)}
+                  />
                 ))
               )}
             </Section>
           </>
         )}
       </ScrollView>
+      {customerId ? (
+        <RegisterMaintenanceModal
+          visible={selected !== null}
+          onClose={() => setSelected(null)}
+          customerId={customerId}
+          maintenance={selected}
+        />
+      ) : null}
     </SafeAreaView>
   )
 }
@@ -177,8 +226,22 @@ function EmptyCard({ text }: { text: string }) {
   )
 }
 
-function MaintenanceCard({ item, motorcycle }: { item: MaintenanceWithStatus; motorcycle?: Motorcycle }) {
+function MaintenanceCard({
+  item,
+  motorcycle,
+  pendingRecord,
+  canRegister,
+  onRegister,
+}: {
+  item: MaintenanceWithStatus
+  motorcycle?: Motorcycle
+  pendingRecord?: MaintenanceRecord
+  canRegister?: boolean
+  onRegister?: () => void
+}) {
   const tone = STATUS_TONE[item._status]
+  const isOpen = item._status !== 'completed'
+  const showRegisterCta = isOpen && !pendingRecord && canRegister && onRegister
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
@@ -205,6 +268,19 @@ function MaintenanceCard({ item, motorcycle }: { item: MaintenanceWithStatus; mo
           </>
         )}
       </View>
+      {isOpen && pendingRecord ? (
+        <View style={styles.pendingPill}>
+          <Text style={styles.pendingText}>Aguardando aprovação da locadora</Text>
+        </View>
+      ) : null}
+      {showRegisterCta ? (
+        <Pressable
+          style={({ pressed }) => [styles.registerBtn, pressed && styles.registerBtnPressed]}
+          onPress={onRegister}
+        >
+          <Text style={styles.registerText}>Registrar conclusão</Text>
+        </Pressable>
+      ) : null}
     </View>
   )
 }
@@ -278,4 +354,22 @@ const styles = StyleSheet.create({
   fieldValue: { color: '#f5f5f5', fontSize: 13, marginTop: 2 },
   statusPill: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999 },
   statusText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.3 },
+  pendingPill: {
+    marginTop: 12,
+    backgroundColor: '#5e3a00',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  pendingText: { color: '#ffba49', fontSize: 12, fontWeight: '600' },
+  registerBtn: {
+    marginTop: 12,
+    backgroundColor: '#BAFF1A',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  registerBtnPressed: { opacity: 0.85 },
+  registerText: { color: '#121212', fontSize: 13, fontWeight: '700' },
 })
