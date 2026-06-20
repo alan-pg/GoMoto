@@ -546,6 +546,40 @@ export interface MaintenancePlanItem {
 }
 
 /**
+ * @type MaintenanceRecordStatus
+ * @description Estado do registro do cliente até ser revisado pelo operador.
+ */
+export type MaintenanceRecordStatus = 'pending' | 'approved' | 'rejected';
+
+/**
+ * @interface MaintenanceRecord
+ * @description Registro de execução de manutenção feito pelo cliente no mobile
+ * (PRD 0003 §F5). O operador revisa pelo web e aprova — só então o
+ * `maintenances` correspondente é marcado como `completed=true` com os
+ * `effective_*` definidos.
+ */
+export interface MaintenanceRecord {
+  id: string;
+  tenant_id: string;
+  customer_id: string;
+  /** Vínculo com a manutenção pré-agendada (preventiva do plano). NULL para registros corretivos avulsos. */
+  maintenance_id: string | null;
+  motorcycle_id: string;
+  actual_km: number;
+  cost: number | null;
+  workshop: string | null;
+  odometer_photo_url: string | null;
+  invoice_photo_url: string | null;
+  notes: string | null;
+  status: MaintenanceRecordStatus;
+  rejection_reason: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * @interface Process
  * @description Define etapas ou perguntas de um fluxo de processo interno (ex: Triagem).
  * Utilizado para guiar o atendimento ou a configuração do sistema.
