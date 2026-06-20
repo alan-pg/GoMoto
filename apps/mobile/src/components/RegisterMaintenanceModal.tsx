@@ -66,7 +66,9 @@ export function RegisterMaintenanceModal({ visible, onClose, customerId, mainten
       return
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      // default já é 'images'; explicitar evita o warn de MediaTypeOptions
+      // deprecado e ainda mantém intenção no call site.
+      mediaTypes: ['images'],
       quality: 0.7,
       allowsEditing: false,
     })
