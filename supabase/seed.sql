@@ -417,3 +417,49 @@ INSERT INTO billings (tenant_id, contract_id, customer_id, description, amount, 
 -- ============================================================
 INSERT INTO queue_entries (tenant_id, customer_id, position, notes) VALUES
 ('00000000-0000-0000-0000-000000000001', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 1, 'Aguardando disponibilidade de moto CG 160');
+
+-- ============================================================
+-- SEED: maintenances da moto do cliente mobile (ABC-1234, 45.000 km)
+--
+-- Cobre os 4 status do front (overdue / upcoming / scheduled / completed)
+-- pra dar um smoke completo da tela de manutenções no mobile (F4) e do
+-- modal de conclusão no web (F3b). predicted_km é casado com o km_current
+-- da moto pra status ser determinístico:
+--   - overdue (km):  predicted_km <= 45000
+--   - upcoming (km): 45000 está dentro da janela `predicted_km - 10% do interval_km`
+--   - scheduled:    predicted_km bem acima de 45000
+--   - overdue (data): scheduled_date no passado
+-- A concluída traz cost + effective_executor + effective_customer_payer_pct
+-- pra exercitar o snapshot de responsabilidade (PRD 0003 D4).
+-- ============================================================
+INSERT INTO maintenances (
+    tenant_id, motorcycle_id, type, description,
+    predicted_km, scheduled_date,
+    actual_km, completed_date, completed, cost,
+    workshop, effective_executor, effective_customer_payer_pct
+) VALUES
+-- 1) Vencida por km — Troca de óleo prevista a 44.000 km, moto está em 45.000.
+('00000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'preventive', 'Troca de óleo',
+    44000, NULL,
+    NULL, NULL, false, NULL,
+    NULL, NULL, NULL),
+-- 2) Próxima por km — Filtro de óleo prevista a 45.200, intervalo 4000 (threshold 400).
+('00000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'preventive', 'Filtro de óleo',
+    45200, NULL,
+    NULL, NULL, false, NULL,
+    NULL, NULL, NULL),
+-- 3) Agendada — Pastilha de freio dianteira a 52.000 km, longe do current.
+('00000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'preventive', 'Pastilha de freio dianteira',
+    52000, NULL,
+    NULL, NULL, false, NULL,
+    NULL, NULL, NULL),
+-- 4) Vencida por data — Vistoria mensal com scheduled_date no passado.
+('00000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'inspection', 'Vistoria mensal',
+    NULL, CURRENT_DATE - INTERVAL '3 days',
+    NULL, NULL, false, NULL,
+    NULL, NULL, NULL),
+-- 5) Concluída — Troca de óleo de 30 dias atrás. Empresa executou e pagou 100%.
+('00000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'preventive', 'Troca de óleo',
+    44000, NULL,
+    44050, CURRENT_DATE - INTERVAL '30 days', true, 80.00,
+    'Oficina do Careca', 'company', 0);
