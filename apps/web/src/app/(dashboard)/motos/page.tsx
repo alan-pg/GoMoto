@@ -29,6 +29,7 @@
 import { useState, useMemo } from 'react'
 // Importação dinâmica para componentes que não suportam SSR (como mapas com Leaflet)
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 // Importação de ícones da biblioteca Lucide para auxílio visual na interface
 import {
   Plus,          // Ícone de adição para novo cadastro
@@ -423,6 +424,13 @@ export default function MotorcyclesPage() {
       {}
     ),
     [contracts]
+  )
+
+  // PRD 0003 F2 — contagem de motos sem plano de manutenção atribuído.
+  // Usado pelo banner discreto no topo da página e pelo badge "Sem plano" na linha.
+  const motorcyclesWithoutPlanCount = useMemo(
+    () => motorcycles.filter((m) => !m.maintenance_plan_id).length,
+    [motorcycles]
   )
 
   /**
@@ -839,6 +847,25 @@ export default function MotorcyclesPage() {
           </div>
         )}
 
+        {/* BANNER — motos sem plano de manutenção atribuído (PRD 0003 F2).
+            Aparece só quando há pelo menos uma moto com maintenance_plan_id NULL.
+            CTA leva para /planos-manutencao. */}
+        {!loading && motorcyclesWithoutPlanCount > 0 && (
+          <div className="flex items-center gap-3 px-4 py-3 bg-[#2d2300] border border-[#ffd166] rounded-xl">
+            <AlertCircle className="w-4 h-4 text-[#ffd166] flex-shrink-0" />
+            <p className="text-[13px] text-[#ffd166] flex-1">
+              <strong>{motorcyclesWithoutPlanCount}</strong>{' '}
+              {motorcyclesWithoutPlanCount === 1 ? 'moto está sem plano' : 'motos estão sem plano'} de manutenção atribuído — as previsões usam o legado até você atribuir.
+            </p>
+            <Link
+              href="/planos-manutencao"
+              className="text-[12px] text-[#ffd166] hover:underline font-medium whitespace-nowrap"
+            >
+              Gerenciar planos →
+            </Link>
+          </div>
+        )}
+
         {/* BANNER DE AVISOS PÓS-CADASTRO — a moto foi criada mas algum bloco
             secundário (anexo CRV, obrigações, manutenções) falhou. Dismissível. */}
         {postSubmitNotice && postSubmitNotice.length > 0 && (
@@ -945,7 +972,19 @@ export default function MotorcyclesPage() {
                   return (
                     <tr key={moto.id} onClick={() => setSelectedMotoId(moto.id === selectedMotoId ? null : moto.id)} className="h-9 text-[13px] border-b border-[#323232] transition-colors hover:bg-[#323232] cursor-pointer">
                       <td className="px-4"><div className='flex items-center gap-2'><div className='w-2 h-2 rounded-full flex-shrink-0' style={{ background: statusColorMap[moto.status] ?? '#9e9e9e' }} /><span className='font-mono font-bold text-[#f5f5f5]'>{moto.license_plate}</span></div></td>
-                      <td className="px-4"><p className="font-medium text-[#f5f5f5]">{moto.make} {moto.model}</p></td>
+                      <td className="px-4">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-[#f5f5f5]">{moto.make} {moto.model}</p>
+                          {!moto.maintenance_plan_id && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium text-[#ffd166] bg-[#3a2f00] border border-[#ffd166]/40"
+                              title="Sem plano de manutenção atribuído"
+                            >
+                              Sem plano
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4">{customer ? (<div className="flex items-center gap-1.5"><User className="w-4 h-4 text-[#a880ff] flex-shrink-0" /><p className="font-medium text-[#f5f5f5] truncate">{customer.name}</p></div>) : (<p className="text-[#9e9e9e]">Sem locatário</p>)}</td>
                       <td className="px-4">{weeklyValue ? (<span className='text-[#BAFF1A] font-medium'>{weeklyValue}</span>) : (<span className='text-[#9e9e9e]'>—</span>)}</td>
                       <td className="px-4">{customer?.address ? (<div className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-[#9e9e9e] flex-shrink-0" /><p className="text-[#9e9e9e] truncate max-w-[180px]">{customer.address}</p></div>) : (<p className="text-[#9e9e9e]">—</p>)}</td>

@@ -137,6 +137,8 @@ export interface Motorcycle {
   acquisition_type?: 'zero_km' | 'purchase' | 'consignment' | 'lease' | 'donation' | 'other' | null;
   /** @property acquisition_amount - Valor pago pela empresa na aquisição. */
   acquisition_amount?: number | null;
+  /** @property maintenance_plan_id - Plano de manutenção atribuído (PRD 0003 F1). Nullable; bootstrap retroativo. */
+  maintenance_plan_id?: string | null;
   /** @property created_at - Data de inserção do registro no banco de dados. */
   created_at: string;
   /** @property updated_at - Data da última modificação dos dados do veículo. */
