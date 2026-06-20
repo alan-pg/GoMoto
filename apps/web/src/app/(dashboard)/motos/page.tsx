@@ -60,13 +60,15 @@ import {
   useDeleteMotorcycle,
   useSupabaseContext,
   useRequiredTenantId,
+  useMaintenancePlans,
+  useMaintenancePlan,
 } from '@gomoto/data'
 
 // Importação de funções utilitárias
 import { formatCurrency } from '@/lib/utils'
 
 // Importação de definições de tipos TypeScript globais
-import type { Motorcycle, MotorcycleStatus, Contract, Customer } from '@gomoto/core'
+import type { Motorcycle, MotorcycleStatus, Contract, Customer, MaintenancePlanItem } from '@gomoto/core'
 
 /**
  * Importação dinâmica do mapa Leaflet sem SSR.
@@ -150,25 +152,22 @@ const ownershipTransferredOptions = [
 ]
 
 /**
- * @constant BOOTSTRAP_MAINTENANCE_ITEMS
- * @description Lista de itens de manutenção preventiva padrão para motos 150/160cc.
- * O "porquê": Estes itens são a base para o sistema de previsão de manutenções.
- * Ao cadastrar uma nova moto, o Passo 2 (Bootstrap) usa esta lista para criar
- * o histórico inicial, permitindo que o sistema agende as próximas revisões.
+ * Decide se o item do plano é "por km" ou "por data" para fins de UI e cálculo
+ * do agendamento bootstrap. Preferência: `interval_km` quando presente. CHECK
+ * no banco garante que pelo menos um dos dois está definido.
  */
-const BOOTSTRAP_MAINTENANCE_ITEMS = [
-  { id: 'ip1',  name: 'Troca de óleo',                        type: 'km'   as const, interval: 1000,  hint: 'a cada 1.000 km'      },
-  { id: 'ip2',  name: 'Filtro de óleo',                        type: 'km'   as const, interval: 4000,  hint: 'a cada 4.000 km'      },
-  { id: 'ip5',  name: 'Troca da relação (corrente/coroa/pinhão)', type: 'km'   as const, interval: 12000, hint: 'a cada 12.000 km'     },
-  { id: 'ip6',  name: 'Lona de freio traseira',                   type: 'km'   as const, interval: 12000, hint: 'a cada 12.000 km'     },
-  { id: 'ip7',  name: 'Pastilha de freio dianteira',            type: 'km'   as const, interval: 8000,  hint: 'a cada 8.000 km'      },
-  { id: 'ip8',  name: 'Pneu dianteiro',                        type: 'km'   as const, interval: 12000, hint: 'a cada 12.000 km'     },
-  { id: 'ip9',  name: 'Pneu traseiro',                         type: 'km'   as const, interval: 8000,  hint: 'a cada 8.000 km'      },
-  { id: 'ip10', name: 'Filtro de ar',                        type: 'km'   as const, interval: 7000,  hint: 'a cada 7.000 km'      },
-  { id: 'ip11', name: 'Velas de ignição',                       type: 'km'   as const, interval: 10000, hint: 'a cada 10.000 km'     },
-  { id: 'ip12', name: 'Amortecedores',                   type: 'km'   as const, interval: 25000, hint: 'a cada 25.000 km'     },
-  { id: 'ip13', name: 'Vistoria mensal',                type: 'data' as const, interval: 30,    hint: 'a cada mês'         },
-]
+function planItemMetric(item: MaintenancePlanItem): 'km' | 'date' {
+  return item.interval_km != null ? 'km' : 'date'
+}
+
+/**
+ * Frase curta com a periodicidade do item, mostrada abaixo do nome no Passo 3.
+ */
+function planItemHint(item: MaintenancePlanItem): string {
+  if (item.interval_km != null) return `a cada ${item.interval_km.toLocaleString('pt-BR')} km`
+  if (item.interval_days != null) return `a cada ${item.interval_days} dia${item.interval_days === 1 ? '' : 's'}`
+  return ''
+}
 
 /**
  * @constant defaultFormState
@@ -355,6 +354,9 @@ export default function MotorcyclesPage() {
   const createMotorcycleMutation = useCreateMotorcycle()
   const updateMotorcycleMutation = useUpdateMotorcycle()
   const deleteMotorcycleMutation = useDeleteMotorcycle()
+  // PRD 0003 F2.3 — planos de manutenção para o Passo 3 do wizard.
+  const maintenancePlansQuery = useMaintenancePlans()
+  const maintenancePlans = (maintenancePlansQuery.data ?? []).filter((p) => !p.archived_at)
 
   const motorcycles = (motorcyclesQuery.data ?? []) as Motorcycle[]
   const contracts = (contractsQuery.data ?? []) as ContractWithCustomer[]
@@ -389,6 +391,12 @@ export default function MotorcyclesPage() {
   const [selectedMotoId, setSelectedMotoId] = useState<string | null>(null)
   // Mapa de valores (KM ou Data) informados no Passo 3 do cadastro.
   const [bootstrapItems, setBootstrapItems] = useState<Record<string, string>>({})
+  // PRD 0003 F2.3 — plano de manutenção selecionado no Passo 3.
+  // Pré-selecionado no openNewMotorcycle quando há plano default.
+  const [selectedPlanId, setSelectedPlanId] = useState<string>('')
+  // Carrega os itens do plano selecionado (consumido pelo Passo 3 e pelo submit).
+  const selectedPlanQuery = useMaintenancePlan(selectedPlanId || undefined)
+  const selectedPlanItems = (selectedPlanQuery.data?.items ?? []) as MaintenancePlanItem[]
   // Estado do bloco "Documentação anual" do Passo 2.
   const [obligationsForm, setObligationsForm] = useState(defaultObligationsState)
   // Anexo do CRV (Passo 2). Vai para storage.vehicle-documents no submit.
@@ -464,6 +472,9 @@ export default function MotorcyclesPage() {
     setCrvFile(null)
     setCrlvImportMessage(null)
     setSubmitError(null)
+    // Pré-seleciona o plano default (se existir) — tenant geralmente tem 1 só.
+    const defaultPlan = maintenancePlans.find((p) => p.is_default) ?? maintenancePlans[0]
+    setSelectedPlanId(defaultPlan?.id ?? '')
     setStep(1)                   // Volta ao passo 1
     setModalOpen(true)           // Abre o modal
   }
@@ -480,6 +491,7 @@ export default function MotorcyclesPage() {
     setCrvFile(null)
     setCrlvImportMessage(null)
     setSubmitError(null)
+    setSelectedPlanId('')
   }
 
   /**
@@ -633,6 +645,9 @@ export default function MotorcyclesPage() {
       registration_state: form.registrationState || undefined,
       ownership_transferred: form.ownershipTransferred === 'true',
       ownership_transfer_date: form.ownershipTransferDate || undefined,
+      // PRD 0003 F2.3 — plano de manutenção atribuído (Passo 3).
+      // Pode ficar undefined se o tenant não tem plano cadastrado ainda.
+      maintenance_plan_id: selectedPlanId || undefined,
     }
 
     setSubmitError(null)
@@ -759,12 +774,15 @@ export default function MotorcyclesPage() {
       }
     }
 
-    // ─── bootstrap de manutenção (preventiva por km + inspeções por data) ───
+    // ─── bootstrap de manutenção a partir dos itens do plano selecionado ───
+    // PRD 0003 F2.3 — substituímos a lista hardcoded por itens do plano que o
+    // operador escolheu. Tenant sem plano (selectedPlanItems vazio) gera 0
+    // manutenções no bootstrap, mas a moto é criada normalmente.
     const maintenanceRecords: Record<string, unknown>[] = []
-    for (const item of BOOTSTRAP_MAINTENANCE_ITEMS) {
-      if (item.type === 'km') {
+    for (const item of selectedPlanItems) {
+      if (planItemMetric(item) === 'km' && item.interval_km != null) {
         const lastKm = bootstrapItems[item.id] ? parseInt(bootstrapItems[item.id], 10) : 0
-        const nextDueKm = lastKm + item.interval
+        const nextDueKm = lastKm + item.interval_km
         maintenanceRecords.push({
           tenant_id: tenantId,
           motorcycle_id: newMotoId,
@@ -778,11 +796,11 @@ export default function MotorcyclesPage() {
               ? 'Sem histórico anterior — calculado a partir de 0 km na entrada da frota'
               : `Última realizada aos ${lastKm.toLocaleString('pt-BR')} km`,
         })
-      } else {
+      } else if (item.interval_days != null) {
         const lastDateStr = bootstrapItems[item.id] || today
         const lastDate = new Date(lastDateStr + 'T12:00:00')
         const nextDueDate = new Date(lastDate)
-        nextDueDate.setDate(nextDueDate.getDate() + item.interval)
+        nextDueDate.setDate(nextDueDate.getDate() + item.interval_days)
         const nextDueDateStr = nextDueDate.toISOString().split('T')[0]
         maintenanceRecords.push({
           tenant_id: tenantId,
@@ -1386,50 +1404,111 @@ export default function MotorcyclesPage() {
           </form>
         )}
 
-        {/* ── SEÇÃO: PASSO 3 - BOOTSTRAP DE MANUTENÇÃO (APENAS PARA NOVAS MOTOS) ─────────────────── */}
+        {/* ── SEÇÃO: PASSO 3 - PLANO DE MANUTENÇÃO + BOOTSTRAP (APENAS PARA NOVAS MOTOS) ─────────── */}
         {!editingId && step === 3 && (
           <div className="space-y-6 p-1">
-            <div className="bg-[#243300] border border-[#6b9900] rounded-xl p-4">
-              <p className="text-[13px] text-[#9e9e9e] leading-relaxed">
-                Para o sistema prever as próximas revisões, informe a <strong className="text-[#f5f5f5]">última vez</strong> que cada item abaixo foi trocado ou revisado.
-                <br /><span className="text-[12px] text-[#616161]">DICA: Se não souber, deixe em branco e o sistema marcará como "Revisão Imediata".</span>
-              </p>
-            </div>
-
-            {/* LISTAGEM DOS ITENS DE MANUTENÇÃO PREVENTIVA */}
-            <div className="space-y-3 max-h-[450px] overflow-y-auto pr-2 custom-scrollbar">
-              {BOOTSTRAP_MAINTENANCE_ITEMS.map((item) => (
-                <div key={item.id} className="flex items-center gap-4 bg-[#282828] rounded-xl px-4 py-3 hover:bg-[#323232] transition-colors border border-transparent hover:border-[#323232]">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-bold text-[#f5f5f5]">{item.name}</p>
-                    <p className="text-[12px] text-[#616161] font-medium">{item.hint}</p>
-                  </div>
-                  
-                  {/* INPUT DINÂMICO: KM ou DATA dependendo do tipo da métrica */}
-                  <div className="flex-shrink-0">
-                    {item.type === 'km' ? (
-                      <div className="relative">
-                        <input
-                          type="number"
-                          placeholder="KM da Última Troca"
-                          value={bootstrapItems[item.id] ?? ''}
-                          onChange={(e) => setBootstrapItems((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                          className="w-36 h-10 px-4 py-2 rounded-full bg-[#323232] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder-[#616161] focus:outline-none focus:border-[#BAFF1A] text-right font-mono"
-                        />
-                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[12px] text-[#616161] font-bold">KM</span>
-                      </div>
-                    ) : (
-                      <input
-                        type="date"
-                        value={bootstrapItems[item.id] ?? ''}
-                        onChange={(e) => setBootstrapItems((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                        className="w-44 h-10 px-4 py-2 rounded-full bg-[#323232] border border-[#474747] text-[13px] text-[#f5f5f5] focus:outline-none focus:border-[#BAFF1A]"
-                      />
-                    )}
-                  </div>
+            {/* CASO LIMITE: tenant sem nenhum plano cadastrado.
+                Bloqueia a finalização e leva o operador a criar um plano. */}
+            {maintenancePlans.length === 0 ? (
+              <div className="bg-[#3a2f00] border border-[#ffd166] rounded-xl p-5 space-y-3">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5 text-[#ffd166] flex-shrink-0" />
+                  <p className="text-[14px] font-bold text-[#ffd166]">Nenhum plano de manutenção cadastrado</p>
                 </div>
-              ))}
-            </div>
+                <p className="text-[13px] text-[#ffd166] leading-relaxed">
+                  Antes de finalizar o cadastro da moto, crie ao menos um plano de manutenção para o tenant.
+                  O plano define quais itens (óleo, filtro, freio…) serão programados automaticamente para cada moto.
+                </p>
+                <Link
+                  href="/planos-manutencao"
+                  className="inline-flex items-center h-9 px-4 rounded-full bg-[#ffd166] text-[#121212] text-[13px] font-bold hover:bg-[#f5c14e] transition-colors"
+                >
+                  Criar plano de manutenção →
+                </Link>
+              </div>
+            ) : (
+              <>
+                {/* SELETOR DE PLANO — Select simples com os planos ativos do tenant. */}
+                <div className="bg-[#282828] border border-[#474747] rounded-xl p-4">
+                  <Select
+                    label="Plano de manutenção atribuído"
+                    value={selectedPlanId}
+                    onChange={(e) => setSelectedPlanId(e.target.value)}
+                    options={maintenancePlans.map((p) => ({
+                      value: p.id,
+                      label: p.is_default ? `${p.name} (padrão)` : p.name,
+                    }))}
+                  />
+                  <p className="text-[12px] text-[#9e9e9e] mt-2">
+                    Os itens abaixo vêm do plano selecionado.
+                    <Link href="/planos-manutencao" className="ml-1 text-[#BAFF1A] hover:underline">
+                      Gerenciar planos →
+                    </Link>
+                  </p>
+                </div>
+
+                <div className="bg-[#243300] border border-[#6b9900] rounded-xl p-4">
+                  <p className="text-[13px] text-[#9e9e9e] leading-relaxed">
+                    Para o sistema prever as próximas revisões, informe a <strong className="text-[#f5f5f5]">última vez</strong> que cada item abaixo foi trocado ou revisado.
+                    <br /><span className="text-[12px] text-[#616161]">DICA: Se não souber, deixe em branco e o sistema marcará como "Revisão Imediata".</span>
+                  </p>
+                </div>
+
+                {/* LISTAGEM DOS ITENS DO PLANO. Loader enquanto o detalhe do plano carrega. */}
+                {selectedPlanQuery.isLoading ? (
+                  <div className="flex items-center justify-center py-10">
+                    <div className="w-6 h-6 border-2 border-[#BAFF1A] border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : selectedPlanItems.length === 0 ? (
+                  <div className="bg-[#282828] border border-[#474747] rounded-xl p-5 text-center">
+                    <p className="text-[13px] text-[#9e9e9e]">Este plano ainda não tem itens.</p>
+                    <Link
+                      href={`/planos-manutencao`}
+                      className="inline-block mt-2 text-[13px] text-[#BAFF1A] hover:underline"
+                    >
+                      Adicionar itens em /planos-manutencao →
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[450px] overflow-y-auto pr-2 custom-scrollbar">
+                    {selectedPlanItems.map((item) => {
+                      const metric = planItemMetric(item)
+                      return (
+                        <div key={item.id} className="flex items-center gap-4 bg-[#282828] rounded-xl px-4 py-3 hover:bg-[#323232] transition-colors border border-transparent hover:border-[#323232]">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[13px] font-bold text-[#f5f5f5]">{item.name}</p>
+                            <p className="text-[12px] text-[#616161] font-medium">{planItemHint(item)}</p>
+                          </div>
+
+                          {/* INPUT DINÂMICO: KM ou DATA conforme o item tenha interval_km ou só interval_days. */}
+                          <div className="flex-shrink-0">
+                            {metric === 'km' ? (
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  placeholder="KM da Última Troca"
+                                  value={bootstrapItems[item.id] ?? ''}
+                                  onChange={(e) => setBootstrapItems((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                  className="w-36 h-10 px-4 py-2 rounded-full bg-[#323232] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder-[#616161] focus:outline-none focus:border-[#BAFF1A] text-right font-mono"
+                                />
+                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[12px] text-[#616161] font-bold">KM</span>
+                              </div>
+                            ) : (
+                              <input
+                                type="date"
+                                value={bootstrapItems[item.id] ?? ''}
+                                onChange={(e) => setBootstrapItems((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                className="w-44 h-10 px-4 py-2 rounded-full bg-[#323232] border border-[#474747] text-[13px] text-[#f5f5f5] focus:outline-none focus:border-[#BAFF1A]"
+                              />
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </>
+            )}
 
             {/* FEEDBACK DE CONFIGURAÇÃO */}
             {Object.keys(bootstrapItems).filter((k) => bootstrapItems[k]).length > 0 && (
@@ -1450,12 +1529,20 @@ export default function MotorcyclesPage() {
               </div>
             )}
 
-            {/* AÇÕES DE NAVEGAÇÃO DO WIZARD */}
+            {/* AÇÕES DE NAVEGAÇÃO DO WIZARD.
+                Bloqueia CONCLUIR quando o tenant ainda não tem plano cadastrado —
+                operador é redirecionado para /planos-manutencao via empty state acima. */}
             <div className="flex gap-4 justify-between pt-4 border-t border-[#323232]">
               <Button variant="ghost" onClick={() => setStep(2)} className="px-6" disabled={saving}>
                 ← VOLTAR À DOCUMENTAÇÃO
               </Button>
-              <Button onClick={handleSubmitFinal} className="px-10" loading={saving} disabled={saving}>
+              <Button
+                onClick={handleSubmitFinal}
+                className="px-10"
+                loading={saving}
+                disabled={saving || maintenancePlans.length === 0}
+                title={maintenancePlans.length === 0 ? 'Crie um plano de manutenção antes de finalizar.' : undefined}
+              >
                 <Plus className="w-4 h-4" />
                 CONCLUIR CADASTRO
               </Button>
