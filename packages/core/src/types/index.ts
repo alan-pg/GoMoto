@@ -482,8 +482,6 @@ export interface Maintenance {
   completed_date: string | null;
   /** @property cost - Valor total pago pelo serviço e peças. */
   cost: number | null;
-  /** @property responsibility - Campo legado (nunca persistido em DB). Será removido em F3b junto com a refatoração da UI do modal. */
-  responsibility: 'company' | 'customer' | 'split' | null;
   /** @property effective_executor - Snapshot de quem leva à oficina, escolhido pelo operador no modal de conclusão (PRD 0003 D4). */
   effective_executor: 'company' | 'customer' | null;
   /** @property effective_customer_payer_pct - Snapshot do % do custo que o cliente arca; empresa = 100 − cliente (PRD 0003 D4). */

@@ -45,9 +45,6 @@ const MaintenanceSchema = z.object({
   completed: z.boolean().optional(),
   workshop: z.string().max(200).optional().nullable(),
   observations: z.string().max(2000).optional().nullable(),
-  // Campo legado (sem coluna no banco) — mantido no schema só pra não
-  // quebrar o build enquanto F3b não refatora o modal. Será removido junto.
-  responsibility: z.enum(['company', 'customer', 'split']).optional().nullable(),
   // PRD 0003 D4 — snapshot de responsabilidade preenchido pelo operador
   // no modal de conclusão. Persistido em maintenances.effective_*.
   effective_executor: z.enum(['company', 'customer']).optional().nullable(),

@@ -32,24 +32,19 @@ import { Header } from '@/components/layout/Header'
 // ─── TIPOS ──────────────────────────────────────────────────────────────────
 
 /**
- * @type Responsibility
- * @description Enumeração para identificar o responsável financeiro por um item de manutenção.
- * Por que existe: O sistema lida com aluguel de motos, logo é necessário saber quem arca com os custos das peças/serviços (empresa, cliente ou ambos).
- * Onde é usado: No tipo `ItemFinancial` e no modal de conclusão (etapa 2) para cálculo do repasse de custos na fatura do cliente.
- */
-type Responsibility = 'company' | 'customer' | 'split'
-
-/**
  * @type ItemFinancial
  * @description Estrutura de dados que armazena os detalhes financeiros de um item de manutenção na etapa de conclusão.
- * Por que existe: Permite capturar o custo individual de múltiplos itens de manutenção realizados de uma só vez, além da responsabilidade e comprovação (fotos).
+ * Por que existe: Permite capturar o custo individual de múltiplos itens, o executor (quem leva à oficina) e o rateio percentual do pagamento entre empresa e cliente (PRD 0003 D4).
  * Onde é usado: No estado `completionFinancials` para controlar o formulário financeiro da segunda etapa da conclusão de manutenção.
  */
 type ItemFinancial = {
   id: string
   description: string
   cost: string
-  responsibility: Responsibility
+  /** PRD 0003 D4 — snapshot binário de quem leva à oficina. */
+  executor: 'company' | 'customer'
+  /** PRD 0003 D4 — % do custo arcado pelo cliente (0–100); empresa = 100 − cliente. */
+  customer_payer_pct: number
   has_odometer_photo: boolean
   has_invoice_photo: boolean
   odometer_photo_file: File | null
@@ -732,7 +727,8 @@ export default function MaintenancePage() {
           cost: fin.cost ? parseFloat(fin.cost) : null,
           workshop: completionWorkshop || null,
           observations: completionObservations || null,
-          responsibility: fin.responsibility,
+          effective_executor: fin.executor,
+          effective_customer_payer_pct: fin.customer_payer_pct,
           odometer_photo_url: odometerUrl,
           invoice_photo_url: invoiceUrl,
         })
@@ -1308,9 +1304,9 @@ export default function MaintenancePage() {
                   <p className="text-[12px] text-[#9e9e9e]">Custo</p>
                   {(() => {
                     const c = viewingMaintenance.cost!
-                    const resp = viewingMaintenance.responsibility
-                    const empresa = resp === 'company' ? c : resp === 'split' ? c / 2 : 0
-                    const cliente = resp === 'customer' ? c : resp === 'split' ? c / 2 : 0
+                    const pct = viewingMaintenance.effective_customer_payer_pct ?? 0
+                    const cliente = (c * pct) / 100
+                    const empresa = c - cliente
                     return (
                       <div className="space-y-1.5">
                         <div className="flex justify-between text-[13px]">
@@ -1599,7 +1595,8 @@ export default function MaintenancePage() {
                         id: item.id,
                         description: item.description,
                         cost: '',
-                        responsibility: 'split' as Responsibility,
+                        executor: 'company',
+                        customer_payer_pct: 0,
                         has_odometer_photo: false,
                         has_invoice_photo: false,
                         odometer_photo_file: null,
@@ -1624,29 +1621,31 @@ export default function MaintenancePage() {
                     <div key={fin.id} className="rounded-xl bg-[#121212] p-4 space-y-3">
                       <p className="text-[13px] font-medium text-[#f5f5f5]">{fin.description}</p>
 
-                      {/* Toggle de Responsabilidade e Custos (Split, Company, Customer) */}
-                      <div className="flex flex-wrap gap-2">
-                        {(['split', 'company', 'customer'] as Responsibility[]).map((resp) => (
-                          <button
-                            key={resp}
-                            type="button"
-                            onClick={() => setCompletionFinancials((prev) => prev.map((f, i) => i === idx ? { ...f, responsibility: resp } : f))}
-                            className={`px-3 py-1 rounded-full text-[12px] font-medium transition-colors ${
-                              fin.responsibility === resp
-                                ? resp === 'split' ? 'bg-[#2d0363] text-[#a880ff]'
-                                  : resp === 'company' ? 'bg-[#0e2f13] text-[#229731]'
-                                  : 'bg-[#7c1c1c] text-[#ff9c9a]'
-                                : 'bg-[#323232] text-[#9e9e9e] hover:bg-[#474747]'
-                            }`}
-                          >
-                            {resp === 'split' ? '50/50' : resp === 'company' ? 'Empresa' : 'Cliente'}
-                          </button>
-                        ))}
-                        <span className="text-[13px] text-[#616161] self-center">
-                          {fin.responsibility === 'split' && 'Custo dividido entre empresa e cliente.'}
-                          {fin.responsibility === 'company' && 'Sairá do caixa da empresa.'}
-                          {fin.responsibility === 'customer' && 'Cliente pagou — lançado em Despesas.'}
-                        </span>
+                      {/* PRD 0003 D4 — Snapshot de responsabilidade: executor binário + % pago pelo cliente. */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <Select
+                          label="Executor (quem leva à oficina)"
+                          value={fin.executor}
+                          onChange={(e) => setCompletionFinancials((prev) => prev.map((f, i) => i === idx ? { ...f, executor: e.target.value as 'company' | 'customer' } : f))}
+                          options={[
+                            { value: 'company', label: 'Empresa' },
+                            { value: 'customer', label: 'Cliente' },
+                          ]}
+                        />
+                        <Input
+                          label="% pago pelo cliente"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="1"
+                          value={String(fin.customer_payer_pct)}
+                          onChange={(e) => {
+                            const raw = parseInt(e.target.value, 10)
+                            const pct = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0
+                            setCompletionFinancials((prev) => prev.map((f, i) => i === idx ? { ...f, customer_payer_pct: pct } : f))
+                          }}
+                          placeholder="0"
+                        />
                       </div>
 
                       <Input
@@ -1701,28 +1700,32 @@ export default function MaintenancePage() {
                         </div>
                       </div>
 
-                      {fin.cost && parseFloat(fin.cost) > 0 && (
-                        <p className="text-[13px] text-[#9e9e9e] border-t border-[#323232] pt-2">
-                          {fin.responsibility === 'company' && `→ Despesas da empresa: ${formatCurrency(parseFloat(fin.cost))}`}
-                          {fin.responsibility === 'customer' && `→ Pago pelo cliente: ${formatCurrency(parseFloat(fin.cost))}`}
-                          {fin.responsibility === 'split' && `→ Empresa: ${formatCurrency(parseFloat(fin.cost) / 2)} / Cliente: ${formatCurrency(parseFloat(fin.cost) / 2)}`}
-                        </p>
-                      )}
+                      {fin.cost && parseFloat(fin.cost) > 0 && (() => {
+                        const c = parseFloat(fin.cost)
+                        const cliente = (c * fin.customer_payer_pct) / 100
+                        const empresa = c - cliente
+                        return (
+                          <p className="text-[13px] text-[#9e9e9e] border-t border-[#323232] pt-2">
+                            → Empresa: {formatCurrency(empresa)} / Cliente: {formatCurrency(cliente)}
+                          </p>
+                        )
+                      })()}
                     </div>
                   ))}
                 </div>
 
                 {/* Resumo financeiro consolidado gerando o DRE micro da operação do dia para a interface */}
                 {(() => {
-                  const totalEmpresa = completionFinancials.reduce((acc, f) => {
-                    const c = parseFloat(f.cost) || 0
-                    return acc + (f.responsibility === 'company' ? c : f.responsibility === 'split' ? c / 2 : 0)
-                  }, 0)
                   const totalCliente = completionFinancials.reduce((acc, f) => {
                     const c = parseFloat(f.cost) || 0
-                    return acc + (f.responsibility === 'customer' ? c : f.responsibility === 'split' ? c / 2 : 0)
+                    return acc + (c * f.customer_payer_pct) / 100
                   }, 0)
-                  const hasSplit = completionFinancials.some((f) => f.responsibility === 'split')
+                  const totalEmpresa = completionFinancials.reduce((acc, f) => {
+                    const c = parseFloat(f.cost) || 0
+                    return acc + c - (c * f.customer_payer_pct) / 100
+                  }, 0)
+                  // Há rateio quando algum item tem custo > 0 e o cliente paga parte (>0%).
+                  const hasSplit = completionFinancials.some((f) => (parseFloat(f.cost) || 0) > 0 && f.customer_payer_pct > 0)
 
                   return (
                     <div className="rounded-xl bg-[#202020] p-4 space-y-2">
