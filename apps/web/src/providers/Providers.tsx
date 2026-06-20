@@ -1,8 +1,8 @@
 'use client'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
-import { SupabaseProvider } from '@gomoto/data'
+import { useEffect, useState, type ReactNode } from 'react'
+import { SupabaseProvider, useMaintenanceRecordsRealtime } from '@gomoto/data'
 import { createClient } from '@/lib/supabase/client'
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -49,8 +49,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <SupabaseProvider client={supabase} tenantId={tenantId}>
-        {children}
+        <RealtimeSubscriptions>{children}</RealtimeSubscriptions>
       </SupabaseProvider>
     </QueryClientProvider>
   )
+}
+
+function RealtimeSubscriptions({ children }: { children: ReactNode }) {
+  useMaintenanceRecordsRealtime()
+  return <>{children}</>
 }

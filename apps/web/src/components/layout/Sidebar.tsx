@@ -8,6 +8,7 @@ import {
   Clock, BarChart2, HelpCircle, Settings, LogOut, MoreVertical,
   ClipboardCheck,
 } from 'lucide-react'
+import { useMaintenanceRecordsByStatus } from '@gomoto/data'
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
@@ -42,6 +43,11 @@ const LABEL_CX =
 export function Sidebar() {
   const pathname = usePathname()
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`)
+  // Sidebar fica montada o tempo todo; a query é compartilhada com /aprovacoes
+  // pelo cache do React Query (mesma key), então não duplica round-trip.
+  const pendingQuery = useMaintenanceRecordsByStatus('pending')
+  const pendingCount = pendingQuery.data?.length ?? 0
+  const badgeByHref: Record<string, number> = { '/aprovacoes': pendingCount }
 
   return (
     // Sidebar fixa com expansão hover-only via classe `group`.
@@ -62,24 +68,39 @@ export function Sidebar() {
 
       {/* Navegação */}
       <nav className="flex flex-1 flex-col min-h-0 overflow-hidden group-hover:overflow-y-auto pb-4">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => (
-          <div key={href} className="px-4 mb-1">
-            <Link
-              href={href}
-              className={cn(
-                'flex items-center gap-2 px-4 h-10 w-full rounded-full text-[14px] transition-all duration-300',
-                isActive(href)
-                  ? 'bg-[#BAFF1A] text-[#000000] font-medium'
-                  : 'text-[#c7c7c7] font-normal hover:bg-[#323232] hover:text-[#f5f5f5]'
-              )}
-            >
-              <Icon className="w-5 h-5 flex-shrink-0" />
-              <span className={LABEL_CX}>
-                <span className="whitespace-nowrap overflow-hidden">{label}</span>
-              </span>
-            </Link>
-          </div>
-        ))}
+        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+          const badge = badgeByHref[href] ?? 0
+          return (
+            <div key={href} className="px-4 mb-1">
+              <Link
+                href={href}
+                className={cn(
+                  'flex items-center gap-2 px-4 h-10 w-full rounded-full text-[14px] transition-all duration-300',
+                  isActive(href)
+                    ? 'bg-[#BAFF1A] text-[#000000] font-medium'
+                    : 'text-[#c7c7c7] font-normal hover:bg-[#323232] hover:text-[#f5f5f5]'
+                )}
+              >
+                <Icon className="w-5 h-5 flex-shrink-0" />
+                <span className={cn(LABEL_CX, 'flex-1')}>
+                  <span className="whitespace-nowrap overflow-hidden">{label}</span>
+                </span>
+                {badge > 0 ? (
+                  <span
+                    className={cn(
+                      'flex-shrink-0 h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center',
+                      isActive(href)
+                        ? 'bg-[#121212] text-[#BAFF1A]'
+                        : 'bg-[#bf1d1e] text-[#f5f5f5]',
+                    )}
+                  >
+                    {badge > 99 ? '99+' : badge}
+                  </span>
+                ) : null}
+              </Link>
+            </div>
+          )
+        })}
       </nav>
 
       {/* Footer: usuário + logout */}

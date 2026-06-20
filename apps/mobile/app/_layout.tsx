@@ -2,7 +2,7 @@ import { Stack, useRouter, useSegments } from 'expo-router'
 import { useEffect, useMemo, type ReactNode } from 'react'
 import { ActivityIndicator, StyleSheet, View } from 'react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { SupabaseProvider } from '@gomoto/data'
+import { SupabaseProvider, useMaintenanceRecordsRealtime } from '@gomoto/data'
 
 import { AuthProvider, useAuth } from '../src/contexts/auth'
 import { supabase } from '../src/lib/supabase'
@@ -20,9 +20,14 @@ function DataProviders({ children }: { children: ReactNode }) {
   const tenantId = useMemo(() => activeTenantId, [activeTenantId])
   return (
     <SupabaseProvider client={supabase} tenantId={tenantId}>
-      {children}
+      <RealtimeSubscriptions>{children}</RealtimeSubscriptions>
     </SupabaseProvider>
   )
+}
+
+function RealtimeSubscriptions({ children }: { children: ReactNode }) {
+  useMaintenanceRecordsRealtime()
+  return <>{children}</>
 }
 
 function RootGate() {
