@@ -13,6 +13,12 @@ import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { z } from 'zod'
 
+// Zod 4 `z.string().uuid()` valida o variant byte (4º grupo deve começar com
+// 8|9|a|b). IDs sintéticos do seed local (`11111111-1111-1111-1111-111111111111`)
+// não respeitam isso e falhariam, mesmo sendo aceitos pelo Postgres como UUID
+// válido. Usamos um regex de formato livre — a FK do banco garante existência.
+const UUID_LOOSE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 async function getAuthenticatedUser() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -51,7 +57,7 @@ const QueueEntryNotesSchema = z.object({
 })
 
 const CloseQueueContractSchema = z.object({
-  motorcycle_id: z.string().uuid(),
+  motorcycle_id: z.string().regex(UUID_LOOSE),
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data de início inválida'),
   end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data de término inválida').optional().nullable(),
   weekly_amount: z.coerce.number().positive('Valor semanal inválido'),

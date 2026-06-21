@@ -33,8 +33,14 @@ async function getAuthenticatedUser() {
   return { supabase, user }
 }
 
+// Zod 4 `z.string().uuid()` valida o variant byte (4º grupo deve começar com
+// 8|9|a|b). IDs sintéticos do seed local (`11111111-1111-1111-1111-111111111111`)
+// não respeitam isso e falhariam, mesmo sendo aceitos pelo Postgres como UUID
+// válido. Usamos um regex de formato livre — a FK do banco garante existência.
+const UUID_LOOSE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 const MaintenanceSchema = z.object({
-  motorcycle_id: z.string().uuid(),
+  motorcycle_id: z.string().regex(UUID_LOOSE),
   type: z.enum(['preventive', 'corrective', 'inspection']),
   description: z.string().max(300).optional().nullable(),
   predicted_km: z.number().int().min(0).optional().nullable(),
