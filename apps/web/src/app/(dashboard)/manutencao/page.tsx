@@ -4,10 +4,15 @@ import { useState, useCallback, useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Plus, Wrench, CheckCircle2, AlertTriangle, Clock, Trash2, Edit2, Eye,
-  Search, Camera, FileText, ChevronDown, Gauge, Info, DollarSign,
+  Search, Camera, FileText, Gauge, Info, DollarSign, X,
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { useMaintenances, useMotorcycles, useSupabaseContext } from '@gomoto/data'
+import {
+  useMaintenances,
+  useMotorcycles,
+  useMaintenancePlans,
+  useSupabaseContext,
+} from '@gomoto/data'
 import {
   uploadMaintenancePhoto,
   createMaintenance,
@@ -71,10 +76,12 @@ type ContractInfo = {
  */
 type MaintenanceWithMoto = Maintenance & {
   motorcycle: {
+    id: string
     license_plate: string
     model: string
     make: string
     km_current: number
+    maintenance_plan_id?: string | null
   } | null
   _status?: MaintenanceStatus
 }
@@ -103,13 +110,22 @@ type MaintenanceFormData = {
   motorcycle_id: string
   type: 'preventive' | 'corrective' | 'inspection'
   description: string
+  // `mode` define se o form é agendamento puro ou registro retroativo de
+  // execução. Mapeia 1:1 para `completed` na hora do save — mas dirige a UI:
+  // 'scheduled' mostra só campos-gatilho (KM previsto / data agendada);
+  // 'executed' mostra campos de realização (KM serviço, custo, fotos, etc).
+  mode: 'scheduled' | 'executed'
   scheduled_date: string
+  predicted_km: string
   actual_km: string
   cost: string
-  completed: boolean
   completed_date: string
   workshop: string
   observations: string
+  effective_executor: 'company' | 'customer'
+  customer_payer_pct: number
+  odometer_photo_file: File | null
+  invoice_photo_file: File | null
 }
 
 // ─── CONSTANTES ─────────────────────────────────────────────────────────────
@@ -129,13 +145,18 @@ const INITIAL_FORM: MaintenanceFormData = {
   motorcycle_id: '',
   type: 'corrective',
   description: '',
+  mode: 'scheduled',
   scheduled_date: '',
+  predicted_km: '',
   actual_km: '',
   cost: '',
-  completed: false,
   completed_date: '',
   workshop: 'Oficina do Careca',
   observations: '',
+  effective_executor: 'company',
+  customer_payer_pct: 0,
+  odometer_photo_file: null,
+  invoice_photo_file: null,
 }
 
 /**
@@ -297,8 +318,10 @@ export default function MaintenancePage() {
   const queryClient = useQueryClient()
   const maintenancesQuery = useMaintenances()
   const motorcyclesQuery = useMotorcycles()
+  const plansQuery = useMaintenancePlans()
   const maintenances = (maintenancesQuery.data ?? []) as MaintenanceWithMoto[]
   const motorcycles = (motorcyclesQuery.data ?? []) as MotorcycleOption[]
+  const plans = plansQuery.data ?? []
   const loading = maintenancesQuery.isLoading || motorcyclesQuery.isLoading
 
   const invalidateMaintenances = useCallback(
@@ -318,59 +341,17 @@ export default function MaintenancePage() {
   
   // [completing, setCompleting]: Bloqueia cliques excessivos no botão de confirmar conclusão enquanto a etapa 2 roda.
   const [completing, setCompleting] = useState(false)
-  const [showPhotoWarning, setShowPhotoWarning] = useState(false)
 
   // ── ESTADOS: Filtros de Visualização ──────────────────────────────────────
-  
-  // [statusFilter, setStatusFilter]: Gerencia a aba/tab ativa ('all', 'overdue', 'upcoming', 'scheduled', 'completed').
-  const [statusFilter, setStatusFilter] = useState('all')
-  
-  // [motorcycleFilter, setMotorcycleFilter]: Guarda o ID da moto selecionada no select filter para isolar as views para 1 moto.
+  // statusFilter começa em 'overdue' (operador chega na tela e vê o que precisa
+  // resolver hoje). Pode ser limpo via card "Todas".
+  const [statusFilter, setStatusFilter] = useState<'all' | MaintenanceStatus>('overdue')
   const [motorcycleFilter, setMotorcycleFilter] = useState('')
-  
-  // [typeFilter, setTypeFilter]: Refina a busca ('preventive', 'corrective', 'inspection').
+  const [planFilter, setPlanFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
-  
-  // [searchQuery, setSearchQuery]: Termo textual de busca dinâmica inserido no campo de lupa.
+  const [periodFilter, setPeriodFilter] = useState<'all' | 'thisMonth' | 'next30days'>('all')
+  const [executorFilter, setExecutorFilter] = useState<'all' | 'company' | 'customer'>('all')
   const [searchQuery, setSearchQuery] = useState('')
-
-  // ── ESTADOS: UI de Agrupamento das Tabelas (Accordion) ────────────────────
-  
-  // [collapsedMotos, setCollapsedMotos]: Guarda os IDs das motocicletas que estão fechadas/colapsadas no painel visual da lista.
-  const [collapsedMotos, setCollapsedMotos] = useState<Set<string>>(new Set())
-  
-  // [historyMotos, setHistoryMotos]: Mantém registro dos IDs das motocicletas onde o histórico de manutenções passadas (concluídas) está sendo exibido.
-  const [historyMotos, setHistoryMotos] = useState<Set<string>>(new Set())
-
-  /**
-   * @function toggleMoto
-   * @description Alterna a visibilidade (expandido/colapsado) da sanfona (accordion) que lista os itens de uma motocicleta específica.
-   * Pré-condição: Nenhuma.
-   * Efeitos colaterais: Altera o estado `collapsedMotos` adicionando ou removendo o ID.
-   * @param {string} id - O ID exclusivo da motocicleta.
-   */
-  function toggleMoto(id: string) {
-    setCollapsedMotos((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) { next.delete(id) } else { next.add(id) }
-      return next
-    })
-  }
-
-  /**
-   * @function toggleHistory
-   * @description Exibe ou oculta os itens de manutenção já concluídos (histórico) na área interna expandida de uma moto.
-   * Pré-condição: O agrupamento da moto precisa estar expandido para ver isso.
-   * Efeitos colaterais: Altera o estado `historyMotos` armazenando quais motos têm histórico exibido.
-   * @param {string} id - O ID exclusivo da motocicleta.
-   */
-  function toggleHistory(id: string) {
-    setHistoryMotos((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) { next.delete(id) } else { next.add(id) }
-      return next
-    })
-  }
 
   // ── ESTADOS: Controle de Modais ───────────────────────────────────────────
   
@@ -455,11 +436,48 @@ export default function MaintenancePage() {
    * Por fim, ordena para que sempre os problemas em aberto e mais graves subam para a linha visual do gestor.
    */
   const filtered = useMemo(() => {
+    const today = new Date()
+    const thisMonthPrefix = today.toISOString().slice(0, 7)
+    const horizon30 = new Date(today)
+    horizon30.setDate(horizon30.getDate() + 30)
+
     return withStatus
       .filter((m) => {
         if (statusFilter !== 'all' && m._status !== statusFilter) return false
         if (motorcycleFilter && m.motorcycle_id !== motorcycleFilter) return false
+        if (planFilter && m.motorcycle?.maintenance_plan_id !== planFilter) return false
         if (typeFilter !== 'all' && m.type !== typeFilter) return false
+        if (executorFilter !== 'all') {
+          const exec = m.completed ? m.effective_executor : null
+          if (m.completed) {
+            if (exec !== executorFilter) return false
+          } else {
+            // Para itens não concluídos não há executor realizado; o filtro de
+            // executor só faz sentido em "concluídas".
+            return false
+          }
+        }
+        if (periodFilter !== 'all' && !m.completed) {
+          // Período = "quando vence". Considera predicted_km (estimado em dias
+          // via KM_POR_DIA) ou scheduled_date diretamente.
+          const dueDate = m.scheduled_date
+            ? new Date(m.scheduled_date + 'T12:00:00')
+            : m.predicted_km != null && m.motorcycle
+              ? (() => {
+                  const kmLeft = m.predicted_km - m.motorcycle.km_current
+                  const daysLeft = kmLeft / KM_POR_DIA
+                  const d = new Date(today)
+                  d.setDate(d.getDate() + Math.round(daysLeft))
+                  return d
+                })()
+              : null
+          if (!dueDate) return false
+          if (periodFilter === 'thisMonth') {
+            if (dueDate.toISOString().slice(0, 7) !== thisMonthPrefix) return false
+          } else if (periodFilter === 'next30days') {
+            if (dueDate > horizon30) return false
+          }
+        }
         if (searchQuery) {
           const q = searchQuery.toLowerCase()
           if (![m.description, m.motorcycle?.license_plate, m.motorcycle?.model, m.motorcycle?.make]
@@ -467,35 +485,30 @@ export default function MaintenancePage() {
         }
         return true
       })
-      .sort((a, b) => {
-        // Mapeamento hierárquico simples para a ordenação natural do risco
-        const order: Record<MaintenanceStatus, number> = { overdue: 0, upcoming: 1, scheduled: 2, completed: 3 }
-        return order[a._status!] - order[b._status!]
-      })
-  }, [withStatus, statusFilter, motorcycleFilter, typeFilter, searchQuery])
+  }, [withStatus, statusFilter, motorcycleFilter, planFilter, typeFilter, periodFilter, executorFilter, searchQuery])
 
   /**
-   * Computação da Estrutura Visual Principal: 
-   * A lógica visual agrupa as manutenções pelo ID da moto pertencente (Sanfonas / Accordions).
+   * Lista achatada ordenada por urgência: vencidas primeiro (pior atraso no
+   * topo), depois próximas, depois agendadas, depois concluídas (mais recentes
+   * primeiro). Substitui o accordion por moto — estilo CMMS (Fleetio/Samsara).
    */
-  const groupedByMoto = useMemo(() => {
-    const map = new Map<string, { motorcycle_id: string; moto: MaintenanceWithMoto['motorcycle']; items: (MaintenanceWithMoto & { _status: MaintenanceStatus })[] }>()
-
-    filtered.forEach((m) => {
-      if (!map.has(m.motorcycle_id)) {
-        map.set(m.motorcycle_id, { motorcycle_id: m.motorcycle_id, moto: m.motorcycle, items: [] })
+  const sortedFlat = useMemo(() => {
+    const order: Record<MaintenanceStatus, number> = { overdue: 0, upcoming: 1, scheduled: 2, completed: 3 }
+    const urgency = (m: MaintenanceWithMoto): number => {
+      const km = diffKm(m)
+      if (km !== null) return km
+      const d = diffDias(m)
+      if (d !== null) return d * KM_POR_DIA
+      return Number.POSITIVE_INFINITY
+    }
+    return [...filtered].sort((a, b) => {
+      const so = order[a._status!] - order[b._status!]
+      if (so !== 0) return so
+      if (a._status === 'completed' && b._status === 'completed') {
+        // Mais recentes primeiro.
+        return (b.completed_date ?? '').localeCompare(a.completed_date ?? '')
       }
-      map.get(m.motorcycle_id)!.items.push(m as MaintenanceWithMoto & { _status: MaintenanceStatus })
-    })
-
-    // Organiza também o layout raiz: Motos com falhas gravíssimas pulam pro topo e com 0 erro descem.
-    return Array.from(map.values()).sort((a, b) => {
-      const worst = (items: { _status: MaintenanceStatus }[]) =>
-        items.some((i) => i._status === 'overdue') ? 0
-        : items.some((i) => i._status === 'upcoming') ? 1
-        : items.some((i) => i._status === 'scheduled') ? 2
-        : 3
-      return worst(a.items) - worst(b.items)
+      return urgency(a) - urgency(b)
     })
   }, [filtered])
 
@@ -517,26 +530,19 @@ export default function MaintenancePage() {
     }
   }, [withStatus])
 
-  /**
-   * @constant tabs
-   * @description Array iterável desenhado a partir dos totais que rende as "Pílulas" superiores que o usuário clica.
-   */
-  const tabs = useMemo(() => [
-    { value: 'all',       label: 'Todas',      count: withStatus.length },
-    { value: 'overdue',   label: 'Vencidas',   count: totals.overdue },
-    { value: 'upcoming',  label: 'Próximas',   count: totals.upcoming },
-    { value: 'scheduled', label: 'Agendadas',  count: totals.scheduled },
-    { value: 'completed', label: 'Realizadas', count: totals.completed },
-  ], [withStatus.length, totals])
-
-  /**
-   * @constant motorcycleSelectOptions
-   * @description Derivado transformado apenas para se conectar na biblioteca de selects provendo o texto formatado no layout `{placa} - {marca} {modelo}`
-   */
   const motorcycleSelectOptions = useMemo(() => [
     { value: '', label: 'Selecione a moto...' },
     ...motorcycles.map((m) => ({ value: m.id, label: `${m.license_plate} — ${m.make} ${m.model}` })),
   ], [motorcycles])
+
+  const hasActiveFilters =
+    statusFilter !== 'all'
+    || !!motorcycleFilter
+    || !!planFilter
+    || typeFilter !== 'all'
+    || periodFilter !== 'all'
+    || executorFilter !== 'all'
+    || !!searchQuery
 
   // ─── HANDLERS DOS EVENTOS GLOBAIS ─────────────────────────────────────────
 
@@ -579,7 +585,6 @@ export default function MaintenancePage() {
     setCompletionFinancials([])
     setActiveContract(null)
     setDiscountConfirmed(false)
-    setShowPhotoWarning(false)
   }, [])
 
   /**
@@ -594,20 +599,54 @@ export default function MaintenancePage() {
       return
     }
     setSaving(true)
-    
-    // Tratamos aqui conversões de tipos de Strings capturadas no HTML para Ints, Floats ou nulls para respeitar as chaves nativas postgres
-    const payload = {
-      motorcycle_id: formData.motorcycle_id,
-      type: formData.type,
-      description: formData.description,
-      scheduled_date: formData.scheduled_date || null,
-      actual_km: formData.actual_km ? parseInt(formData.actual_km, 10) : null,
-      cost: formData.cost ? parseFloat(formData.cost) : null,
-      completed: formData.completed,
-      completed_date: formData.completed && formData.completed_date ? formData.completed_date : null,
-      workshop: formData.workshop || null,
-      observations: formData.observations || null,
+
+    const isExecuted = formData.mode === 'executed'
+
+    // Upload das fotos só faz sentido no modo executado; quando o usuário
+    // está apenas agendando, nem enviamos os campos no payload.
+    let odometerUrl: string | null = null
+    let invoiceUrl: string | null = null
+    if (isExecuted) {
+      if (formData.odometer_photo_file) {
+        odometerUrl = await uploadMaintenanceFile(formData.odometer_photo_file, 'km')
+      }
+      if (formData.invoice_photo_file) {
+        invoiceUrl = await uploadMaintenanceFile(formData.invoice_photo_file, 'nf')
+      }
     }
+
+    // Tratamos aqui conversões de tipos de Strings capturadas no HTML para Ints, Floats ou nulls para respeitar as chaves nativas postgres.
+    // Quando o modo é "scheduled", a parte de execução vai como null para
+    // limpar valores prévios (ex.: operador desfez uma marcação de concluído).
+    const payload = isExecuted
+      ? {
+          motorcycle_id: formData.motorcycle_id,
+          type: formData.type,
+          description: formData.description,
+          completed: true,
+          completed_date: formData.completed_date || new Date().toISOString().split('T')[0],
+          actual_km: formData.actual_km ? parseInt(formData.actual_km, 10) : null,
+          cost: formData.cost ? parseFloat(formData.cost) : null,
+          workshop: formData.workshop || null,
+          observations: formData.observations || null,
+          effective_executor: formData.effective_executor,
+          effective_customer_payer_pct: formData.customer_payer_pct,
+          odometer_photo_url: odometerUrl,
+          invoice_photo_url: invoiceUrl,
+        }
+      : {
+          motorcycle_id: formData.motorcycle_id,
+          type: formData.type,
+          description: formData.description,
+          scheduled_date: formData.scheduled_date || null,
+          predicted_km: formData.predicted_km ? parseInt(formData.predicted_km, 10) : null,
+          workshop: formData.workshop || null,
+          observations: formData.observations || null,
+          completed: false,
+          completed_date: null,
+          actual_km: null,
+          cost: null,
+        }
     try {
       const res = editingMaintenance
         ? await updateMaintenance(editingMaintenance.id, payload)
@@ -699,12 +738,6 @@ export default function MaintenancePage() {
    */
   const handleConfirmComplete = useCallback(async () => {
     if (!completingMaintenance || !completionKm) return
-
-    const missingPhotos = completionFinancials.some((f) => !f.odometer_photo_file && !f.invoice_photo_file)
-    if (missingPhotos && completionObservations.trim().length < 30) {
-      setShowPhotoWarning(true)
-      return
-    }
 
     setCompleting(true)
     try {
@@ -799,13 +832,18 @@ export default function MaintenancePage() {
       motorcycle_id: m.motorcycle_id,
       type: m.type,
       description: m.description,
+      mode: m.completed ? 'executed' : 'scheduled',
       scheduled_date: m.scheduled_date || '',
+      predicted_km: m.predicted_km?.toString() || '',
       actual_km: m.actual_km?.toString() || '',
       cost: m.cost?.toString() || '',
-      completed: m.completed,
       completed_date: m.completed_date || '',
       workshop: m.workshop || '',
       observations: m.observations || '',
+      effective_executor: m.effective_executor ?? 'company',
+      customer_payer_pct: m.effective_customer_payer_pct ?? 0,
+      odometer_photo_file: null,
+      invoice_photo_file: null,
     })
     setIsFormModalOpen(true)
   }, [])
@@ -858,51 +896,39 @@ export default function MaintenancePage() {
 
       <div className="p-6 space-y-5">
 
-        {/* ── KPI CARDS ────────────────────────────────────────────────────────
-            Mostram de forma gritante e quantitativa a soma situacional global.
-            Usam das extrações do memo totals. */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="flex items-center justify-between rounded-xl bg-[#202020] p-4">
-            <div>
-              <p className="text-[13px] text-[#9e9e9e]">Vencidas</p>
-              <p className="text-2xl font-bold text-[#ff9c9a]">{totals.overdue}</p>
-            </div>
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#323232]">
-              <AlertTriangle className="h-5 w-5 text-[#BAFF1A]" />
-            </div>
-          </div>
+        {/* ── KPI CARDS CLICÁVEIS (TABS DE STATUS) ─────────────────────────────
+            CMMS-style: cada card é um botão que aplica o filtro de status.
+            O quinto card (Custo do Mês) é informativo, não filtra. */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+          {([
+            { key: 'overdue',   label: 'Vencidas',      count: totals.overdue,   icon: AlertTriangle, color: 'text-[#ff9c9a]', active: 'border-[#ff3e3c]' },
+            { key: 'upcoming',  label: 'Próximas',      count: totals.upcoming,  icon: Clock,         color: 'text-[#e65e24]', active: 'border-[#e65e24]' },
+            { key: 'scheduled', label: 'Agendadas',     count: totals.scheduled, icon: Wrench,        color: 'text-[#a880ff]', active: 'border-[#a880ff]' },
+            { key: 'completed', label: 'Concluídas mês', count: totals.completed, icon: CheckCircle2,  color: 'text-[#229731]', active: 'border-[#229731]' },
+          ] as const).map((kpi) => {
+            const Icon = kpi.icon
+            const isActive = statusFilter === kpi.key
+            return (
+              <button
+                key={kpi.key}
+                onClick={() => setStatusFilter((prev) => prev === kpi.key ? 'all' : kpi.key)}
+                aria-pressed={isActive}
+                className={`flex items-center justify-between rounded-xl bg-[#202020] p-4 border-2 transition-colors text-left ${
+                  isActive ? kpi.active : 'border-transparent hover:border-[#474747]'
+                }`}
+              >
+                <div>
+                  <p className="text-[13px] text-[#9e9e9e]">{kpi.label}</p>
+                  <p className={`text-2xl font-bold ${kpi.color}`}>{kpi.count}</p>
+                </div>
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#323232]">
+                  <Icon className="h-5 w-5 text-[#BAFF1A]" />
+                </div>
+              </button>
+            )
+          })}
 
-          <div className="flex items-center justify-between rounded-xl bg-[#202020] p-4">
-            <div>
-              <p className="text-[13px] text-[#9e9e9e]">Próximas</p>
-              <p className="text-2xl font-bold text-[#e65e24]">{totals.upcoming}</p>
-            </div>
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#323232]">
-              <Clock className="h-5 w-5 text-[#BAFF1A]" />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between rounded-xl bg-[#202020] p-4">
-            <div>
-              <p className="text-[13px] text-[#9e9e9e]">Agendadas</p>
-              <p className="text-2xl font-bold text-[#a880ff]">{totals.scheduled}</p>
-            </div>
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#323232]">
-              <Wrench className="h-5 w-5 text-[#BAFF1A]" />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between rounded-xl bg-[#202020] p-4">
-            <div>
-              <p className="text-[13px] text-[#9e9e9e]">Realizadas mês</p>
-              <p className="text-2xl font-bold text-[#229731]">{totals.completed}</p>
-            </div>
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#323232]">
-              <CheckCircle2 className="h-5 w-5 text-[#BAFF1A]" />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between rounded-xl bg-[#202020] p-4">
+          <div className="flex items-center justify-between rounded-xl bg-[#202020] p-4 border-2 border-transparent">
             <div>
               <p className="text-[13px] text-[#9e9e9e]">Custo do Mês</p>
               <p className="text-2xl font-bold text-[#f5f5f5]">{formatCurrency(totals.costThisMonth)}</p>
@@ -913,300 +939,236 @@ export default function MaintenancePage() {
           </div>
         </div>
 
-        {/* ── BARRA DE FERRAMENTAS DE FILTROS ──────────────────────────────────
-            Oferece abas (Tabs) para visualizações pré-selecionadas e dropdowns + box textual para refinar com precisão uma busca por placa ou texto. */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {/* ── BARRA DE FILTROS ─────────────────────────────────────────────────
+            Lista achatada estilo CMMS — filtros combináveis trabalham sobre
+            `sortedFlat`. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#616161]" />
+            <input
+              type="text"
+              placeholder="Buscar item, placa, modelo..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-10 rounded-full border border-[#474747] bg-[#323232] pl-9 pr-4 text-[13px] text-[#f5f5f5] placeholder:text-[#616161] focus:border-[#BAFF1A] focus:outline-none w-56"
+            />
+          </div>
 
-          {/* Abas e pílulas de status principais do sistema controladas no state de statusFilter */}
-          <div className="flex flex-wrap border-b border-[#616161]">
-            {tabs.map((tab) => (
-              <button
-                key={tab.value}
-                onClick={() => setStatusFilter(tab.value)}
-                className={`px-3 py-2 text-[16px] font-medium transition-all border-b-2 ${
-                  statusFilter === tab.value
-                    ? 'border-[#BAFF1A] text-[#f5f5f5]'
-                    : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
-                }`}
-              >
-                {tab.label}
-                {tab.count > 0 && (
-                  <span className="ml-1.5 text-[#616161]">({tab.count})</span>
-                )}
-              </button>
+          <select
+            value={motorcycleFilter}
+            onChange={(e) => setMotorcycleFilter(e.target.value)}
+            className="h-10 rounded-full border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
+          >
+            <option value="">Todas as motos</option>
+            {motorcycles.map((m) => (
+              <option key={m.id} value={m.id} className="bg-[#202020]">
+                {m.license_plate} — {m.make} {m.model}
+              </option>
             ))}
-          </div>
+          </select>
 
-          {/* Filtros secundários: Motor, Tipo e Lupa de Texto livre que interagem com o memo 'filtered' */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <select
-              value={motorcycleFilter}
-              onChange={(e) => setMotorcycleFilter(e.target.value)}
-              className="h-10 rounded-full border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
+          <select
+            value={planFilter}
+            onChange={(e) => setPlanFilter(e.target.value)}
+            className="h-10 rounded-full border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
+          >
+            <option value="">Todos os planos</option>
+            {plans.map((p) => (
+              <option key={p.id} value={p.id} className="bg-[#202020]">{p.name}</option>
+            ))}
+          </select>
+
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="h-10 rounded-full border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
+          >
+            <option value="all">Todos os tipos</option>
+            <option value="preventive">Preventiva</option>
+            <option value="corrective">Corretiva</option>
+            <option value="inspection">Vistoria</option>
+          </select>
+
+          <select
+            value={periodFilter}
+            onChange={(e) => setPeriodFilter(e.target.value as typeof periodFilter)}
+            className="h-10 rounded-full border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
+            title="Janela de vencimento (só itens pendentes)"
+          >
+            <option value="all">Qualquer prazo</option>
+            <option value="thisMonth">Vencem este mês</option>
+            <option value="next30days">Próximos 30 dias</option>
+          </select>
+
+          <select
+            value={executorFilter}
+            onChange={(e) => setExecutorFilter(e.target.value as typeof executorFilter)}
+            className="h-10 rounded-full border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
+            title="Quem levou à oficina (só itens concluídos)"
+          >
+            <option value="all">Qualquer executor</option>
+            <option value="company">Executado pela empresa</option>
+            <option value="customer">Executado pelo cliente</option>
+          </select>
+
+          {hasActiveFilters && (
+            <button
+              onClick={() => {
+                setStatusFilter('all')
+                setMotorcycleFilter('')
+                setPlanFilter('')
+                setTypeFilter('all')
+                setPeriodFilter('all')
+                setExecutorFilter('all')
+                setSearchQuery('')
+              }}
+              className="flex items-center gap-1 h-10 px-3 rounded-full border border-[#474747] bg-transparent text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] hover:border-[#9e9e9e] transition-colors"
             >
-              <option value="">Todas as motos</option>
-              {motorcycles.map((m) => (
-                <option key={m.id} value={m.id} className="bg-[#202020]">
-                  {m.license_plate} — {m.make} {m.model}
-                </option>
-              ))}
-            </select>
+              <X className="w-3.5 h-3.5" />
+              Limpar
+            </button>
+          )}
 
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="h-10 rounded-full border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
-            >
-              <option value="all">Todos os tipos</option>
-              <option value="preventive">Preventiva</option>
-              <option value="corrective">Corretiva</option>
-              <option value="inspection">Vistoria</option>
-            </select>
-
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#616161]" />
-              <input
-                type="text"
-                placeholder="Buscar..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-10 rounded-full border border-[#474747] bg-[#323232] pl-9 pr-4 text-[13px] text-[#f5f5f5] placeholder:text-[#616161] focus:border-[#BAFF1A] focus:outline-none w-44"
-              />
-            </div>
-          </div>
+          <span className="ml-auto text-[13px] text-[#616161]">
+            {sortedFlat.length} item{sortedFlat.length === 1 ? '' : 's'}
+          </span>
         </div>
 
-        {/* ── TABELA AGRUPADA POR MOTO (ACCORDION) ──────────────────────────────
-            Essa é a visualização mestre. Em vez de listas infinitas de problemas variados soltos, a visão aglomera a Moto. Isso ajuda o funcionário focar em qual moto levar no guincho hoje e o que resolver ao mesmo tempo com ela parada lá. */}
+        {/* ── LISTA ACHATADA POR URGÊNCIA ──────────────────────────────────────
+            Estilo CMMS (Fleetio/Samsara): toda manutenção fica em uma linha
+            única ordenada pela urgência efetiva. A coluna "Moto" dá contexto
+            sem precisar agrupar. */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#BAFF1A] border-t-transparent" />
           </div>
-        ) : groupedByMoto.length === 0 ? (
+        ) : sortedFlat.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl bg-[#202020] p-16 text-center">
             <Wrench className="mb-4 h-12 w-12 text-[#474747]" />
             <p className="text-lg font-medium text-[#f5f5f5]">Nenhuma manutenção encontrada.</p>
             <p className="mt-1 text-[13px] text-[#9e9e9e]">Ajuste os filtros ou cadastre uma nova manutenção.</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {groupedByMoto.map(({ motorcycle_id, moto, items }) => {
-              // Computação inline do render para decidir se mostra a tab direta da Moto só com histório concluído ou mixa pendência + histórico sanfona
-              const showDirectCompleted = statusFilter === 'completed'
-              const pending   = showDirectCompleted ? items : items.filter((i) => i._status !== 'completed')
-              const completed = items.filter((i) => i._status === 'completed')
-
-              const nOverdue  = pending.filter((i) => i._status === 'overdue').length
-              const nUpcoming = pending.filter((i) => i._status === 'upcoming').length
-              const nScheduled = pending.filter((i) => i._status === 'scheduled').length
-              
-              // Define o tom visual da luz/bolinha indicadora de gravidade na ponta esquerda do accordion com base no pior cenário retornado.
-              const light = nOverdue > 0 ? 'red' : nUpcoming > 0 ? 'amber' : 'green'
-              const isExpanded = !collapsedMotos.has(motorcycle_id)
-              const showHist   = historyMotos.has(motorcycle_id)
-
-              return (
-                <div key={motorcycle_id} className="overflow-hidden rounded-xl bg-[#202020]">
-
-                  {/* Cabeçalho Ativador (Chevron): Traz placa, modelo atualizado e contadores (bagdes) curtos de itens atrasados embutidos */}
-                  <button
-                    onClick={() => toggleMoto(motorcycle_id)}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#323232] transition-colors text-left"
-                  >
-                    <ChevronDown className={`w-4 h-4 text-[#9e9e9e] shrink-0 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
-                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                      light === 'red' ? 'bg-[#ff3e3c]' : light === 'amber' ? 'bg-[#e65e24]' : 'bg-[#28b438]'
-                    }`} />
-                    <span className="font-mono font-bold text-[#f5f5f5] text-[13px]">{moto?.license_plate}</span>
-                    <span className="text-[13px] text-[#9e9e9e]">{moto?.make} {moto?.model}</span>
-                    {moto?.km_current != null && (
-                      <span className="text-[13px] text-[#616161]">· {fmtKm(moto.km_current)}</span>
-                    )}
-                    <div className="ml-auto flex items-center gap-1.5">
-                      {nOverdue > 0 && (
-                        <span className="px-2 py-0.5 rounded-full text-[12px] font-medium bg-[#7c1c1c] text-[#ff9c9a]">
-                          {nOverdue} vencida{nOverdue > 1 ? 's' : ''}
-                        </span>
-                      )}
-                      {nUpcoming > 0 && (
-                        <span className="px-2 py-0.5 rounded-full text-[12px] font-medium bg-[#3a180f] text-[#e65e24]">
-                          {nUpcoming} próxima{nUpcoming > 1 ? 's' : ''}
-                        </span>
-                      )}
-                      {nScheduled > 0 && (
-                        <span className="px-2 py-0.5 rounded-full text-[12px] font-medium bg-[#2d0363] text-[#a880ff]">
-                          {nScheduled} agendada{nScheduled > 1 ? 's' : ''}
-                        </span>
-                      )}
-                    </div>
-                  </button>
-
-                  {/* Miolo do bloco sanfona que renderiza as tabelas quando ele está solto (not collapsed) */}
-                  {isExpanded && (
-                    <div className="border-t border-[#323232]">
-
-                      {/* AREA 1: ITENS PENDENTES — Monta a tr de predição do odômetro. Se tiver em "Atrasada", "Proxima", ela cai aqui no loop da Moto */}
-                      {pending.length > 0 ? (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left text-[13px] text-[#f5f5f5]">
-                            <thead className="bg-[#323232]">
-                              <tr>
-                                <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Item</th>
-                                <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Previsão</th>
-                                <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Situação</th>
-                                <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Status</th>
-                                <th className="h-9 px-4 text-right text-[#9e9e9e] text-[13px] font-medium">Ações</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {pending.map((item) => (
-                                <tr key={item.id} className="h-9 border-b border-[#323232] transition-colors hover:bg-[#323232]">
-                                  <td className="px-4">
-                                    <p className="font-medium text-[#f5f5f5] text-[13px]">
-                                      {item.description}
-                                      {(() => {
-                                        const iv = findSuggestedItemByDescription(item.description)
-                                        if (!iv) return null
-                                        const hint = iv.interval_km
-                                          ? `a cada ${iv.interval_km.toLocaleString('pt-BR')} km`
-                                          : `a cada ${iv.interval_days} dias`
-                                        return <span className="ml-1.5 text-[12px] font-light text-[#474747]">{hint}</span>
-                                      })()}
-                                    </p>
-                                    <StatusBadge status={item.type} />
-                                  </td>
-                                  <td className="px-4">
-                                    {item.predicted_km != null ? (
-                                      <div>
-                                        <p className="text-[#f5f5f5] text-[13px]">{fmtKm(item.predicted_km)}</p>
-                                        <p className="text-[13px] text-[#616161]">Atual: {fmtKm(moto?.km_current ?? 0)}</p>
-                                      </div>
-                                    ) : item.scheduled_date ? (
-                                      <p className="text-[#f5f5f5] text-[13px]">{formatDate(item.scheduled_date + 'T12:00:00')}</p>
-                                    ) : <span className="text-[#9e9e9e] text-[13px]">—</span>}
-                                  </td>
-                                  <td className="px-4"><SituacaoCell m={item} /></td>
-                                  <td className="px-4"><BadgeStatus status={item._status!} /></td>
-                                  <td className="px-4 text-right">
-                                    {/* Botões do Action principal controlando Modais CRUD e de Conclusão */}
-                                    <div className="flex items-center justify-end gap-1">
-                                      <Button variant="secondary" size="sm" className="h-8 w-8 p-0" onClick={() => handleOpenEdit(item)} title="Editar">
-                                        <Edit2 className="h-4 w-4" />
-                                      </Button>
-                                      <Button variant="primary" size="sm" className="h-8 w-8 p-0" onClick={() => handleOpenComplete(item)} title="Registrar conclusão">
-                                        <CheckCircle2 className="h-4 w-4" />
-                                      </Button>
-                                      <Button variant="danger" size="sm" className="h-8 w-8 p-0" onClick={() => handleOpenDelete(item.id)} title="Excluir">
-                                        <Trash2 className="h-4 w-4" />
-                                      </Button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+          <div className="overflow-x-auto rounded-xl bg-[#202020]">
+            <table className="w-full text-left text-[13px] text-[#f5f5f5]">
+              <thead className="bg-[#323232] border-b border-[#474747]">
+                <tr>
+                  <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium w-32">Status</th>
+                  <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Moto</th>
+                  <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Item</th>
+                  <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Previsão / Realizado</th>
+                  <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Situação</th>
+                  <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Executor</th>
+                  <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium text-right">Custo</th>
+                  <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium text-right w-32">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedFlat.map((item) => {
+                  const isCompleted = item._status === 'completed'
+                  const moto = item.motorcycle
+                  const onRowClick = () => {
+                    if (isCompleted) {
+                      setViewingMaintenance(item)
+                    } else {
+                      handleOpenComplete(item)
+                    }
+                  }
+                  return (
+                    <tr
+                      key={item.id}
+                      onClick={onRowClick}
+                      className={`h-9 border-b border-[#323232] transition-colors hover:bg-[#323232] cursor-pointer ${isCompleted ? 'opacity-80' : ''}`}
+                    >
+                      <td className="px-4"><BadgeStatus status={item._status!} /></td>
+                      <td className="px-4">
+                        <div className="flex flex-col leading-tight">
+                          <span className="font-mono font-bold text-[#f5f5f5] text-[13px]">{moto?.license_plate ?? '—'}</span>
+                          <span className="text-[12px] text-[#9e9e9e]">
+                            {moto ? `${moto.make} ${moto.model}` : ''}
+                            {moto?.km_current != null && <span className="text-[#616161]"> · {fmtKm(moto.km_current)}</span>}
+                          </span>
                         </div>
-                      ) : !showDirectCompleted ? (
-                        <p className="text-center text-[#616161] py-5 text-[13px]">Todas as manutenções em dia.</p>
-                      ) : null}
-
-                      {/* AREA 2: HISTÓRICO — Condição ativada apenas se o toggle primário estiver como view='completed'. Tabela escura/cinza sinaliza encerramentos e recibos */}
-                      {showDirectCompleted && completed.length > 0 && pending.length === 0 && (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left text-[13px]">
-                            <tbody>
-                              {completed.map((item) => (
-                                <tr key={item.id} className="h-9 border-b border-[#323232] transition-colors hover:bg-[#323232] opacity-80">
-                                  <td className="px-4 w-64">
-                                    <p className="text-[#f5f5f5] text-[13px]">{item.description}</p>
-                                    <StatusBadge status={item.type} />
-                                  </td>
-                                  <td className="px-4 text-[#9e9e9e] text-[13px]">
-                                    {item.actual_km ? <p>{fmtKm(item.actual_km)}</p> : null}
-                                    {item.completed_date && <p className="text-[13px]">{formatDate(item.completed_date + 'T12:00:00')}</p>}
-                                  </td>
-                                  <td className="px-4 text-[13px] text-[#9e9e9e]">{item.workshop ?? '—'}</td>
-                                  <td className="px-4">
-                                    <div className="flex gap-1">
-                                      {item.odometer_photo_url
-                                        ? <a href={item.odometer_photo_url} target="_blank" rel="noreferrer" title="Ver foto do KM"><Camera className="w-4 h-4 text-[#229731] hover:text-[#BAFF1A] transition-colors cursor-pointer" /></a>
-                                        : <Camera className="w-4 h-4 text-[#616161]" />}
-                                      {item.invoice_photo_url
-                                        ? <a href={item.invoice_photo_url} target="_blank" rel="noreferrer" title="Ver nota fiscal"><FileText className="w-4 h-4 text-[#229731] hover:text-[#BAFF1A] transition-colors cursor-pointer" /></a>
-                                        : <FileText className="w-4 h-4 text-[#616161]" />}
-                                    </div>
-                                  </td>
-                                  <td className="px-4 text-right">
-                                    <div className="flex items-center justify-end gap-1">
-                                      <Button variant="secondary" size="sm" className="h-8 w-8 p-0" title="Visualizar" onClick={() => setViewingMaintenance(item)}><Eye className="h-4 w-4" /></Button>
-                                      <Button variant="danger" size="sm" className="h-8 w-8 p-0" onClick={() => handleOpenDelete(item.id)}><Trash2 className="h-4 w-4" /></Button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                      </td>
+                      <td className="px-4">
+                        <div className="flex flex-col leading-tight">
+                          <span className="font-medium text-[#f5f5f5] text-[13px]">
+                            {item.description}
+                            {(() => {
+                              const iv = findSuggestedItemByDescription(item.description)
+                              if (!iv) return null
+                              const hint = iv.interval_km
+                                ? `a cada ${iv.interval_km.toLocaleString('pt-BR')} km`
+                                : `a cada ${iv.interval_days} dias`
+                              return <span className="ml-1.5 text-[12px] font-light text-[#474747]">{hint}</span>
+                            })()}
+                          </span>
+                          <StatusBadge status={item.type} />
                         </div>
-                      )}
-
-                      {/* AREA 3: HISTÓRICO COLAPSÁVEL — Condição onde a view normal é mista, mas exibe-se um botão que baixa uma gaveta extra exibindo o passivo da moto. */}
-                      {!showDirectCompleted && completed.length > 0 && (
-                        <div className={pending.length > 0 ? 'border-t border-[#323232]' : ''}>
-                          <button
-                            onClick={() => toggleHistory(motorcycle_id)}
-                            className="w-full flex items-center gap-2 px-4 py-2 text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors"
-                          >
-                            <ChevronDown className={`w-3 h-3 transition-transform ${showHist ? '' : '-rotate-90'}`} />
-                            {showHist
-                              ? 'Ocultar histórico'
-                              : `Ver histórico (${completed.length} realizada${completed.length > 1 ? 's' : ''})`}
-                          </button>
-
-                          {showHist && (
-                            <div className="border-t border-[#323232] overflow-x-auto">
-                              <table className="w-full text-left text-[13px]">
-                                <tbody>
-                                  {/* Limitamos histórico colapsado com "slice" pra não afogar interface */}
-                                  {completed.slice(0, 5).map((item) => (
-                                    <tr key={item.id} className="h-9 border-b border-[#323232] transition-colors hover:bg-[#323232] opacity-70">
-                                      <td className="px-4 w-64">
-                                        <p className="text-[#f5f5f5] text-[13px]">{item.description}</p>
-                                        <StatusBadge status={item.type} />
-                                      </td>
-                                      <td className="px-4 text-[#9e9e9e] text-[13px]">
-                                        {item.actual_km ? <p>{fmtKm(item.actual_km)}</p> : null}
-                                        {item.completed_date && <p className="text-[13px]">{formatDate(item.completed_date + 'T12:00:00')}</p>}
-                                      </td>
-                                      <td className="px-4 text-[13px] text-[#9e9e9e]">{item.workshop ?? '—'}</td>
-                                      <td className="px-4">
-                                        <div className="flex gap-1">
-                                          {item.odometer_photo_url
-                                            ? <a href={item.odometer_photo_url} target="_blank" rel="noreferrer" title="Ver foto do KM"><Camera className="w-4 h-4 text-[#229731] hover:text-[#BAFF1A] transition-colors cursor-pointer" /></a>
-                                            : <Camera className="w-4 h-4 text-[#616161]" />}
-                                          {item.invoice_photo_url
-                                            ? <a href={item.invoice_photo_url} target="_blank" rel="noreferrer" title="Ver nota fiscal"><FileText className="w-4 h-4 text-[#229731] hover:text-[#BAFF1A] transition-colors cursor-pointer" /></a>
-                                            : <FileText className="w-4 h-4 text-[#616161]" />}
-                                        </div>
-                                      </td>
-                                      <td className="px-4 text-right">
-                                        <div className="flex items-center justify-end gap-1">
-                                          <Button variant="secondary" size="sm" className="h-8 w-8 p-0" title="Visualizar" onClick={() => setViewingMaintenance(item)}><Eye className="h-4 w-4" /></Button>
-                                          <Button variant="danger" size="sm" className="h-8 w-8 p-0" onClick={() => handleOpenDelete(item.id)}><Trash2 className="h-4 w-4" /></Button>
-                                        </div>
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
+                      </td>
+                      <td className="px-4">
+                        {isCompleted ? (
+                          <div className="flex flex-col leading-tight text-[13px] text-[#9e9e9e]">
+                            {item.actual_km != null && <span>{fmtKm(item.actual_km)}</span>}
+                            {item.completed_date && <span className="text-[#616161]">{formatDate(item.completed_date + 'T12:00:00')}</span>}
+                          </div>
+                        ) : item.predicted_km != null ? (
+                          <div className="flex flex-col leading-tight">
+                            <span className="text-[#f5f5f5] text-[13px]">{fmtKm(item.predicted_km)}</span>
+                            <span className="text-[12px] text-[#616161]">Atual: {fmtKm(moto?.km_current ?? 0)}</span>
+                          </div>
+                        ) : item.scheduled_date ? (
+                          <span className="text-[#f5f5f5] text-[13px]">{formatDate(item.scheduled_date + 'T12:00:00')}</span>
+                        ) : <span className="text-[#9e9e9e] text-[13px]">—</span>}
+                      </td>
+                      <td className="px-4"><SituacaoCell m={item} /></td>
+                      <td className="px-4 text-[13px]">
+                        {isCompleted ? (
+                          item.effective_executor === 'customer'
+                            ? <span className="text-[#a880ff]">Cliente</span>
+                            : item.effective_executor === 'company'
+                              ? <span className="text-[#229731]">Empresa</span>
+                              : <span className="text-[#616161]">—</span>
+                        ) : (
+                          <span className="text-[#616161]">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 text-right text-[13px]">
+                        {item.cost != null
+                          ? <span className="text-[#f5f5f5]">{formatCurrency(item.cost)}</span>
+                          : <span className="text-[#616161]">—</span>}
+                      </td>
+                      <td className="px-4 text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1">
+                          {isCompleted ? (
+                            <>
+                              <Button variant="secondary" size="sm" className="h-8 w-8 p-0" title="Visualizar" onClick={() => setViewingMaintenance(item)}>
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button variant="danger" size="sm" className="h-8 w-8 p-0" title="Excluir" onClick={() => handleOpenDelete(item.id)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button variant="secondary" size="sm" className="h-8 w-8 p-0" title="Editar" onClick={() => handleOpenEdit(item)}>
+                                <Edit2 className="h-4 w-4" />
+                              </Button>
+                              <Button variant="primary" size="sm" className="h-8 w-8 p-0" title="Registrar conclusão" onClick={() => handleOpenComplete(item)}>
+                                <CheckCircle2 className="h-4 w-4" />
+                              </Button>
+                              <Button variant="danger" size="sm" className="h-8 w-8 p-0" title="Excluir" onClick={() => handleOpenDelete(item.id)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
                           )}
                         </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -1215,9 +1177,37 @@ export default function MaintenancePage() {
           MODAIS E DIÁLOGOS DE SUPERPOSIÇÃO
           =================================================================== */}
 
-      {/* MODAL 1: FORMULÁRIO DE NOVA / EDITAR MANUTENÇÃO (CRUD PURO) */}
+      {/* MODAL 1: FORMULÁRIO DE NOVA / EDITAR MANUTENÇÃO (CRUD PURO).
+          Radio no topo dirige toda a UI: 'scheduled' mostra só campos-gatilho
+          (KM previsto, data agendada). 'executed' troca pelo conjunto de
+          execução (KM no serviço, custo, fotos, executor, % cliente). */}
       <Modal open={isFormModalOpen} onClose={closeFormModal} title={editingMaintenance ? 'Editar Manutenção' : 'Nova Manutenção'} size="lg">
         <div className="space-y-4">
+          {/* Radio de modo — primeira escolha do operador. */}
+          <div className="grid grid-cols-2 gap-2 rounded-xl bg-[#121212] p-1">
+            {(['scheduled', 'executed'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setFormData((prev) => ({
+                  ...prev,
+                  mode: m,
+                  completed_date: m === 'executed' && !prev.completed_date
+                    ? new Date().toISOString().split('T')[0]
+                    : prev.completed_date,
+                }))}
+                className={`h-9 rounded-lg text-[13px] font-medium transition-colors ${
+                  formData.mode === m
+                    ? 'bg-[#BAFF1A] text-[#121212]'
+                    : 'text-[#9e9e9e] hover:text-[#f5f5f5]'
+                }`}
+              >
+                {m === 'scheduled' ? 'Agendar' : 'Já executada'}
+              </button>
+            ))}
+          </div>
+
+          {/* Bloco comum: moto + tipo + descrição. */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Select
               label="Motocicleta *"
@@ -1233,30 +1223,134 @@ export default function MaintenancePage() {
             </div>
             <div className="md:col-span-2">
               <Input
-                label="Descrição *"
+                label="Item / Descrição *"
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 placeholder="Ex: Troca do cabo do freio..."
               />
             </div>
-            <Input label="Data Agendada" type="date" value={formData.scheduled_date} onChange={(e) => setFormData({ ...formData, scheduled_date: e.target.value })} />
-            <Input label="KM no Serviço" type="number" value={formData.actual_km} onChange={(e) => setFormData({ ...formData, actual_km: e.target.value })} placeholder="Ex: 15500" />
-            <Input label="Custo (R$)" type="number" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} placeholder="0.00" />
-            <Input label="Oficina / Mecânico" value={formData.workshop} onChange={(e) => setFormData({ ...formData, workshop: e.target.value })} />
-            {formData.completed && (
-              <Input label="Data de Conclusão" type="date" value={formData.completed_date} onChange={(e) => setFormData({ ...formData, completed_date: e.target.value })} />
-            )}
           </div>
-          <Textarea label="Observações" value={formData.observations} onChange={(e) => setFormData({ ...formData, observations: e.target.value })} rows={2} />
-          <label className="flex w-max cursor-pointer items-center gap-2 text-[13px] text-[#f5f5f5]">
-            <input
-              type="checkbox"
-              checked={formData.completed}
-              onChange={(e) => setFormData({ ...formData, completed: e.target.checked, completed_date: e.target.checked ? new Date().toISOString().split('T')[0] : '' })}
-              className="h-4 w-4 rounded border-[#474747] accent-[#BAFF1A]"
-            />
-            Marcar como concluída
-          </label>
+
+          {formData.mode === 'scheduled' ? (
+            /* AGENDADO: gatilhos de quando a manutenção vence. */
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Input label="Data Agendada" type="date" value={formData.scheduled_date} onChange={(e) => setFormData({ ...formData, scheduled_date: e.target.value })} />
+              <Input label="KM Previsto" type="number" value={formData.predicted_km} onChange={(e) => setFormData({ ...formData, predicted_km: e.target.value })} placeholder="Ex: 18000" />
+              <div className="md:col-span-2">
+                <Input label="Oficina / Mecânico" value={formData.workshop} onChange={(e) => setFormData({ ...formData, workshop: e.target.value })} placeholder="Onde a manutenção será feita (opcional)" />
+              </div>
+              <div className="md:col-span-2">
+                <Textarea
+                  label="Observações (opcional)"
+                  value={formData.observations}
+                  onChange={(e) => {
+                    if (e.target.value.length <= 2000) setFormData({ ...formData, observations: e.target.value })
+                  }}
+                  rows={2}
+                  maxLength={2000}
+                  placeholder="Notas de planejamento, prioridade, peças a comprar..."
+                />
+                <p className="text-[12px] text-right text-[#9e9e9e]">{formData.observations.length}/2000</p>
+              </div>
+            </div>
+          ) : (
+            /* EXECUTADO: tudo o que prova o serviço foi feito. */
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Input label="Data de Conclusão *" type="date" value={formData.completed_date} onChange={(e) => setFormData({ ...formData, completed_date: e.target.value })} />
+                <Input label="KM no Serviço *" type="number" value={formData.actual_km} onChange={(e) => setFormData({ ...formData, actual_km: e.target.value })} placeholder="Ex: 15500" />
+                <Input label="Oficina / Mecânico" value={formData.workshop} onChange={(e) => setFormData({ ...formData, workshop: e.target.value })} />
+                <Input label="Custo (R$)" type="number" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} placeholder="0.00" />
+              </div>
+
+              {/* Responsabilidade — snapshot D4 do PRD 0003. */}
+              <div className="rounded-xl bg-[#121212] p-3 space-y-3">
+                <div>
+                  <label className="mb-1.5 block text-[13px] font-medium text-[#9e9e9e]">Executor</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['company', 'customer'] as const).map((opt) => (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, effective_executor: opt })}
+                        className={`h-9 rounded-lg text-[13px] transition-colors ${
+                          formData.effective_executor === opt
+                            ? 'bg-[#323232] text-[#f5f5f5] border border-[#474747]'
+                            : 'text-[#9e9e9e] hover:bg-[#1a1a1a]'
+                        }`}
+                      >
+                        {opt === 'company' ? 'Empresa' : 'Cliente'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <Input
+                  label="% pago pelo cliente"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={formData.customer_payer_pct.toString()}
+                  onChange={(e) => {
+                    const v = Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0))
+                    setFormData({ ...formData, customer_payer_pct: v })
+                  }}
+                />
+              </div>
+
+              {/* Fotos — não obrigatórias, só sinalizadas como importantes. */}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-[13px] text-[#f5f5f5]">
+                    Foto do KM <span className="text-[#9e9e9e] text-[12px]">(opcional)</span>
+                  </label>
+                  <div className={`relative flex items-center gap-3 px-4 bg-[#323232] border-2 rounded-lg h-12 transition-colors ${formData.odometer_photo_file ? 'border-[#6b9900]' : 'border-[#323232] hover:border-[#474747]'}`}>
+                    <Camera className="w-4 h-4 text-[#9e9e9e] shrink-0" />
+                    <span className="flex-1 text-[13px] truncate text-[#9e9e9e]">
+                      {formData.odometer_photo_file ? formData.odometer_photo_file.name : 'Nenhum arquivo selecionado'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                      onChange={(e) => setFormData({ ...formData, odometer_photo_file: e.target.files?.[0] ?? null })}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[13px] text-[#f5f5f5]">
+                    Nota Fiscal <span className="text-[#9e9e9e] text-[12px]">(opcional)</span>
+                  </label>
+                  <div className={`relative flex items-center gap-3 px-4 bg-[#323232] border-2 rounded-lg h-12 transition-colors ${formData.invoice_photo_file ? 'border-[#6b9900]' : 'border-[#323232] hover:border-[#474747]'}`}>
+                    <FileText className="w-4 h-4 text-[#9e9e9e] shrink-0" />
+                    <span className="flex-1 text-[13px] truncate text-[#9e9e9e]">
+                      {formData.invoice_photo_file ? formData.invoice_photo_file.name : 'Nenhum arquivo selecionado'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                      onChange={(e) => setFormData({ ...formData, invoice_photo_file: e.target.files?.[0] ?? null })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <Textarea
+                  label="Observações (opcional)"
+                  value={formData.observations}
+                  onChange={(e) => {
+                    if (e.target.value.length <= 2000) setFormData({ ...formData, observations: e.target.value })
+                  }}
+                  rows={2}
+                  maxLength={2000}
+                  placeholder="Anotações sobre a execução, peças trocadas, ressalvas..."
+                />
+                <p className="text-[12px] text-right text-[#9e9e9e]">{formData.observations.length}/2000</p>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 border-t border-[#323232] pt-4">
             <Button variant="secondary" onClick={closeFormModal}>Cancelar</Button>
             <Button variant="primary" onClick={handleSave} loading={saving}>Salvar</Button>
@@ -1422,6 +1516,9 @@ export default function MaintenancePage() {
               </p>
               {completingMaintenance.predicted_km != null && (
                 <p className="text-[13px] text-[#e65e24]">KM previsto: {fmtKm(completingMaintenance.predicted_km)}</p>
+              )}
+              {completingMaintenance.motorcycle?.km_current != null && (
+                <p className="text-[13px] text-[#9e9e9e]">KM atual: {fmtKm(completingMaintenance.motorcycle.km_current)}</p>
               )}
               {completingMaintenance.scheduled_date && (
                 <p className="text-[13px] text-[#e65e24]">Data prevista: {formatDate(completingMaintenance.scheduled_date + 'T12:00:00')}</p>
@@ -1759,29 +1856,36 @@ export default function MaintenancePage() {
                   )
                 })()}
 
-                {showPhotoWarning && (
-                  <div className="rounded-xl border border-[#e65e24]/40 bg-[#e65e24]/10 p-4 space-y-3">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 text-[#e65e24] shrink-0 mt-0.5" />
-                      <p className="text-[13px] text-[#e65e24]">
-                        Existem itens sem fotos anexadas. A manutenção ficará com pendências de comprovação.
-                        Preencha as observações para continuar mesmo assim.
-                      </p>
+                {(() => {
+                  const missingPhotos = completionFinancials.some((f) => !f.odometer_photo_file && !f.invoice_photo_file)
+                  return (
+                    <div className="space-y-2">
+                      {missingPhotos && (
+                        <div className="flex items-start gap-2 rounded-xl border border-[#e65e24]/30 bg-[#e65e24]/5 p-3">
+                          <AlertTriangle className="w-4 h-4 text-[#e65e24] shrink-0 mt-0.5" />
+                          <p className="text-[13px] text-[#e65e24]">
+                            Há itens sem fotos. As fotos não são obrigatórias, mas servem como comprovação — anexe sempre que possível.
+                          </p>
+                        </div>
+                      )}
+                      <div className="space-y-1">
+                        <Textarea
+                          label="Observações (opcional)"
+                          value={completionObservations}
+                          onChange={(e) => {
+                            if (e.target.value.length <= 2000) setCompletionObservations(e.target.value)
+                          }}
+                          rows={2}
+                          maxLength={2000}
+                          placeholder="Anotações sobre a execução, peças trocadas, ressalvas..."
+                        />
+                        <p className="text-[12px] text-right text-[#9e9e9e]">
+                          {completionObservations.length}/2000
+                        </p>
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <Textarea
-                        label="Observações (obrigatório)"
-                        value={completionObservations}
-                        onChange={(e) => { setCompletionObservations(e.target.value) }}
-                        rows={2}
-                        placeholder="Descreva o motivo da ausência das fotos..."
-                      />
-                      <p className={`text-[12px] text-right ${completionObservations.trim().length >= 30 ? 'text-[#229731]' : 'text-[#9e9e9e]'}`}>
-                        {completionObservations.trim().length}/30 caracteres mínimos
-                      </p>
-                    </div>
-                  </div>
-                )}
+                  )
+                })()}
 
                 <div className="flex justify-between gap-3 border-t border-[#323232] pt-4">
                   <Button variant="secondary" onClick={() => setCompletionStep(1)}>← Voltar</Button>
@@ -1791,7 +1895,6 @@ export default function MaintenancePage() {
                       variant="primary"
                       onClick={handleConfirmComplete}
                       loading={completing}
-                      disabled={showPhotoWarning && completionObservations.trim().length < 30}
                     >
                       <CheckCircle2 className="h-4 w-4" />
                       Confirmar Conclusão
