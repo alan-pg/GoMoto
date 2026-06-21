@@ -179,6 +179,108 @@ describe('calculateMaintenanceStatus — controle por data', () => {
   })
 })
 
+describe('calculateMaintenanceStatus — combo KM + data (OR, pior vence)', () => {
+  const today = new Date('2026-06-12T12:00:00')
+
+  it('KM ainda agendado mas data já passou → "overdue" (data manda)', () => {
+    expect(
+      calculateMaintenanceStatus(
+        {
+          completed: false,
+          predicted_km: 18000,
+          scheduled_date: '2026-06-10',
+          current_km: 17500,
+          interval_km: 5000,
+          interval_days: 180,
+        },
+        today,
+      ),
+    ).toBe('overdue')
+  })
+
+  it('data ainda agendada mas KM passou → "overdue" (KM manda)', () => {
+    expect(
+      calculateMaintenanceStatus(
+        {
+          completed: false,
+          predicted_km: 18000,
+          scheduled_date: '2026-12-15',
+          current_km: 18500,
+          interval_km: 5000,
+          interval_days: 180,
+        },
+        today,
+      ),
+    ).toBe('overdue')
+  })
+
+  it('KM próximo, data agendada → "upcoming" (pior dos dois)', () => {
+    // current 17900, predicted 18000, interval 5000, threshold 10% = 500 → próximo
+    expect(
+      calculateMaintenanceStatus(
+        {
+          completed: false,
+          predicted_km: 18000,
+          scheduled_date: '2026-12-15',
+          current_km: 17900,
+          interval_km: 5000,
+          interval_days: 180,
+        },
+        today,
+      ),
+    ).toBe('upcoming')
+  })
+
+  it('KM agendado, data próxima → "upcoming" (pior dos dois)', () => {
+    // due 2026-06-25, today 2026-06-12, interval 30, threshold 3 dias → próximo
+    expect(
+      calculateMaintenanceStatus(
+        {
+          completed: false,
+          predicted_km: 30000,
+          scheduled_date: '2026-06-14',
+          current_km: 10000,
+          interval_km: 5000,
+          interval_days: 30,
+        },
+        today,
+      ),
+    ).toBe('upcoming')
+  })
+
+  it('ambos longe → "scheduled"', () => {
+    expect(
+      calculateMaintenanceStatus(
+        {
+          completed: false,
+          predicted_km: 30000,
+          scheduled_date: '2027-01-01',
+          current_km: 10000,
+          interval_km: 5000,
+          interval_days: 180,
+        },
+        today,
+      ),
+    ).toBe('scheduled')
+  })
+
+  it('ambos vencidos → "overdue"', () => {
+    expect(
+      calculateMaintenanceStatus(
+        {
+          completed: false,
+          predicted_km: 18000,
+          scheduled_date: '2026-06-10',
+          current_km: 18500,
+          interval_km: 5000,
+          interval_days: 180,
+        },
+        today,
+      ),
+    ).toBe('overdue')
+  })
+})
+
 describe('calculateMaintenanceStatus — sem KM nem data', () => {
   it('cai no fallback defensivo "scheduled"', () => {
     expect(

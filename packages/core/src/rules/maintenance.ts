@@ -56,17 +56,58 @@ export interface MaintenanceStatusInput {
 }
 
 /**
+ * Ranking de severidade dos estados. Menor número = pior. Usado para combinar
+ * dois gatilhos (KM e data) na semântica OR: o pior status vence.
+ */
+const STATUS_RANK: Record<MaintenanceStatus, number> = {
+  overdue: 0,
+  upcoming: 1,
+  scheduled: 2,
+  completed: 3,
+}
+
+function worstStatus(a: MaintenanceStatus, b: MaintenanceStatus): MaintenanceStatus {
+  return STATUS_RANK[a] <= STATUS_RANK[b] ? a : b
+}
+
+function statusByKm(input: MaintenanceStatusInput, pct: number): MaintenanceStatus | null {
+  if (input.predicted_km === null || input.predicted_km === undefined) return null
+  if (input.current_km >= input.predicted_km) return 'overdue'
+  if (input.interval_km && input.interval_km > 0) {
+    const threshold = Math.round(input.interval_km * (pct / 100))
+    if (input.current_km >= input.predicted_km - threshold) return 'upcoming'
+  }
+  return 'scheduled'
+}
+
+function statusByDate(input: MaintenanceStatusInput, today: Date, pct: number): MaintenanceStatus | null {
+  if (!input.scheduled_date) return null
+  const due = new Date(input.scheduled_date + 'T12:00:00')
+  if (today >= due) return 'overdue'
+  if (input.interval_days && input.interval_days > 0) {
+    const thresholdDays = Math.round(input.interval_days * (pct / 100))
+    const thresholdDate = new Date(due)
+    thresholdDate.setDate(thresholdDate.getDate() - thresholdDays)
+    if (today >= thresholdDate) return 'upcoming'
+  }
+  return 'scheduled'
+}
+
+/**
  * Classifica uma manutenção em `overdue` / `upcoming` / `scheduled` / `completed`.
  *
  * Regras:
  * - `completed=true` → `completed`, fim.
- * - Controle por KM (`predicted_km` definido): vencida se `current_km >= predicted_km`;
- *   próxima se faltar até `warn_threshold_pct%` do `interval_km`; senão agendada.
- *   Quando o `interval_km` não é informado (manutenção corretiva sem plano), o
- *   estado fica `scheduled` até cruzar `predicted_km`.
- * - Controle por data (`scheduled_date` definido): vencida se hoje passou da data;
- *   próxima se faltar até `warn_threshold_pct%` do `interval_days`; senão agendada.
- * - Sem KM nem data → `scheduled` (defensivo).
+ * - Gatilho por KM: ativo quando `predicted_km` existe. Vencido se
+ *   `current_km >= predicted_km`; próximo se faltar até `warn_threshold_pct%`
+ *   do `interval_km`; senão agendado. Sem `interval_km` informado (corretiva
+ *   avulsa), nunca atinge "próximo".
+ * - Gatilho por data: ativo quando `scheduled_date` existe. Mesma lógica em
+ *   dias com `interval_days`.
+ * - **Quando ambos os gatilhos existem (combo KM + data), vale o pior** —
+ *   semântica OR canônica de CMMS: "o primeiro que vencer dispara". Decisão
+ *   tomada em 2026-06-20 por consistência com Fleetio/Samsara.
+ * - Sem nenhum gatilho → `scheduled` (defensivo).
  */
 export function calculateMaintenanceStatus(
   input: MaintenanceStatusInput,
@@ -74,30 +115,12 @@ export function calculateMaintenanceStatus(
 ): MaintenanceStatus {
   if (input.completed) return 'completed'
   const pct = input.warn_threshold_pct ?? DEFAULT_WARN_THRESHOLD_PCT
-  const kmCurrent = input.current_km
 
-  if (input.predicted_km !== null && input.predicted_km !== undefined) {
-    if (kmCurrent >= input.predicted_km) return 'overdue'
-    if (input.interval_km && input.interval_km > 0) {
-      const threshold = Math.round(input.interval_km * (pct / 100))
-      if (kmCurrent >= input.predicted_km - threshold) return 'upcoming'
-    }
-    return 'scheduled'
-  }
+  const byKm = statusByKm(input, pct)
+  const byDate = statusByDate(input, today, pct)
 
-  if (input.scheduled_date) {
-    const due = new Date(input.scheduled_date + 'T12:00:00')
-    if (today >= due) return 'overdue'
-    if (input.interval_days && input.interval_days > 0) {
-      const thresholdDays = Math.round(input.interval_days * (pct / 100))
-      const thresholdDate = new Date(due)
-      thresholdDate.setDate(thresholdDate.getDate() - thresholdDays)
-      if (today >= thresholdDate) return 'upcoming'
-    }
-    return 'scheduled'
-  }
-
-  return 'scheduled'
+  if (byKm !== null && byDate !== null) return worstStatus(byKm, byDate)
+  return byKm ?? byDate ?? 'scheduled'
 }
 
 export interface NextMaintenanceInput {
