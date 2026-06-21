@@ -291,8 +291,83 @@ export async function createMaintenancePlanItem(rawData: unknown) {
   if (error) return { error: 'Erro ao adicionar item' }
 
   await logAction({ action: 'create', table: 'maintenance_plan_items', recordId: data.id, newData: data })
+
+  // Propaga para motos já atribuídas ao plano: cria 1 maintenance preventiva
+  // por moto usando KM 0 como referência (predicted_km = interval_km) e/ou
+  // data atual + interval_days. O operador reagenda manualmente na flat list
+  // de /manutencao quando souber a última realizada — daí o aviso explícito
+  // na observation. Dedup por (motorcycle_id, description, completed=false)
+  // garante idempotência se a action for chamada duas vezes.
+  const propagated = await propagateNewItemToMotorcycles(supabase, tenantId, {
+    plan_id: parsed.data.plan_id,
+    name: parsed.data.name,
+    interval_km: parsed.data.interval_km ?? null,
+    interval_days: parsed.data.interval_days ?? null,
+  })
+
   revalidatePath('/planos-manutencao')
-  return { data }
+  revalidatePath('/manutencao')
+  return { data, propagated }
+}
+
+type PropagateInput = {
+  plan_id: string
+  name: string
+  interval_km: number | null
+  interval_days: number | null
+}
+
+async function propagateNewItemToMotorcycles(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  tenantId: string,
+  item: PropagateInput,
+): Promise<number> {
+  const { data: motos } = await supabase
+    .from('motorcycles')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('maintenance_plan_id', item.plan_id)
+
+  if (!motos || motos.length === 0) return 0
+
+  const motoIds = motos.map((m) => m.id)
+
+  // Dedup: ignora motos que já têm uma manutenção aberta com a mesma
+  // description (gerada por bootstrap anterior ou por execução prévia desta
+  // mesma propagação).
+  const { data: existing } = await supabase
+    .from('maintenances')
+    .select('motorcycle_id')
+    .in('motorcycle_id', motoIds)
+    .eq('description', item.name)
+    .eq('completed', false)
+
+  const skip = new Set((existing ?? []).map((m) => m.motorcycle_id))
+  const targets = motoIds.filter((id) => !skip.has(id))
+  if (targets.length === 0) return 0
+
+  const todayBR = new Date().toLocaleDateString('pt-BR')
+  const scheduled = item.interval_days
+    ? new Date(Date.now() + item.interval_days * 86400000).toISOString().slice(0, 10)
+    : null
+
+  const observation = `Item adicionado ao plano em ${todayBR} — sem histórico. Reagende com a última KM/data real.`
+
+  const rows = targets.map((motoId) => ({
+    tenant_id: tenantId,
+    motorcycle_id: motoId,
+    type: 'preventive' as const,
+    description: item.name,
+    predicted_km: item.interval_km ?? null,
+    scheduled_date: scheduled,
+    completed: false,
+    observations: observation,
+  }))
+
+  const { error } = await supabase.from('maintenances').insert(rows)
+  if (error) return 0
+
+  return rows.length
 }
 
 const PlanItemUpdateSchema = z.object({
