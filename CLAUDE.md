@@ -106,6 +106,12 @@ Skills: `mp-integrate`, `mp-webhooks`, `mp-test-setup`, `mp-review`. Comandos: `
 
 O hook do plugin **bloqueia leitura de `.env`** e escrita de credenciais MP hardcoded — isso é desejado, não contornar.
 
+### CLAUDE.md management (`claude-md-management@claude-plugins-official`)
+
+Skill `claude-md-improver` audita este arquivo contra o estado real do código (drift entre o que prometemos e o que existe). Comando `/revise-claude-md` captura aprendizados da sessão atual pra adicionar aqui.
+
+Sem MCP, sem auth, sem hook. Habilitado automaticamente ao aceitar o marketplace `claude-plugins-official`.
+
 ## Operações destrutivas
 
 Sem aprovação explícita do humano, NÃO execute:
