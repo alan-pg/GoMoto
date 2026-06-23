@@ -90,6 +90,22 @@ Schemas Zod, types e utils puros vivem em **`@gomoto/core`** (`packages/core/`).
 
 Use sempre o estado **atual** do código como verdade — não antecipe estrutura de fases futuras (`packages/core`, `packages/data`, `apps/mobile`) que ainda não foram criadas.
 
+## Plugins Claude Code do projeto
+
+Este repo versiona `.claude/settings.json` para que todos os contribuidores tenham os mesmos plugins habilitados. `settings.local.json` continua ignorado (permissões pessoais).
+
+### Mercado Pago (`mercadopago@mercadopago-claude-marketplace`)
+
+Skills: `mp-integrate`, `mp-webhooks`, `mp-test-setup`, `mp-review`. Comandos: `/mp-connect`, `/mp-integrate`, `/mp-review`.
+
+**Setup por contribuidor (uma vez):**
+
+1. Aceitar o marketplace quando o Claude Code perguntar (declarado em `extraKnownMarketplaces`).
+2. Rodar `/mp-connect` — faz OAuth pessoal contra `mcp.mercadopago.com`. Sem isso, todas as skills MP se recusam a operar.
+3. (Opcional) Para desabilitar o hook de leak prevention em sessões que mexem só em `.env.local` sem código MP, criar `.claude/mercadopago.local.md` com `enabled: false` (arquivo pessoal, ignorado pelo git).
+
+O hook do plugin **bloqueia leitura de `.env`** e escrita de credenciais MP hardcoded — isso é desejado, não contornar.
+
 ## Operações destrutivas
 
 Sem aprovação explícita do humano, NÃO execute:

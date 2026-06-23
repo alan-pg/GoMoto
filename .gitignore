@@ -55,7 +55,8 @@ supabase/volumes/
 next-env.d.ts
 
 # AI tools (contêm tokens e configurações locais)
-.claude/
+.claude/*
+!.claude/settings.json
 .gemini/
 .mcp.json
 

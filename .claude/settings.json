@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "mercadopago-claude-marketplace": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/mercadopago/mercadopago-claude-marketplace.git"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "mercadopago@mercadopago-claude-marketplace": true
+  }
+}
