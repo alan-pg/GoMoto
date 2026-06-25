@@ -81,7 +81,7 @@ export async function createRental(
     p_start_date:    parsed.data.start_date,
     p_end_date:      parsed.data.end_date,
     p_use_pro_rata:  parsed.data.use_pro_rata,
-    p_charges:       JSON.stringify(charges),
+    p_charges:       charges,
   })
 
   if (error) {
@@ -237,8 +237,8 @@ export async function renewRental(
     p_tenant_id:            tenantId,
     p_lease_id:             parsed.data.lease_id,
     p_new_end_date:         parsed.data.new_end_date,
-    p_complementary_action: complementaryAction ? JSON.stringify(complementaryAction) : null,
-    p_new_charges:          JSON.stringify(newCharges),
+    p_complementary_action: complementaryAction,
+    p_new_charges:          newCharges,
   })
 
   if (error) {
