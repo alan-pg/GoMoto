@@ -399,18 +399,18 @@ INSERT INTO customers (id, tenant_id, user_id, name, cpf, rg, state, phone, emai
 ('cccccccc-cccc-cccc-cccc-cccccccccccc', '00000000-0000-0000-0000-000000000001', NULL,                                  'Pedro Oliveira', '11122233344', '11223344', 'SP', '(11) 99988-7766', 'pedro.oliveira@email.com', true,  true);
 
 -- ============================================================
--- SEED: contracts (2 contratos ativos)
+-- SEED: rentals (2 locações ativas — Spec 0004)
 -- ============================================================
-INSERT INTO contracts (id, tenant_id, customer_id, motorcycle_id, start_date, end_date, monthly_amount, status) VALUES
-('dddddddd-dddd-dddd-dddd-dddddddddddd', '00000000-0000-0000-0000-000000000001', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', CURRENT_DATE - INTERVAL '2 months', CURRENT_DATE + INTERVAL '4 months', 800.00, 'active'),
-('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '00000000-0000-0000-0000-000000000001', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', CURRENT_DATE - INTERVAL '1 month',  CURRENT_DATE + INTERVAL '5 months', 900.00, 'active');
+INSERT INTO rentals (id, tenant_id, customer_id, motorcycle_id, contract_type, cycle, due_day, cycle_amount, use_pro_rata, start_date, end_date, status) VALUES
+('dddddddd-dddd-dddd-dddd-dddddddddddd', '00000000-0000-0000-0000-000000000001', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'rental',      'monthly', 10, 800.00, true, CURRENT_DATE - INTERVAL '2 months', CURRENT_DATE + INTERVAL '4 months', 'active'),
+('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '00000000-0000-0000-0000-000000000001', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'rent_to_own', 'monthly', 10, 900.00, true, CURRENT_DATE - INTERVAL '1 month',  CURRENT_DATE + INTERVAL '5 months', 'active');
 
 -- ============================================================
--- SEED: billings (1 paga, 1 pendente)
+-- SEED: billings (1 paga, 1 pendente — Spec 0004)
 -- ============================================================
-INSERT INTO billings (tenant_id, contract_id, customer_id, description, amount, due_date, status, payment_date) VALUES
-('00000000-0000-0000-0000-000000000001', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Mensalidade - Parcela 2', 800.00, CURRENT_DATE - INTERVAL '5 days', 'paid',    CURRENT_DATE - INTERVAL '6 days'),
-('00000000-0000-0000-0000-000000000001', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Mensalidade - Parcela 1', 900.00, CURRENT_DATE + INTERVAL '2 days', 'pending', NULL);
+INSERT INTO billings (tenant_id, lease_id, customer_id, description, original_amount, due_date, status, payment_date, billing_type) VALUES
+('00000000-0000-0000-0000-000000000001', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Mensalidade - Parcela 2', 800.00, CURRENT_DATE - INTERVAL '5 days', 'paid',    CURRENT_DATE - INTERVAL '6 days', 'cycle'),
+('00000000-0000-0000-0000-000000000001', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Mensalidade - Parcela 1', 900.00, CURRENT_DATE + INTERVAL '2 days', 'pending', NULL,                               'cycle');
 
 -- ============================================================
 -- SEED: queue_entries (Pedro Oliveira na fila, posição 1)
