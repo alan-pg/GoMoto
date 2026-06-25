@@ -18,7 +18,7 @@ import type { Billing } from '@gomoto/core'
 // Types
 // ---------------------------------------------------------------------------
 
-type FilterStatus = 'all' | 'pending' | 'paid' | 'overdue'
+type FilterStatus = 'relevant' | 'all' | 'pending' | 'paid' | 'overdue'
 
 type RentalGroup = {
   leaseId:      string
@@ -55,6 +55,18 @@ function formatCurrency(value: number): string {
 function formatDate(iso: string): string {
   const [year, month, day] = iso.split('-')
   return `${day}/${month}/${year}`
+}
+
+function getRelevantBillings(billings: Billing[]): Billing[] {
+  const today = new Date().toISOString().slice(0, 10)
+  const overdue = billings.filter(
+    (b) => b.status === 'overdue' || (b.status === 'pending' && b.due_date < today)
+  )
+  const nextPending = billings
+    .filter((b) => b.status === 'pending' && b.due_date >= today)
+    .sort((a, b) => a.due_date.localeCompare(b.due_date))
+    .slice(0, 1)
+  return [...overdue, ...nextPending].sort((a, b) => a.due_date.localeCompare(b.due_date))
 }
 
 // ---------------------------------------------------------------------------
@@ -184,11 +196,12 @@ function BillingRow({ billing, onPress }: { billing: Billing; onPress: () => voi
 // ---------------------------------------------------------------------------
 
 export function BillingsScreen() {
-  const [filter, setFilter]         = useState<FilterStatus>('all')
+  const [filter, setFilter]         = useState<FilterStatus>('relevant')
   const [selected, setSelected]     = useState<Billing | null>(null)
   const [refreshing, setRefreshing] = useState(false)
 
-  const query = useBillingsForCustomer(filter === 'all' ? undefined : { status: filter })
+  const serverFilter = filter === 'all' || filter === 'relevant' ? undefined : { status: filter }
+  const query = useBillingsForCustomer(serverFilter)
 
   const groups = useMemo<RentalGroup[]>(() => {
     const billings = query.data ?? []
@@ -208,8 +221,13 @@ export function BillingsScreen() {
       map.get(leaseId)!.billings.push(b)
     }
 
-    return Array.from(map.values())
-  }, [query.data])
+    const result = Array.from(map.values())
+    if (filter !== 'relevant') return result
+
+    return result
+      .map((g) => ({ ...g, billings: getRelevantBillings(g.billings) }))
+      .filter((g) => g.billings.length > 0)
+  }, [query.data, filter])
 
   async function handleRefresh() {
     setRefreshing(true)
@@ -218,6 +236,7 @@ export function BillingsScreen() {
   }
 
   const FILTERS: { label: string; value: FilterStatus }[] = [
+    { label: 'Em aberto', value: 'relevant' },
     { label: 'Todas',     value: 'all' },
     { label: 'Pendentes', value: 'pending' },
     { label: 'Pagas',     value: 'paid' },
