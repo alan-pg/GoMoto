@@ -25,7 +25,7 @@ import {
   Edit2, Trash2, Eye, EyeOff, Search, MessageCircle,
   Users, UserMinus, Smartphone, CheckCircle2, Plus,
 } from 'lucide-react'
-import { inviteCustomerToApp, createCustomer, setCustomerPassword } from './actions'
+import { inviteCustomerToApp, createCustomer, setCustomerPassword, resetCustomerPassword } from './actions'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -229,6 +229,9 @@ export default function ClientesPage() {
 
   /** @state settingPassword - True enquanto a Server Action de definição de senha está em andamento. */
   const [settingPassword, setSettingPassword] = useState(false)
+
+  /** @state resettingPassword - True enquanto o email de recuperação está sendo enviado. */
+  const [resettingPassword, setResettingPassword] = useState(false)
 
   // ── Formulário ─────────────────────────────────────────────────────────────
 
@@ -475,6 +478,18 @@ export default function ClientesPage() {
       }
     }
     setSettingPassword(false)
+  }
+
+  const handleResetPassword = async (customer: Customer) => {
+    if (resettingPassword) return
+    setResettingPassword(true)
+    const result = await resetCustomerPassword(customer.id)
+    if (result.error) {
+      alert(`Erro: ${result.error}`)
+    } else {
+      alert(`Link de recuperação enviado para ${customer.email}.`)
+    }
+    setResettingPassword(false)
   }
 
   // ---------------------------------------------------------------------------
@@ -876,43 +891,16 @@ export default function ClientesPage() {
                 <Smartphone className="h-4 w-4 text-[#BAFF1A]" />
                 Acesso ao app
               </h4>
-              {viewingCustomer.user_id ? (
-                <div className="flex items-center gap-2 text-[13px] text-[#9ad36b]">
-                  <CheckCircle2 className="h-4 w-4" />
-                  <span>Cliente já tem acesso ao app mobile.</span>
-                </div>
-              ) : !viewingCustomer.email ? (
+              {!viewingCustomer.email ? (
                 <p className="text-[13px] text-[#9e9e9e]">
-                  Cadastre um email para enviar o convite de acesso.
+                  Cadastre um email para liberar o acesso ao app.
                 </p>
-              ) : !showPasswordForm ? (
+              ) : showPasswordForm ? (
                 <div className="space-y-3">
                   <p className="text-[13px] text-[#9e9e9e]">
-                    Escolha como liberar o acesso para{' '}
-                    <span className="text-[#f5f5f5]">{viewingCustomer.email}</span>:
-                  </p>
-                  <div className="flex gap-2 flex-wrap">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => { setShowPasswordForm(true); setPasswordValue(''); setShowPasswordText(false) }}
-                    >
-                      Definir senha
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      loading={inviting}
-                      onClick={() => handleInvite(viewingCustomer)}
-                    >
-                      Enviar convite por email
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <p className="text-[13px] text-[#9e9e9e]">
-                    O operador define a senha. O cliente acessa o app imediatamente, sem precisar de email.
+                    {viewingCustomer.user_id
+                      ? 'Define uma nova senha para o cliente. O acesso é imediato.'
+                      : 'O operador define a senha. O cliente acessa o app imediatamente, sem precisar de email.'}
                   </p>
                   <div className="flex items-center gap-2">
                     <div className="relative flex-1">
@@ -928,26 +916,50 @@ export default function ClientesPage() {
                         onClick={() => setShowPasswordText((v) => !v)}
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#616161] hover:text-[#f5f5f5] transition-colors"
                       >
-                        {showPasswordText
-                          ? <EyeOff className="h-4 w-4" />
-                          : <Eye className="h-4 w-4" />
-                        }
+                        {showPasswordText ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => { setShowPasswordForm(false); setPasswordValue('') }}
-                    >
+                    <Button variant="ghost" size="sm"
+                      onClick={() => { setShowPasswordForm(false); setPasswordValue('') }}>
                       Cancelar
                     </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      loading={settingPassword}
-                      onClick={() => handleSetPassword(viewingCustomer)}
-                    >
+                    <Button variant="primary" size="sm" loading={settingPassword}
+                      onClick={() => handleSetPassword(viewingCustomer)}>
                       Confirmar
+                    </Button>
+                  </div>
+                </div>
+              ) : viewingCustomer.user_id ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-[13px] text-[#9ad36b]">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    <span>Cliente tem acesso ao app mobile.</span>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button variant="secondary" size="sm"
+                      onClick={() => { setShowPasswordForm(true); setPasswordValue(''); setShowPasswordText(false) }}>
+                      Redefinir senha
+                    </Button>
+                    <Button variant="secondary" size="sm" loading={resettingPassword}
+                      onClick={() => handleResetPassword(viewingCustomer)}>
+                      Enviar link de recuperação
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-[13px] text-[#9e9e9e]">
+                    Escolha como liberar o acesso para{' '}
+                    <span className="text-[#f5f5f5]">{viewingCustomer.email}</span>:
+                  </p>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button variant="secondary" size="sm"
+                      onClick={() => { setShowPasswordForm(true); setPasswordValue(''); setShowPasswordText(false) }}>
+                      Definir senha
+                    </Button>
+                    <Button variant="primary" size="sm" loading={inviting}
+                      onClick={() => handleInvite(viewingCustomer)}>
+                      Enviar convite por email
                     </Button>
                   </div>
                 </div>

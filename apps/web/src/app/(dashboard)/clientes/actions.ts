@@ -188,6 +188,35 @@ export async function inviteCustomerToApp(id: string) {
   return { success: true, alreadyExisted: !!existing }
 }
 
+export async function resetCustomerPassword(id: string) {
+  const { supabase, user } = await getAuthenticatedUser()
+  if (!user) return { error: 'Não autorizado' }
+
+  const { data: customer, error: fetchErr } = await supabase
+    .from('customers')
+    .select('id, email, name')
+    .eq('id', id)
+    .single()
+
+  if (fetchErr || !customer) return { error: 'Cliente não encontrado' }
+  if (!customer.email) return { error: 'Cliente sem email cadastrado' }
+
+  const { error: resetErr } = await supabase.auth.resetPasswordForEmail(
+    customer.email.trim().toLowerCase(),
+    { redirectTo: MOBILE_REDIRECT }
+  )
+
+  if (resetErr) return { error: `Falha ao enviar email: ${resetErr.message}` }
+
+  await logAction({
+    action: 'update',
+    table: 'customers',
+    recordId: id,
+    newData: { access_action: 'password_reset_email_sent' },
+  })
+  return { success: true }
+}
+
 export async function deleteCustomer(id: string) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
