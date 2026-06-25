@@ -25,7 +25,7 @@ const ContractSchema = z.object({
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   monthly_amount: z.number().positive().max(9999999),
-  status: z.enum(['active', 'closed', 'cancelled', 'broken']).optional(),
+  status: z.enum(['active', 'closed', 'transferred']).optional(),
   pdf_url: z.string().url().optional().nullable(),
   observations: z.string().max(2000).optional().nullable(),
 })
@@ -41,14 +41,14 @@ export async function createContract(rawData: unknown) {
   if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
 
   const { data, error } = await supabase
-    .from('contracts')
+    .from('rentals')
     .insert({ ...parsed.data, status: parsed.data.status ?? 'active', tenant_id: tenantId })
     .select()
     .single()
 
   if (error) return { error: 'Erro ao criar contrato' }
 
-  await logAction({ action: 'create', table: 'contracts', recordId: data.id, newData: data })
+  await logAction({ action: 'create', table: 'rentals', recordId: data.id, newData: data })
   revalidatePath('/contratos')
   return { data }
 }
@@ -60,10 +60,10 @@ export async function updateContract(id: string, rawData: unknown) {
   const parsed = ContractSchema.partial().safeParse(rawData)
   if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
 
-  const { data: before } = await supabase.from('contracts').select().eq('id', id).single()
+  const { data: before } = await supabase.from('rentals').select().eq('id', id).single()
 
   const { data, error } = await supabase
-    .from('contracts')
+    .from('rentals')
     .update(parsed.data)
     .eq('id', id)
     .select()
@@ -71,7 +71,7 @@ export async function updateContract(id: string, rawData: unknown) {
 
   if (error) return { error: 'Erro ao atualizar contrato' }
 
-  await logAction({ action: 'update', table: 'contracts', recordId: id, oldData: before, newData: data })
+  await logAction({ action: 'update', table: 'rentals', recordId: id, oldData: before, newData: data })
   revalidatePath('/contratos')
   return { data }
 }
@@ -80,12 +80,12 @@ export async function deleteContract(id: string) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
 
-  const { data: before } = await supabase.from('contracts').select().eq('id', id).single()
-  const { error } = await supabase.from('contracts').delete().eq('id', id)
+  const { data: before } = await supabase.from('rentals').select().eq('id', id).single()
+  const { error } = await supabase.from('rentals').delete().eq('id', id)
 
   if (error) return { error: 'Erro ao excluir contrato' }
 
-  await logAction({ action: 'delete', table: 'contracts', recordId: id, oldData: before })
+  await logAction({ action: 'delete', table: 'rentals', recordId: id, oldData: before })
   revalidatePath('/contratos')
   return { success: true }
 }
@@ -104,7 +104,7 @@ export async function terminateContractByCustomer(contractId: string) {
   if (!tenantId) return { error: 'Tenant não resolvido para o usuário' }
 
   const { data: contract } = await supabase
-    .from('contracts')
+    .from('rentals')
     .select('id, customer_id, motorcycle_id, status, end_date')
     .eq('id', contractId)
     .single()
@@ -113,14 +113,14 @@ export async function terminateContractByCustomer(contractId: string) {
   const today = new Date().toISOString().split('T')[0]
 
   const { data: updatedContract, error: contractErr } = await supabase
-    .from('contracts')
-    .update({ status: 'cancelled', end_date: today })
+    .from('rentals')
+    .update({ status: 'closed', end_date: today })
     .eq('id', contractId)
     .select()
     .single()
   if (contractErr) return { error: 'Erro ao encerrar contrato' }
   await logAction({
-    action: 'update', table: 'contracts', recordId: contractId,
+    action: 'update', table: 'rentals', recordId: contractId,
     oldData: contract, newData: updatedContract,
   })
 
@@ -173,7 +173,7 @@ export async function terminateContractByCompany(contractId: string, reason: str
   }
 
   const { data: contract } = await supabase
-    .from('contracts')
+    .from('rentals')
     .select('id, motorcycle_id, status, end_date, observations')
     .eq('id', contractId)
     .single()
@@ -182,14 +182,14 @@ export async function terminateContractByCompany(contractId: string, reason: str
   const today = new Date().toISOString().split('T')[0]
 
   const { data: updatedContract, error: contractErr } = await supabase
-    .from('contracts')
-    .update({ status: 'cancelled', end_date: today, observations: reason.trim() })
+    .from('rentals')
+    .update({ status: 'closed', end_date: today, observations: reason.trim() })
     .eq('id', contractId)
     .select()
     .single()
   if (contractErr) return { error: 'Erro ao encerrar contrato' }
   await logAction({
-    action: 'update', table: 'contracts', recordId: contractId,
+    action: 'update', table: 'rentals', recordId: contractId,
     oldData: contract, newData: updatedContract,
   })
 

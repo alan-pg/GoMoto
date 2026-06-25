@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
   { href: '/dashboard',     label: 'Dashboard',         icon: LayoutDashboard },
-  { href: '/fila',          label: 'Fila de Locadores', icon: Clock },
+  { href: '/locacoes',       label: 'Locações',          icon: Clock },
   { href: '/manutencao',    label: 'Manutenção',        icon: Wrench },
   { href: '/aprovacoes',    label: 'Aprovações',        icon: ClipboardCheck },
   { href: '/planos-manutencao', label: 'Planos de Manutenção', icon: Wrench },

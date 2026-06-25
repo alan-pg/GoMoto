@@ -28,7 +28,7 @@ import { Card } from '@/components/ui/Card'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { useBillings, useCustomers, useActiveContracts } from '@gomoto/data'
+import { useBillings, useCustomers, useActiveRentals } from '@gomoto/data'
 import type { Billing } from '@gomoto/core'
 import {
   calculateAverageTicket,
@@ -57,13 +57,13 @@ const tabs = [
   { label: 'Pendentes', value: 'pending' },
   { label: 'Vencidas', value: 'overdue' },
   { label: 'Pagas', value: 'paid' },
-  { label: 'Prejuízo', value: 'loss' },
+  { label: 'Prejuízo', value: 'prejudice' },
 ]
 
 /** @constant defaultForm - Estado inicial limpo para o formulário de cobrança. */
 const defaultForm = {
   customer_id: '',
-  contract_id: '',
+  lease_id: '',
   description: '',
   amount: '',
   due_date: '',
@@ -82,7 +82,7 @@ export default function CobrancasPage() {
   /** Reads via @gomoto/data — cache compartilhado entre telas, refetch automático após mutations. */
   const billingsQuery = useBillings()
   const customersQuery = useCustomers()
-  const contractsQuery = useActiveContracts()
+  const rentalsQuery = useActiveRentals()
 
   const charges: ChargeWithRelations[] = useMemo(
     () => (billingsQuery.data ?? []) as ChargeWithRelations[],
@@ -94,12 +94,12 @@ export default function CobrancasPage() {
   )
   const contratos = useMemo(
     () =>
-      (contractsQuery.data ?? []).map((c) => ({
-        id: c.id,
-        customer_id: c.customer_id,
-        customers: c.customer ? { name: c.customer.name } : null,
+      (rentalsQuery.data ?? []).map((r) => ({
+        id: r.id,
+        customer_id: r.customer_id,
+        customers: r.customer ? { name: r.customer.name } : null,
       })),
-    [contractsQuery.data],
+    [rentalsQuery.data],
   )
 
   const loading = billingsQuery.isLoading
@@ -150,10 +150,10 @@ export default function CobrancasPage() {
   function openEdit(row: ChargeWithRelations) {
     setEditingId(row.id)
     setForm({
-      customer_id: row.customer_id,
-      contract_id: row.contract_id ?? '',
-      description: row.description,
-      amount: String(row.amount),
+      customer_id: row.customer_id ?? '',
+      lease_id: row.lease_id ?? '',
+      description: row.description ?? '',
+      amount: String(row.original_amount ?? 0),
       due_date: row.due_date,
       notes: row.observations ?? '',
     })
@@ -168,12 +168,12 @@ export default function CobrancasPage() {
     e.preventDefault()
     setSaving(true)
     const payload = {
-      customer_id: form.customer_id,
-      contract_id: form.contract_id || null,
-      description: form.description,
-      amount: parseFloat(form.amount),
-      due_date: form.due_date,
-      observations: form.notes || null,
+      customer_id:     form.customer_id,
+      lease_id:        form.lease_id || null,
+      description:     form.description,
+      original_amount: parseFloat(form.amount),
+      due_date:        form.due_date,
+      observations:    form.notes || null,
     }
     const result = editingId
       ? await updateBilling(editingId, payload)
@@ -244,7 +244,7 @@ export default function CobrancasPage() {
         const q = search.toLowerCase()
         return (
           (c.customers?.name ?? '').toLowerCase().includes(q) ||
-          c.description.toLowerCase().includes(q)
+          (c.description ?? '').toLowerCase().includes(q)
         )
       }),
     [charges, activeTab, search]
@@ -261,22 +261,24 @@ export default function CobrancasPage() {
     in30Days.setDate(today.getDate() + 30)
 
     const paidCharges = charges.filter((c) => c.status === 'paid')
-    const totalPaid = paidCharges.reduce((sum, c) => sum + c.amount, 0)
-    const averageTicket = calculateAverageTicket(charges)
+    const totalPaid = paidCharges.reduce((sum, c) => sum + (c.original_amount ?? 0), 0)
+    const averageTicket = calculateAverageTicket(
+      charges.map((c) => ({ ...c, amount: c.original_amount ?? 0 })),
+    )
 
-    const totalPending = charges.filter((c) => c.status === 'pending').reduce((sum, c) => sum + c.amount, 0)
+    const totalPending = charges.filter((c) => c.status === 'pending').reduce((sum, c) => sum + (c.original_amount ?? 0), 0)
     const projection30Days = charges
       .filter((c) => c.status === 'pending' && new Date(c.due_date + 'T00:00:00') <= in30Days)
-      .reduce((sum, c) => sum + c.amount, 0)
+      .reduce((sum, c) => sum + (c.original_amount ?? 0), 0)
 
-    const totalOverdue = charges.filter((c) => c.status === 'overdue').reduce((sum, c) => sum + c.amount, 0)
+    const totalOverdue = charges.filter((c) => c.status === 'overdue').reduce((sum, c) => sum + (c.original_amount ?? 0), 0)
     const sortedOverdue = charges
       .filter((c) => c.status === 'overdue')
       .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
     const oldestCharge = sortedOverdue[0]
     const daysOverdue = oldestCharge ? calculateDaysOverdue(oldestCharge, today) : 0
 
-    const defaultersCount = charges.filter((c) => c.status === 'overdue' || c.status === 'loss').length
+    const defaultersCount = charges.filter((c) => c.status === 'overdue' || c.status === 'prejudice').length
     const defaultRate = calculateDefaultRate(charges)
     const punctualityRate = calculatePunctualityRate(charges)
 
@@ -290,11 +292,11 @@ export default function CobrancasPage() {
         }, 0) / paidCharges.length
       : 0
 
-    const totalLoss = charges.filter((c) => c.status === 'loss').reduce((sum, c) => sum + c.amount, 0)
+    const totalLoss = charges.filter((c) => c.status === 'prejudice').reduce((sum, c) => sum + (c.original_amount ?? 0), 0)
     const lossByCustomer: Record<string, number> = {}
-    charges.filter((c) => c.status === 'loss').forEach((c) => {
+    charges.filter((c) => c.status === 'prejudice').forEach((c) => {
       const name = c.customers?.name ?? 'Desconhecido'
-      lossByCustomer[name] = (lossByCustomer[name] ?? 0) + c.amount
+      lossByCustomer[name] = (lossByCustomer[name] ?? 0) + (c.original_amount ?? 0)
     })
     const topLoss = Object.entries(lossByCustomer).sort((a, b) => b[1] - a[1])[0]
 
@@ -603,7 +605,7 @@ export default function CobrancasPage() {
                           </div>
                         </td>
                         <td className="px-4 text-[13px]">{row.description}</td>
-                        <td className="whitespace-nowrap px-4 text-[13px] font-medium text-[#f5f5f5]">{formatCurrency(row.amount)}</td>
+                        <td className="whitespace-nowrap px-4 text-[13px] font-medium text-[#f5f5f5]">{formatCurrency(row.original_amount ?? 0)}</td>
                         <td className="whitespace-nowrap px-4 text-[13px]">{formatDate(row.due_date)}</td>
                         <td className="px-4"><StatusBadge status={row.status} /></td>
                         <td className="whitespace-nowrap px-4 text-[13px] text-[#9e9e9e]">
@@ -658,9 +660,9 @@ export default function CobrancasPage() {
             required
           />
           <Select
-            label="Contrato (opcional)"
+            label="Locação (opcional)"
             options={[
-              { value: '', label: 'Nenhum contrato vinculado' },
+              { value: '', label: 'Nenhuma locação vinculada' },
               ...contratos
                 .filter((c) => !form.customer_id || c.customer_id === form.customer_id)
                 .map((c) => ({
@@ -668,8 +670,8 @@ export default function CobrancasPage() {
                   label: `${c.id.slice(0, 8)}... — ${c.customers?.name ?? 'Cliente'}`,
                 })),
             ]}
-            value={form.contract_id}
-            onChange={(e) => setForm({ ...form, contract_id: e.target.value })}
+            value={form.lease_id}
+            onChange={(e) => setForm({ ...form, lease_id: e.target.value })}
           />
           <Input
             label="Descrição"
@@ -724,7 +726,7 @@ export default function CobrancasPage() {
               <div className="space-y-0.5">
                 <p className="text-[12px] text-[#9e9e9e]">{confirmingPaid.customers?.name ?? '—'}</p>
                 <p className="text-[12px] text-[#9e9e9e]">{confirmingPaid.description}</p>
-                <p className="text-[13px] font-medium text-[#229731]">{formatCurrency(confirmingPaid.amount)}</p>
+                <p className="text-[13px] font-medium text-[#229731]">{formatCurrency(confirmingPaid.original_amount ?? 0)}</p>
               </div>
             )}
           </div>
@@ -762,7 +764,7 @@ export default function CobrancasPage() {
               <div className="space-y-0.5">
                 <p className="text-[12px] text-[#9e9e9e]">{confirmingLoss.customers?.name ?? '—'}</p>
                 <p className="text-[12px] text-[#9e9e9e]">{confirmingLoss.description}</p>
-                <p className="text-[13px] font-medium text-[#ff9c9a]">{formatCurrency(confirmingLoss.amount)}</p>
+                <p className="text-[13px] font-medium text-[#ff9c9a]">{formatCurrency(confirmingLoss.original_amount ?? 0)}</p>
               </div>
             )}
           </div>

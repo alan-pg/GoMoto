@@ -98,7 +98,7 @@ export async function markBillingAsLoss(id: string) {
 
   const { data, error } = await supabase
     .from('billings')
-    .update({ status: 'loss' })
+    .update({ status: 'prejudice' })
     .eq('id', id)
     .select()
     .single()

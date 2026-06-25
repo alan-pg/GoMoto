@@ -1,6 +1,6 @@
 # 📊 Estado Atual — [[GoMoto]]
 
-Snapshot em **2026-06-20**.
+Snapshot em **2026-06-25**.
 
 ## ✅ Funcionando end-to-end
 
@@ -8,10 +8,10 @@ Snapshot em **2026-06-20**.
 - Dashboard com KPIs e gráficos Recharts
 - CRUD completo de motos (com mapa Leaflet) — primeira tela migrada para `@gomoto/data`
 - CRUD completo de clientes (com filtros, WhatsApp)
-- CRUD de contratos (com joins customer+motorcycle; rescisão pelo cliente gera multa; rescisão pela empresa exige justificativa ≥50 chars)
-- CRUD de cobranças (com cálculo de atraso)
+- **Locações (Spec 0004 — backend completo)** — tabela `rentals` (ex-`contracts`), 4 migrations (schema base, extensions de `billings`, RPCs atômicos `create_rental_with_charges` / `terminate_rental` / `renew_rental`, coluna `rent_to_own`). Server Actions com 8 operações: criar, encerrar, renovar, baixar pagamento, aplicar desconto, cobrança avulsa, fila, upload de documentos. Regras em `@gomoto/core/rules/rentals.ts`. **Tela `/locacoes` é placeholder** — UI completa pendente.
+- CRUD de cobranças (com cálculo de atraso; `original_amount` + `discount_amount` + `calculateFinalAmount`; status `prejudice` substitui `loss`)
 - CRUD de entradas, despesas, multas
-- Fila de espera (cadastro com upload de documentos, swap auditado, fechamento de contrato em 5 mutações compostas)
+- Fila de espera integrada ao módulo de locações (inserção via `addToQueue` server action)
 - Manutenção (bootstrap a partir do plano atribuído à moto + registro manual + conclusão multi-item via operador no web, com snapshot `effective_executor` / `effective_customer_payer_pct`)
 - **Planos de manutenção** — `/planos-manutencao` com CRUD de planos e itens, autocomplete via `SUGGESTED_PLAN_ITEMS`, clone, arquivar, set default. Wizard `/motos` passo 3 atribui plano à moto e materializa `maintenances` previstas por item.
 - **Manutenção pelo cliente (mobile + web)** — cliente registra conclusão no Expo Go (KM, oficina, custo, fotos), operador revisa em `/aprovacoes` (aprova preenchendo executor/% pagador ou rejeita com motivo). Badge na sidebar conta pendentes; realtime cross-tab invalida cache automaticamente.
@@ -40,7 +40,7 @@ Detalhes e tradeoffs registrados em [[decisions/0002-padrao-canonico-pagina-serv
 | Geolocalização de motos | Lat/lng simulados no mapa; GPS real comentado como "futuro" |
 | Emails transacionais | Settings preparado, mas não envia |
 | Webhooks/notificações | Não implementado |
-| App mobile | Login CPF + listagem de manutenções + registro de conclusão. Outras telas de produto pendentes |
+| App mobile | Login CPF + listagem de manutenções + registro de conclusão + **BillingsScreen** (cobranças do cliente, filtros, modal de detalhe). Outras telas pendentes |
 | `packages/data` cobre só leituras | Mutações vivem em `actions.ts` por tela (decisão registrada na ADR 0002) |
 
 ## 🐛 Bugs conhecidos
@@ -49,16 +49,15 @@ Nenhum bug crítico aberto.
 
 ## 🧮 Regras de domínio em `@gomoto/core/rules`
 
-Fase 3 concluída. Cobertura atual (70 testes Vitest):
+Cobertura atual (**163 testes Vitest**, 12 arquivos):
 
-- `contracts` — vigência mínima, vigência esperada, classificação de validade (red/orange/green), `CONTRACT_TERMINATION_FINE_BRL`.
-- `billings` — `isChargeOverdue`, `calculateDaysOverdue`, default rate, punctuality rate, ticket médio.
+- `rentals` (**novo Spec 0004**) — `calculateProRataValue`, `generateCycleCharges` (mensal e semanal), `isRentalTerminationWithinMinimum`, `calculateMinimumEndDateForRental`, `getEarlyTerminationImpact`. `RentalSchema` (Zod v4). 28 testes.
+- `billings` — `isChargeOverdue`, `calculateDaysOverdue`, default rate, punctuality rate, ticket médio, `canRegisterPayment`, `canApplyDiscount`, `calculateFinalAmount`. Status `prejudice` (substituiu `loss`).
+- `contracts` — vigência mínima, vigência esperada, classificação de validade (red/orange/green), `CONTRACT_TERMINATION_FINE_BRL`. (tipo histórico; tabela renomeada para `rentals`)
 - `motorcycles` — `isIdleMotorcycle`.
 - `customers` — `identifyCustomersWithMultipleOverdueCharges`.
 - `queue` — notas auditáveis do swap (`getMoveUpNote`, `getMoveDownNote`, `getMoveDownReasonNote`, `QUEUE_REORDER_UP_NOTE`).
 - `maintenance` — `STANDARD_INTERVALS`, `KM_POR_DIA`, `getInterval`, `calculateMaintenanceStatus`, `calculateNextMaintenance`.
-
-Auditoria em 2026-06-12 confirmou que `contratos`, `cobrancas`, `fila` e `manutencao` consomem essas regras sem drift inline.
 
 ## 🚀 Roadmap imediato (ordem sugerida)
 
@@ -69,9 +68,11 @@ Auditoria em 2026-06-12 confirmou que `contratos`, `cobrancas`, `fila` e `manute
 5. **Sentry** — monitoramento de erros em produção (fechar junto com deploy real).
 
 PRD 0003 V1 (manutenção preventiva) — ✅ fechada em 2026-06-20.
+Spec 0004 (locação e cobranças) — ✅ backend + core + mobile fechados em 2026-06-25. UI `/locacoes` pendente.
 
 ## ✅ Recentemente entregue
 
+- **Spec 0004 — locação e cobranças (backend + core + mobile)** (2026-06-25) — Rename completo `contracts` → `rentals` em toda a codebase. 4 migrations: schema `rentals` com `cycle`/`cycle_amount`/`due_day`/`rental_type`/`minimum_months`; extensões em `billings` (`original_amount`, `discount_amount`, `billing_type`, status `prejudice`); 3 RPCs atômicos com `SELECT FOR UPDATE NOWAIT` (sem dupla locação para mesma moto); tabela `queue_entries`. `@gomoto/core` atualizado: `RentalSchema`, `generateCycleCharges` (pro-rata, mensal, semanal), `canRegisterPayment`, `canApplyDiscount`, `calculateFinalAmount` — 163 testes passando. `@gomoto/data`: hooks `useRentals`, `useRentalById`, `useBillingsForCustomer`. 8 Server Actions em `locacoes/actions.ts`. Mobile `BillingsScreen` com grupos por locação, filtros, modal de detalhe, pull-to-refresh, banner offline. E2E stubs em `locacoes.spec.ts` e `billings-rentals.spec.ts`. Tela web `/locacoes` é placeholder — UI completa é próximo passo.
 - **PRD 0003 V1 — fechada** (2026-06-20) — F1 a F5 entregues. Smoke test end-to-end no DB local confirma o bootstrap: plano default com 5 itens → moto criada → 5 maintenances `preventive`/`inspection` materializadas. F2 (planos + wizard passo 3) já estava em código quando reabrimos a auditoria — só faltava marcar como concluída nas notas.
 - **PRD 0003 F5 — manutenção mobile + aprovação web** (4 commits, 2026-06-20) — `87c84ac` cria `maintenance_records` com RLS (operador via `tenant_isolation`, cliente via `customer_self_select/insert`). `899e42a` adiciona modal de registro no mobile (KM, oficina, custo, foto de hodômetro obrigatória, foto de nota opcional) — upload via `arrayBuffer()` (`fetch().blob()` no RN gera arquivo vazio na Storage). `1764f85` adiciona rota `/aprovacoes` no web com aprovação inline preenchendo `effective_executor`/`effective_customer_payer_pct` no `maintenances` e marcando o record. `bd3b5bb` corrige warn de `MediaTypeOptions` deprecado (substituído por `mediaTypes: ['images']`). `36b4dd0` adiciona badge de pendentes na sidebar + realtime cross-tab via publication `supabase_realtime`. **F3, F4 e F5 do PRD 0003 concluídas.**
 - **PRD 0003 F3/F4 — snapshot + mobile listagem** (commits anteriores) — `effective_executor`/`effective_customer_payer_pct` preenchidos na conclusão do operador (sem `INSERT INTO expenses` automático). Mobile lista preventivas com status calculado via `@gomoto/core/rules/maintenance`.

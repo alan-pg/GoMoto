@@ -59,9 +59,11 @@ export interface Document {
  * - pending: Aguardando o pagamento por parte do cliente.
  * - paid: Liquidação confirmada no sistema financeiro.
  * - overdue: Prazo de vencimento ultrapassado sem confirmação de recebimento.
- * - loss: Cobrança considerada incobrável após tentativas frustradas.
+ * - cancelled: Cancelada (ex.: encerramento antecipado de locação).
+ * - prejudice: Cobrança considerada incobrável (substituiu 'loss' na Spec 0004).
+ * - loss: @deprecated — substituído por 'prejudice' na Migration 0004-2.
  */
-export type ChargeStatus = 'pending' | 'paid' | 'overdue' | 'loss';
+export type ChargeStatus = 'pending' | 'paid' | 'overdue' | 'cancelled' | 'prejudice' | 'loss';
 
 /**
  * @type ContractStatus
@@ -605,24 +607,99 @@ export interface Process {
 
 /**
  * @interface Billing
- * @description Cobrança gerada para um cliente, vinculada ou não a um contrato.
+ * @description Cobrança gerada para um cliente, vinculada a uma locação.
+ * Spec 0004: contract_id → lease_id, amount → original_amount, +discount_amount, +billing_type, etc.
  */
 export interface Billing {
   id: string;
   tenant_id: string;
-  contract_id: string | null;
-  customer_id: string;
-  description: string;
-  amount: number;
+  /** @deprecated Use lease_id. Mantido apenas para compatibilidade com código pré-Spec-0004. */
+  contract_id?: string | null;
+  /** FK para rentals.id (renomeado de contract_id na Migration 0004-2). */
+  lease_id?: string | null;
+  customer_id?: string | null;
+  description?: string | null;
+  /** @deprecated Use original_amount. Mantido para compatibilidade. */
+  amount?: number | null;
+  /** Valor original imutável da cobrança (renomeado de amount). */
+  original_amount?: number | null;
+  /** Valor do desconto aplicado; 0 quando não há desconto (RN-020). */
+  discount_amount?: number | null;
+  /** Motivo do desconto informado pelo operador. */
+  discount_reason?: string | null;
+  /** Tipo da cobrança: cycle (ciclo regular), one_time (avulsa), complementary (emenda de renovação). */
+  billing_type?: 'cycle' | 'one_time' | 'complementary' | null;
   due_date: string;
   status: ChargeStatus;
-  payment_date: string | null;
-  observations: string | null;
+  /** @deprecated Use paid_at. */
+  payment_date?: string | null;
+  /** Data de pagamento (substitui payment_date). */
+  paid_at?: string | null;
+  /** Forma de pagamento registrada pelo operador. */
+  payment_method?: 'pix' | 'cash' | 'credit_card' | 'debit_card' | 'bank_transfer' | null;
+  /** user_id do operador que registrou o pagamento. */
+  paid_by?: string | null;
+  /** user_id do operador que aplicou o desconto. */
+  discounted_by?: string | null;
+  observations?: string | null;
   created_at: string;
   updated_at: string;
   customers?: { name: string; phone: string } | null;
+  /** @deprecated Use rentals join. */
   contracts?: { id: string } | null;
+  rentals?: { id: string } | null;
 }
+
+/**
+ * @interface Rental
+ * @description Entidade de locação (antigo contracts, renomeado na Spec 0004).
+ * Vincula um veículo a um cliente com ciclo de cobranças automático.
+ */
+export interface Rental {
+  id: string;
+  tenant_id: string;
+  customer_id: string;
+  motorcycle_id: string;
+  /** Tipo: rental (padrão) ou rent_to_own (promessa de compra). */
+  contract_type: 'rental' | 'rent_to_own';
+  /** Periodicidade: semanal ou mensal. */
+  cycle?: 'weekly' | 'monthly' | null;
+  /** Dia de vencimento: 1-7 para semanal (1=seg), 1-28 para mensal. */
+  due_day?: number | null;
+  /** Valor do ciclo completo. */
+  cycle_amount?: number | null;
+  /** Se ativo, primeira e última cobranças são calculadas por pro rata. */
+  use_pro_rata: boolean;
+  start_date?: string | null;
+  end_date?: string | null;
+  /** Valor mensal do modelo anterior (mantido para compatibilidade). */
+  monthly_amount?: number | null;
+  status: 'active' | 'closed' | 'transferred';
+  pdf_url?: string | null;
+  observations?: string | null;
+  created_at: string;
+  updated_at: string;
+  customer?: Customer;
+  motorcycle?: Motorcycle;
+}
+
+/** Resultado tipado de Server Actions (envelope padrão). */
+export type ErrorCode =
+  | 'VALIDATION_ERROR'
+  | 'UNAUTHORIZED'
+  | 'FORBIDDEN'
+  | 'VEHICLE_ALREADY_RENTED'
+  | 'VEHICLE_LOCKED'
+  | 'RENTAL_NOT_ACTIVE'
+  | 'BILLING_ALREADY_PAID'
+  | 'BILLING_CANCELLED'
+  | 'DISCOUNT_EXCEEDS_AMOUNT'
+  | 'TERMINATION_FINE_APPLICABLE'
+  | 'INTERNAL_ERROR'
+
+export type ActionResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: { code: ErrorCode; message: string; field?: string } }
 
 /**
  * @interface Fine

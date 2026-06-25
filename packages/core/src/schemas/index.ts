@@ -107,14 +107,17 @@ export const CustomerSchema = z.object({
 })
 
 export const BillingSchema = z.object({
-  contract_id: z.string().uuid().optional().nullable(),
-  customer_id: z.string().uuid(),
-  description: z.string().trim().min(1).max(300),
-  amount: z.number().positive().max(9999999),
-  due_date: dateString,
-  status: z.enum(['pending', 'paid', 'overdue', 'loss']).optional(),
-  payment_date: dateString.optional().nullable(),
-  observations: z.string().trim().max(2000).optional().nullable(),
+  lease_id:        z.string().uuid().optional().nullable(),
+  customer_id:     z.string().uuid().optional().nullable(),
+  description:     z.string().trim().min(1).max(300).optional().nullable(),
+  original_amount: z.number().positive().max(9999999),
+  discount_amount: z.number().min(0).max(9999999).optional().nullable(),
+  billing_type:    z.enum(['cycle', 'one_time', 'complementary']).optional(),
+  due_date:        dateString,
+  status:          z.enum(['pending', 'paid', 'overdue', 'cancelled', 'prejudice']).optional(),
+  paid_at:         dateString.optional().nullable(),
+  payment_method:  z.enum(['pix', 'cash', 'credit_card', 'debit_card', 'bank_transfer']).optional().nullable(),
+  observations:    z.string().trim().max(2000).optional().nullable(),
 })
 
 export const IncomeSchema = z.object({
@@ -231,6 +234,8 @@ export const CreateTenantWithOwnerSchema = z.object({
     password: z.string().min(8, 'Senha precisa de no mínimo 8 caracteres').max(72),
   }),
 })
+
+export * from './rentals'
 
 export const TenantSuspendSchema = z.object({
   reason: z.string().trim().min(1, 'Informe o motivo da suspensão').max(500),

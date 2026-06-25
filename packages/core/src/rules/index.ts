@@ -1,4 +1,5 @@
 export * from './contracts'
+export * from './rentals'
 export * from './billings'
 export * from './motorcycles'
 export * from './customers'

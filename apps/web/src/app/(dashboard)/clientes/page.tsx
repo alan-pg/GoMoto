@@ -245,7 +245,7 @@ export default function ClientesPage() {
         .eq('in_queue', false)
         .order('name', { ascending: true }),
       supabase
-        .from('contracts')
+        .from('rentals')
         .select('customer_id, motorcycles(license_plate, model)')
         .eq('status', 'active'),
     ])
@@ -356,7 +356,7 @@ export default function ClientesPage() {
     setDeleting(true)
 
     const { data: contratos } = await supabase
-      .from('contracts')
+      .from('rentals')
       .select('id')
       .eq('customer_id', customer.id)
       .eq('status', 'active')

@@ -247,7 +247,7 @@ export default function EntradasPage() {
 
     try {
       const { data, error } = await supabase
-        .from('contracts')
+        .from('rentals')
         .select('customers(name)')
         .eq('motorcycle_id', selectedMotorcycle.id)
         .lte('start_date', date)

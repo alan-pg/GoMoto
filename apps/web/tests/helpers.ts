@@ -124,7 +124,7 @@ export async function deleteTestMotorcycle(id: string): Promise<void> {
   const sb = await getSupabase()
   await sb.from('maintenances').delete().eq('motorcycle_id', id)
   await sb.from('fines').delete().eq('motorcycle_id', id)
-  await sb.from('contracts').delete().eq('motorcycle_id', id)
+  await sb.from('rentals').delete().eq('motorcycle_id', id)
   await sb.from('motorcycles').delete().eq('id', id)
 }
 
@@ -153,14 +153,16 @@ export async function createTestContract(motorcycleId: string): Promise<{ custom
   if (customerError) throw new Error(`Erro ao criar cliente para contrato: ${customerError.message}`)
 
   const { data: contract, error: contractError } = await sb
-    .from('contracts')
+    .from('rentals')
     .insert({
-      customer_id: customer.id,
+      customer_id:  customer.id,
       motorcycle_id: motorcycleId,
-      start_date: today,
-      end_date: null,
-      monthly_amount: 300,
-      status: 'active',
+      start_date:   today,
+      end_date:     null,
+      cycle_amount: 300,
+      cycle:        'monthly',
+      due_day:      10,
+      status:       'active',
     })
     .select('id')
     .single()
@@ -199,7 +201,7 @@ export async function cleanupTestIncomesByLessee(lesseePattern: string): Promise
  */
 export async function deleteTestContract(contractId: string, customerId: string): Promise<void> {
   const sb = await getSupabase()
-  if (contractId) await sb.from('contracts').delete().eq('id', contractId)
+  if (contractId) await sb.from('rentals').delete().eq('id', contractId)
   if (customerId) {
     await sb.from('billings').delete().eq('customer_id', customerId)
     await sb.from('customers').delete().eq('id', customerId)

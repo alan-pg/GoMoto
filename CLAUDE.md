@@ -18,15 +18,27 @@ Este arquivo é a porta de entrada para qualquer agente IA trabalhar neste repos
 - **Inglês obrigatório** em código: variáveis, funções, classes, colunas de banco, rotas, arquivos.
 - **Português permitido** em: labels de UI, JSDoc, comentários, mensagens para o usuário.
 - **Tabelas e linhas** sempre em `h-9 text-[13px]` (preferência explícita do usuário).
-- **Toda nova tabela** precisa de: `tenant_id` (após Fase 5), RLS habilitada, trigger `update_updated_at_column`, política RLS por `auth.uid()` + `tenant_id`.
+- **Toda nova tabela** precisa de: `tenant_id NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`, RLS habilitada, trigger `update_updated_at_column`, política RLS via `get_user_tenants()` (multi-tenant já implementado).
 - **`pnpm build` deve passar** sem erros antes de qualquer commit (roda Turbo em todos os pacotes afetados).
 - **Atualizar nota Obsidian relevante** no mesmo PR que muda código de domínio ou tela.
 
+## Padrão canônico de tela (ADR 0002)
+
+**Leituras** via hooks de `@gomoto/data` (`useContracts`, `useMaintenances`, etc.) consumidos no Client Component.
+
+**Mutações** via Server Actions exportadas de `./actions.ts` co-localizada na rota. Cada action:
+1. Resolve tenant com `getCurrentTenantId(supabase)` — **server-side, nunca confiar no client**.
+2. Valida payload com schema Zod (base em `@gomoto/core`, extensão local quando necessário).
+3. Executa a mutação no Supabase.
+4. Chama `logAction(...)` para cada linha tocada.
+5. Invoca `revalidatePath()` nas rotas afetadas.
+
 ## Padrões mortos (não usar como referência)
 
-- ❌ `apps/web/src/app/**/actions.ts` — código morto. As páginas atuais usam Supabase direto via `createClient()` no client. Não copie esse padrão; quando refatorar uma tela, mova a lógica para `packages/core` (Fase 3) e o acesso a dados para `packages/data` (Fase 4).
-- ❌ Fetch direto via `createClient()` dentro de `page.tsx` — é o padrão atual mas é anti-padrão segundo a [arquitetura proposta](./obsidian-notes/Arquitetura%20Proposta.md). Novo código deve consumir hooks de `packages/data` quando ele existir.
+- ❌ `createClient()` direto em `page.tsx` para **mutações** — todo write deve passar por Server Action (`actions.ts`).
+- ❌ `tenant_id` injetado pelo client em INSERT — sempre resolver server-side via `getCurrentTenantId()`.
 - ❌ Lógica de negócio dentro de handlers de UI — extrair para função pura em `packages/core/rules`.
+- ❌ Schema Zod duplicado em `apps/web` — o schema base vive em `@gomoto/core`; só estender localmente o que não pertence ao domínio.
 
 ## Ambiente de banco de dados
 
@@ -51,44 +63,46 @@ Detalhes do fluxo: `obsidian-notes/Desenvolvimento Local.md`.
 
 1. **Atualizar/criar nota** em `obsidian-notes/` relevante.
 2. **Implementar mudança**:
-   - Se mexe em domínio → função pura em `packages/core` + teste Vitest (após Fase 2).
-   - Se mexe em acesso a dados → repositório em `packages/data` (após Fase 4).
+   - Se mexe em domínio → função pura em `packages/core` + teste Vitest.
+   - Se mexe em acesso a dados → hook/repositório em `packages/data`.
    - Se mexe em UI → componente/tela em `apps/web/` ou `apps/mobile/`.
 3. **Validar**: `pnpm build` (turbo, todos pacotes afetados), `pnpm test` (E2E quando relevante), `pnpm db:reset` se mexeu em schema.
 4. **Commit** com mensagem em português, prefixo convencional (`feat`, `fix`, `chore`, `docs`, `refactor`).
 5. **Push e PR** apenas se o humano pedir.
 
-## Estado da migração para monorepo
+## Estrutura atual do monorepo
 
-Fases concluídas: **0** (bootstrap), **0.1** (Supabase local), **1** (estrutura monorepo), **2** (`packages/core`).
-
-Estrutura atual:
+Fases concluídas: **0** (bootstrap), **0.1** (Supabase local), **1** (monorepo), **2** (`packages/core`), **3** (ADR 0002 — padrão canônico de tela), **4** (`packages/data`), **4-bis** (`apps/mobile`), **5** (multi-tenancy + RLS via `get_user_tenants()`).
 
 ```
 /
 ├── apps/
-│   └── web/           # Next.js 14 (era a raiz antes da Fase 1)
-│       ├── src/
-│       ├── tests/     # Playwright E2E
-│       └── .env.local
+│   ├── web/           # Next.js 14 — cockpit do operador
+│   │   ├── src/
+│   │   ├── tests/     # Playwright E2E
+│   │   └── .env.local
+│   └── mobile/        # @gomoto/mobile — Expo SDK 56 + Expo Router — app do cliente
 ├── packages/
-│   └── core/          # @gomoto/core: Zod schemas, types, utils puros
+│   ├── core/          # @gomoto/core — Zod schemas, regras puras, types (sem I/O)
+│   └── data/          # @gomoto/data — hooks TanStack Query + repositórios Supabase
 ├── supabase/          # migrations + seed
 ├── obsidian-notes/    # documentação fonte da verdade
-├── tsconfig.base.json # base TS para todos os pacotes
-├── turbo.json         # pipeline Turborepo
+├── tsconfig.base.json
+├── turbo.json
 └── pnpm-workspace.yaml
 ```
 
 Comandos padrão na raiz: `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm test`, `pnpm typecheck` — todos delegam para Turbo.
 
-`pnpm test` roda **unit tests** (Vitest). Para os Playwright E2E do web: `pnpm --filter web test:e2e` (requer browsers e dev server rodando).
+`pnpm test` roda **unit tests** (Vitest). Para Playwright E2E: `pnpm --filter web test:e2e`. Para rodar só um pacote: `pnpm --filter web dev`.
 
-Para rodar só um pacote: `pnpm --filter web dev`.
+**Onde colocar o quê:**
+- Schemas Zod, types, regras de negócio puras → `@gomoto/core` (`packages/core/`). Nunca duplicar em `apps/`.
+- Hooks de leitura (TanStack Query) e repositórios Supabase → `@gomoto/data` (`packages/data/`).
+- UI web → `apps/web/src/app/(dashboard)/<tela>/page.tsx` + `actions.ts`.
+- UI mobile → `apps/mobile/src/screens/` ou `apps/mobile/src/app/` (Expo Router).
 
-Schemas Zod, types e utils puros vivem em **`@gomoto/core`** (`packages/core/`). Use-os daí — não duplique em `apps/web`. Quando adicionar uma nova entidade, comece pelo schema no core.
-
-Use sempre o estado **atual** do código como verdade — não antecipe estrutura de fases futuras (`packages/core`, `packages/data`, `apps/mobile`) que ainda não foram criadas.
+Use sempre o estado **atual** do código como verdade — leia os arquivos em vez de inferir o que existe.
 
 ## Plugins Claude Code do projeto
 

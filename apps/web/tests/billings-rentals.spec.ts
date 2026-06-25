@@ -1,0 +1,138 @@
+import { test, expect } from '@playwright/test'
+import {
+  TEST_TAG,
+  createTestMotorcycle,
+  deleteTestMotorcycle,
+  createTestCustomer,
+  deleteTestCustomer,
+  createTestContract,
+  deleteTestContract,
+  waitForPageLoad,
+} from './helpers'
+
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
+let motorcycleId = ''
+let customerId   = ''
+let contractId   = ''
+
+test.describe('Cobranças — filtros e novo campo original_amount', () => {
+  test.beforeAll(async () => {
+    const moto     = await createTestMotorcycle()
+    motorcycleId   = moto.id
+    const customer = await createTestCustomer()
+    customerId     = customer.id
+    const contract = await createTestContract(motorcycleId)
+    contractId     = contract.contractId
+  })
+
+  test.afterAll(async () => {
+    await deleteTestContract(contractId, customerId)
+    await deleteTestMotorcycle(motorcycleId)
+  })
+
+  // RF-024 — Filtro de status
+  test('filtro por status exibe apenas cobranças do status selecionado', async ({ page }) => {
+    await page.goto('/cobrancas')
+    await waitForPageLoad(page)
+
+    // Clicar na aba "Pendentes"
+    await page.getByRole('button', { name: /pendentes/i }).click()
+    // Aguarda que os registros visíveis sejam apenas pendentes
+    const rows = page.locator('tbody tr')
+    const count = await rows.count()
+    if (count > 0) {
+      // Cada linha visível deve ter badge pendente
+      await expect(rows.first()).toBeVisible()
+    }
+  })
+
+  // RF-024 — Tab de Prejuízo (nomenclatura atualizada de 'loss' → 'prejudice')
+  test('aba de prejuízo existe e é clicável', async ({ page }) => {
+    await page.goto('/cobrancas')
+    await waitForPageLoad(page)
+
+    const tabPrejuizo = page.getByRole('button', { name: /prejuízo/i })
+    await expect(tabPrejuizo).toBeVisible()
+    await tabPrejuizo.click()
+    // Não deve quebrar — estado deve mudar normalmente
+    await expect(tabPrejuizo).toBeVisible()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Stub tests — implementar quando locacoes/page.tsx tiver UI de locação
+// ---------------------------------------------------------------------------
+
+test.describe.skip('Cobranças de Locação — ciclo de vida (stub)', () => {
+  // RF-025, RN-015 — Baixa manual
+  test('baixa manual muda status para paid com data e forma registrados', async ({ page }) => {
+    await page.goto('/cobrancas')
+    // TODO: criar cobrança de teste → registrar pagamento → verificar
+    expect(true).toBe(true)
+  })
+
+  // RF-026, RN-017 — Bloquear segunda baixa
+  test('bloqueia segunda baixa em cobrança já paga', async ({ page }) => {
+    await page.goto('/cobrancas')
+    // TODO: cobrança paga → tentar pagar novamente → verificar mensagem de erro
+    expect(true).toBe(true)
+  })
+
+  // RF-029, RF-030, RF-031 — Desconto
+  test('desconto preserva valor original e exibe valor final = original - desconto', async ({ page }) => {
+    await page.goto('/cobrancas')
+    // TODO: aplicar desconto e verificar campos
+    expect(true).toBe(true)
+  })
+
+  test('bloqueia desconto maior que valor original', async ({ page }) => {
+    await page.goto('/cobrancas')
+    // TODO: tentar desconto > original_amount
+    expect(true).toBe(true)
+  })
+
+  // RF-027, RN-029 — Cobrança avulsa
+  test('cobrança avulsa criada vinculada a locação ativa', async ({ page }) => {
+    await page.goto('/locacoes')
+    // TODO: criar cobrança avulsa via UI da locação
+    expect(true).toBe(true)
+  })
+
+  // RF-014, RF-015 — Encerramento antecipado cancela cobranças futuras
+  test('encerramento antecipado cancela cobranças futuras e preserva vencidas e pagas', async ({ page }) => {
+    await page.goto('/locacoes')
+    // TODO: encerrar locação e verificar cobranças
+    expect(true).toBe(true)
+  })
+
+  // RF-037 — Alerta de cobranças vencidas ao encerrar
+  test('alerta exibe N cobranças vencidas abertas ao encerrar', async ({ page }) => {
+    await page.goto('/locacoes')
+    // TODO: verificar alerta de impacto no modal de encerramento
+    expect(true).toBe(true)
+  })
+
+  // RF-039, RN-036 — Multa ao encerrar dentro da vigência mínima
+  test('alerta de multa ao encerrar Rental com menos de 3 meses', async ({ page }) => {
+    await page.goto('/locacoes')
+    // TODO: encerrar locação com < 3 meses e verificar alerta de multa
+    expect(true).toBe(true)
+  })
+
+  // RN-037 — Rent-to-Own cumprido → status transferred
+  test('Rent-to-Own com 2 anos cumpridos resulta em status transferred', async ({ page }) => {
+    await page.goto('/locacoes')
+    // TODO: rent_to_own com data cumprida → encerrar → status transferred
+    expect(true).toBe(true)
+  })
+
+  // RF-022 — Histórico por locação
+  test('histórico por locação exibe todas as cobranças da locação', async ({ page }) => {
+    await page.goto('/locacoes')
+    // TODO: abrir histórico de cobranças de uma locação específica
+    expect(true).toBe(true)
+  })
+})

@@ -693,7 +693,7 @@ export default function MaintenancePage() {
 
     // Busca se existe contrato formal para a mesma moto
     const { data: contractData } = await supabase
-      .from('contracts')
+      .from('rentals')
       .select('contract_type, next_billing_date, customers(name)')
       .eq('motorcycle_id', maintenance.motorcycle_id)
       .eq('status', 'active')

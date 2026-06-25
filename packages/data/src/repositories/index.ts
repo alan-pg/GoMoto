@@ -1,6 +1,7 @@
 export * from './motorcycles'
 export * from './customers'
 export * from './contracts'
+export * from './rentals'
 export * from './billings'
 export * from './queue'
 export * from './maintenances'

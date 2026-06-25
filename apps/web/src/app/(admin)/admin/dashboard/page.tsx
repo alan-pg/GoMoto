@@ -32,7 +32,7 @@ async function loadDashboard() {
       .select('id, name, slug, suspended_at')
       .order('name', { ascending: true }),
     supabase.from('customers').select('tenant_id'),
-    supabase.from('contracts').select('tenant_id').eq('status', 'active'),
+    supabase.from('rentals').select('tenant_id').eq('status', 'active'),
     supabase.from('motorcycles').select('tenant_id'),
   ])
 

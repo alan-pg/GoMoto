@@ -10,9 +10,19 @@ import type { Billing } from '@gomoto/core'
 
 const KEY = 'billings'
 
-export function useBillings() {
+type BillingFilter = {
+  lease_id?:     string
+  status?:       'pending' | 'paid' | 'overdue' | 'cancelled' | 'prejudice'
+  billing_type?: 'cycle' | 'one_time' | 'complementary'
+  overdue?:      boolean
+}
+
+export function useBillings(filter?: BillingFilter) {
   const supabase = useSupabaseContext()
-  return useQuery({ queryKey: [KEY], queryFn: () => listBillings(supabase) })
+  return useQuery<Billing[]>({
+    queryKey: [KEY, filter],
+    queryFn: () => listBillings(supabase, filter),
+  })
 }
 
 export function useCreateBilling() {
@@ -23,7 +33,7 @@ export function useCreateBilling() {
     mutationFn: (
       payload: Omit<
         Billing,
-        'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'customers' | 'contracts'
+        'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'customers' | 'contracts' | 'rentals'
       >,
     ) => createBilling(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
@@ -40,7 +50,7 @@ export function useUpdateBilling() {
     }: {
       id: string
       payload: Partial<
-        Omit<Billing, 'id' | 'created_at' | 'updated_at' | 'customers' | 'contracts'>
+        Omit<Billing, 'id' | 'created_at' | 'updated_at' | 'customers' | 'contracts' | 'rentals'>
       >
     }) => updateBilling(supabase, id, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),

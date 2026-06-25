@@ -16,7 +16,7 @@ interface RecentContract {
 
 interface OverdueBilling {
   id: string
-  amount: number
+  original_amount: number
   due_date: string
   customers: { name: string } | null
 }
@@ -111,7 +111,7 @@ async function getDashboardData() {
   const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]
 
   const { data: recentContractsData } = await supabase
-    .from('contracts')
+    .from('rentals')
     .select('id, monthly_amount, end_date, customers(name), motorcycles(model, make, license_plate)')
     .eq('status', 'active')
     .order('created_at', { ascending: false })
@@ -119,7 +119,7 @@ async function getDashboardData() {
 
   const { data: overduePaymentsData } = await supabase
     .from('billings')
-    .select('id, amount, due_date, customers(name)')
+    .select('id, original_amount, due_date, customers(name)')
     .eq('status', 'overdue')
     .order('due_date', { ascending: true })
     .limit(5)
@@ -128,7 +128,7 @@ async function getDashboardData() {
   const in15Days = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
   const { count: expiringContractsCount } = await supabase
-    .from('contracts')
+    .from('rentals')
     .select('*', { count: 'exact', head: true })
     .eq('status', 'active')
     .gte('end_date', today)
@@ -159,7 +159,7 @@ async function getDashboardData() {
 
   const { data: topCustomersData } = await supabase
     .from('billings')
-    .select('customer_id, amount, customers(name)')
+    .select('customer_id, original_amount, customers(name)')
     .eq('status', 'paid')
 
   const customerRevenue: Record<string, { name: string; total: number }> = {}
@@ -171,7 +171,7 @@ async function getDashboardData() {
     if (!customerRevenue[row.customer_id]) {
       customerRevenue[row.customer_id] = { name, total: 0 }
     }
-    customerRevenue[row.customer_id].total += Number(row.amount) || 0
+    customerRevenue[row.customer_id].total += Number(row.original_amount) || 0
   })
   const topCustomers: TopCustomer[] = Object.values(customerRevenue)
     .sort((a, b) => b.total - a.total)
@@ -226,7 +226,7 @@ async function getDashboardData() {
   // Billings by status this month
   const { data: billingsByStatusData } = await supabase
     .from('billings')
-    .select('status, amount')
+    .select('status, original_amount')
     .gte('due_date', firstDay)
     .lte('due_date', lastDay)
 
@@ -239,7 +239,7 @@ async function getDashboardData() {
   ;(billingsByStatusData || []).forEach((row) => {
     if (row.status in billingStatusMap) {
       billingStatusMap[row.status].count++
-      billingStatusMap[row.status].total += Number(row.amount) || 0
+      billingStatusMap[row.status].total += Number(row.original_amount) || 0
     }
   })
 
@@ -405,7 +405,7 @@ export default async function DashboardPage() {
                     </p>
                     <div className="mt-1 flex items-center justify-between gap-2">
                       <p className="text-[12px] text-[#ff9c9a]">
-                        {formatCurrency(payment.amount)}
+                        {formatCurrency(payment.original_amount)}
                       </p>
                       <p className="text-[12px] text-[#9e9e9e]">{daysOverdue} dias</p>
                     </div>
@@ -418,7 +418,7 @@ export default async function DashboardPage() {
           <div className="bg-[#202020] rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-[#323232] flex items-center justify-between">
               <h3 className="text-[14px] font-semibold text-[#f5f5f5]">Fila de Espera</h3>
-              <a href="/fila" className="text-[12px] text-[#BAFF1A] font-bold">
+              <a href="/locacoes" className="text-[12px] text-[#BAFF1A] font-bold">
                 Ver fila
               </a>
             </div>

@@ -4,6 +4,9 @@ import {
   calculateDaysOverdue,
   calculateDefaultRate,
   calculatePunctualityRate,
+  calculateFinalAmount,
+  canApplyDiscount,
+  canRegisterPayment,
   isChargeOverdue,
 } from './billings'
 
@@ -38,11 +41,11 @@ describe('calculateDaysOverdue', () => {
 })
 
 describe('calculateDefaultRate', () => {
-  it('overdue + loss contam como inadimplência', () => {
+  it('overdue + prejudice contam como inadimplência', () => {
     const rate = calculateDefaultRate([
       { status: 'paid' },
       { status: 'overdue' },
-      { status: 'loss' },
+      { status: 'prejudice' },
       { status: 'pending' },
     ])
     expect(rate).toBe(50)
@@ -80,5 +83,65 @@ describe('calculateAverageTicket', () => {
 
   it('zero quando não há pagas', () => {
     expect(calculateAverageTicket([{ status: 'pending', amount: 100 }])).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Novas regras Spec 0004
+// ---------------------------------------------------------------------------
+
+describe('canRegisterPayment', () => {
+  it('permite baixa em pending', () => {
+    expect(canRegisterPayment('pending')).toEqual({ ok: true })
+  })
+
+  it('permite baixa em overdue', () => {
+    expect(canRegisterPayment('overdue')).toEqual({ ok: true })
+  })
+
+  it('bloqueia baixa em paid', () => {
+    const result = canRegisterPayment('paid')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.errorCode).toBe('BILLING_ALREADY_PAID')
+  })
+
+  it('bloqueia baixa em prejudice', () => {
+    const result = canRegisterPayment('prejudice')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.errorCode).toBe('BILLING_CANCELLED')
+  })
+})
+
+describe('canApplyDiscount', () => {
+  it('permite desconto em pending', () => {
+    expect(canApplyDiscount('pending', 50, 300)).toEqual({ ok: true })
+  })
+
+  it('bloqueia desconto maior que o original', () => {
+    const result = canApplyDiscount('pending', 400, 300)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.errorCode).toBe('DISCOUNT_EXCEEDS_AMOUNT')
+  })
+
+  it('bloqueia desconto em cancelled', () => {
+    const result = canApplyDiscount('cancelled', 50, 300)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.errorCode).toBe('BILLING_CANCELLED')
+  })
+
+  it('bloqueia desconto em prejudice', () => {
+    const result = canApplyDiscount('prejudice', 50, 300)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.errorCode).toBe('BILLING_CANCELLED')
+  })
+})
+
+describe('calculateFinalAmount', () => {
+  it('subtrai desconto do original', () => {
+    expect(calculateFinalAmount(300, 50)).toBe(250)
+  })
+
+  it('sem desconto retorna o original', () => {
+    expect(calculateFinalAmount(300, 0)).toBe(300)
   })
 })
