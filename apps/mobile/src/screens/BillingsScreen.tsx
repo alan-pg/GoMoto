@@ -59,14 +59,28 @@ function formatDate(iso: string): string {
 
 function getRelevantBillings(billings: Billing[]): Billing[] {
   const today = new Date().toISOString().slice(0, 10)
-  const overdue = billings.filter(
-    (b) => b.status === 'overdue' || (b.status === 'pending' && b.due_date < today)
-  )
-  const nextPending = billings
-    .filter((b) => b.status === 'pending' && b.due_date >= today)
+
+  const isOpenCycle = (b: Billing) =>
+    b.billing_type === 'cycle' &&
+    (b.status === 'overdue' || (b.status === 'pending' && b.due_date < today))
+
+  const isNonCyclePending = (b: Billing) =>
+    b.billing_type !== 'cycle' &&
+    (b.status === 'pending' || b.status === 'overdue')
+
+  const overdueCycle   = billings.filter(isOpenCycle)
+  const nonCyclePending = billings.filter(isNonCyclePending)
+  const nextCycle      = billings
+    .filter((b) => b.billing_type === 'cycle' && b.status === 'pending' && b.due_date >= today)
     .sort((a, b) => a.due_date.localeCompare(b.due_date))
     .slice(0, 1)
-  return [...overdue, ...nextPending].sort((a, b) => a.due_date.localeCompare(b.due_date))
+
+  const seen = new Set<string>()
+  const result: Billing[] = []
+  for (const b of [...overdueCycle, ...nonCyclePending, ...nextCycle]) {
+    if (!seen.has(b.id)) { seen.add(b.id); result.push(b) }
+  }
+  return result.sort((a, b) => a.due_date.localeCompare(b.due_date))
 }
 
 // ---------------------------------------------------------------------------
