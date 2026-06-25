@@ -61,6 +61,72 @@ export async function updateCustomer(id: string, rawData: unknown) {
   return { data }
 }
 
+export async function setCustomerPassword(id: string, password: string) {
+  const { supabase, user } = await getAuthenticatedUser()
+  if (!user) return { error: 'Não autorizado' }
+
+  if (password.length < 8) return { error: 'A senha precisa ter ao menos 8 caracteres' }
+
+  const { data: customer, error: fetchErr } = await supabase
+    .from('customers')
+    .select('id, email, user_id, name')
+    .eq('id', id)
+    .single()
+
+  if (fetchErr || !customer) return { error: 'Cliente não encontrado' }
+  if (!customer.email) return { error: 'Cliente sem email cadastrado' }
+
+  const serviceUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceUrl || !serviceKey) return { error: 'SUPABASE_SERVICE_ROLE_KEY ausente no servidor' }
+
+  const supabaseAdmin = createAdminClient(serviceUrl, serviceKey, { auth: { persistSession: false } })
+  const normalizedEmail = customer.email.trim().toLowerCase()
+
+  let authUserId: string
+
+  if (customer.user_id) {
+    const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(customer.user_id, { password })
+    if (updateErr) return { error: `Falha ao atualizar senha: ${updateErr.message}` }
+    authUserId = customer.user_id
+  } else {
+    const { data: list, error: listErr } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 })
+    if (listErr) return { error: `Falha ao consultar usuários: ${listErr.message}` }
+
+    const existing = list.users.find((u) => u.email?.toLowerCase() === normalizedEmail)
+
+    if (existing) {
+      const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(existing.id, { password })
+      if (updateErr) return { error: `Falha ao atualizar senha: ${updateErr.message}` }
+      authUserId = existing.id
+    } else {
+      const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+        email: normalizedEmail,
+        password,
+        email_confirm: true,
+      })
+      if (createErr || !created.user) return { error: `Falha ao criar usuário: ${createErr?.message ?? 'erro desconhecido'}` }
+      authUserId = created.user.id
+    }
+
+    const { error: linkErr } = await supabase
+      .from('customers')
+      .update({ user_id: authUserId })
+      .eq('id', id)
+
+    if (linkErr) return { error: `Falha ao vincular conta: ${linkErr.message}` }
+  }
+
+  await logAction({
+    action: 'update',
+    table: 'customers',
+    recordId: id,
+    newData: { user_id: authUserId, access_action: 'password_set_by_operator' },
+  })
+  revalidatePath('/clientes')
+  return { success: true }
+}
+
 export async function inviteCustomerToApp(id: string) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }

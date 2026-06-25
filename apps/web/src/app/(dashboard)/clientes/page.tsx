@@ -22,10 +22,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
-  Edit2, Trash2, Eye, Search, MessageCircle,
+  Edit2, Trash2, Eye, EyeOff, Search, MessageCircle,
   Users, UserMinus, Smartphone, CheckCircle2, Plus,
 } from 'lucide-react'
-import { inviteCustomerToApp, createCustomer } from './actions'
+import { inviteCustomerToApp, createCustomer, setCustomerPassword } from './actions'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -217,6 +217,18 @@ export default function ClientesPage() {
 
   /** @state inviting - True enquanto a Server Action de convite está em andamento. */
   const [inviting, setInviting] = useState(false)
+
+  /** @state showPasswordForm - Revela o campo de senha inline no modal de detalhes. */
+  const [showPasswordForm, setShowPasswordForm] = useState(false)
+
+  /** @state passwordValue - Valor do campo de senha no fluxo "Definir senha". */
+  const [passwordValue, setPasswordValue] = useState('')
+
+  /** @state showPasswordText - Alterna visibilidade do texto da senha. */
+  const [showPasswordText, setShowPasswordText] = useState(false)
+
+  /** @state settingPassword - True enquanto a Server Action de definição de senha está em andamento. */
+  const [settingPassword, setSettingPassword] = useState(false)
 
   // ── Formulário ─────────────────────────────────────────────────────────────
 
@@ -436,6 +448,33 @@ export default function ClientesPage() {
       }
     }
     setInviting(false)
+  }
+
+  /**
+   * @function handleSetPassword
+   * @description Chama a Server Action que cria/atualiza o auth.users com a senha
+   * definida pelo operador, sem envio de email. Acesso imediato via app mobile.
+   */
+  const handleSetPassword = async (customer: Customer) => {
+    if (passwordValue.length < 8) {
+      alert('A senha precisa ter ao menos 8 caracteres.')
+      return
+    }
+    setSettingPassword(true)
+    const result = await setCustomerPassword(customer.id, passwordValue)
+    if (result.error) {
+      alert(`Erro: ${result.error}`)
+    } else {
+      alert('Senha definida com sucesso. O cliente já pode acessar o app.')
+      setShowPasswordForm(false)
+      setPasswordValue('')
+      const { data: refreshed } = await supabase.from('customers').select('*').eq('id', customer.id).single()
+      if (refreshed) {
+        setCustomers((prev) => prev.map((c) => (c.id === refreshed.id ? refreshed : c)))
+        setViewingCustomer(refreshed)
+      }
+    }
+    setSettingPassword(false)
   }
 
   // ---------------------------------------------------------------------------
@@ -766,8 +805,12 @@ export default function ClientesPage() {
       {/* ------------------------------------------------------------------ */}
       {/* MODAL: Detalhes do Cliente                                           */}
       {/* ------------------------------------------------------------------ */}
-      <Modal open={viewingCustomer !== null} onClose={() => setViewingCustomer(null)}
-        title="Detalhes do Cliente" size="lg">
+      <Modal
+        open={viewingCustomer !== null}
+        onClose={() => { setViewingCustomer(null); setShowPasswordForm(false); setPasswordValue('') }}
+        title="Detalhes do Cliente"
+        size="lg"
+      >
         {viewingCustomer && (
           <div className="space-y-5 text-[#f5f5f5]">
 
@@ -842,20 +885,71 @@ export default function ClientesPage() {
                 <p className="text-[13px] text-[#9e9e9e]">
                   Cadastre um email para enviar o convite de acesso.
                 </p>
-              ) : (
-                <div className="flex items-center justify-between gap-3 flex-wrap">
+              ) : !showPasswordForm ? (
+                <div className="space-y-3">
                   <p className="text-[13px] text-[#9e9e9e]">
-                    Envia um link mágico para <span className="text-[#f5f5f5]">{viewingCustomer.email}</span>.
-                    No primeiro acesso o cliente define a senha.
+                    Escolha como liberar o acesso para{' '}
+                    <span className="text-[#f5f5f5]">{viewingCustomer.email}</span>:
                   </p>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    loading={inviting}
-                    onClick={() => handleInvite(viewingCustomer)}
-                  >
-                    Enviar acesso ao app
-                  </Button>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => { setShowPasswordForm(true); setPasswordValue(''); setShowPasswordText(false) }}
+                    >
+                      Definir senha
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      loading={inviting}
+                      onClick={() => handleInvite(viewingCustomer)}
+                    >
+                      Enviar convite por email
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-[13px] text-[#9e9e9e]">
+                    O operador define a senha. O cliente acessa o app imediatamente, sem precisar de email.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type={showPasswordText ? 'text' : 'password'}
+                        value={passwordValue}
+                        onChange={(e) => setPasswordValue(e.target.value)}
+                        placeholder="Mínimo 8 caracteres"
+                        className="w-full h-9 rounded-lg border border-[#474747] bg-[#323232] px-3 pr-10 text-[13px] text-[#f5f5f5] placeholder:text-[#616161] focus:border-[#BAFF1A] focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPasswordText((v) => !v)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#616161] hover:text-[#f5f5f5] transition-colors"
+                      >
+                        {showPasswordText
+                          ? <EyeOff className="h-4 w-4" />
+                          : <Eye className="h-4 w-4" />
+                        }
+                      </button>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setShowPasswordForm(false); setPasswordValue('') }}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      loading={settingPassword}
+                      onClick={() => handleSetPassword(viewingCustomer)}
+                    >
+                      Confirmar
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
