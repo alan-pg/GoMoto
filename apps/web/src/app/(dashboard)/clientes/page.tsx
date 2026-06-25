@@ -23,9 +23,9 @@ import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   Edit2, Trash2, Eye, Search, MessageCircle,
-  Users, UserMinus, Smartphone, CheckCircle2,
+  Users, UserMinus, Smartphone, CheckCircle2, Plus,
 } from 'lucide-react'
-import { inviteCustomerToApp } from './actions'
+import { inviteCustomerToApp, createCustomer } from './actions'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -308,36 +308,63 @@ export default function ClientesPage() {
    * Após salvar com sucesso, fecha o modal e recarrega a lista.
    */
   const handleSave = async () => {
-    if (!editingCustomer) return
     setSaving(true)
 
-    const { error: updateError } = await supabase
-      .from('customers')
-      .update({
-        name:                      formState.name,
-        cpf:                       normalizeCpf(formState.cpf),
-        rg:                        formState.rg              || null,
-        state:                     formState.state            || null,
-        phone:                     formState.phone,
-        email:                     formState.email            || null,
-        address:                   formState.address          || null,
-        zip_code:                  formState.zipCode          || null,
-        emergency_contact:         formState.emergencyContact || null,
-        drivers_license:           formState.cnh              || null,
-        drivers_license_validity:  formState.cnhExpiry        || null,
-        drivers_license_category:  formState.cnhCategory      || null,
-        birth_date:                formState.birthDate        || null,
-        payment_status:            formState.paymentStatus    || null,
-        observations:              formState.notes            || null,
-      })
-      .eq('id', editingCustomer.id)
+    if (editingCustomer) {
+      const { error: updateError } = await supabase
+        .from('customers')
+        .update({
+          name:                      formState.name,
+          cpf:                       normalizeCpf(formState.cpf),
+          rg:                        formState.rg              || null,
+          state:                     formState.state            || null,
+          phone:                     formState.phone,
+          email:                     formState.email            || null,
+          address:                   formState.address          || null,
+          zip_code:                  formState.zipCode          || null,
+          emergency_contact:         formState.emergencyContact || null,
+          drivers_license:           formState.cnh              || null,
+          drivers_license_validity:  formState.cnhExpiry        || null,
+          drivers_license_category:  formState.cnhCategory      || null,
+          birth_date:                formState.birthDate        || null,
+          payment_status:            formState.paymentStatus    || null,
+          observations:              formState.notes            || null,
+        })
+        .eq('id', editingCustomer.id)
 
-    if (updateError) {
-      alert(`Erro ao atualizar cliente: ${updateError.message}`)
+      if (updateError) {
+        alert(`Erro ao atualizar cliente: ${updateError.message}`)
+      } else {
+        setShowForm(false)
+        await fetchCustomers()
+      }
     } else {
-      setShowForm(false)
-      await fetchCustomers()
+      const result = await createCustomer({
+        name:                     formState.name,
+        cpf:                      formState.cpf,
+        rg:                       formState.rg              || null,
+        state:                    formState.state            || null,
+        phone:                    formState.phone            || null,
+        email:                    formState.email            || null,
+        address:                  formState.address          || null,
+        zip_code:                 formState.zipCode          || null,
+        emergency_contact:        formState.emergencyContact || null,
+        drivers_license:          formState.cnh              || null,
+        drivers_license_validity: formState.cnhExpiry        || null,
+        drivers_license_category: formState.cnhCategory      || null,
+        birth_date:               formState.birthDate        || null,
+        payment_status:           formState.paymentStatus    || null,
+        observations:             formState.notes            || null,
+      })
+
+      if (result.error) {
+        alert(`Erro ao criar cliente: ${result.error}`)
+      } else {
+        setShowForm(false)
+        await fetchCustomers()
+      }
     }
+
     setSaving(false)
   }
 
@@ -473,6 +500,16 @@ export default function ClientesPage() {
       <Header
         title="Clientes"
         subtitle="Clientes promovidos da fila de espera"
+        actions={
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => { setEditingCustomer(null); setFormState(defaultFormState); setShowForm(true) }}
+          >
+            <Plus className="h-4 w-4 mr-1.5" />
+            Novo Cliente
+          </Button>
+        }
       />
 
       <div className="p-6 space-y-5">
@@ -658,7 +695,7 @@ export default function ClientesPage() {
       {/* ------------------------------------------------------------------ */}
       {/* MODAL: Edição de Cliente                                            */}
       {/* ------------------------------------------------------------------ */}
-      <Modal open={showForm} onClose={() => setShowForm(false)} title="Editar Cliente" size="lg">
+      <Modal open={showForm} onClose={() => setShowForm(false)} title={editingCustomer ? 'Editar Cliente' : 'Novo Cliente'} size="lg">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="md:col-span-2">
             <Input label="Nome completo" value={formState.name} placeholder="Nome completo do cliente"

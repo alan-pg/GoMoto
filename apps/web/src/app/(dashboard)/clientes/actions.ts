@@ -5,6 +5,7 @@ import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { CustomerSchema } from '@gomoto/core'
 import { logAction } from '@/lib/audit'
+import { getCurrentTenantId } from '@/lib/auth/tenant'
 
 const MOBILE_REDIRECT = 'gomoto://auth-callback'
 
@@ -12,6 +13,29 @@ async function getAuthenticatedUser() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   return { supabase, user }
+}
+
+export async function createCustomer(rawData: unknown) {
+  const { supabase, user } = await getAuthenticatedUser()
+  if (!user) return { error: 'Não autorizado' }
+
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { error: 'Tenant não encontrado' }
+
+  const parsed = CustomerSchema.safeParse(rawData)
+  if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
+
+  const { data, error } = await supabase
+    .from('customers')
+    .insert({ ...parsed.data, tenant_id: tenantId, in_queue: false })
+    .select()
+    .single()
+
+  if (error) return { error: `Erro ao criar cliente: ${error.message}` }
+
+  await logAction({ action: 'create', table: 'customers', recordId: data.id, newData: data })
+  revalidatePath('/clientes')
+  return { data }
 }
 
 export async function updateCustomer(id: string, rawData: unknown) {
