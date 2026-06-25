@@ -230,8 +230,11 @@ export default function ClientesPage() {
   /** @state settingPassword - True enquanto a Server Action de definição de senha está em andamento. */
   const [settingPassword, setSettingPassword] = useState(false)
 
-  /** @state resettingPassword - True enquanto o email de recuperação está sendo enviado. */
+  /** @state resettingPassword - True enquanto o link de recuperação está sendo gerado. */
   const [resettingPassword, setResettingPassword] = useState(false)
+
+  /** @state generatedLink - Link de acesso/recuperação gerado pela Server Action para o operador compartilhar. */
+  const [generatedLink, setGeneratedLink] = useState<string | null>(null)
 
   // ── Formulário ─────────────────────────────────────────────────────────────
 
@@ -437,14 +440,8 @@ export default function ClientesPage() {
     if (result.error) {
       alert(`Erro: ${result.error}`)
     } else {
-      alert(result.alreadyExisted
-        ? 'Cliente já tinha conta — vínculo registrado.'
-        : 'Convite enviado por email. O cliente recebe um link para entrar no app.')
-      const { data: refreshed } = await supabase
-        .from('customers')
-        .select('*')
-        .eq('id', customer.id)
-        .single()
+      if (result.link) setGeneratedLink(result.link)
+      const { data: refreshed } = await supabase.from('customers').select('*').eq('id', customer.id).single()
       if (refreshed) {
         setCustomers((prev) => prev.map((c) => (c.id === refreshed.id ? refreshed : c)))
         setViewingCustomer((current) => (current?.id === refreshed.id ? refreshed : current))
@@ -486,8 +483,8 @@ export default function ClientesPage() {
     const result = await resetCustomerPassword(customer.id)
     if (result.error) {
       alert(`Erro: ${result.error}`)
-    } else {
-      alert(`Link de recuperação enviado para ${customer.email}.`)
+    } else if (result.link) {
+      setGeneratedLink(result.link)
     }
     setResettingPassword(false)
   }
@@ -822,7 +819,7 @@ export default function ClientesPage() {
       {/* ------------------------------------------------------------------ */}
       <Modal
         open={viewingCustomer !== null}
-        onClose={() => { setViewingCustomer(null); setShowPasswordForm(false); setPasswordValue('') }}
+        onClose={() => { setViewingCustomer(null); setShowPasswordForm(false); setPasswordValue(''); setGeneratedLink(null) }}
         title="Detalhes do Cliente"
         size="lg"
       >
@@ -937,12 +934,12 @@ export default function ClientesPage() {
                   </div>
                   <div className="flex gap-2 flex-wrap">
                     <Button variant="secondary" size="sm"
-                      onClick={() => { setShowPasswordForm(true); setPasswordValue(''); setShowPasswordText(false) }}>
+                      onClick={() => { setShowPasswordForm(true); setPasswordValue(''); setShowPasswordText(false); setGeneratedLink(null) }}>
                       Redefinir senha
                     </Button>
                     <Button variant="secondary" size="sm" loading={resettingPassword}
                       onClick={() => handleResetPassword(viewingCustomer)}>
-                      Enviar link de recuperação
+                      Gerar link de recuperação
                     </Button>
                   </div>
                 </div>
@@ -959,11 +956,31 @@ export default function ClientesPage() {
                     </Button>
                     <Button variant="primary" size="sm" loading={inviting}
                       onClick={() => handleInvite(viewingCustomer)}>
-                      Enviar convite por email
+                      Gerar link de acesso
                     </Button>
                   </div>
                 </div>
               )}
+            {generatedLink && (
+              <div className="mt-3 p-3 bg-[#1a2600] border border-[#3a5200] rounded-lg space-y-2">
+                <p className="text-[12px] font-medium text-[#BAFF1A]">
+                  Link gerado — compartilhe com o cliente (ex: WhatsApp):
+                </p>
+                <div className="flex items-start gap-2">
+                  <p className="text-[11px] text-[#9e9e9e] font-mono break-all flex-1 leading-relaxed select-all">
+                    {generatedLink}
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => navigator.clipboard.writeText(generatedLink)}
+                  >
+                    Copiar
+                  </Button>
+                </div>
+              </div>
+            )}
             </div>
 
             {/* Documentos anexados (CNH e comprovante) — exibe somente se existirem */}
