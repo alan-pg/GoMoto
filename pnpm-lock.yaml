@@ -12,9 +12,15 @@ importers:
 
   .:
     devDependencies:
+      '@supabase/supabase-js':
+        specifier: ^2.99.0
+        version: 2.108.1
       '@types/node':
         specifier: ^20
         version: 20.19.42
+      next:
+        specifier: 14.2.35
+        version: 14.2.35(@playwright/test@1.60.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       turbo:
         specifier: ^2.5.8
         version: 2.9.17
@@ -130,6 +136,9 @@ importers:
       docxtemplater:
         specifier: ^3.68.7
         version: 3.68.7
+      jose:
+        specifier: ^6.2.3
+        version: 6.2.3
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
@@ -3570,6 +3579,9 @@ packages:
   jiti@1.21.7:
     resolution: {integrity: sha512-/imKNG4EbWNrVjoNC/1H5/9GFy+tqjGBHCaSsN+P2RnPqjsLmv6UD3Ej+Kj8nBWaRAwyk7kK5ZUc+OEatnTR3A==}
     hasBin: true
+
+  jose@6.2.3:
+    resolution: {integrity: sha512-YYVDInQKFJfR/xa3ojUTl8c2KoTwiL1R5Wg9YCydwH0x0B9grbzlg5HC7mMjCtUJjbQ/YnGEZIhI5tCgfTb4Hw==}
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -9044,6 +9056,8 @@ snapshots:
 
   jiti@1.21.7: {}
 
+  jose@6.2.3: {}
+
   js-tokens@4.0.0: {}
 
   js-tokens@9.0.1: {}
@@ -9477,6 +9491,32 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
       styled-jsx: 5.1.1(react@18.3.1)
+    optionalDependencies:
+      '@next/swc-darwin-arm64': 14.2.33
+      '@next/swc-darwin-x64': 14.2.33
+      '@next/swc-linux-arm64-gnu': 14.2.33
+      '@next/swc-linux-arm64-musl': 14.2.33
+      '@next/swc-linux-x64-gnu': 14.2.33
+      '@next/swc-linux-x64-musl': 14.2.33
+      '@next/swc-win32-arm64-msvc': 14.2.33
+      '@next/swc-win32-ia32-msvc': 14.2.33
+      '@next/swc-win32-x64-msvc': 14.2.33
+      '@playwright/test': 1.60.0
+    transitivePeerDependencies:
+      - '@babel/core'
+      - babel-plugin-macros
+
+  next@14.2.35(@playwright/test@1.60.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3):
+    dependencies:
+      '@next/env': 14.2.35
+      '@swc/helpers': 0.5.5
+      busboy: 1.6.0
+      caniuse-lite: 1.0.30001797
+      graceful-fs: 4.2.11
+      postcss: 8.4.31
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+      styled-jsx: 5.1.1(react@19.2.3)
     optionalDependencies:
       '@next/swc-darwin-arm64': 14.2.33
       '@next/swc-darwin-x64': 14.2.33
@@ -10459,6 +10499,11 @@ snapshots:
     dependencies:
       client-only: 0.0.1
       react: 18.3.1
+
+  styled-jsx@5.1.1(react@19.2.3):
+    dependencies:
+      client-only: 0.0.1
+      react: 19.2.3
 
   styleq@0.1.3: {}
 

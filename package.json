@@ -14,10 +14,13 @@
     "db:reset": "supabase db reset",
     "db:diff": "supabase db diff -f",
     "db:push": "supabase db push",
-    "db:status": "supabase status"
+    "db:status": "supabase status",
+    "bootstrap-admin": "node scripts/bootstrap-admin.mjs"
   },
   "devDependencies": {
+    "@supabase/supabase-js": "^2.99.0",
     "@types/node": "^20",
+    "next": "14.2.35",
     "turbo": "^2.5.8",
     "typescript": "^5"
   },
