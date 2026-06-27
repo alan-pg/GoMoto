@@ -39,7 +39,7 @@ ALTER TABLE motorcycles
 -- O índice parcial garante exatamente um documento vigente por (moto, tipo).
 -- ============================================================
 CREATE TABLE vehicle_documents (
-    id                         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id                  UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     motorcycle_id              UUID NOT NULL REFERENCES motorcycles(id) ON DELETE CASCADE,
 
@@ -82,7 +82,7 @@ CREATE TRIGGER trg_vehicle_documents_updated_at
 -- é derivado em runtime via effectiveStatus().
 -- ============================================================
 CREATE TABLE vehicle_obligations (
-    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id           UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     motorcycle_id       UUID NOT NULL REFERENCES motorcycles(id) ON DELETE CASCADE,
 

@@ -19,7 +19,7 @@
 -- ============================================================
 
 CREATE TABLE maintenance_records (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
     -- Quando o cliente fecha uma manutenção pré-agendada (preventiva do plano),

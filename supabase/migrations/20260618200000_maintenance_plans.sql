@@ -26,7 +26,7 @@
 -- ativo por tenant — pré-seleção no wizard de motos (F2).
 -- ============================================================
 CREATE TABLE maintenance_plans (
-    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id    UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     name         VARCHAR(200) NOT NULL,
     description  TEXT,
@@ -54,7 +54,7 @@ CREATE TRIGGER trg_maintenance_plans_updated_at
 -- `is_critical` é flag reservada (D8 do ADR — sem uso operacional no V1).
 -- ============================================================
 CREATE TABLE maintenance_plan_items (
-    id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id            UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     plan_id              UUID NOT NULL REFERENCES maintenance_plans(id) ON DELETE CASCADE,
 

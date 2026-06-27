@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- TABELA: motorcycles
 -- ============================================================
 CREATE TABLE motorcycles (
-    id                     UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     license_plate          VARCHAR(10) UNIQUE,
     model                  VARCHAR(100),
     make                   VARCHAR(100),
@@ -38,7 +38,7 @@ CREATE TABLE motorcycles (
 -- TABELA: customers
 -- ============================================================
 CREATE TABLE customers (
-    id                          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name                        VARCHAR(200),
     cpf                         VARCHAR(14) UNIQUE,
     rg                          VARCHAR(20),
@@ -68,7 +68,7 @@ CREATE TABLE customers (
 -- TABELA: contracts
 -- ============================================================
 CREATE TABLE contracts (
-    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     customer_id      UUID REFERENCES customers(id) ON DELETE CASCADE,
     motorcycle_id    UUID REFERENCES motorcycles(id) ON DELETE CASCADE,
     start_date       DATE,
@@ -85,7 +85,7 @@ CREATE TABLE contracts (
 -- TABELA: billings
 -- ============================================================
 CREATE TABLE billings (
-    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     contract_id      UUID REFERENCES contracts(id) ON DELETE CASCADE,
     customer_id      UUID REFERENCES customers(id) ON DELETE CASCADE,
     description      VARCHAR(300),
@@ -102,7 +102,7 @@ CREATE TABLE billings (
 -- TABELA: incomes
 -- ============================================================
 CREATE TABLE incomes (
-    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     vehicle          VARCHAR(10),
     date             DATE,
     lessee           VARCHAR(200),
@@ -119,7 +119,7 @@ CREATE TABLE incomes (
 -- TABELA: expenses
 -- ============================================================
 CREATE TABLE expenses (
-    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     description      VARCHAR(300),
     amount           DECIMAL(10,2),
     category         VARCHAR(100),
@@ -133,7 +133,7 @@ CREATE TABLE expenses (
 -- TABELA: fines
 -- ============================================================
 CREATE TABLE fines (
-    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     customer_id      UUID REFERENCES customers(id) ON DELETE CASCADE,
     motorcycle_id    UUID REFERENCES motorcycles(id) ON DELETE CASCADE,
     description      VARCHAR(300),
@@ -152,7 +152,7 @@ CREATE TABLE fines (
 -- TABELA: maintenance_items
 -- ============================================================
 CREATE TABLE maintenance_items (
-    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name             VARCHAR(200),
     km_interval      INTEGER,
     day_interval     INTEGER,
@@ -165,7 +165,7 @@ CREATE TABLE maintenance_items (
 -- TABELA: maintenances
 -- ============================================================
 CREATE TABLE maintenances (
-    id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     motorcycle_id        UUID REFERENCES motorcycles(id) ON DELETE CASCADE,
     standard_item_id     UUID REFERENCES maintenance_items(id) ON DELETE CASCADE,
     type                 VARCHAR(20) CHECK (type IN ('preventive', 'corrective', 'inspection')),
@@ -188,7 +188,7 @@ CREATE TABLE maintenances (
 -- TABELA: checklists
 -- ============================================================
 CREATE TABLE checklists (
-    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     motorcycle_id    UUID REFERENCES motorcycles(id) ON DELETE CASCADE,
     contract_id      UUID REFERENCES contracts(id) ON DELETE CASCADE,
     type             VARCHAR(20) CHECK (type IN ('delivery', 'return')),
@@ -205,7 +205,7 @@ CREATE TABLE checklists (
 -- TABELA: processes
 -- ============================================================
 CREATE TABLE processes (
-    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     question    TEXT,
     answer      TEXT,
     category    VARCHAR(100),
@@ -218,7 +218,7 @@ CREATE TABLE processes (
 -- TABELA: settings
 -- ============================================================
 CREATE TABLE settings (
-    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     key         VARCHAR(100) NOT NULL UNIQUE,
     value       TEXT,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -228,7 +228,7 @@ CREATE TABLE settings (
 -- TABELA: contract_templates (modelos de contrato .docx)
 -- ============================================================
 CREATE TABLE contract_templates (
-    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     slug        VARCHAR(100) NOT NULL UNIQUE,
     name        VARCHAR(200) NOT NULL,
     description TEXT,
@@ -240,7 +240,7 @@ CREATE TABLE contract_templates (
 -- TABELA: queue_entries (fila de espera)
 -- ============================================================
 CREATE TABLE queue_entries (
-    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     customer_id  UUID REFERENCES customers(id) ON DELETE CASCADE,
     position     INTEGER NOT NULL,
     notes        TEXT,
@@ -252,7 +252,7 @@ CREATE TABLE queue_entries (
 -- TABELA: audit_logs (rastreamento de ações)
 -- ============================================================
 CREATE TABLE audit_logs (
-    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id          UUID NOT NULL,
     action           VARCHAR(50) NOT NULL,
     table_name       VARCHAR(100),

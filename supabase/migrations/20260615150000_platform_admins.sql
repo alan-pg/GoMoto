@@ -25,7 +25,7 @@
 -- mas não promove/rebaixa outros platform_admins.
 -- ============================================================
 CREATE TABLE platform_admins (
-    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
     role        VARCHAR(20) NOT NULL CHECK (role IN ('owner', 'operator')) DEFAULT 'operator',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -44,7 +44,7 @@ CREATE TRIGGER trg_platform_admins_updated_at
 -- Trilha de ações do control plane. Não usa updated_at — append-only.
 -- ============================================================
 CREATE TABLE platform_audit_logs (
-    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     actor_id    UUID NOT NULL REFERENCES auth.users(id) ON DELETE SET NULL,
     action      VARCHAR(80) NOT NULL,
     target_type VARCHAR(40) NOT NULL,

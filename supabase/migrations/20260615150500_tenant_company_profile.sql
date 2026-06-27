@@ -61,7 +61,7 @@ SECURITY DEFINER
 AS $$
 DECLARE
     v_actor      UUID := auth.uid();
-    v_owner_id   UUID := uuid_generate_v4();
+    v_owner_id   UUID := gen_random_uuid();
     v_tenant_id  UUID;
     v_address    TEXT;
     v_normalized_email TEXT;
@@ -107,7 +107,7 @@ BEGIN
         id, user_id, provider_id, identity_data, provider,
         last_sign_in_at, created_at, updated_at
     ) VALUES (
-        uuid_generate_v4(),
+        gen_random_uuid(),
         v_owner_id,
         v_owner_id::text,
         jsonb_build_object('sub', v_owner_id::text, 'email', v_normalized_email),

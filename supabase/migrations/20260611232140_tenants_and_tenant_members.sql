@@ -13,7 +13,7 @@
 -- TABELA: tenants
 -- ============================================================
 CREATE TABLE tenants (
-    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name        VARCHAR(200) NOT NULL,
     slug        VARCHAR(100) NOT NULL UNIQUE,
     active      BOOLEAN NOT NULL DEFAULT true,
@@ -29,7 +29,7 @@ CREATE TRIGGER trg_tenants_updated_at
 -- TABELA: tenant_members
 -- ============================================================
 CREATE TABLE tenant_members (
-    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     role        VARCHAR(20) NOT NULL CHECK (role IN ('owner', 'admin', 'operator', 'viewer')) DEFAULT 'operator',
