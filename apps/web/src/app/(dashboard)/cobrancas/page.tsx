@@ -20,7 +20,7 @@
 
 import { useState, useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, CheckCircle, AlertTriangle, Search, MessageCircle, CheckCircle2, Zap, DollarSign } from 'lucide-react'
+import { Plus, Edit2, Trash2, CheckCircle, AlertTriangle, Search, MessageCircle, CheckCircle2, DollarSign, QrCode, Copy, X } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'
@@ -28,20 +28,22 @@ import { Card } from '@/components/ui/Card'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { useBillings, useCustomers, useActiveRentals } from '@gomoto/data'
-import type { Billing } from '@gomoto/core'
+import { useBillings, useCustomers, useActiveRentals, usePaymentConnection } from '@gomoto/data'
+import type { Billing, PixStatus } from '@gomoto/core'
 import {
   calculateAverageTicket,
   calculateDaysOverdue,
   calculateDefaultRate,
   calculatePunctualityRate,
 } from '@gomoto/core'
+import type { PixResult } from '@gomoto/core'
 import {
   createBilling,
   updateBilling,
   markBillingAsPaid,
   markBillingAsLoss,
   deleteBilling,
+  generatePixAction,
 } from './actions'
 
 /**
@@ -53,12 +55,48 @@ type ChargeWithRelations = Billing
 
 /** @constant tabs - Opções de filtragem por status para os botões de aba. */
 const tabs = [
+  { label: 'Em aberto', value: 'relevant' },
   { label: 'Todas', value: 'all' },
   { label: 'Pendentes', value: 'pending' },
   { label: 'Vencidas', value: 'overdue' },
   { label: 'Pagas', value: 'paid' },
   { label: 'Prejuízo', value: 'prejudice' },
 ]
+
+/**
+ * Retorna apenas as cobranças relevantes para o operador:
+ * - Ciclo: vencidas ou pendentes com data já passada + próxima a vencer por locação
+ * - Avulso/complementar: todas pendentes ou vencidas
+ */
+function getRelevantBillings(billings: ChargeWithRelations[]): ChargeWithRelations[] {
+  const today = new Date().toISOString().slice(0, 10)
+  const isOpenCycle = (b: ChargeWithRelations) =>
+    b.billing_type === 'cycle' &&
+    (b.status === 'overdue' || (b.status === 'pending' && b.due_date < today))
+  const isNonCyclePending = (b: ChargeWithRelations) =>
+    b.billing_type !== 'cycle' && (b.status === 'pending' || b.status === 'overdue')
+
+  const overdueCycle    = billings.filter(isOpenCycle)
+  const nonCyclePending = billings.filter(isNonCyclePending)
+
+  // Próxima cobrança de ciclo futura por locação (ou por cliente se sem locação)
+  const pendingCyclesSorted = billings
+    .filter((b) => b.billing_type === 'cycle' && b.status === 'pending' && b.due_date >= today)
+    .sort((a, b) => a.due_date.localeCompare(b.due_date))
+  const seenLease = new Set<string>()
+  const nextCycle: ChargeWithRelations[] = []
+  for (const b of pendingCyclesSorted) {
+    const key = b.lease_id ?? b.customer_id ?? b.id
+    if (!seenLease.has(key)) { seenLease.add(key); nextCycle.push(b) }
+  }
+
+  const seen = new Set<string>()
+  const result: ChargeWithRelations[] = []
+  for (const b of [...overdueCycle, ...nonCyclePending, ...nextCycle]) {
+    if (!seen.has(b.id)) { seen.add(b.id); result.push(b) }
+  }
+  return result.sort((a, b) => a.due_date.localeCompare(b.due_date))
+}
 
 /** @constant defaultForm - Estado inicial limpo para o formulário de cobrança. */
 const defaultForm = {
@@ -83,6 +121,7 @@ export default function CobrancasPage() {
   const billingsQuery = useBillings()
   const customersQuery = useCustomers()
   const rentalsQuery = useActiveRentals()
+  const paymentConnection = usePaymentConnection()
 
   const charges: ChargeWithRelations[] = useMemo(
     () => (billingsQuery.data ?? []) as ChargeWithRelations[],
@@ -109,7 +148,7 @@ export default function CobrancasPage() {
   const [saving, setSaving] = useState(false)
 
   /** @state activeTab - Filtro de status selecionado. */
-  const [activeTab, setActiveTab] = useState('all')
+  const [activeTab, setActiveTab] = useState('relevant')
   /** @state search - Termo de busca textual. */
   const [search, setSearch] = useState('')
 
@@ -129,8 +168,48 @@ export default function CobrancasPage() {
   /** @state deleting - Cobrança selecionada para exclusão. */
   const [deleting, setDeleting] = useState<ChargeWithRelations | null>(null)
 
+  /** @state pixModal - Dados do Pix exibido no modal. */
+  const [pixModal, setPixModal] = useState<{ billing: ChargeWithRelations; result: PixResult } | null>(null)
+  /** @state generatingPixId - ID da cobrança com geração de Pix em andamento. */
+  const [generatingPixId, setGeneratingPixId] = useState<string | null>(null)
+  /** @state copied - Sinaliza que o código foi copiado. */
+  const [copied, setCopied] = useState(false)
+
   /** Invalida o cache de billings após cada mutation — substitui o antigo `fetchCharges()`. */
   const invalidateBillings = () => queryClient.invalidateQueries({ queryKey: ['billings'] })
+
+  const isConnected = paymentConnection.data?.is_connected ?? false
+
+  function getPixStatus(row: ChargeWithRelations): PixStatus {
+    const pixList = row.billing_pix
+    if (!pixList || pixList.length === 0) return 'none'
+    const active = pixList.find(
+      (p) => p.status === 'active' && new Date(p.expires_at) > new Date(),
+    )
+    if (active) return 'active'
+    const paid = pixList.find((p) => p.status === 'paid')
+    if (paid) return 'paid'
+    return 'expired'
+  }
+
+  async function handleGeneratePix(row: ChargeWithRelations) {
+    setGeneratingPixId(row.id)
+    const result = await generatePixAction(row.id)
+    setGeneratingPixId(null)
+    if (!result.ok || !result.data) {
+      alert(result.error?.message ?? 'Falha ao gerar Pix.')
+      return
+    }
+    setPixModal({ billing: row, result: result.data })
+    await invalidateBillings()
+  }
+
+  function copyToClipboard(text: string) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
 
   /**
    * @function openNew
@@ -236,19 +315,17 @@ export default function CobrancasPage() {
    * @description Aplica filtros de aba e busca textual sobre a lista de cobranças.
    * useMemo evita reprocessar a lista a cada render causado por estados não relacionados (ex: modais).
    */
-  const filtered = useMemo(
-    () => charges
-      .filter((c) => activeTab === 'all' || c.status === activeTab)
-      .filter((c) => {
-        if (!search) return true
-        const q = search.toLowerCase()
-        return (
-          (c.customers?.name ?? '').toLowerCase().includes(q) ||
-          (c.description ?? '').toLowerCase().includes(q)
-        )
-      }),
-    [charges, activeTab, search]
-  )
+  const filtered = useMemo(() => {
+    const base = activeTab === 'relevant'
+      ? getRelevantBillings(charges)
+      : charges.filter((c) => activeTab === 'all' || c.status === activeTab)
+    if (!search) return base
+    const q = search.toLowerCase()
+    return base.filter((c) =>
+      (c.customers?.name ?? '').toLowerCase().includes(q) ||
+      (c.description ?? '').toLowerCase().includes(q)
+    )
+  }, [charges, activeTab, search])
 
   /**
    * @variable metrics
@@ -335,43 +412,16 @@ export default function CobrancasPage() {
 
       <div className="p-6 space-y-4">
 
-        {/* Banner sobre integração com InfinitePay */}
-        <div className="rounded-xl border border-[#6b9900] bg-[#243300] px-4 py-4 space-y-3">
-          <div className="flex items-start gap-3">
-            <Zap className="w-5 h-5 text-[#BAFF1A] mt-0.5 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-medium text-[#BAFF1A]">
-                Integração com InfinitePay em breve
-              </p>
-              <p className="text-[13px] text-[#9e9e9e] mt-0.5">
-                Esta tela será integrada com a plataforma InfinitePay para geração e gestão automatizada de cobranças.
-                Os dados abaixo são <span className="text-[#f5f5f5] font-medium">reais do seu banco de dados</span>.
-              </p>
-            </div>
-            <span className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-[#0e2f13] border border-[#229731] px-2.5 py-1 text-[12px] font-medium text-[#229731]">
-              <CheckCircle2 className="w-3 h-3" />
-              Dados em tempo real
-            </span>
+        {/* Status da integração MP */}
+        {!paymentConnection.isLoading && !isConnected && (
+          <div className="rounded-xl border border-[#474747] bg-[#1a1a1a] px-4 py-3 flex items-center gap-3">
+            <QrCode className="w-5 h-5 text-[#9e9e9e] shrink-0" />
+            <p className="text-[13px] text-[#9e9e9e] flex-1">
+              Para gerar Pix de cobranças, conecte a conta Mercado Pago nas{' '}
+              <a href="/configuracoes" className="text-[#BAFF1A] underline underline-offset-2">Configurações</a>.
+            </p>
           </div>
-          <div className="border-t border-[#6b9900] pt-3">
-            <p className="text-[12px] text-[#9e9e9e] mb-2">O que esta tela irá apresentar após a integração</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1.5">
-              {[
-                'Total recebido no período',
-                'Total a receber (em aberto)',
-                'Cobranças vencidas',
-                '% de inadimplência',
-                'Valores não pagos acumulados',
-                'Prejuízos contabilizados',
-              ].map((item) => (
-                <div key={item} className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#BAFF1A] shrink-0" />
-                  <span className="text-[12px] text-[#9e9e9e]">{item}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Mensagem de erro no carregamento */}
         {fetchError && (
@@ -533,7 +583,9 @@ export default function CobrancasPage() {
                 {tab.label}
                 {tab.value !== 'all' && (
                   <span className="ml-1.5 text-[#616161]">
-                    ({charges.filter((c) => c.status === tab.value).length})
+                    ({tab.value === 'relevant'
+                      ? getRelevantBillings(charges).length
+                      : charges.filter((c) => c.status === tab.value).length})
                   </span>
                 )}
               </button>
@@ -577,6 +629,7 @@ export default function CobrancasPage() {
                     <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Valor</th>
                     <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Vencimento</th>
                     <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Status</th>
+                    <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Pix</th>
                     <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Dt. Pagamento</th>
                     <th className="h-9 px-4 text-right text-[13px] font-medium text-[#9e9e9e]">Ações</th>
                   </tr>
@@ -608,14 +661,50 @@ export default function CobrancasPage() {
                         <td className="whitespace-nowrap px-4 text-[13px] font-medium text-[#f5f5f5]">{formatCurrency(row.original_amount ?? 0)}</td>
                         <td className="whitespace-nowrap px-4 text-[13px]">{formatDate(row.due_date)}</td>
                         <td className="px-4"><StatusBadge status={row.status} /></td>
+                        <td className="whitespace-nowrap px-4">
+                          {(() => {
+                            const ps = getPixStatus(row)
+                            const colors: Record<string, string> = {
+                              none:    'text-[#616161]',
+                              active:  'text-[#3b82f6]',
+                              expired: 'text-[#9e9e9e]',
+                              paid:    'text-[#229731]',
+                            }
+                            const labels: Record<string, string> = {
+                              none: '—', active: 'Ativo', expired: 'Expirado', paid: 'Pago',
+                            }
+                            return <span className={`text-[13px] ${colors[ps]}`}>{labels[ps]}</span>
+                          })()}
+                        </td>
                         <td className="whitespace-nowrap px-4 text-[13px] text-[#9e9e9e]">
-                          {row.payment_date ? formatDate(row.payment_date) : '—'}
+                          {row.paid_at ? formatDate(row.paid_at) : row.payment_date ? formatDate(row.payment_date) : '—'}
                         </td>
                         <td className="whitespace-nowrap px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <Button variant="secondary" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(row)} title="Editar">
                               <Edit2 className="h-4 w-4" />
                             </Button>
+                            {(row.status === 'pending' || row.status === 'overdue') && isConnected && (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                onClick={() => handleGeneratePix(row)}
+                                loading={generatingPixId === row.id}
+                                title="Gerar Pix"
+                              >
+                                <QrCode className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {(row.status === 'pending' || row.status === 'overdue') && !isConnected && (
+                              <button
+                                className="h-8 w-8 p-0 rounded flex items-center justify-center text-[#474747] cursor-not-allowed"
+                                title="Configure a integração de pagamento nas Configurações"
+                                disabled
+                              >
+                                <QrCode className="h-4 w-4" />
+                              </button>
+                            )}
                             {(row.status === 'pending' || row.status === 'overdue') && (
                               <Button variant="primary" size="sm" className="h-8 w-8 p-0" onClick={() => { setConfirmingPaid(row); setPaymentMethod('') }} title="Marcar como pago">
                                 <CheckCircle2 className="h-4 w-4" />
@@ -777,6 +866,52 @@ export default function CobrancasPage() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Modal: QR Code Pix */}
+      <Modal open={!!pixModal} onClose={() => setPixModal(null)} title="Pix de Cobrança" size="sm">
+        {pixModal && (
+          <div className="space-y-4">
+            {pixModal.result.is_reused && (
+              <p className="text-[12px] text-[#9e9e9e] text-center">Pix ativo reutilizado — mesmo código gerado anteriormente.</p>
+            )}
+            <div className="flex flex-col items-center gap-2">
+              <img
+                src={`data:image/png;base64,${pixModal.result.qr_code_base64}`}
+                alt="QR Code Pix"
+                className="w-48 h-48 rounded-xl bg-white p-2"
+              />
+              <div className="text-center">
+                <p className="text-[13px] text-[#9e9e9e]">
+                  {pixModal.billing.customers?.name ?? '—'} — {formatCurrency(
+                    (pixModal.billing.original_amount ?? 0) - (pixModal.billing.discount_amount ?? 0)
+                  )}
+                </p>
+                <p className="text-[12px] text-[#616161] mt-0.5">
+                  Vence em {formatDate(pixModal.result.expires_at.slice(0, 10))}
+                </p>
+              </div>
+            </div>
+            <div className="rounded-xl bg-[#1a1a1a] border border-[#323232] p-3">
+              <p className="text-[11px] text-[#9e9e9e] mb-1">Copia e Cola</p>
+              <p className="text-[12px] text-[#f5f5f5] break-all font-mono leading-relaxed select-all">
+                {pixModal.result.qr_code}
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                className="flex-1"
+                onClick={() => copyToClipboard(pixModal.result.qr_code)}
+              >
+                {copied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                {copied ? 'Copiado!' : 'Copiar Código'}
+              </Button>
+              <Button variant="ghost" onClick={() => setPixModal(null)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Modal: Exclusão definitiva de cobrança */}

@@ -2,9 +2,10 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { BillingSchema } from '@gomoto/core'
+import { BillingSchema, GeneratePixSchema, canGeneratePix } from '@gomoto/core'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
+import { getOrCreatePix } from '@/lib/payment/pix'
 
 async function getAuthenticatedUser() {
   const supabase = await createClient()
@@ -117,9 +118,63 @@ export async function deleteBilling(id: string) {
   const { data: before } = await supabase.from('billings').select().eq('id', id).single()
   const { error } = await supabase.from('billings').delete().eq('id', id)
 
-  if (error) return { error: 'Erro ao excluir cobrança' }
+  if (error) {
+    if (error.code === '23503') return { error: 'Esta cobrança possui histórico de Pix e não pode ser excluída' }
+    return { error: 'Erro ao excluir cobrança' }
+  }
 
   await logAction({ action: 'delete', table: 'billings', recordId: id, oldData: before })
   revalidatePath('/cobrancas')
   return { success: true }
+}
+
+export async function generatePixAction(billingId: string) {
+  const { supabase, user } = await getAuthenticatedUser()
+  if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não resolvido' } }
+
+  const parsed = GeneratePixSchema.safeParse({ billing_id: billingId })
+  if (!parsed.success) return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'ID de cobrança inválido' } }
+
+  const { data: billing } = await supabase
+    .from('billings')
+    .select('id, status, original_amount, discount_amount, tenant_id')
+    .eq('id', billingId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  if (!billing) return { ok: false, error: { code: 'NOT_FOUND', message: 'Cobrança não encontrada' } }
+  if (billing.status === 'paid') return { ok: false, error: { code: 'CONFLICT', message: 'Esta cobrança já foi paga' } }
+
+  const { data: conn } = await supabase
+    .from('payment_connections')
+    .select('mp_user_id')
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  if (!canGeneratePix(billing, !!conn)) {
+    return { ok: false, error: { code: 'FORBIDDEN', message: 'Configure a integração de pagamento nas Configurações' } }
+  }
+
+  try {
+    const result = await getOrCreatePix(billingId, tenantId, supabase)
+
+    if (!result.is_reused) {
+      await logAction({
+        action: 'generate_pix',
+        table: 'billing_pix',
+        recordId: billingId,
+        newData: { billing_id: billingId, tenant_id: tenantId, actor: 'operator' },
+      })
+    }
+
+    revalidatePath('/cobrancas')
+    return { ok: true, data: result }
+  } catch (err: unknown) {
+    const e = err as Error & { code?: string }
+    if (e.code === 'FORBIDDEN') return { ok: false, error: { code: 'FORBIDDEN', message: 'Configure a integração de pagamento nas Configurações' } }
+    return { ok: false, error: { code: 'INTERNAL', message: 'Falha ao gerar Pix. Tente novamente.' } }
+  }
 }
