@@ -3,6 +3,8 @@ import { getCurrentTenantId } from '@/lib/auth/tenant'
 
 interface AuditParams {
   action: 'create' | 'update' | 'delete'
+    | 'connect_payment' | 'disconnect_payment'
+    | 'generate_pix' | 'payment_confirmed' | 'token_refreshed'
   table: string
   recordId?: string
   oldData?: unknown

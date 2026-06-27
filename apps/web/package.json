@@ -23,6 +23,7 @@
     "clsx": "^2.1.1",
     "docx-preview": "^0.3.7",
     "docxtemplater": "^3.68.7",
+    "jose": "^6.2.3",
     "jszip": "^3.10.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.577.0",
