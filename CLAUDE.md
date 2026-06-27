@@ -47,7 +47,7 @@ O projeto tem **dois ambientes Supabase**:
 | Ambiente | Quando usar |
 |---|---|
 | **Local (Docker)** | Sempre que estiver desenvolvendo ou testando. URL: `http://127.0.0.1:54321`. |
-| **Cloud (`hcnxbqunescfanqzmsha`)** | Produção. Só receber mudanças via `supabase db push` controlado por humano. |
+| **Cloud (``)** | Produção. Só receber mudanças via `supabase db push` controlado por humano. |
 
 ### Regras críticas para mudanças de schema
 
@@ -133,7 +133,7 @@ Sem aprovação explícita do humano, NÃO execute:
 - `git push --force` em qualquer branch.
 - `git reset --hard` que descarte mudanças não commitadas.
 - `rm -rf` em pastas com conteúdo não commitado.
-- Qualquer operação que afete o projeto Supabase cloud (`hcnxbqunescfanqzmsha`).
+- Qualquer operação que afete o projeto Supabase cloud.
 - Instalação global de pacotes que mude o ambiente do desenvolvedor.
 
 ## Decisões arquiteturais
