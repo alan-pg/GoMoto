@@ -1,24 +1,37 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
+  Clipboard,
+  Image,
   Modal,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { useFocusEffect } from 'expo-router'
 import { useBillingsForCustomer } from '@gomoto/data'
 import { calculateFinalAmount } from '@gomoto/core'
 import type { Billing } from '@gomoto/core'
+import { supabase } from '../lib/supabase'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 type FilterStatus = 'relevant' | 'all' | 'pending' | 'paid' | 'overdue'
+
+type PixResult = {
+  qr_code: string
+  qr_code_base64: string
+  expires_at: string
+  is_reused: boolean
+}
 
 type RentalGroup = {
   leaseId:      string
@@ -91,67 +104,102 @@ function BillingDetailModal({ billing, onClose }: { billing: Billing; onClose: (
   const original  = billing.original_amount ?? 0
   const discount  = billing.discount_amount ?? 0
   const finalAmt  = calculateFinalAmount(original, discount)
+  const [generatingPix, setGeneratingPix] = useState(false)
+  const [pixResult, setPixResult]         = useState<PixResult | null>(null)
+  const canPix = billing.status === 'pending' || billing.status === 'overdue'
+
+  async function handlePix() {
+    setGeneratingPix(true)
+    try {
+      const result = await generatePix(billing.id)
+      setPixResult(result)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Falha ao gerar Pix'
+      Alert.alert('Erro', msg)
+    } finally {
+      setGeneratingPix(false)
+    }
+  }
 
   return (
-    <Modal
-      visible
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
-      <SafeAreaView style={styles.modalSafe}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Detalhe da Cobrança</Text>
-          <Pressable onPress={onClose} hitSlop={12}>
-            <Text style={styles.modalClose}>Fechar</Text>
-          </Pressable>
-        </View>
-
-        <ScrollView contentContainerStyle={styles.modalBody}>
-          {/* Status */}
-          <View style={[styles.statusPill, { backgroundColor: `${STATUS_COLOR[billing.status] ?? '#9e9e9e'}22` }]}>
-            <Text style={[styles.statusPillText, { color: STATUS_COLOR[billing.status] ?? '#9e9e9e' }]}>
-              {STATUS_LABEL[billing.status] ?? billing.status}
-            </Text>
+    <>
+      <Modal
+        visible
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={onClose}
+      >
+        <SafeAreaView style={styles.modalSafe}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Detalhe da Cobrança</Text>
+            <Pressable onPress={onClose} hitSlop={12}>
+              <Text style={styles.modalClose}>Fechar</Text>
+            </Pressable>
           </View>
 
-          {/* Description */}
-          <Text style={styles.detailDescription}>{billing.description}</Text>
-          <Text style={styles.detailDue}>Vencimento: {formatDate(billing.due_date)}</Text>
-
-          {/* Amounts */}
-          <View style={styles.amountBlock}>
-            <Row label="Valor original"  value={formatCurrency(original)}  />
-            {discount > 0 && (
-              <>
-                <Row label="Desconto"        value={`- ${formatCurrency(discount)}`} valueColor="#229731" />
-                {billing.discount_reason ? (
-                  <Text style={styles.discountReason}>Motivo: {billing.discount_reason}</Text>
-                ) : null}
-                <View style={styles.divider} />
-                <Row label="Valor final"     value={formatCurrency(finalAmt)} bold />
-              </>
-            )}
-            {discount === 0 && (
-              <Row label="Valor a pagar"  value={formatCurrency(finalAmt)} bold />
-            )}
-          </View>
-
-          {/* Payment info */}
-          {billing.status === 'paid' && (
-            <View style={styles.paidBlock}>
-              <Text style={styles.paidTitle}>Pagamento registrado</Text>
-              {billing.paid_at ? (
-                <Row label="Data de pagamento" value={formatDate(billing.paid_at)} />
-              ) : null}
-              {billing.payment_method ? (
-                <Row label="Forma de pagamento" value={billing.payment_method} />
-              ) : null}
+          <ScrollView contentContainerStyle={styles.modalBody}>
+            {/* Status */}
+            <View style={[styles.statusPill, { backgroundColor: `${STATUS_COLOR[billing.status] ?? '#9e9e9e'}22` }]}>
+              <Text style={[styles.statusPillText, { color: STATUS_COLOR[billing.status] ?? '#9e9e9e' }]}>
+                {STATUS_LABEL[billing.status] ?? billing.status}
+              </Text>
             </View>
-          )}
-        </ScrollView>
-      </SafeAreaView>
-    </Modal>
+
+            {/* Description */}
+            <Text style={styles.detailDescription}>{billing.description}</Text>
+            <Text style={styles.detailDue}>Vencimento: {formatDate(billing.due_date)}</Text>
+
+            {/* Amounts */}
+            <View style={styles.amountBlock}>
+              <Row label="Valor original"  value={formatCurrency(original)}  />
+              {discount > 0 && (
+                <>
+                  <Row label="Desconto"        value={`- ${formatCurrency(discount)}`} valueColor="#229731" />
+                  {billing.discount_reason ? (
+                    <Text style={styles.discountReason}>Motivo: {billing.discount_reason}</Text>
+                  ) : null}
+                  <View style={styles.divider} />
+                  <Row label="Valor final"     value={formatCurrency(finalAmt)} bold />
+                </>
+              )}
+              {discount === 0 && (
+                <Row label="Valor a pagar"  value={formatCurrency(finalAmt)} bold />
+              )}
+            </View>
+
+            {/* Pix CTA */}
+            {canPix && (
+              <TouchableOpacity
+                style={[styles.pixBtn, generatingPix && styles.pixBtnDisabled]}
+                onPress={handlePix}
+                disabled={generatingPix}
+              >
+                <Text style={styles.pixBtnText}>
+                  {generatingPix ? 'Gerando Pix...' : 'Gerar Pix'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Payment info */}
+            {billing.status === 'paid' && (
+              <View style={styles.paidBlock}>
+                <Text style={styles.paidTitle}>Pagamento registrado</Text>
+                {billing.paid_at ? (
+                  <Row label="Data de pagamento" value={formatDate(billing.paid_at)} />
+                ) : null}
+                {billing.payment_method ? (
+                  <Row label="Forma de pagamento" value={billing.payment_method} />
+                ) : null}
+              </View>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {pixResult && (
+        <PixModal billing={billing} result={pixResult} onClose={() => setPixResult(null)} />
+      )}
+    </>
   )
 }
 
@@ -173,6 +221,77 @@ function Row({
         {value}
       </Text>
     </View>
+  )
+}
+
+async function generatePix(billingId: string): Promise<PixResult> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Não autenticado')
+
+  const webUrl = process.env.EXPO_PUBLIC_WEB_URL ?? ''
+  if (!webUrl) throw new Error('EXPO_PUBLIC_WEB_URL não configurado')
+
+  const res = await fetch(`${webUrl}/api/billings/${billingId}/pix`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  })
+  const json = await res.json()
+  if (!json.ok) throw new Error(json.error?.message ?? 'Falha ao gerar Pix')
+  return json.data as PixResult
+}
+
+// ---------------------------------------------------------------------------
+// PixModal
+// ---------------------------------------------------------------------------
+
+function PixModal({ billing, result, onClose }: { billing: Billing; result: PixResult; onClose: () => void }) {
+  const original = billing.original_amount ?? 0
+  const discount = billing.discount_amount ?? 0
+  const finalAmt = calculateFinalAmount(original, discount)
+
+  function copyCode() {
+    Clipboard.setString(result.qr_code)
+    Alert.alert('Copiado!', 'Código Pix copiado para a área de transferência.')
+  }
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={styles.modalSafe}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Pix de Cobrança</Text>
+          <Pressable onPress={onClose} hitSlop={12}>
+            <Text style={styles.modalClose}>Fechar</Text>
+          </Pressable>
+        </View>
+        <ScrollView contentContainerStyle={styles.modalBody}>
+          {result.is_reused && (
+            <View style={styles.reuseNote}>
+              <Text style={styles.reuseNoteText}>Pix ativo reutilizado — mesmo código gerado anteriormente.</Text>
+            </View>
+          )}
+          <View style={styles.pixQrContainer}>
+            <Image
+              source={{ uri: `data:image/png;base64,${result.qr_code_base64}` }}
+              style={styles.pixQrImage}
+              resizeMode="contain"
+            />
+          </View>
+          <View style={styles.pixInfo}>
+            <Text style={styles.pixAmount}>{formatCurrency(finalAmt)}</Text>
+            <Text style={styles.pixExpiry}>
+              Vence em {formatDate(result.expires_at.slice(0, 10))}
+            </Text>
+          </View>
+          <View style={styles.pixCodeBlock}>
+            <Text style={styles.pixCodeLabel}>Copia e Cola</Text>
+            <Text style={styles.pixCode} selectable>{result.qr_code}</Text>
+          </View>
+          <TouchableOpacity style={styles.copyBtn} onPress={copyCode}>
+            <Text style={styles.copyBtnText}>Copiar Código Pix</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
   )
 }
 
@@ -216,6 +335,12 @@ export function BillingsScreen() {
 
   const serverFilter = filter === 'all' || filter === 'relevant' ? undefined : { status: filter }
   const query = useBillingsForCustomer(serverFilter)
+
+  useFocusEffect(
+    useCallback(() => {
+      query.refetch()
+    }, [query.refetch]),
+  )
 
   const groups = useMemo<RentalGroup[]>(() => {
     const billings = query.data ?? []
@@ -585,5 +710,83 @@ const styles = StyleSheet.create({
     fontSize:   14,
     fontWeight: '600',
     marginBottom: 4,
+  },
+  pixBtn: {
+    backgroundColor: '#BAFF1A',
+    borderRadius:    12,
+    paddingVertical: 14,
+    alignItems:      'center',
+  },
+  pixBtnDisabled: {
+    opacity: 0.6,
+  },
+  pixBtnText: {
+    color:      '#121212',
+    fontSize:   15,
+    fontWeight: '700',
+  },
+  reuseNote: {
+    backgroundColor: '#1a1a2e',
+    borderRadius:    8,
+    padding:         10,
+  },
+  reuseNoteText: {
+    color:    '#9e9e9e',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  pixQrContainer: {
+    alignItems:      'center',
+    backgroundColor: '#ffffff',
+    borderRadius:    16,
+    padding:         16,
+  },
+  pixQrImage: {
+    width:  200,
+    height: 200,
+  },
+  pixInfo: {
+    alignItems: 'center',
+    gap:        4,
+  },
+  pixAmount: {
+    color:      '#f5f5f5',
+    fontSize:   22,
+    fontWeight: '700',
+  },
+  pixExpiry: {
+    color:    '#9e9e9e',
+    fontSize: 13,
+  },
+  pixCodeBlock: {
+    backgroundColor: '#1a1a1a',
+    borderColor:     '#323232',
+    borderWidth:     1,
+    borderRadius:    12,
+    padding:         14,
+    gap:             6,
+  },
+  pixCodeLabel: {
+    color:    '#9e9e9e',
+    fontSize: 12,
+  },
+  pixCode: {
+    color:      '#f5f5f5',
+    fontSize:   11,
+    fontFamily: 'monospace',
+    lineHeight: 16,
+  },
+  copyBtn: {
+    backgroundColor: '#202020',
+    borderColor:     '#474747',
+    borderWidth:     1,
+    borderRadius:    12,
+    paddingVertical: 13,
+    alignItems:      'center',
+  },
+  copyBtnText: {
+    color:      '#f5f5f5',
+    fontSize:   14,
+    fontWeight: '600',
   },
 })
