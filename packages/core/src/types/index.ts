@@ -648,6 +648,8 @@ export interface Billing {
   /** @deprecated Use rentals join. */
   contracts?: { id: string } | null;
   rentals?: { id: string } | null;
+  /** Histórico de Pix gerados para esta cobrança (join com billing_pix). Spec 0005. */
+  billing_pix?: Array<{ status: string; expires_at: string; mp_payment_id: string }> | null;
 }
 
 /**

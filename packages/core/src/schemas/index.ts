@@ -236,6 +236,7 @@ export const CreateTenantWithOwnerSchema = z.object({
 })
 
 export * from './rentals'
+export * from './payments'
 
 export const TenantSuspendSchema = z.object({
   reason: z.string().trim().min(1, 'Informe o motivo da suspensão').max(500),
