@@ -14,7 +14,7 @@ export async function listBillings(
 ): Promise<Billing[]> {
   let q = client
     .from('billings')
-    .select('*, customers(name, phone), rentals(id)')
+    .select('*, customers(name, phone), rentals(id), billing_pix(status, expires_at, mp_payment_id)')
     .order('due_date', { ascending: false })
 
   if (filter?.lease_id) q = q.eq('lease_id', filter.lease_id)
