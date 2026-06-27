@@ -40,7 +40,12 @@ const LABEL_CX =
   'transition-[grid-template-columns,opacity,transform] duration-300 ease-in-out ' +
   'opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 overflow-hidden'
 
-export function Sidebar() {
+interface SidebarProps {
+  userName?: string
+  userEmail?: string
+}
+
+export function Sidebar({ userName, userEmail }: SidebarProps) {
   const pathname = usePathname()
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`)
   // Sidebar fica montada o tempo todo; a query é compartilhada com /aprovacoes
@@ -107,12 +112,14 @@ export function Sidebar() {
       <div className="border-t border-[#323232] p-3 space-y-1">
         <button className="flex items-center w-full h-10 px-4 gap-2 rounded-full hover:bg-[#323232] transition-all duration-300">
           <div className="w-6 h-6 rounded-full bg-[#323232] border border-[#474747] flex-shrink-0 flex items-center justify-center">
-            <span className="text-[#f5f5f5] text-[11px] font-bold">G</span>
+            <span className="text-[#f5f5f5] text-[11px] font-bold">
+              {userName ? userName[0].toUpperCase() : '?'}
+            </span>
           </div>
           <span className={cn(LABEL_CX, 'flex-1')}>
             <span className="whitespace-nowrap overflow-hidden flex flex-col text-left">
-              <span className="text-[13px] font-medium text-[#f5f5f5] leading-none">GoMoto</span>
-              <span className="text-[11px] text-[#9e9e9e] mt-0.5">Admin</span>
+              <span className="text-[13px] font-medium text-[#f5f5f5] leading-none">{userName ?? userEmail ?? '—'}</span>
+              <span className="text-[11px] text-[#9e9e9e] mt-0.5">{userEmail ?? ''}</span>
             </span>
           </span>
           <MoreVertical className="w-4 h-4 text-[#9e9e9e] flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
