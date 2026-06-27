@@ -1,43 +1,51 @@
 ---
 status: aprovado
-versão: 1.0
+versão: 2.0
 autor: Alan (com agente IA)
-data: 2026-06-15
-adr: "[[decisions/0004-control-plane-e-identidade-do-cliente]]"
+data: 2026-06-26
+revisão: Revisado e corrigido em 2026-06-26 — isolamento de tenant, identidade do cliente, formato canônico PRD
+adr:
+  - "[[decisions/0003-escopo-e-auth-do-mobile-cliente]]"
+  - "[[decisions/0004-control-plane-e-identidade-do-cliente]]"
 related:
   - "[[Arquitetura Proposta]]"
-  - "[[decisions/0003-escopo-e-auth-do-mobile-cliente]]"
   - "[[Banco de Dados]]"
   - "[[Segurança]]"
 tags:
   - prd
   - plataforma
   - multi-tenant
+  - autenticacao
 ---
 
-# PRD 0001 — Área Administrativa da Plataforma (Control Plane)
+# PRD 0001 — Área Administrativa da Plataforma e Identidade de Usuários
 
-> ✅ **Status: aprovado.** 11 decisões fechadas em 2026-06-15 e consolidadas em [[decisions/0004-control-plane-e-identidade-do-cliente|ADR 0004]]. Próximo passo: implementar **F1** (schema control plane + bootstrap) — ver §12 e §14.
+> ✅ **Status: aprovado.** Versão 2.0 — revisada em 2026-06-26. Corrige contradição de identidade do cliente, formaliza regras de isolamento de tenant e adiciona estrutura canônica de RF/RN/RNF/CA. Próximo passo: `/spec-generator obsidian-notes/PRDs/0001-area-administrativa-plataforma.md`
 
 ---
 
-## 1. Contexto
+## 1. Visão Geral
 
-O GoMoto está evoluindo de **single-tenant** (uso interno da locadora "Bonze") para **multi-tenant SaaS** B2B — cada locadora de motos é um *tenant* independente. A Fase 5 da [[Arquitetura Proposta]] entregou o isolamento técnico: `tenant_id` em todas as 15 tabelas de domínio, RLS via `get_user_tenants()`, e roles internos `owner / admin / operator / viewer` em `tenant_members`.
+### 1.1 Contexto
 
-**Premissas de identidade do GoMoto** (fechadas em 2026-06-15):
+O GoMoto opera como SaaS multi-tenant B2B: cada empresa locadora de motos é um *tenant* independente. A plataforma já possui três camadas de acesso implementadas — administração da plataforma (Control Plane), operação de cada empresa (Tenant Plane) e app mobile para clientes finais. A interface de criação e gerenciamento de tenants está funcional.
 
-- **Admin / operador** (web dashboard) — **1 pessoa = 1 tenant**. Caso raro de cruzamento se resolve com email diferente. Login por email/senha.
-- **Cliente final** (app mobile, locatário de moto) — **1 pessoa pode ser cliente de N tenants** (cenário comum: fechou contrato com Locadora A, abriu com Locadora B; ou mantém os dois em paralelo). Login por **CPF + senha**, com CPF UNIQUE global.
+Contudo, a implementação atual apresenta uma falha crítica de isolamento de identidade: ao autenticar com o usuário de um tenant recém-criado, o sistema exibe dados de outro tenant — clientes e veículos incorretos aparecem na tela. Isso indica que a resolução do contexto do tenant não está ocorrendo de forma confiável a partir do usuário autenticado, tornando o sistema inseguro para operação real com múltiplas empresas.
 
-**Lacuna:** não existe a **camada acima do tenant** — quem opera o produto como produto. Hoje, criar um novo tenant exige acessar o banco via service_role (CLI/seed). Não há quem possa:
+Adicionalmente, as regras de identidade do sistema — especialmente a identidade do cliente final que pode ser locatário de múltiplas empresas — nunca foram formalizadas, gerando ambiguidade na implementação.
 
-- Cadastrar, suspender ou reativar uma empresa-cliente.
-- Visualizar métricas agregadas da plataforma (nº de tenants ativos, motos no sistema, MRR no futuro).
-- Gerar relatórios cross-tenant para decisões comerciais.
-- Auditar ações sensíveis (quem criou qual tenant, quando suspendeu).
+### 1.2 Problema
 
-Este PRD define a **área administrativa da plataforma** — o que em SaaS é chamado de *control plane*, separado do *tenant plane* operacional — e formaliza as duas premissas de identidade acima.
+**Problema A — Isolamento de tenant quebrado (crítico):** O contexto do tenant na sessão do usuário não é resolvido de forma confiável a partir da identidade autenticada. Resultado: um usuário de um tenant visualiza dados de outro tenant, violando a premissa fundamental de privacidade e segurança do produto.
+
+**Problema B — Regras de identidade não formalizadas:** As regras que governam como um cliente final se autentica, como seu perfil se relaciona com múltiplos tenants e como o isolamento é garantido no mobile nunca foram documentadas de forma clara e testável, gerando implementações divergentes.
+
+### 1.3 Resultado esperado
+
+- Qualquer usuário autenticado vê **exclusivamente** dados do seu próprio tenant — sem exceção e sem possibilidade de cruzamento acidental.
+- As regras de identidade do sistema estão formalizadas, testáveis e servem de referência para corrigir e validar a implementação existente.
+- Clientes finais autenticam com CPF e senha no mobile e visualizam locações de diferentes empresas em contextos completamente separados.
+- O mesmo cliente físico pode ser locatário de N empresas distintas com um único login, com isolamento total entre os perfis de cada empresa.
 
 ---
 
@@ -45,646 +53,632 @@ Este PRD define a **área administrativa da plataforma** — o que em SaaS é ch
 
 | Termo | Definição |
 |---|---|
-| **Control Plane** | Área e funcionalidades que operam **sobre** os tenants (cadastro de empresas, métricas globais). |
-| **Tenant Plane** | Área operacional **dentro** de um tenant — o dashboard atual em `apps/web/src/app/(dashboard)/*`. |
-| **Platform Admin** | Usuário com permissão de operar o control plane. Não é membro de nenhum tenant (ou é, mas a permissão é independente). |
-| **Tenant / Empresa-cliente** | Uma locadora de motos que usa o GoMoto. Equivalente a *organization* em outros SaaS. |
-| **Tenant Owner** | Dono da empresa-cliente (papel mais alto **dentro** do tenant). |
-| **Cliente final** | Pessoa que aluga moto de uma empresa-cliente — usa o app mobile. **Não tem acesso ao control plane nem ao dashboard web.** Pode ser cliente de N tenants simultaneamente. |
-| **Shell email** | Email sintético atribuído ao `auth.users` de cliente final, no formato `{cpf}@cliente.gomoto.app`. Nunca exibido — serve só para satisfazer a constraint do Supabase Auth. |
+| **Control Plane** | Área administrativa da plataforma. Opera *sobre* os tenants: cria empresas, visualiza métricas globais, suspende e reativa contas. Acessível apenas por Platform Admins. |
+| **Tenant Plane** | Área operacional *dentro* de um tenant. É o dashboard que cada empresa-cliente usa no dia a dia para gerenciar frota, clientes, contratos, cobranças e manutenções. |
+| **Platform Admin** | Usuário com permissão de operar o Control Plane. Não opera nenhum tenant específico (a menos que explicitamente também seja membro de um tenant). |
+| **Tenant** | Uma empresa locadora de motos que usa o GoMoto como plataforma. Também chamada de "empresa-cliente" ou "locadora" na interface de produto. Cada tenant tem seus dados completamente isolados dos demais. |
+| **Tenant Owner** | O usuário principal de um tenant — papel de maior privilégio dentro da empresa-cliente. Criado pelo Platform Admin no momento do onboarding. |
+| **Membro do Tenant** | Qualquer usuário com acesso ao Tenant Plane de uma empresa: Owner, Admin, Operador ou Visualizador. Opera exclusivamente dentro do seu tenant. |
+| **Cliente Final** | Pessoa física que aluga moto de uma ou mais empresas-cliente. Acessa o sistema exclusivamente pelo app mobile. Pode ter vínculo com múltiplos tenants simultaneamente. |
+| **Perfil de Cliente** | O conjunto de dados que um tenant mantém sobre um Cliente Final (dados cadastrais, contratos, cobranças). Cada tenant possui seu próprio Perfil de Cliente, invisível aos demais tenants. |
+| **Contexto Ativo de Tenant** | O tenant cujos dados estão sendo exibidos na sessão atual. Para membros de tenant, é sempre e somente o tenant ao qual pertencem. Para clientes com vínculo em múltiplos tenants, é o tenant selecionado na tela de escolha de locadora. |
 
 ---
 
-## 3. Objetivos e não-objetivos
+## 3. Objetivos e Escopo
 
-### 3.1 Objetivos (V1)
+### 3.1 Objetivos de negócio (V1)
 
-- ✅ Cadastrar, listar, editar, **suspender** e reativar empresas-cliente.
-- ✅ Criar o **primeiro usuário owner** de cada nova empresa (sem self-service signup).
-- ✅ Dashboard com KPIs operacionais agregados (nº tenants ativos, total de motos, contratos ativos, cobranças vencidas em todas as empresas).
-- ✅ Relatórios cross-tenant exportáveis (CSV) para suporte e decisões comerciais.
-- ✅ Audit log de **toda ação de platform admin** (quem cadastrou tenant X, quem suspendeu Y).
-- ✅ Gerenciar a lista de platform admins (adicionar, remover, trocar role).
+1. **Corrigir o isolamento de tenant** — eliminar o bug crítico em que um usuário autenticado visualiza dados de outro tenant. O GoMoto não pode operar com múltiplos clientes reais enquanto essa falha existir.
+2. **Formalizar as regras de identidade** — estabelecer de forma clara e testável como cada tipo de usuário se autentica, qual contexto de tenant é resolvido e como o isolamento é garantido em todas as camadas.
+3. **Habilitar clientes em múltiplos tenants** — permitir que o mesmo cliente físico tenha vínculos com N empresas-clientes, acessando cada uma de forma isolada no app mobile.
 
-### 3.2 Não-objetivos (V1 — explicitamente fora do escopo)
+### 3.2 Métricas de sucesso
 
-- ❌ **Billing / cobrança dos tenants** (planos, MRR real, gateway). Modelo de cobrança ainda em definição.
-- ❌ **Self-service signup** — empresas só entram no sistema via convite manual de platform admin.
-- ❌ **White-label / branding customizado** por tenant.
-- ❌ **SSO / SAML** (Google Workspace já é coberto pelo Supabase OAuth se necessário, mas não é V1).
-- ❌ **"Impersonar" tenant** (login-as) — risco de segurança alto; só entra quando houver justificativa de suporte concreta.
-- ❌ **Quotas** (limite de motos/usuários por plano).
-- ❌ **Métricas técnicas** (latência, erros) — isso é Sentry/observabilidade, não control plane.
+| Métrica | Como medir |
+|---|---|
+| Zero vazamentos cross-tenant | Testes automatizados: usuário de Tenant A não consegue ler, criar, editar ou excluir nenhum dado de Tenant B — nem por acesso direto à API |
+| Resolução correta de tenant na sessão | Qualquer usuário autenticado: o sistema resolve o tenant a partir da identidade autenticada no servidor, nunca do cliente |
+| Cliente multi-tenant funcional | Cliente com vínculo em ≥2 empresas consegue selecionar e alternar entre elas no mobile sem perder isolamento |
 
-> Cada não-objetivo vira PRD próprio quando houver demanda.
+### 3.3 O que o sistema passa a garantir
+
+- Usuário de Tenant B, ao logar, vê **somente** dados de Tenant B — mesmo que Tenant A tenha sido criado antes e tenha mais dados.
+- Platform Admin cria nova empresa e gera acesso para o owner sem precisar de acesso ao banco.
+- Cliente com CPF já cadastrado em outra empresa é vinculado automaticamente ao novo tenant sem criar um segundo login.
+- Cliente com vínculo em múltiplas empresas escolhe qual contexto visualizar no mobile e pode trocar a qualquer momento.
+
+### 3.4 Incluído no V1
+
+- Correção do isolamento de tenant na autenticação (caminho servidor-side)
+- Validação e correção do Control Plane existente (criar tenant, criar owner inicial, suspender, reativar, listar)
+- Gerenciamento de Platform Admins (listar, promover, remover)
+- Regras de identidade do cliente final: CPF como identificador único global, perfil por tenant, vínculo automático ao cadastrar CPF existente
+- Tela de seleção de empresa no mobile (cliente com ≥2 vínculos)
+- Bloqueio de acesso a tenant suspenso (membros do tenant perdem acesso; Platform Admin mantém)
+- Audit log de todas as ações do Control Plane
+
+### 3.5 Explicitamente fora do V1
+
+| Item | Motivo |
+|---|---|
+| Cobrança dos tenants (planos, MRR, gateway) | Modelo comercial ainda indefinido — PRD próprio |
+| Self-service signup de empresas | Onboarding manual é suficiente para o estágio atual |
+| Notificações automáticas por email (Resend) | Dependência de serviço externo — fase posterior |
+| Impersonação de tenant (login-as) | Risco de segurança alto sem caso de uso concreto |
+| White-label / branding por tenant | Fora da visão do produto por ora |
+| Usuário membro de múltiplos tenants | Caso raro — resolvido com emails distintos |
+| Exclusão permanente de tenant | Somente suspensão indefinida no V1 |
+| SSO / SAML | Sem demanda identificada |
+| LGPD — direito ao esquecimento | PRD próprio quando houver demanda legal |
 
 ---
 
-## 4. Personas e papéis
+## 4. Stakeholders
 
-### 4.1 Tabela de papéis (matriz completa do sistema)
+Dono único: Alan (LW Tecnologia).
 
-| Papel | Onde existe hoje | Escopo | Acesso |
+---
+
+## 5. Personas e User Stories
+
+### 5.1 Tabela de personas
+
+| Persona | Papel no sistema | Frequência de uso | Nível técnico |
 |---|---|---|---|
-| `platform_owner` | 🆕 a criar | Control plane | TUDO em `/admin/*` + bypass RLS para leitura/escrita de tenants |
-| `platform_operator` | 🆕 a criar | Control plane | Leitura em `/admin/*`, sem permissão para criar/suspender tenants |
-| `tenant_owner` | ✅ existe (`tenant_members.role = 'owner'`) | 1 tenant | TUDO no dashboard daquele tenant |
-| `tenant_admin` | ✅ existe | 1 tenant | Quase tudo, menos gerenciar membros do próprio tenant |
-| `tenant_operator` | ✅ existe | 1 tenant | Operação do dia-a-dia (criar contrato, registrar cobrança) |
-| `tenant_viewer` | ✅ existe | 1 tenant | Somente leitura |
-| `customer` | ✅ existe (via `customers.user_id`) | Próprios dados | Mobile cliente — contrato, cobranças, manutenções, suporte |
+| **Alan / Operador de Suporte LW** | Platform Admin — gerencia o ciclo de vida das empresas-cliente, visualiza estado global da plataforma | Eventual (onboarding, suporte, auditoria) | Alto |
+| **Dono da Locadora** | Tenant Owner — configura e opera sua empresa, gerencia membros, visualiza relatórios | Diária | Médio |
+| **Funcionário da Locadora** | Membro do Tenant (Admin/Operador) — cadastra clientes, cria contratos, registra cobranças e manutenções | Diária | Baixo a médio |
+| **Cliente Final** | Locatário de moto — visualiza suas locações, cobranças e manutenções no mobile | Eventual (quando tem contrato ativo ou dívida pendente) | Baixo |
 
-### 4.2 Personas
+### 5.2 User Stories
 
-- **Alan / LW Tecnologia** → `platform_owner`. Vende o GoMoto pra locadoras, faz onboarding, suporte de alto nível.
-- **(futuro) suporte LW** → `platform_operator`. Atende ticket, consulta dados, mas não cria/suspende tenant.
-- **Dono da locadora Bonze, Dono da locadora X** → `tenant_owner`. Opera só dentro do seu tenant.
+**Platform Admin**
 
-### 4.3 Regras de combinação de papéis
+> **US-001** — Como Platform Admin, quero criar uma nova empresa-cliente e gerar o acesso do owner inicial, para que a empresa possa começar a operar sem eu precisar acessar o banco de dados.
 
-- **Platform admin ↔ Tenant member:** um mesmo `auth.users` **pode ser** `platform_owner` E `tenant_owner` de algum tenant simultaneamente (ex.: Alan é platform_owner e também testa como owner da Bonze). O header global oferece **switcher de contexto** (Plataforma ↔ Tenant X) quando isso acontece.
-- **Tenant member em N tenants:** **fora de escopo no V1.** Cenário improvável (operador raramente trabalha em duas locadoras). Se ocorrer, a pessoa cria contas com emails diferentes — sem switcher.
-- **Cliente final em N tenants:** **de 1ª classe.** Detalhado na §4.4.
+> **US-002** — Como Platform Admin, quero suspender uma empresa-cliente informando o motivo, para que seus membros percam acesso imediato ao sistema sem perda de dados.
 
-### 4.4 Cliente final em múltiplos tenants
+> **US-003** — Como Platform Admin, quero visualizar um painel com o estado geral da plataforma (empresas ativas, total de motos, contratos, cobranças vencidas), para tomar decisões operacionais e comerciais.
 
-Cenário-alvo: João alugou moto na Locadora A, devolveu, e agora aluga na Locadora B. Sistema deve tratar João como **uma única pessoa** com **dois vínculos de `customer`** (um por tenant), e **um único login** (CPF + senha).
+> **US-004** — Como Platform Admin, quero consultar o histórico de ações administrativas (quem criou, suspendeu ou reativou cada empresa), para garantir rastreabilidade de todas as mudanças críticas.
 
-**Regras:**
+**Dono da Locadora / Funcionário**
 
-1. **CPF é a identidade global do cliente.** UNIQUE em `customers.cpf` no nível do projeto (não por tenant).
-2. **`customers.user_id` aponta para o mesmo `auth.users.id`** em todos os tenants onde a pessoa é cliente. Tabela já permite (UNIQUE só por `(tenant_id, user_id)`, não global em `user_id`).
-3. **Cadastro de cliente já existente:** quando uma locadora cadastra um CPF que já existe em outro tenant:
-    - Sistema detecta pelo CPF.
-    - Reaproveita `auth.users` existente — **não** gera novo login.
-    - Cria nova linha em `customers` para o tenant atual, com o mesmo `user_id`.
-    - **Não** envia novo magic link (cliente já tem senha).
-    - Operador da locadora vê aviso "Este CPF já tem conta no GoMoto — vinculando à locadora atual".
-4. **Privacidade entre tenants:** Locadora A **não enxerga** dados da Locadora B sobre o mesmo cliente. Cada `customers` row tem seus próprios campos editáveis (telefone, observações), e a RLS filtra por `tenant_id`. A Locadora A nunca sabe que João também é cliente da B — apenas vê que "o CPF já existe no sistema".
-5. **No app mobile**, pós-login o cliente vê:
-    - Se N=1: vai direto para o dashboard do único tenant.
-    - Se N≥2: **tela de seleção de locadora** ("De qual locadora você quer ver?"). Cliente escolhe uma; navegação subsequente fica nesse contexto. Botão "Trocar de locadora" sempre disponível.
+> **US-005** — Como Membro do Tenant, quero que ao fazer login eu veja exclusivamente os dados da minha empresa, para ter certeza de que informações de outras locadoras nunca aparecem na minha tela.
+
+> **US-006** — Como Funcionário da Locadora, quero cadastrar um cliente informando apenas o CPF, para que o sistema identifique automaticamente se esse cliente já existe e evite duplicação de cadastro.
+
+**Cliente Final**
+
+> **US-007** — Como Cliente Final, quero acessar o app mobile com meu CPF e senha, para não precisar lembrar de um email específico.
+
+> **US-008** — Como Cliente Final com contratos em mais de uma locadora, quero escolher qual empresa visualizar ao entrar no app, para ver as informações da locadora correta sem misturar dados de empresas diferentes.
+
+> **US-009** — Como Cliente Final, quero alternar entre minhas locadoras dentro do app sem precisar fazer logout, para acessar rapidamente contratos de empresas diferentes.
 
 ---
 
-## 5. Modelo de dados
+## 6. Fluxos Funcionais
 
-### 5.1 Novas tabelas
+### 6.1 Fluxo A — Login de Membro do Tenant (web)
 
-```sql
--- ============================================================
--- Tabela: platform_admins
--- Define quem pode operar o control plane.
--- ============================================================
-CREATE TABLE platform_admins (
-    user_id     UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    role        VARCHAR(20) NOT NULL CHECK (role IN ('owner', 'operator')) DEFAULT 'operator',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_by  UUID REFERENCES auth.users(id)  -- quem promoveu este admin
-);
+**Principal:**
+1. Usuário acessa o sistema web e informa email e senha
+2. Sistema autentica e **resolve o tenant a partir da identidade autenticada no servidor**
+3. Sistema direciona para o dashboard da empresa, exibindo exclusivamente os dados daquele tenant
+4. Todas as operações da sessão ficam restritas ao tenant resolvido — sem exceção
 
-CREATE TRIGGER trg_platform_admins_updated_at
-    BEFORE UPDATE ON platform_admins
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+**Alternativo A1 — Usuário é Platform Admin E membro de tenant:**
+1. Após autenticação, sistema detecta que o usuário possui ambos os papéis
+2. Exibe seletor de contexto: "Acessar como Plataforma" ou "Acessar como [Nome da Empresa]"
+3. Contexto escolhido determina quais funcionalidades e dados estão visíveis
+4. Usuário pode alternar entre contextos sem precisar fazer logout
 
--- ============================================================
--- Tabela: platform_audit_logs
--- Audit log dedicado do control plane (separado de audit_logs por tenant).
--- ============================================================
-CREATE TABLE platform_audit_logs (
-    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    actor_id     UUID NOT NULL REFERENCES auth.users(id),
-    action       VARCHAR(50) NOT NULL,   -- ex: 'tenant.created', 'tenant.suspended', 'admin.promoted'
-    target_type  VARCHAR(50),            -- 'tenant' | 'platform_admin' | ...
-    target_id    UUID,
-    metadata     JSONB,                  -- payload da mudança (antes/depois)
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+**Alternativo A2 — Usuário é apenas Platform Admin:**
+1. Após autenticação, sistema direciona automaticamente para o Control Plane
+2. Sem seleção de contexto
 
-CREATE INDEX idx_platform_audit_logs_actor ON platform_audit_logs(actor_id);
-CREATE INDEX idx_platform_audit_logs_target ON platform_audit_logs(target_type, target_id);
-CREATE INDEX idx_platform_audit_logs_created ON platform_audit_logs(created_at DESC);
-```
+**Erro — Tenant suspenso:**
+1. Membro do tenant autentica com sucesso
+2. Sistema detecta que o tenant está suspenso na próxima requisição
+3. Exibe tela "Sua empresa está temporariamente indisponível" — sem acesso a qualquer dado
+4. Platform Admin, ao autenticar, **não é bloqueado** pela suspensão do tenant
 
-### 5.2 Alterações em tabelas existentes
-
-```sql
--- tenants: estado de suspensão + metadados administrativos
-ALTER TABLE tenants
-    ADD COLUMN suspended_at      TIMESTAMPTZ NULL,
-    ADD COLUMN suspended_reason  TEXT NULL,
-    ADD COLUMN suspended_by      UUID REFERENCES auth.users(id),
-    ADD COLUMN created_by        UUID REFERENCES auth.users(id),
-    ADD COLUMN trial_ends_at     TIMESTAMPTZ NULL;  -- placeholder para fase de billing
-
--- A coluna `active BOOLEAN` existente vira derivada de suspended_at = NULL,
--- mas mantemos por compat enquanto migrações de RLS não a referenciam.
-
--- customers: CPF como identidade global do cliente
--- Antes desta migration, CPF era nullable e sem constraint global.
--- Backfill assumido: todos os customers existentes têm CPF preenchido.
-ALTER TABLE customers
-    ALTER COLUMN cpf SET NOT NULL;
-
-CREATE UNIQUE INDEX customers_cpf_global_unique
-    ON customers(cpf);
--- ⚠️ Atenção: se houver CPFs duplicados em tenants diferentes hoje
--- (mesma pessoa cadastrada em N locadoras antes deste constraint),
--- a migration falha. Procedimento de pré-checagem listado em §10.3.
-```
-
-### 5.3 Identidade do cliente final (login por CPF)
-
-Para satisfazer o Supabase Auth (que exige `email UNIQUE NOT NULL` em `auth.users`) sem expor email ao usuário, adotamos o padrão **shell email**:
-
-```
--- Função utilitária (executada em Server Action, não no SQL direto)
-shell_email(cpf) := REGEXP_REPLACE(cpf, '[^0-9]', '', 'g') || '@cliente.gomoto.app'
-
--- Exemplo:
--- cpf '123.456.789-00' → shell_email = '12345678900@cliente.gomoto.app'
-```
-
-**Fluxo de login mobile do cliente:**
-
-```
-1. Usuário digita: CPF + senha
-2. App (mobile):
-     a. valida CPF localmente (formato + dígito verificador)
-     b. monta synthetic_email = shell_email(cpf)
-     c. chama supabase.auth.signInWithPassword({ email: synthetic_email, password })
-3. Supabase autentica normalmente; retorna sessão JWT padrão
-4. App busca customers WHERE user_id = auth.uid()
-     → N=1: vai pro dashboard
-     → N≥2: tela de seleção de locadora
-```
-
-**Cadastro do cliente (no painel da locadora):**
-
-```
-1. Operador preenche cadastro: cpf, nome, telefone, (email opcional)
-2. Server Action:
-     a. valida CPF (formato + algoritmo)
-     b. SELECT * FROM customers WHERE cpf = ?
-        - Se existe em outro tenant: reaproveita user_id, vincula novo customers row
-        - Se não existe: cria auth.users com shell_email + senha temporária + magic link
-     c. INSERT INTO customers (tenant_id, cpf, name, phone, email, user_id, ...)
-     d. Retorna magic link ou aviso "CPF já existia, vinculado"
-```
-
-**`customers.email` continua existindo** para contato real (nota fiscal, comunicação) — sem relação com login. Pode ser `NULL`.
-
-### 5.4 Helper function
-
-```sql
-CREATE OR REPLACE FUNCTION is_platform_admin()
-RETURNS BOOLEAN
-LANGUAGE sql
-SECURITY DEFINER
-STABLE
-AS $$
-    SELECT EXISTS (
-        SELECT 1 FROM platform_admins WHERE user_id = auth.uid()
-    );
-$$;
-
-CREATE OR REPLACE FUNCTION get_platform_role()
-RETURNS VARCHAR
-LANGUAGE sql
-SECURITY DEFINER
-STABLE
-AS $$
-    SELECT role FROM platform_admins WHERE user_id = auth.uid() LIMIT 1;
-$$;
-```
-
-### 5.5 Novas policies RLS
-
-```sql
--- platform_admins: só platform admins enxergam, só owners gerenciam
-ALTER TABLE platform_admins ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Platform admins can read peers"
-    ON platform_admins FOR SELECT TO authenticated
-    USING (is_platform_admin());
-
-CREATE POLICY "Platform owners can manage admins"
-    ON platform_admins FOR ALL TO authenticated
-    USING (get_platform_role() = 'owner')
-    WITH CHECK (get_platform_role() = 'owner');
-
--- tenants: platform admin enxerga TUDO; platform owner cria/atualiza
-CREATE POLICY "Platform admins can read all tenants"
-    ON tenants FOR SELECT TO authenticated
-    USING (is_platform_admin());
-
-CREATE POLICY "Platform owners can insert tenants"
-    ON tenants FOR INSERT TO authenticated
-    WITH CHECK (get_platform_role() = 'owner');
-
-CREATE POLICY "Platform owners can update tenants"
-    ON tenants FOR UPDATE TO authenticated
-    USING (get_platform_role() = 'owner');
-
--- platform_audit_logs: leitura por platform admin; escrita só via Server Action (service_role)
-ALTER TABLE platform_audit_logs ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Platform admins can read audit logs"
-    ON platform_audit_logs FOR SELECT TO authenticated
-    USING (is_platform_admin());
-```
-
-### 5.6 Bloqueio de tenant suspenso (defesa em camadas)
-
-Decisão fechada (D2 em §13): proteger em **dois níveis**:
-
-- **(A) RLS** — adicionar `AND (suspended_at IS NULL)` em todas as policies de domínio que filtram por `get_user_tenants()`. Tenant suspenso → dados invisíveis para membros, mesmo via API direta.
-- **(B) Middleware** — rejeita sessão de membro cujo tenant está suspenso (UX: tela "Locadora temporariamente indisponível").
-
-Platform admin (com `is_platform_admin()`) **ignora** o bloqueio — precisa ver dados de tenants suspensos para suporte.
+**Erro — Credenciais inválidas:**
+1. Sistema exibe mensagem genérica sem revelar se o email existe ou não
 
 ---
 
-## 6. Segurança
+### 6.2 Fluxo B — Login do Cliente Final (mobile)
 
-### 6.1 Gating de rotas
+**Principal (1 vínculo):**
+1. Cliente informa CPF e senha
+2. Sistema valida o formato do CPF localmente (antes de consultar o servidor)
+3. Sistema autentica e identifica os vínculos do cliente
+4. Com 1 vínculo: direciona diretamente para o dashboard daquela empresa
 
-- Rota Next.js `/admin/*` (route group `(admin)`) é protegida no middleware: rejeita se `is_platform_admin()` retornar `false`.
-- Toda Server Action do control plane revalida `is_platform_admin()` no início.
-- Cliente do Supabase usado nas Server Actions do control plane **NÃO** é `service_role` exceto onde explicitamente necessário (ex.: criação de auth.users — passo único).
+**Alternativo B1 — Cliente com N ≥ 2 vínculos:**
+1. Após autenticação, sistema exibe tela de seleção de empresa
+2. Lista mostra cada empresa com o status do contrato mais recente (ativo, encerrado); empresas de tenants suspensos aparecem como "Temporariamente indisponível" sem opção de acesso
+3. Cliente seleciona uma empresa ativa
+4. Dashboard exibe exclusivamente os dados daquela empresa
+5. Botão "Trocar de empresa" permanece visível durante toda a navegação
 
-### 6.2 Princípios
+**Erro — CPF com formato inválido:**
+1. Sistema rejeita antes de consultar o servidor com mensagem de formato
+2. Não há chamada de rede para CPF mal formatado
 
-1. **Defesa em camadas:** middleware → route guard → RLS → ação. Falhar em qualquer um nega.
-2. **Tudo é auditado:** cada mutação no control plane grava em `platform_audit_logs`.
-3. **Sem impersonação tácita:** não criar mecanismo de "ver como tenant X" agora. Se precisar inspecionar dados de um tenant, usar Studio + service_role com log explícito.
-4. **Service_role só onde indispensável:** criação de auth.users, reset de senha — sempre via Server Action server-side, nunca exposto ao client.
+**Erro — CPF não cadastrado ou senha incorreta:**
+1. Sistema exibe mensagem genérica: "CPF ou senha incorretos" — não revela qual campo está errado
 
-### 6.3 Riscos e mitigações
+---
 
-| Risco | Mitigação |
+### 6.3 Fluxo C — Onboarding de nova empresa (Platform Admin)
+
+**Principal:**
+1. Platform Admin inicia criação de nova empresa no Control Plane
+2. Informa dados da empresa (nome, identificador único) e dados do owner inicial (nome, email)
+3. Sistema cria a empresa e o usuário owner
+4. Sistema gera link de definição de senha para o owner, válido por 72 horas
+5. Platform Admin recebe o link e o envia manualmente ao owner (WhatsApp, email)
+6. Owner acessa o link, define sua senha e acessa o dashboard da empresa pela primeira vez
+7. Ação registrada no audit log com data, responsável e empresa criada
+
+**Erro — Email do owner já em uso:**
+1. Sistema detecta que o email informado já pertence a outro usuário
+2. Exibe aviso claro; não cria a empresa até o email ser substituído
+
+**Erro — Nome ou identificador de empresa duplicado:**
+1. Sistema detecta duplicação e exibe sugestão de alternativa
+
+---
+
+### 6.4 Fluxo D — Cadastro de cliente pelo Membro do Tenant
+
+**Principal (cliente novo no sistema):**
+1. Operador inicia cadastro de cliente e informa o CPF
+2. Sistema valida o CPF (formato e dígito verificador) antes de consultar o servidor
+3. Sistema confirma: CPF não existe no sistema
+4. Operador preenche os demais dados (nome, telefone; email de contato é opcional)
+5. Sistema cria o cliente e gera link de definição de senha válido por 72 horas
+6. Operador envia o link ao cliente
+
+**Alternativo D1 — CPF já existe em outro tenant:**
+1. Operador informa o CPF
+2. Sistema detecta que o CPF já tem login ativo no GoMoto
+3. Exibe aviso: "Este cliente já tem acesso ao GoMoto. Ele usará o mesmo CPF e senha que já possui."
+4. Operador preenche os dados do perfil para este tenant (podem ser diferentes dos de outro tenant)
+5. Sistema vincula o cliente ao tenant atual — sem criar novo login, sem enviar novo link de senha
+6. Empresa de origem do cliente nunca é revelada ao operador
+
+**Erro — CPF inválido:**
+1. Bloqueado client-side e server-side com mensagem de formato
+2. Sem consulta ao servidor enquanto o CPF for inválido
+
+---
+
+### 6.5 Fluxo E — Suspensão e reativação de tenant
+
+**Suspensão:**
+1. Platform Admin acessa o detalhe da empresa no Control Plane
+2. Aciona "Suspender" e informa o motivo (obrigatório)
+3. Sistema registra suspensão com data, motivo e responsável
+4. Na próxima requisição, membros do tenant veem tela de indisponibilidade e perdem acesso a todos os dados
+5. Dados da empresa são preservados integralmente
+6. Ação registrada no audit log
+
+**Reativação:**
+1. Platform Admin aciona "Reativar" na empresa suspensa
+2. Sistema remove a suspensão
+3. Membros recuperam acesso imediatamente
+4. Ação registrada no audit log
+
+---
+
+## 7. Requisitos Funcionais
+
+### 7.1 Control Plane — Gestão de Empresas
+
+**RF-001** — O sistema permite ao Platform Admin criar uma nova empresa informando nome, identificador único e dados do owner inicial (nome e email).
+
+**RF-002** — Ao criar uma empresa, o sistema gera automaticamente o acesso do owner inicial e disponibiliza um link de definição de senha válido por 72 horas.
+
+**RF-003** — O sistema permite ao Platform Admin listar todas as empresas cadastradas, com filtro por status (ativa / suspensa) e busca por nome.
+
+**RF-004** — O sistema permite ao Platform Admin suspender uma empresa ativa, exigindo motivo (preenchimento obrigatório). A suspensão é registrada com data, responsável e motivo.
+
+**RF-005** — O sistema permite ao Platform Admin reativar uma empresa suspensa, restaurando o acesso de todos os seus membros.
+
+**RF-006** — O sistema permite ao Platform Admin visualizar os membros de uma empresa (nome, papel, data de ingresso) em modo somente leitura.
+
+**RF-007** — O sistema permite ao Platform Admin gerenciar a lista de Platform Admins: adicionar usuário existente, remover e alterar papel (Owner / Operator).
+
+**RF-008** — O Control Plane exibe um painel com KPIs agregados: total de empresas ativas e suspensas, total de motos no sistema, total de contratos ativos e total de cobranças vencidas.
+
+**RF-009** — Toda ação executada no Control Plane (criar empresa, suspender, reativar, promover admin) é registrada em audit log com: ator, ação, alvo e data/hora.
+
+---
+
+### 7.2 Autenticação e Isolamento de Tenant
+
+**RF-010** — O sistema resolve o tenant do usuário autenticado exclusivamente a partir da identidade do usuário no servidor, nunca a partir de dados enviados pelo cliente.
+
+**RF-011** — Um usuário autenticado como membro de tenant acessa exclusivamente os dados do seu próprio tenant. Nenhum dado de outro tenant é retornado — em tela, em API ou em exportações.
+
+**RF-012** — Na próxima requisição após a suspensão do seu tenant, o membro recebe tela de indisponibilidade e perde acesso a todos os dados. A sessão de autenticação permanece válida — apenas o acesso aos dados é bloqueado.
+
+**RF-013** — Um usuário com papel de Platform Admin E de membro de tenant, ao autenticar, vê um seletor de contexto para escolher entre Plataforma e Empresa. O contexto pode ser alternado sem logout.
+
+**RF-014** — Um usuário sem papel de Platform Admin recebe resposta de "não encontrado" ao tentar acessar rotas do Control Plane, sem revelar a existência dessas rotas.
+
+---
+
+### 7.3 Identidade e Autenticação do Cliente Final
+
+**RF-015** — O cliente final autentica no app mobile informando CPF e senha.
+
+**RF-016** — O sistema valida o formato e o dígito verificador do CPF no dispositivo antes de qualquer consulta ao servidor. CPF inválido é rejeitado imediatamente com mensagem de formato.
+
+**RF-017** — Em falha de autenticação (CPF não cadastrado ou senha incorreta), o sistema exibe mensagem genérica sem revelar qual dos dois campos está errado.
+
+**RF-018** — Cliente com vínculo em exatamente 1 empresa é direcionado automaticamente ao dashboard dessa empresa após autenticação.
+
+**RF-019** — Cliente com vínculo em 2 ou mais empresas vê tela de seleção de empresa após autenticação, com nome da empresa e status do contrato mais recente de cada uma. Empresas com tenant suspenso aparecem como "Temporariamente indisponível" sem opção de acesso.
+
+**RF-020** — Cliente pode alternar entre empresas no app a qualquer momento, sem precisar fazer logout e login novamente.
+
+**RF-021** — Ao visualizar dados no app, o cliente vê exclusivamente os dados da empresa selecionada no contexto ativo. Dados de outras empresas não aparecem em nenhuma tela.
+
+---
+
+### 7.4 Cadastro de Cliente pelo Membro do Tenant
+
+**RF-022** — O sistema valida o CPF informado no cadastro de cliente (formato e dígito verificador) antes de consultar o servidor.
+
+**RF-023** — Ao cadastrar um cliente com CPF já existente no sistema, o sistema vincula o cliente ao tenant atual sem criar novo login, sem enviar novo link de senha, e exibe aviso ao operador.
+
+**RF-024** — O aviso de CPF existente não revela a qual empresa o cliente pertence — apenas informa que o cliente já tem acesso ao GoMoto.
+
+**RF-025** — Ao cadastrar cliente novo (CPF não existente), o sistema gera link de definição de senha válido por 72 horas e o disponibiliza para o operador enviar ao cliente.
+
+**RF-026** — O operador pode gerar um novo link de definição de senha para um cliente cujo link anterior expirou.
+
+---
+
+### 7.5 Links de Acesso
+
+**RF-027** — Link de definição de senha (para owner inicial e para novo cliente) expira em 72 horas após a geração.
+
+**RF-028** — Link de redefinição de senha (esqueci minha senha) expira em 1 hora após a geração.
+
+**RF-029** — Platform Admin pode gerar novo link de definição de senha para owner de empresa cujo link expirou.
+
+---
+
+## 8. Requisitos Não Funcionais
+
+### 8.1 Performance
+
+**RNF-001** — O dashboard do tenant (tela principal após login) carrega e exibe os dados em p95 < 3 segundos para tenants com até 500 motos cadastradas.
+
+**RNF-002** — O fluxo de autenticação completo (login + resolução de tenant + redirecionamento) é concluído em p95 < 2 segundos.
+
+**RNF-003** — A tela de seleção de empresa no mobile (cliente com múltiplos vínculos) renderiza a lista em p95 < 1,5 segundo após a autenticação.
+
+### 8.2 Segurança
+
+**RNF-004** — A sessão web expira após 8 horas de inatividade. A sessão mobile usa refresh token com validade de 30 dias; após expiração, o cliente precisa autenticar novamente com CPF e senha.
+
+**RNF-005** — O sistema aplica limite de tentativas de autenticação: após 5 tentativas consecutivas malsucedidas, o acesso pelo mesmo identificador é bloqueado por 15 minutos.
+
+**RNF-006** — Nenhum dado de tenant B é retornado em resposta a requisições de um usuário autenticado no tenant A — mesmo com manipulação de parâmetros, IDs ou headers na requisição.
+
+**RNF-007** — O audit log do Control Plane é imutável: nenhum tipo de usuário (incluindo Platform Admin) pode editar ou excluir registros após criação.
+
+### 8.3 Privacidade (LGPD)
+
+**RNF-008** — CPF e demais dados pessoais do cliente (nome, telefone) são acessíveis apenas por membros do tenant ao qual o cliente está vinculado. A empresa A não enxerga nenhum dado de como a empresa B cadastrou o mesmo cliente.
+
+**RNF-009** — O sistema não revela a existência de um CPF no sistema a nenhum usuário externo (anti-enumeração): falhas de autenticação retornam mensagem genérica sem distinção entre "CPF não existe" e "senha incorreta".
+
+**RNF-010** — Dados de clientes não são compartilhados entre tenants em nenhuma circunstância, mesmo quando dois tenants possuem vínculo com o mesmo cliente físico.
+
+### 8.4 Disponibilidade
+
+**RNF-011** — O sistema mantém disponibilidade de 99,5% em horário comercial (07h–20h, horário de Brasília). Manutenções programadas são comunicadas com antecedência mínima de 24 horas.
+
+### 8.5 Compatibilidade
+
+**RNF-012** — A interface web é funcional nos dois últimos major releases dos navegadores Chrome, Firefox e Safari (desktop).
+
+**RNF-013** — O app mobile é funcional em dispositivos com Android 10 ou superior e iOS 14 ou superior.
+
+---
+
+## 9. Regras de Negócio
+
+### 9.1 Identidade e autenticação
+
+**RN-001** — Um email é associado a um e somente um usuário em todo o sistema. Não é possível criar dois usuários com o mesmo email, independentemente do tipo de usuário ou tenant.
+
+**RN-002** — Um CPF identifica globalmente uma única pessoa física no sistema. Um CPF corresponde a um único login de cliente final — não há dois logins para o mesmo CPF.
+
+**RN-003** — O login de Platform Admins e membros de tenant usa email e senha. O login de clientes finais usa CPF e senha. Os dois mecanismos são independentes e não intercambiáveis.
+
+**RN-004** — O contexto de tenant de uma sessão é sempre determinado pelo servidor a partir da identidade autenticada. O sistema nunca aceita o identificador de tenant enviado pelo cliente como fonte de verdade.
+
+### 9.2 Isolamento de dados entre tenants
+
+**RN-005** — Todo dado criado dentro de um tenant pertence exclusivamente àquele tenant e nunca é acessível por usuários de outro tenant, seja por interface, API ou exportação.
+
+**RN-006** — Um membro de tenant não pode ler, criar, editar ou excluir dados de nenhum outro tenant — mesmo que conheça identificadores válidos de registros de outros tenants.
+
+**RN-007** — Um cliente final visualiza, em cada sessão, apenas os dados do tenant selecionado como contexto ativo. Dados de outros tenants onde o cliente também possui vínculo não aparecem em nenhuma tela.
+
+### 9.3 Cliente final em múltiplos tenants
+
+**RN-008** — Um cliente final pode ter perfil em múltiplos tenants simultaneamente. Cada perfil é independente: os dados podem diferir entre tenants e são gerenciados de forma isolada por cada empresa.
+
+**RN-009** — Ao cadastrar um CPF que já possui login no sistema, o tenant atual recebe um novo perfil de cliente vinculado ao login existente. Nenhum novo login é criado. O cliente usa as mesmas credenciais para acessar qualquer tenant onde esteja vinculado.
+
+**RN-010** — Um tenant que cadastra um CPF existente não recebe nenhuma informação sobre os outros tenants onde esse cliente possui vínculo.
+
+**RN-011** — O email de contato do perfil de cliente (campo opcional) é usado exclusivamente para comunicação. Nunca é usado para autenticação e não precisa ser único no sistema.
+
+### 9.4 Control Plane e ciclo de vida de tenants
+
+**RN-012** — Somente um Platform Admin com papel Owner pode criar, suspender ou reativar tenants.
+
+**RN-013** — Somente um Platform Admin com papel Owner pode promover ou remover outros Platform Admins.
+
+**RN-014** — O primeiro Platform Admin Owner é criado por processo de bootstrap controlado, fora da interface do sistema.
+
+**RN-015** — Um Platform Admin pode simultaneamente ser membro de um tenant. Nesse caso, os contextos (Plataforma e Empresa) são separados e alternados explicitamente pelo usuário — nunca misturados automaticamente.
+
+### 9.5 Suspensão de tenant
+
+**RN-016** — A suspensão de um tenant exige motivo obrigatório, registrado permanentemente no audit log junto com data e responsável.
+
+**RN-017** — Um tenant suspenso tem todos os dados preservados integralmente. A suspensão bloqueia acesso, não apaga dados.
+
+**RN-018** — Membros de um tenant suspenso perdem acesso na próxima requisição ao sistema. A sessão de autenticação não é invalidada — apenas o acesso aos dados é bloqueado.
+
+**RN-019** — A suspensão de um tenant não afeta o acesso de um cliente final que possui vínculo em outros tenants ativos. O cliente continua acessando os demais tenants normalmente.
+
+**RN-020** — Um membro de tenant suspenso mantém seu vínculo com o tenant. Ao reativar o tenant, o membro recupera o acesso sem necessidade de recadastro ou novo convite.
+
+### 9.6 Audit log
+
+**RN-021** — Toda ação executada no Control Plane gera um registro no audit log contendo: quem executou, qual ação, qual o alvo e quando. Esse registro é imutável — não pode ser editado ou excluído por nenhum tipo de usuário.
+
+**RN-022** — O audit log do Control Plane é separado dos registros operacionais de cada tenant.
+
+---
+
+## 10. Critérios de Aceite
+
+### 10.1 Control Plane — Gestão de empresas
+
+**CA-001 (RF-001, RF-002)** — Criação de empresa
+> **Dado** que sou Platform Admin Owner no Control Plane,
+> **Quando** preencho nome da empresa, identificador único, nome e email do owner e confirmo,
+> **Então** a empresa é criada com status ativo, um link de definição de senha válido por 72 horas é gerado para o owner, e a ação aparece no audit log com meu usuário como responsável.
+
+**CA-002 (RF-001)** — Email do owner já em uso
+> **Dado** que sou Platform Admin Owner,
+> **Quando** informo o email do owner com um endereço já cadastrado no sistema,
+> **Então** o sistema exibe aviso de email em uso e não cria a empresa até que o email seja substituído.
+
+**CA-003 (RF-003)** — Listagem e filtro de empresas
+> **Dado** que sou Platform Admin,
+> **Quando** acesso a lista de empresas e filtro por status "suspensa",
+> **Então** apenas empresas com status suspenso são exibidas, sem misturar empresas ativas.
+
+**CA-004 (RF-004)** — Suspensão com motivo
+> **Dado** que sou Platform Admin Owner e existe uma empresa ativa,
+> **Quando** aciono "Suspender" e informo o motivo,
+> **Então** a empresa passa para status suspenso e o audit log registra: meu usuário, data/hora e o motivo informado.
+
+**CA-005 (RF-004)** — Suspensão sem motivo bloqueada
+> **Dado** que sou Platform Admin Owner,
+> **Quando** aciono "Suspender" sem preencher o campo de motivo,
+> **Então** o sistema bloqueia a ação e exige o preenchimento do motivo antes de prosseguir.
+
+**CA-006 (RF-005)** — Reativação de empresa
+> **Dado** que uma empresa está com status suspenso,
+> **Quando** Platform Admin Owner aciona "Reativar",
+> **Então** a empresa volta ao status ativo, a ação é registrada no audit log, e os membros recuperam acesso na próxima requisição.
+
+**CA-007 (RF-006)** — Membros do tenant: somente leitura no Control Plane
+> **Dado** que sou Platform Admin,
+> **Quando** acesso a lista de membros de um tenant no Control Plane,
+> **Então** vejo nome, papel e data de ingresso de cada membro, sem nenhuma opção de edição, remoção ou adição disponível.
+
+**CA-008 (RF-007, RN-013)** — Restrição de gestão de Platform Admins
+> **Dado** que sou Platform Admin com papel Operator (não Owner),
+> **Quando** tento adicionar ou remover um Platform Admin,
+> **Então** a ação é negada — a interface exibe a opção desabilitada e a API rejeita a requisição.
+
+**CA-009 (RF-008)** — KPIs do painel
+> **Dado** que sou Platform Admin,
+> **Quando** acesso o painel do Control Plane,
+> **Então** os números exibidos de tenants ativos, motos e contratos são consistentes com os valores reais nas tabelas do sistema.
+
+**CA-010 (RF-009)** — Imutabilidade do audit log
+> **Dado** que uma ação foi registrada no audit log do Control Plane,
+> **Quando** qualquer usuário (incluindo Platform Admin Owner) tenta editar ou excluir esse registro,
+> **Então** a operação é negada — o registro permanece inalterado.
+
+---
+
+### 10.2 Autenticação e isolamento de tenant
+
+**CA-011 (RF-010, RF-011)** — Resolução correta de tenant *(cobre o bug crítico)*
+> **Dado** que existem dois tenants (A e B) com usuários distintos e dados distintos,
+> **Quando** o usuário do Tenant B faz login,
+> **Então** o sistema resolve o contexto como Tenant B e todas as telas exibem exclusivamente dados do Tenant B — nenhum dado do Tenant A aparece.
+
+**CA-012 (RF-011)** — Acesso cross-tenant via parâmetro manipulado
+> **Dado** que o usuário do Tenant B está autenticado,
+> **Quando** tenta acessar um recurso usando o ID de um registro pertencente ao Tenant A (por manipulação de URL ou parâmetro),
+> **Então** o sistema retorna "não encontrado" sem revelar que o recurso existe em outro tenant.
+
+**CA-013 (RF-012)** — Bloqueio de membro na próxima requisição após suspensão
+> **Dado** que o Tenant A é suspenso enquanto um membro tem sessão ativa,
+> **Quando** o membro faz a próxima requisição ao sistema,
+> **Então** o membro vê tela de indisponibilidade e não consegue acessar nenhum dado do Tenant A.
+
+**CA-014 (RF-012, RN-019)** — Suspensão de tenant não afeta cliente em outro tenant ativo
+> **Dado** que um cliente possui vínculo no Tenant A (suspenso) e no Tenant B (ativo),
+> **Quando** o cliente abre o app mobile,
+> **Então** o Tenant A aparece na lista de seleção como "Temporariamente indisponível" (sem acesso) e o cliente acessa o Tenant B normalmente.
+
+**CA-015 (RF-013)** — Seletor de contexto para usuário com duplo papel
+> **Dado** que um usuário é Platform Admin e também membro do Tenant X,
+> **Quando** faz login no sistema web,
+> **Então** vê um seletor entre "Plataforma" e "Nome do Tenant X" e pode alternar entre os contextos sem fazer logout.
+
+**CA-016 (RF-014)** — Proteção das rotas do Control Plane
+> **Dado** que um usuário autenticado é apenas membro de tenant (sem papel de Platform Admin),
+> **Quando** tenta acessar qualquer rota do Control Plane,
+> **Então** recebe resposta de "não encontrado", sem revelar que a rota existe.
+
+---
+
+### 10.3 Autenticação do cliente final (mobile)
+
+**CA-017 (RF-015, RF-016)** — Login com CPF válido
+> **Dado** que sou cliente com CPF cadastrado e senha definida,
+> **Quando** informo CPF e senha corretos no app mobile,
+> **Então** o sistema autentica e me direciona para o dashboard da empresa (ou tela de seleção, se tiver múltiplos vínculos).
+
+**CA-018 (RF-016)** — CPF inválido bloqueado antes de chamada ao servidor
+> **Dado** que estou na tela de login do mobile,
+> **Quando** informo um CPF com dígito verificador incorreto,
+> **Então** o sistema exibe mensagem de CPF inválido imediatamente, sem realizar nenhuma requisição ao servidor.
+
+**CA-019 (RF-017)** — Mensagem genérica em falha de autenticação
+> **Dado** que sou cliente,
+> **Quando** informo CPF não cadastrado ou senha incorreta,
+> **Então** o sistema exibe "CPF ou senha incorretos", sem revelar qual dos dois campos está errado.
+
+**CA-020 (RF-018)** — Cliente com vínculo único vai direto ao dashboard
+> **Dado** que sou cliente com vínculo em exatamente 1 empresa,
+> **Quando** autentico no app,
+> **Então** sou direcionado diretamente ao dashboard dessa empresa, sem passar pela tela de seleção.
+
+**CA-021 (RF-019)** — Cliente com múltiplos vínculos vê tela de seleção
+> **Dado** que sou cliente com vínculo em 2 ou mais empresas,
+> **Quando** autentico no app,
+> **Então** vejo a tela de seleção listando todas as empresas com o status do contrato mais recente de cada uma.
+
+**CA-022 (RF-020, RF-021)** — Alternância de empresa sem logout
+> **Dado** que estou no app visualizando dados da Empresa A,
+> **Quando** aciono "Trocar de empresa" e seleciono a Empresa B,
+> **Então** todas as telas passam a exibir exclusivamente dados da Empresa B — nenhum dado da Empresa A aparece.
+
+---
+
+### 10.4 Cadastro de cliente pelo operador
+
+**CA-023 (RF-022)** — CPF inválido bloqueado no cadastro
+> **Dado** que sou operador cadastrando um cliente,
+> **Quando** informo um CPF com dígito verificador inválido,
+> **Então** o sistema bloqueia o cadastro com mensagem de CPF inválido antes de consultar o servidor.
+
+**CA-024 (RF-023, RF-024)** — CPF existente — vinculação sem revelar origem
+> **Dado** que sou operador e o CPF informado já possui login no sistema (em outro tenant),
+> **Quando** confirmo o cadastro com os dados do perfil para meu tenant,
+> **Então** o sistema vincula o cliente ao meu tenant sem criar novo login, exibe aviso de que o cliente já tem acesso ao GoMoto, e não revela qual outra empresa possui vínculo com esse cliente.
+
+**CA-025 (RF-025, RF-027)** — Link de senha gerado para novo cliente
+> **Dado** que um novo cliente foi cadastrado com CPF não existente no sistema,
+> **Quando** o operador acessa o cadastro do cliente,
+> **Então** um link de definição de senha válido por 72 horas está disponível para envio ao cliente.
+
+**CA-026 (RF-027)** — Link expirado informa o próximo passo
+> **Dado** que o link de definição de senha de um cliente foi gerado há mais de 72 horas,
+> **Quando** o cliente tenta acessá-lo,
+> **Então** o sistema informa que o link expirou e instrui o cliente a solicitar novo link ao operador da locadora.
+
+**CA-027 (RF-026)** — Operador gera novo link para cliente
+> **Dado** que o link de definição de senha de um cliente expirou,
+> **Quando** o operador aciona "Gerar novo link",
+> **Então** um novo link válido por 72 horas é gerado, o anterior é invalidado, e o novo link fica disponível para envio.
+
+**CA-028 (RF-028)** — Link de redefinição de senha expira em 1 hora
+> **Dado** que um cliente acionou "Esqueci minha senha" e recebeu o link,
+> **Quando** tenta usar o link após 1 hora,
+> **Então** o sistema informa que o link expirou e oferece a opção de solicitar novo link.
+
+**CA-029 (RF-029)** — Platform Admin regenera link do owner
+> **Dado** que o link de definição de senha de um owner de tenant expirou,
+> **Quando** o Platform Admin acessa o detalhe da empresa e aciona "Gerar novo link",
+> **Então** um novo link válido por 72 horas é gerado, o anterior é invalidado, e o novo link fica disponível para cópia e envio manual.
+
+---
+
+## 11. Dependências e Riscos
+
+### 11.1 Dependências
+
+**PRDs relacionados:**
+
+| PRD | Relação |
 |---|---|
-| Platform admin vaza dados de tenants por bypass RLS | Audit log obrigatório + revisão periódica + número de platform admins pequeno (2-3) |
-| Service_role key vaza | Manter só em env vars server-side; rodar verificação no build de que não vai pro bundle do client |
-| Criação de tenant duplicada por slug | UNIQUE constraint já existe em `tenants.slug` |
-| Promoção indevida de platform admin | Só `platform_owner` promove; primeira promoção feita via migration/seed |
+| PRD 0004 — Locação e Cobranças | Depende do isolamento de tenant funcionando corretamente |
+| PRD 0005 — Integração Mercado Pago | Depende da identidade de tenant resolvida corretamente para associar pagamentos ao tenant correto |
 
----
+**ADRs a revisar:**
 
-## 7. Telas e fluxos
-
-> Convenção: rotas em português (`/admin/empresas`), código em inglês.
-
-### 7.1 Mapa de telas
-
-```
-/admin                          → Dashboard plataforma
-/admin/empresas                 → Lista de empresas (tenants)
-/admin/empresas/nova            → Wizard de criação (modal ou rota)
-/admin/empresas/[id]            → Detalhe + edição + suspensão
-/admin/empresas/[id]/membros    → Listagem read-only dos membros do tenant
-/admin/usuarios                 → Lista de platform admins
-/admin/relatorios               → Relatórios cross-tenant (export CSV)
-/admin/auditoria                → Audit log do control plane
-```
-
-### 7.2 Detalhamento por tela
-
-#### 7.2.1 `/admin` — Dashboard plataforma
-
-**KPIs (cards em h-9 text-[13px] coerentes com tabelas):**
-- Tenants ativos / suspensos / total
-- Motos no sistema (soma)
-- Contratos ativos (soma)
-- Cobranças vencidas (soma)
-- Usuários da plataforma (membros de algum tenant)
-
-**Gráficos (Recharts):**
-- Tenants criados por mês (últimos 12 meses)
-- Crescimento de contratos ativos por tenant (top 5)
-
-**Implementação:** function `SECURITY DEFINER` que retorna o agregado, evitando expor service_role.
-
-#### 7.2.2 `/admin/empresas` — Lista
-
-Tabela `h-9 text-[13px]` com colunas:
-- Nome
-- Slug
-- Status (Ativa / Suspensa)
-- Membros (count)
-- Motos (count)
-- Criada em
-- Ações (Ver / Suspender)
-
-Filtros: status, busca por nome/slug.
-
-#### 7.2.3 `/admin/empresas/nova` — Criar empresa
-
-Wizard em 2 passos:
-
-1. **Dados da empresa** — nome, slug (auto-gerado), CNPJ (opcional V1), observações.
-2. **Owner inicial** — email + nome do owner. Sistema:
-    - Cria `auth.users` (Server Action com service_role).
-    - Gera magic link de definição de senha (reaproveita fluxo `/set-password` já existente — commit `c54118f`).
-    - Cria `tenants` row.
-    - Cria `tenant_members` com `role = 'owner'`.
-    - Grava `platform_audit_logs` action `tenant.created`.
-    - Retorna magic link copiável no modal (até integração Resend).
-
-#### 7.2.4 `/admin/empresas/[id]` — Detalhe
-
-Sumário + ações:
-- Editar nome, observações.
-- **Suspender** — modal pede motivo (obrigatório, ≥20 chars). Grava `suspended_at`, `suspended_reason`, `suspended_by`. Log de auditoria.
-- **Reativar** — limpa os 3 campos. Log.
-- **Excluir** — **fora do V1** (decisão D3 em §13). Apenas suspensão indefinida.
-
-#### 7.2.5 `/admin/empresas/[id]/membros` — Membros (read-only)
-
-Lista os `tenant_members` do tenant com role. Platform admin **não edita** — apenas observa. Edição é responsabilidade do `tenant_owner` no dashboard do tenant.
-
-#### 7.2.6 `/admin/usuarios` — Platform admins
-
-CRUD da tabela `platform_admins`. Só `platform_owner` pode promover/demover. Listagem mostra: email, role, criado em, criado por.
-
-#### 7.2.7 `/admin/relatorios` — Relatórios cross-tenant
-
-Relatórios V1:
-- Motos por tenant (CSV)
-- Contratos ativos por tenant (CSV)
-- Cobranças vencidas por tenant (CSV)
-- Receita acumulada por tenant (CSV) — proxy futuro de MRR
-
-#### 7.2.8 `/admin/auditoria` — Audit log
-
-Lista paginada de `platform_audit_logs` com filtros por actor, action, período.
-
-### 7.3 Switcher de contexto (web)
-
-Header global do dashboard web:
-
-- Se user é `platform_admin` **E** `tenant_member` (caso raro: Alan testa como owner da Bonze) → toggle "Plataforma / Tenant X" no canto superior direito.
-- Se user é só `platform_admin` → marca "Plataforma" fixa, sem toggle.
-- Se user é só `tenant_member` → sem toggle, vai direto pro `(dashboard)` atual.
-
-Toggle muda apenas a rota e layout/sidebar; sessão Supabase é a mesma.
-
-### 7.4 Login do cliente mobile (CPF)
-
-Tela `apps/mobile/app/login.tsx` reescrita:
-
-- Campo **"CPF"** com máscara `000.000.000-00` (não "Email").
-- Validação local: formato + dígito verificador (regra pura em `@gomoto/core/rules/cpf`).
-- Resolve `shell_email(cpf)` e chama `signInWithPassword`.
-- Erro genérico em falha (não revela "CPF não encontrado" — anti-enumeração).
-
-### 7.5 Tela de seleção de locadora (mobile cliente)
-
-Nova rota `apps/mobile/app/select-tenant.tsx` exibida pós-login se `customers WHERE user_id = auth.uid()` retorna ≥2 linhas:
-
-- Lista de cards: nome da locadora, status do contrato atual (Ativo / Encerrado), data do último contrato.
-- Tap em um card → AsyncStorage guarda `selectedTenantId` e navega para tabs.
-- Botão "Trocar de locadora" sempre acessível no header das tabs.
-- Se N=1, pula esta tela direto.
-
----
-
-## 8. Fluxos críticos (end-to-end)
-
-### 8.1 Onboarding de nova empresa
-
-```
-[Platform owner] /admin/empresas/nova
-        ↓ preenche nome, slug, owner email+nome
-[Server Action]
-  1. Valida is_platform_admin()
-  2. Cria auth.users (service_role)
-  3. Cria tenant
-  4. Cria tenant_members (role=owner)
-  5. Gera magic link (Supabase Admin API)
-  6. Grava platform_audit_logs
-  7. Retorna { tenant, magicLink }
-[UI] mostra magic link em modal copiável (até Resend entrar)
-```
-
-### 8.2 Suspensão de tenant
-
-```
-[Platform owner] /admin/empresas/[id] → Suspender
-        ↓ informa motivo
-[Server Action]
-  1. Valida is_platform_admin() E role = 'owner'
-  2. UPDATE tenants SET suspended_at, suspended_reason, suspended_by
-  3. Grava platform_audit_logs (action=tenant.suspended, metadata={motivo})
-  4. (futuro) invalida sessões ativas dos membros
-[Resultado] RLS bloqueia leitura/escrita dos membros do tenant
-```
-
-### 8.3 Promoção de platform admin
-
-```
-[Platform owner] /admin/usuarios → Adicionar
-        ↓ informa email
-[Server Action]
-  1. Valida get_platform_role() = 'owner'
-  2. Procura auth.users por email (deve existir)
-  3. INSERT platform_admins (user_id, role='operator', created_by=auth.uid())
-  4. Grava platform_audit_logs (action=admin.promoted)
-```
-
-### 8.4 Cadastro de cliente já existente em outro tenant
-
-```
-[Operador da Locadora B] dashboard → Clientes → Novo
-        ↓ digita CPF=12345678900 + nome + telefone
-[Server Action createCustomer]
-  1. valida CPF (formato + dígito)
-  2. SELECT * FROM customers WHERE cpf = '12345678900' LIMIT 1
-       → encontrado (cliente da Locadora A)
-  3. INSERT INTO customers (
-       tenant_id   = <Locadora B>,
-       cpf         = '12345678900',
-       user_id     = <user_id reaproveitado>,
-       name, phone, ...
-     )
-  4. NÃO cria auth.users, NÃO gera magic link
-  5. (Locadora A continua intocada por RLS)
-[UI] flash: "CPF já cadastrado no GoMoto — vinculando à Locadora B. Cliente já tem login."
-```
-
-Variante "cliente novo":
-
-```
-[Operador da Locadora B] dashboard → Clientes → Novo
-        ↓ digita CPF=99988877700 + nome + telefone + (email)
-[Server Action createCustomer]
-  1. valida CPF
-  2. SELECT * FROM customers WHERE cpf = '99988877700' → vazio
-  3. Cria auth.users com:
-       email    = shell_email('99988877700')  -- '99988877700@cliente.gomoto.app'
-       password = senha temporária randômica
-  4. Gera magic link para fluxo /set-password
-  5. INSERT customers (tenant_id, cpf, user_id, name, phone, email=opcional)
-  6. Retorna magic link (copiável; operador envia por WhatsApp)
-```
-
-### 8.5 Login do cliente em N tenants
-
-```
-[Cliente João] abre app
-        ↓ digita CPF=12345678900 + senha
-[App mobile]
-  1. shell_email = '12345678900@cliente.gomoto.app'
-  2. signInWithPassword({ email: shell_email, password })
-  3. SELECT * FROM customers WHERE user_id = auth.uid()
-       → [Locadora A row, Locadora B row]
-  4. N=2 → navega para /select-tenant
-[Tela] mostra 2 cards (A, B)
-       ↓ João escolhe B
-  5. AsyncStorage.set('selectedTenantId', <B>)
-  6. Navega para tabs
-[Tabs] contratos/cobranças filtram client-side por selectedTenantId
-       (RLS já entrega só o que João tem direito; filtro local seleciona o tenant ativo)
-```
-
----
-
-## 9. Bootstrap do primeiro platform admin
-
-Não pode haver platform admin para promover o primeiro. Soluções:
-
-- **(A)** Migration faz `INSERT INTO platform_admins` para o user já existente (`admin@gomoto.dev` do seed) com role `owner`.
-- **(B)** Variável de ambiente `PLATFORM_BOOTSTRAP_EMAIL` — primeiro login desse email vira platform admin automaticamente.
-
-**Recomendação:** **(A)** — explícito, versionado, fácil de auditar. Seed e migration de produção tratam isso uma vez só.
-
----
-
-## 10. Impacto em código existente
-
-### 10.1 Mudanças necessárias
-
-| Componente | Mudança |
+| ADR | Ação necessária |
 |---|---|
-| `apps/web/src/middleware.ts` | Adicionar branch: se rota inicia com `/admin/*`, exigir `is_platform_admin()`. Bloquear sessões de tenants suspensos (membros). |
-| `apps/web/src/lib/auth/tenant.ts` | Adicionar helpers `getPlatformRole()` e `isPlatformAdmin()`. |
-| `apps/web/src/app/(admin)/layout.tsx` | Novo route group + sidebar de plataforma. |
-| `apps/web/src/components/layout/Sidebar` | Switcher de contexto (Plataforma ↔ Tenant) só quando user tem ambos os papéis. |
-| `apps/web/src/app/(dashboard)/clientes/actions.ts` | `createCustomer` passa a checar CPF global, reaproveitar `user_id` ou criar `auth.users` com shell email. |
-| `apps/mobile/app/login.tsx` | Substituir campo "Email" por "CPF" com máscara + validação local. |
-| `apps/mobile/app/select-tenant.tsx` | **Nova** tela de seleção quando cliente tem N≥2 customers. |
-| `apps/mobile/src/contexts/auth.tsx` | Expor `selectedTenantId` + `setSelectedTenantId` via AsyncStorage. |
-| `packages/core/src/rules/cpf.ts` | Função pura `isValidCpf(cpf)` + `cpfToShellEmail(cpf)`. |
-| `packages/core/src/rules/tenant.ts` | `canSuspendTenant(tenant, actor)`, `requireSuspendReason(reason)`. |
-| `packages/core/src/schemas` | Schemas Zod para `tenant`, `platform_admin`, `customer` (com CPF obrigatório). |
-| Migrations novas | `supabase/migrations/<ts>_platform_admin.sql`, `<ts>_customers_cpf_global.sql`, `<ts>_tenants_suspension.sql`. |
-| Seed | Promover `admin@gomoto.dev` a `platform_owner`; ajustar `cliente@gomoto.dev` para usar shell email. |
+| ADR 0003 — Escopo e auth do mobile cliente | Revisar à luz de RN-002 e RN-009 (CPF global, perfil por tenant) |
+| ADR 0004 — Control plane e identidade do cliente | Atualizar para refletir a correção da contradição CPF único global vs. cliente em múltiplos tenants |
 
-### 10.2 NÃO precisa mudar
+**Dependências de plataforma:**
+- **Supabase Auth** — restrições de design (email único, estrutura do JWT) devem ser respeitadas pela Spec ao implementar o login por CPF.
+- Sem novas dependências externas previstas para este escopo.
 
-- Roles existentes em `tenant_members` (`owner/admin/operator/viewer`).
-- RLS atual filtrada por `get_user_tenants()` — **continua válida**. Apenas **acrescentam-se** policies de bypass para platform admin + filtro de `suspended_at IS NULL`.
-- Função `current_customer_ids()` já é `SETOF UUID` — funciona out-of-the-box com cliente em N tenants.
-- Login admin web continua email/senha (sem CPF).
+### 11.2 Riscos
 
-### 10.3 Pré-checagem antes de aplicar a migration de CPF global
-
-A migration `customers_cpf_global` cria `UNIQUE INDEX customers_cpf_global_unique`. Vai falhar se já houver CPFs duplicados em tenants distintos. Antes:
-
-```sql
--- Lista CPFs duplicados (precisa virar 0 linhas)
-SELECT cpf, COUNT(*) AS n, ARRAY_AGG(tenant_id) AS tenants
-  FROM customers
-  WHERE cpf IS NOT NULL
-  GROUP BY cpf
-  HAVING COUNT(*) > 1;
-```
-
-**Conflict resolution policy:** se houver duplicatas, escolher 1 `user_id` canônico (o mais antigo) e fazer `UPDATE customers SET user_id = <canonico> WHERE cpf = ?` antes de aplicar a constraint. Cada linha vira um vínculo por tenant para o mesmo `auth.users`.
+| # | Risco | Categoria | Prob | Impacto | Mitigação |
+|---|---|---|---|---|---|
+| R-01 | Bug de isolamento está em produção: dados de um tenant podem estar acessíveis a membros de outro tenant | Técnico / Segurança | Alta | Crítico | Bloquear onboarding de novos tenants até CA-011 e CA-012 estarem validados |
+| R-02 | CPFs duplicados na tabela de clientes: o mesmo cliente já cadastrado em dois tenants antes da correção do modelo | Dados | Baixa | Médio | Auditar dados existentes antes de qualquer migração; definir política de resolução na Spec |
+| R-03 | Link de definição de senha expirado sem regeneração: cliente fica bloqueado sem saber o que fazer | Produto / Operacional | Média | Baixo-Médio | Interface clara com status do link (ativo / expirado) e instrução ao cliente |
+| R-04 | Confusão de contexto no mobile: cliente com múltiplos vínculos não percebe em qual empresa está navegando | Produto / UX | Média | Médio | Indicador visual permanente do nome da empresa ativa no header do mobile |
+| R-05 | Bootstrap do primeiro Platform Admin: processo crítico executado uma única vez; perda de acesso sem interface de recuperação | Operacional | Baixa | Alto | Documentar o processo explicitamente; manter credenciais de emergência em local seguro |
+| R-06 | Scope creep de isolamento: outras partes do sistema (relatórios, exportações, webhooks) também podem não respeitar isolamento | Técnico | Média | Alto | A Spec deve auditar todos os pontos de acesso a dados, não apenas as telas principais |
 
 ---
 
-## 11. Critérios de aceite (V1)
+## 12. Questões Abertas e Aprovação Final
 
-**Control plane:**
+### 12.1 Questões abertas
 
-- [ ] Platform admin cria nova empresa via UI, obtém magic link copiável, e o owner recém-criado loga e vê o dashboard do seu tenant vazio.
-- [ ] Platform admin suspende uma empresa: membros perdem acesso a leituras e escritas (validado via Playwright + queries diretas) e veem tela "Locadora temporariamente indisponível".
-- [ ] Dashboard de plataforma mostra contagens consistentes com `SELECT count(*)` direto nas tabelas (mesmo número).
-- [ ] Toda mutação no control plane gera 1 linha em `platform_audit_logs` com `actor_id` correto.
-- [ ] `platform_operator` consegue ler, **não** consegue criar/suspender (UI mostra ação desabilitada + RLS rejeita).
-- [ ] Usuário não-admin recebe 404 ao acessar `/admin/*` (não vaza existência).
+Nenhuma questão aberta. Todas as decisões foram fechadas durante a revisão deste PRD.
 
-**Identidade do cliente:**
+*Itens explicitamente adiados para vNext:*
 
-- [ ] Cadastro de cliente com CPF já existente em outro tenant reaproveita `user_id`, não envia magic link, e exibe aviso "CPF já cadastrado".
-- [ ] Cliente com 2 customers (tenants A e B) loga com CPF, vê tela de seleção, escolhe um e navega; troca de locadora funciona no header das tabs.
-- [ ] Cliente com 1 customer pula a tela de seleção.
-- [ ] Locadora A não enxerga em momento algum dados da Locadora B sobre o mesmo cliente (validado via Playwright + queries diretas).
-- [ ] Tentar cadastrar CPF inválido (dígito errado) é bloqueado client-side e server-side.
+| Item | Motivo |
+|---|---|
+| Notificações automáticas por email (Resend) | Dependência de serviço externo; operador envia link manualmente no V1 |
+| LGPD — direito ao esquecimento e anonimização | PRD próprio quando houver demanda legal |
+| Acessibilidade WCAG | Sem demanda identificada para este ciclo |
+| Rate limiting — mecanismo (por IP vs. por identificador) | Decisão técnica; pertence à Spec |
 
-**Geral:**
+### 12.2 Checklist de validação
 
-- [ ] Build verde + migrações `pnpm db:reset` sobem limpo.
-- [ ] ADR 0004 escrito formalizando o modelo de control plane.
-- [ ] Notas Obsidian atualizadas: [[Banco de Dados]], [[Segurança]], [[Estado Atual]], [[decisions/0003-escopo-e-auth-do-mobile-cliente]] (adendo sobre CPF login).
-
----
-
-## 12. Faseamento sugerido
-
-| Fase | Escopo | Esforço |
-|---|---|---|
-| **F1 — Schema control plane + bootstrap** | Migrations `platform_admin` + `tenants_suspension`, helper functions, policies, promoção do primeiro admin no seed | 1 dia |
-| **F2 — Identidade do cliente (CPF global + shell email)** | Migration `customers_cpf_global`, refactor de `createCustomer`, `cpfToShellEmail` em `@gomoto/core`, regra `isValidCpf` | 1-2 dias |
-| **F3 — Mobile: login CPF + tenant picker** | Tela login reescrita, `select-tenant.tsx`, `selectedTenantId` no contexto | 1-2 dias |
-| **F4 — CRUD de empresas** | `/admin/empresas`, criar/listar/ver/editar/suspender/reativar | 2-3 dias |
-| **F5 — Platform admins UI** | `/admin/usuarios`, promover/demover, audit log básico | 1 dia |
-| **F6 — Dashboard plataforma** | `/admin`, KPIs agregados via SECURITY DEFINER functions | 1-2 dias |
-| **F7 — Relatórios** | `/admin/relatorios` com exports CSV | 1-2 dias |
-| **F8 — Auditoria** | `/admin/auditoria` com filtros | 1 dia |
-| **F9 — Integração Resend** | Substituir magic link manual por email automático | depende Edge Function |
-
-**Total estimado V1 (F1-F8):** 9-14 dias focados, web em produção entre fases.
-
-**Ordem de prioridade:** F1 → F2 → F4 (em paralelo F3 quando mobile ganhar prioridade).
+- [x] Todas as seções obrigatórias presentes (§1, §3, §5, §6, §7, §8, §9, §10, §11, §12)
+- [x] Seções opcionais tratadas (§2 Glossário: presente; §4 Stakeholders: pulado — dono único registrado)
+- [x] Zero placeholders
+- [x] Todo RF tem ≥ 1 CA (29 RFs → 29 CAs)
+- [x] Todo CA aponta para RF ou RN
+- [x] §12.1 sem item pendente
+- [x] Status atualizado para `aprovado`
 
 ---
 
-## 13. Decisões (fechadas em 2026-06-15)
-
-| # | Decisão | Resolução |
-|---|---|---|
-| ✅ D1 | Modelo de papel platform (tabela vs JWT claim) | **Tabela `platform_admins`** |
-| ✅ D2 | Bloqueio de tenant suspenso (RLS vs middleware-only) | **Ambos** — defesa em camadas (RLS + middleware) |
-| ✅ D3 | Exclusão de tenant (hard delete) | **Não no V1** — só suspensão indefinida |
-| ✅ D4 | Magic link manual vs Resend para owner inicial | **Manual no V0**, Resend em fase F9 |
-| ✅ D5 | Impersonação de tenant (login-as) | **Não no V1** — reabrir se surgir caso concreto |
-| ✅ D6 | Bootstrap do primeiro admin | **Migration explícita** promovendo `admin@gomoto.dev` |
-| ✅ D7 | Self-service signup futuro | **Fora do V1** — PRD próprio quando justificar |
-| ✅ D8 | CPF como chave global do cliente | **Sim** — `customers.cpf` UNIQUE global |
-| ✅ D9 | UX do cliente em N tenants (picker dedicado vs feed agregado) | **Picker dedicado** — tela `/select-tenant` pós-login |
-| ✅ D10 | Login do cliente por CPF ou email | **CPF** — via shell email interno, mantém Supabase Auth nativo |
-| ✅ D11 | Admin/operador em múltiplos tenants | **Não** — caso raro resolvido com email diferente; sem switcher de tenant para tenant_member |
-
-Próximo passo: consolidar decisões em **ADR 0004 — Modelo de control plane multi-tenant + identidade do cliente** e mover este PRD para `status: aprovado`.
-
----
-
-## 14. Próximos passos
-
-1. ~~Fechar decisões pendentes~~ ✅ (11 decisões fechadas em 2026-06-15).
-2. Revisão humana final deste rascunho (Alan).
-3. Escrever **ADR 0004 — Modelo de control plane multi-tenant + identidade do cliente**.
-4. Quebrar em tarefas no [[Roadmap]] (F1 → F8).
-5. Implementar **F1** (schema control plane + bootstrap) como primeiro PR — valida modelo antes de gastar tempo em UI.
-6. Implementar **F2** (CPF global + shell email) em seguida — destrava o mobile do cliente.
-
-> ⚠️ **Atenção ao executar F2:** rodar a pré-checagem de CPFs duplicados (§10.3) antes da migration. No estado atual do seed, há apenas o `cliente@gomoto.dev`, sem conflito esperado — mas vale validar.
-
----
-
-## Tags
-
-`#prd` `#plataforma` `#multi-tenant` `#control-plane`
+`#prd` `#plataforma` `#multi-tenant` `#autenticacao` `#controle-de-acesso`
