@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -100,7 +100,17 @@ function getRelevantBillings(billings: Billing[]): Billing[] {
 // BillingDetailModal
 // ---------------------------------------------------------------------------
 
-function BillingDetailModal({ billing, onClose }: { billing: Billing; onClose: () => void }) {
+function BillingDetailModal({
+  billing,
+  onClose,
+  onPixGenerated,
+  pixPaid,
+}: {
+  billing: Billing
+  onClose: () => void
+  onPixGenerated?: (billingId: string) => void
+  pixPaid?: boolean
+}) {
   const original  = billing.original_amount ?? 0
   const discount  = billing.discount_amount ?? 0
   const finalAmt  = calculateFinalAmount(original, discount)
@@ -113,6 +123,7 @@ function BillingDetailModal({ billing, onClose }: { billing: Billing; onClose: (
     try {
       const result = await generatePix(billing.id)
       setPixResult(result)
+      onPixGenerated?.(billing.id)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Falha ao gerar Pix'
       Alert.alert('Erro', msg)
@@ -197,7 +208,7 @@ function BillingDetailModal({ billing, onClose }: { billing: Billing; onClose: (
       </Modal>
 
       {pixResult && (
-        <PixModal billing={billing} result={pixResult} onClose={() => setPixResult(null)} />
+        <PixModal billing={billing} result={pixResult} onClose={() => setPixResult(null)} pixPaid={pixPaid} />
       )}
     </>
   )
@@ -244,7 +255,17 @@ async function generatePix(billingId: string): Promise<PixResult> {
 // PixModal
 // ---------------------------------------------------------------------------
 
-function PixModal({ billing, result, onClose }: { billing: Billing; result: PixResult; onClose: () => void }) {
+function PixModal({
+  billing,
+  result,
+  onClose,
+  pixPaid,
+}: {
+  billing: Billing
+  result: PixResult
+  onClose: () => void
+  pixPaid?: boolean
+}) {
   const original = billing.original_amount ?? 0
   const discount = billing.discount_amount ?? 0
   const finalAmt = calculateFinalAmount(original, discount)
@@ -264,6 +285,11 @@ function PixModal({ billing, result, onClose }: { billing: Billing; result: PixR
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={styles.modalBody}>
+          {pixPaid && (
+            <View style={styles.pixPaidConfirm}>
+              <Text style={styles.pixPaidConfirmText}>Pagamento confirmado!</Text>
+            </View>
+          )}
           {result.is_reused && (
             <View style={styles.reuseNote}>
               <Text style={styles.reuseNoteText}>Pix ativo reutilizado — mesmo código gerado anteriormente.</Text>
@@ -332,15 +358,38 @@ export function BillingsScreen() {
   const [filter, setFilter]         = useState<FilterStatus>('relevant')
   const [selected, setSelected]     = useState<Billing | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [pixBillingId, setPixBillingId] = useState<string | null>(null)
+  const [pixPaid, setPixPaid]           = useState(false)
 
   const serverFilter = filter === 'all' || filter === 'relevant' ? undefined : { status: filter }
   const query = useBillingsForCustomer(serverFilter)
 
   useFocusEffect(
     useCallback(() => {
-      query.refetch()
+      void query.refetch()
     }, [query.refetch]),
   )
+
+  // Polling a cada 5s enquanto o modal Pix estiver aberto (mesmo padrão da web)
+  useEffect(() => {
+    if (!pixBillingId) return
+    const id = setInterval(() => { void query.refetch() }, 5000)
+    return () => clearInterval(id)
+  }, [pixBillingId, query])
+
+  // Detecta confirmação via webhook: billing muda para 'paid' durante o polling
+  useEffect(() => {
+    if (!pixBillingId || pixPaid) return
+    const latest = (query.data ?? []).find((b) => b.id === pixBillingId)
+    if (latest?.status === 'paid') {
+      setPixPaid(true)
+      setTimeout(() => {
+        setSelected(null)
+        setPixBillingId(null)
+        setPixPaid(false)
+      }, 2500)
+    }
+  }, [query.data, pixBillingId, pixPaid])
 
   const groups = useMemo<RentalGroup[]>(() => {
     const billings = query.data ?? []
@@ -420,9 +469,14 @@ export function BillingsScreen() {
           <ActivityIndicator color="#BAFF1A" size="large" />
         </View>
       ) : groups.length === 0 ? (
-        <View style={styles.center}>
+        <ScrollView
+          contentContainerStyle={styles.center}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#BAFF1A" />
+          }
+        >
           <Text style={styles.emptyText}>Nenhuma cobrança encontrada.</Text>
-        </View>
+        </ScrollView>
       ) : (
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -461,7 +515,9 @@ export function BillingsScreen() {
       {selected && (
         <BillingDetailModal
           billing={selected}
-          onClose={() => setSelected(null)}
+          onClose={() => { setSelected(null); setPixBillingId(null); setPixPaid(false) }}
+          onPixGenerated={setPixBillingId}
+          pixPaid={pixBillingId === selected.id && pixPaid}
         />
       )}
     </SafeAreaView>
@@ -723,6 +779,19 @@ const styles = StyleSheet.create({
   pixBtnText: {
     color:      '#121212',
     fontSize:   15,
+    fontWeight: '700',
+  },
+  pixPaidConfirm: {
+    backgroundColor: '#0e2f13',
+    borderColor:     '#229731',
+    borderWidth:     1,
+    borderRadius:    12,
+    padding:         16,
+    alignItems:      'center',
+  },
+  pixPaidConfirmText: {
+    color:      '#229731',
+    fontSize:   17,
     fontWeight: '700',
   },
   reuseNote: {

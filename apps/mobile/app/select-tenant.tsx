@@ -22,16 +22,26 @@ export default function SelectTenantScreen() {
         </Text>
 
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-          {tenants.map((tenant) => (
-            <Pressable
-              key={tenant.id}
-              style={styles.option}
-              onPress={() => selectTenant(tenant.id)}
-            >
-              <Text style={styles.optionName}>{tenant.name}</Text>
-              <Text style={styles.optionChevron}>›</Text>
-            </Pressable>
-          ))}
+          {tenants.map((tenant) => {
+            const suspended = !!tenant.suspended_at
+            return (
+              <Pressable
+                key={tenant.id}
+                style={[styles.option, suspended && styles.optionDisabled]}
+                onPress={() => !suspended && selectTenant(tenant.id)}
+              >
+                <View style={styles.optionContent}>
+                  <Text style={[styles.optionName, suspended && styles.optionNameDisabled]}>
+                    {tenant.name}
+                  </Text>
+                  {suspended && (
+                    <Text style={styles.optionBadge}>Temporariamente indisponível</Text>
+                  )}
+                </View>
+                {!suspended && <Text style={styles.optionChevron}>›</Text>}
+              </Pressable>
+            )
+          })}
         </ScrollView>
 
         <Pressable style={styles.secondaryButton} onPress={signOut}>
@@ -90,11 +100,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  optionDisabled: {
+    opacity: 0.5,
+  },
+  optionContent: {
+    flex: 1,
+  },
   optionName: {
     color: '#f5f5f5',
     fontSize: 16,
     fontWeight: '600',
-    flex: 1,
+  },
+  optionNameDisabled: {
+    color: '#9e9e9e',
+  },
+  optionBadge: {
+    color: '#9e9e9e',
+    fontSize: 11,
+    marginTop: 2,
   },
   optionChevron: {
     color: '#BAFF1A',

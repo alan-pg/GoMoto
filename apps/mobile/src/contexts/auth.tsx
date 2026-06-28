@@ -2,13 +2,14 @@ import type { Session } from '@supabase/supabase-js'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import * as Linking from 'expo-linking'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { cpfShellEmail, normalizeCpf } from '@gomoto/core'
+import { cpfShellEmail, normalizeCpf, validateCpfDigits } from '@gomoto/core'
 
 import { supabase } from '../lib/supabase'
 
 export type TenantOption = {
   id: string
   name: string
+  suspended_at: string | null
 }
 
 type AuthContextValue = {
@@ -34,7 +35,7 @@ async function fetchCustomerTenants(userId: string): Promise<TenantOption[]> {
   // próprio link garantem que essa query só devolve tenants em que esse user é cliente.
   const { data } = await supabase
     .from('customers')
-    .select('tenant_id, tenants:tenant_id ( id, name )')
+    .select('tenant_id, tenants:tenant_id ( id, name, suspended_at )')
     .eq('user_id', userId)
 
   if (!data) return []
@@ -43,7 +44,7 @@ async function fetchCustomerTenants(userId: string): Promise<TenantOption[]> {
   for (const row of data) {
     const tenant = Array.isArray(row.tenants) ? row.tenants[0] : row.tenants
     if (tenant?.id && tenant?.name) {
-      map.set(tenant.id, { id: tenant.id, name: tenant.name })
+      map.set(tenant.id, { id: tenant.id, name: tenant.name, suspended_at: tenant.suspended_at ?? null })
     }
   }
   return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
@@ -134,12 +135,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (digits.length !== 11) {
       return { error: 'Informe um CPF válido (11 dígitos).' }
     }
+    if (!validateCpfDigits(digits)) {
+      return { error: 'CPF inválido: dígito verificador incorreto.' }
+    }
 
     const { data, error } = await supabase.auth.signInWithPassword({
       email: cpfShellEmail(digits),
       password,
     })
-    if (error) return { error: error.message }
+    if (error) return { error: 'CPF ou senha incorretos.' }
 
     if (data.user) {
       const list = await syncTenantsFor(data.user.id)
