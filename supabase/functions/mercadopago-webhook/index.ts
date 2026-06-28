@@ -11,13 +11,20 @@ const IPNSchema = z.object({
 })
 
 async function validateSignature(
-  paymentId: string,
+  dataId: string,
   requestId: string,
   ts: string,
   signature: string,
   secret: string,
 ): Promise<boolean> {
-  const data = `id:${paymentId};request-id:${requestId};ts:${ts}`
+  // Manifest format per MP docs: id:<data.id_lowercased>;request-id:<x-request-id>;ts:<ts>;
+  // Fields absent from the request must be omitted (not included as empty string).
+  const parts: string[] = []
+  if (dataId)    parts.push(`id:${dataId.toLowerCase()}`)
+  if (requestId) parts.push(`request-id:${requestId}`)
+  parts.push(`ts:${ts}`)
+  const manifest = parts.join(';') + ';'
+
   const key = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(secret),
@@ -25,7 +32,7 @@ async function validateSignature(
     false,
     ['sign'],
   )
-  const computed = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data))
+  const computed = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(manifest))
   const hex = Array.from(new Uint8Array(computed))
     .map((b: number) => b.toString(16).padStart(2, '0'))
     .join('')
@@ -45,6 +52,9 @@ Deno.serve(async (req: Request) => {
   const serviceKey    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
   // 1. Validar assinatura HMAC
+  // data.id vem do query param da URL (não do body), conforme especificação MP.
+  const url      = new URL(req.url)
+  const dataId   = url.searchParams.get('data.id') ?? ''
   const xSignature = req.headers.get('x-signature')
   const xRequestId = req.headers.get('x-request-id') ?? ''
   const parsed = parseXSignature(xSignature)
@@ -63,9 +73,9 @@ Deno.serve(async (req: Request) => {
   }
 
   if (webhookSecret && parsed) {
-    const valid = await validateSignature(ipn.data.data.id, xRequestId, parsed.ts, parsed.v1, webhookSecret)
+    const valid = await validateSignature(dataId, xRequestId, parsed.ts, parsed.v1, webhookSecret)
     if (!valid) {
-      console.log(JSON.stringify({ level: 'warn', action: 'webhook.signature_invalid', x_request_id: xRequestId }))
+      console.log(JSON.stringify({ level: 'warn', action: 'webhook.signature_invalid', x_request_id: xRequestId, data_id: dataId }))
       return new Response('Unauthorized', { status: 401 })
     }
   }
