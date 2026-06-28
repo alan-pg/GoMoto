@@ -18,7 +18,7 @@
 
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Plus, Edit2, Trash2, CheckCircle, AlertTriangle, Search, MessageCircle, CheckCircle2, DollarSign, QrCode, Copy, X } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
@@ -174,9 +174,45 @@ export default function CobrancasPage() {
   const [generatingPixId, setGeneratingPixId] = useState<string | null>(null)
   /** @state copied - Sinaliza que o código foi copiado. */
   const [copied, setCopied] = useState(false)
+  /** @state pixPaid - Pix do modal foi confirmado pelo webhook durante o polling. */
+  const [pixPaid, setPixPaid] = useState(false)
 
   /** Invalida o cache de billings após cada mutation — substitui o antigo `fetchCharges()`. */
   const invalidateBillings = () => queryClient.invalidateQueries({ queryKey: ['billings'] })
+
+  /** Fecha o modal de Pix e força refresh para refletir status atualizado. */
+  function closePixModal() {
+    setPixModal(null)
+    setPixPaid(false)
+    invalidateBillings()
+  }
+
+  // Refetch quando a janela volta ao foco (ex: cliente pagou no celular, operador alt-tabs de volta)
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') billingsQuery.refetch()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [billingsQuery])
+
+  // Polling a cada 5s enquanto modal Pix está aberto
+  useEffect(() => {
+    if (!pixModal) return
+    const id = setInterval(() => billingsQuery.refetch(), 5000)
+    return () => clearInterval(id)
+  }, [pixModal, billingsQuery])
+
+  // Detecta confirmação automática via webhook (cobrança mudou para 'paid' durante polling)
+  useEffect(() => {
+    if (!pixModal || pixPaid) return
+    const latest = charges.find((c) => c.id === pixModal.billing.id)
+    if (latest?.status === 'paid') {
+      setPixPaid(true)
+      setTimeout(() => closePixModal(), 2500)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [charges, pixModal, pixPaid])
 
   const isConnected = paymentConnection.data?.is_connected ?? false
 
@@ -270,6 +306,12 @@ export default function CobrancasPage() {
   /** Marca como pago via Server Action — concat de observations e audit_log feitos server-side. */
   async function confirmPaid() {
     if (!confirmingPaid || !paymentMethod) return
+    const latest = charges.find((c) => c.id === confirmingPaid.id)
+    if (latest?.status === 'paid') {
+      alert('Esta cobrança já foi confirmada como paga.')
+      setConfirmingPaid(null)
+      return
+    }
     setSaving(true)
     const result = await markBillingAsPaid(confirmingPaid.id, paymentMethod)
     if ('error' in result) {
@@ -285,6 +327,12 @@ export default function CobrancasPage() {
   /** Marca como prejuízo via Server Action. */
   async function confirmLoss() {
     if (!confirmingLoss) return
+    const latest = charges.find((c) => c.id === confirmingLoss.id)
+    if (latest?.status === 'paid') {
+      alert('Esta cobrança já foi paga e não pode ser registrada como prejuízo.')
+      setConfirmingLoss(null)
+      return
+    }
     setSaving(true)
     const result = await markBillingAsLoss(confirmingLoss.id)
     if ('error' in result) {
@@ -299,6 +347,12 @@ export default function CobrancasPage() {
   /** Exclui via Server Action — audit_log da exclusão registrado server-side. */
   async function confirmDeletion() {
     if (!deleting) return
+    const latest = charges.find((c) => c.id === deleting.id)
+    if (latest?.status === 'paid') {
+      alert('Cobranças pagas não podem ser excluídas.')
+      setDeleting(null)
+      return
+    }
     setSaving(true)
     const result = await deleteBilling(deleting.id)
     if ('error' in result) {
@@ -681,9 +735,11 @@ export default function CobrancasPage() {
                         </td>
                         <td className="whitespace-nowrap px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            <Button variant="secondary" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(row)} title="Editar">
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
+                            {row.status !== 'paid' && (
+                              <Button variant="secondary" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(row)} title="Editar">
+                                <Edit2 className="h-4 w-4" />
+                              </Button>
+                            )}
                             {(row.status === 'pending' || row.status === 'overdue') && isConnected && (
                               <Button
                                 variant="secondary"
@@ -715,9 +771,11 @@ export default function CobrancasPage() {
                                 <AlertTriangle className="h-4 w-4" />
                               </Button>
                             )}
-                            <Button variant="danger" size="sm" className="h-8 w-8 p-0" onClick={() => setDeleting(row)} title="Excluir">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {row.status !== 'paid' && (
+                              <Button variant="danger" size="sm" className="h-8 w-8 p-0" onClick={() => setDeleting(row)} title="Excluir">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -869,47 +927,64 @@ export default function CobrancasPage() {
       </Modal>
 
       {/* Modal: QR Code Pix */}
-      <Modal open={!!pixModal} onClose={() => setPixModal(null)} title="Pix de Cobrança" size="sm">
+      <Modal open={!!pixModal} onClose={closePixModal} title="Pix de Cobrança" size="sm">
         {pixModal && (
           <div className="space-y-4">
-            {pixModal.result.is_reused && (
-              <p className="text-[12px] text-[#9e9e9e] text-center">Pix ativo reutilizado — mesmo código gerado anteriormente.</p>
-            )}
-            <div className="flex flex-col items-center gap-2">
-              <img
-                src={`data:image/png;base64,${pixModal.result.qr_code_base64}`}
-                alt="QR Code Pix"
-                className="w-48 h-48 rounded-xl bg-white p-2"
-              />
-              <div className="text-center">
-                <p className="text-[13px] text-[#9e9e9e]">
-                  {pixModal.billing.customers?.name ?? '—'} — {formatCurrency(
-                    (pixModal.billing.original_amount ?? 0) - (pixModal.billing.discount_amount ?? 0)
-                  )}
-                </p>
-                <p className="text-[12px] text-[#616161] mt-0.5">
-                  Vence em {formatDate(pixModal.result.expires_at.slice(0, 10))}
-                </p>
+            {pixPaid ? (
+              <div className="flex flex-col items-center gap-3 py-6">
+                <CheckCircle2 className="w-16 h-16 text-[#229731]" />
+                <p className="text-[15px] font-medium text-[#f5f5f5]">Pagamento confirmado!</p>
+                <p className="text-[13px] text-[#9e9e9e]">O Pix foi recebido via Mercado Pago.</p>
               </div>
-            </div>
-            <div className="rounded-xl bg-[#1a1a1a] border border-[#323232] p-3">
-              <p className="text-[11px] text-[#9e9e9e] mb-1">Copia e Cola</p>
-              <p className="text-[12px] text-[#f5f5f5] break-all font-mono leading-relaxed select-all">
-                {pixModal.result.qr_code}
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <Button
-                className="flex-1"
-                onClick={() => copyToClipboard(pixModal.result.qr_code)}
-              >
-                {copied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                {copied ? 'Copiado!' : 'Copiar Código'}
-              </Button>
-              <Button variant="ghost" onClick={() => setPixModal(null)}>
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
+            ) : (
+              <>
+                {pixModal.result.is_reused && (
+                  <p className="text-[12px] text-[#9e9e9e] text-center">Pix ativo reutilizado — mesmo código gerado anteriormente.</p>
+                )}
+                <div className="flex flex-col items-center gap-2">
+                  <img
+                    src={`data:image/png;base64,${pixModal.result.qr_code_base64}`}
+                    alt="QR Code Pix"
+                    className="w-48 h-48 rounded-xl bg-white p-2"
+                  />
+                  <div className="text-center">
+                    <p className="text-[13px] text-[#9e9e9e]">
+                      {pixModal.billing.customers?.name ?? '—'} — {formatCurrency(
+                        (pixModal.billing.original_amount ?? 0) - (pixModal.billing.discount_amount ?? 0)
+                      )}
+                    </p>
+                    <p className="text-[12px] text-[#616161] mt-0.5">
+                      Vence em {formatDate(pixModal.result.expires_at.slice(0, 10))}
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-xl bg-[#1a1a1a] border border-[#323232] p-3">
+                  <p className="text-[11px] text-[#9e9e9e] mb-1">Copia e Cola</p>
+                  <p className="text-[12px] text-[#f5f5f5] break-all font-mono leading-relaxed select-all">
+                    {pixModal.result.qr_code}
+                  </p>
+                </div>
+                <div className="flex gap-3 items-center">
+                  <Button
+                    className="flex-1"
+                    onClick={() => copyToClipboard(pixModal.result.qr_code)}
+                  >
+                    {copied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    {copied ? 'Copiado!' : 'Copiar Código'}
+                  </Button>
+                  <div className="flex items-center gap-1.5 text-[12px] text-[#616161]">
+                    <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Aguardando…
+                  </div>
+                  <Button variant="ghost" onClick={closePixModal}>
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         )}
       </Modal>
