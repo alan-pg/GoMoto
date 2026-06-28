@@ -2,13 +2,15 @@
 -- GoMoto — Seed de desenvolvimento (multi-tenant)
 --
 -- Reproduz o estado atual de desenvolvimento:
---   - 1 usuário de teste para login local (admin do tenant default)
---   - vínculo tenant_members ligando o admin ao tenant default
+--   - admin@gomoto.dev     → platform_admin owner (control plane)
+--   - bonze@gomoto.dev     → owner do tenant GoMoto Bonze
+--   - norte@gomoto.dev     → owner do tenant GoMoto Norte
+--   - CPF 12345678909      → login mobile (Joao da Silva, cliente em Bonze e Norte)
 --   - 13 itens padrão de manutenção preventiva
---   - 5 motos fictícias na frota
---   - 3 clientes fictícios
---   - 2 contratos ativos
---   - 2 cobranças (1 paga, 1 pendente)
+--   - 5 motos fictícias na frota do Bonze
+--   - 3 clientes no Bonze (CPFs validados com módulo-11)
+--   - 1 cliente no Norte (Joao, cross-tenant — testa RF-023)
+--   - 2 locações ativas + 2 cobranças (1 paga, 1 pendente)
 --   - 1 cliente na fila de espera
 --
 -- O tenant default ('GoMoto Bonze', id 00000000-...-0001) é criado pela
@@ -393,10 +395,21 @@ INSERT INTO vehicle_obligations (id, tenant_id, motorcycle_id, type, reference_y
 -- SEED: customers (3 clientes fictícios)
 -- ============================================================
 -- Joao da Silva é o cliente vinculado ao login mobile (cliente@gomoto.dev).
+-- CPFs verificados com validateCpfDigits (módulo-11):
+--   12345678909 → válido ✓ (login mobile)
+--   98765432100 → válido ✓
+--   11122233396 → válido ✓ (anteriormente 11122233344, que era inválido)
 INSERT INTO customers (id, tenant_id, user_id, name, cpf, rg, state, phone, email, in_queue, active) VALUES
 ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '00000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 'Joao da Silva',  '12345678909', '12345678', 'SP', '(11) 98765-4321', 'cliente@gomoto.dev',       false, true),
 ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '00000000-0000-0000-0000-000000000001', NULL,                                  'Maria Santos',   '98765432100', '87654321', 'SP', '(11) 91234-5678', 'maria.santos@email.com',   false, true),
-('cccccccc-cccc-cccc-cccc-cccccccccccc', '00000000-0000-0000-0000-000000000001', NULL,                                  'Pedro Oliveira', '11122233344', '11223344', 'SP', '(11) 99988-7766', 'pedro.oliveira@email.com', true,  true);
+('cccccccc-cccc-cccc-cccc-cccccccccccc', '00000000-0000-0000-0000-000000000001', NULL,                                  'Pedro Oliveira', '11122233396', '11223344', 'SP', '(11) 99988-7766', 'pedro.oliveira@email.com', true,  true);
+
+-- RF-023: Joao da Silva também é cliente do GoMoto Norte (mesmo auth.user, segundo tenant).
+-- Testa o cross-tenant auto-link em createCustomer: ao cadastrar CPF 12345678909 no Norte
+-- o sistema detecta auth.user existente e vincula customer.user_id automaticamente.
+INSERT INTO customers (id, tenant_id, user_id, name, cpf, in_queue, active) VALUES
+('aaaaaaaa-aaaa-aaaa-aaaa-000000000002', '00000000-0000-0000-0000-000000000002', 'f0000000-0000-0000-0000-000000000002', 'Joao da Silva', '12345678909', false, true)
+ON CONFLICT DO NOTHING;
 
 -- ============================================================
 -- SEED: rentals (2 locações ativas — Spec 0004)
