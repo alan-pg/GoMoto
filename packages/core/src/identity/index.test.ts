@@ -7,6 +7,7 @@ import {
   isCpfDigits,
   isCpfShellEmail,
   normalizeCpf,
+  validateCpfDigits,
 } from './index'
 
 describe('identity helpers', () => {
@@ -50,4 +51,13 @@ describe('identity helpers', () => {
     expect(cpfFromShellEmail('12345678909@cliente.gomoto.app')).toBe('12345678909')
     expect(cpfFromShellEmail('alan@email.com')).toBeNull()
   })
+})
+
+describe('validateCpfDigits', () => {
+  it('aceita CPF válido', () => expect(validateCpfDigits('52998224725')).toBe(true))
+  it('rejeita CPF com dígito verificador errado', () => expect(validateCpfDigits('52998224726')).toBe(false))
+  it('rejeita sequência trivial (111...1)', () => expect(validateCpfDigits('11111111111')).toBe(false))
+  it('rejeita sequência trivial (000...0)', () => expect(validateCpfDigits('00000000000')).toBe(false))
+  it('rejeita string com menos de 11 dígitos', () => expect(validateCpfDigits('123')).toBe(false))
+  it('rejeita string vazia', () => expect(validateCpfDigits('')).toBe(false))
 })

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { isCpfDigits, normalizeCpf } from '../identity/index'
+import { isCpfDigits, normalizeCpf, validateCpfDigits } from '../identity/index'
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
 
@@ -12,6 +12,7 @@ const cpfDigitsString = z
   .string({ error: 'CPF é obrigatório' })
   .transform((input) => normalizeCpf(input))
   .refine((digits) => isCpfDigits(digits), { message: 'CPF inválido: precisa ter 11 dígitos' })
+  .refine((digits) => validateCpfDigits(digits), { message: 'CPF inválido: dígito verificador incorreto' })
 
 export const MotorcycleSchema = z.object({
   license_plate: z.string().trim().max(10),

@@ -67,3 +67,18 @@ export function cpfFromShellEmail(email: string | null | undefined): string | nu
   if (!email || !isCpfShellEmail(email)) return null
   return email.split('@')[0] ?? null
 }
+
+export function validateCpfDigits(digits: string): boolean {
+  if (!isCpfDigits(digits)) return false
+  if (/^(\d)\1{10}$/.test(digits)) return false
+
+  const calcDigit = (slice: string, weight: number) => {
+    const sum = slice.split('').reduce((acc, d, i) => acc + Number(d) * (weight - i), 0)
+    const rem = (sum * 10) % 11
+    return rem === 10 ? 0 : rem
+  }
+
+  const d1 = calcDigit(digits.slice(0, 9), 10)
+  const d2 = calcDigit(digits.slice(0, 10), 11)
+  return d1 === Number(digits[9]) && d2 === Number(digits[10])
+}
