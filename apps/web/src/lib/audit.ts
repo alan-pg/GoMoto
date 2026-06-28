@@ -1,3 +1,4 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 
@@ -31,5 +32,26 @@ export async function logAction(params: AuditParams): Promise<void> {
     })
   } catch (err) {
     console.error('[AUDIT ERROR]', err)
+  }
+}
+
+export async function logPlatformAction(
+  supabase: SupabaseClient,
+  actorId: string,
+  action: string,
+  targetType: string,
+  targetId: string | null,
+  metadata: Record<string, unknown> = {},
+): Promise<void> {
+  try {
+    await supabase.from('platform_audit_logs').insert({
+      actor_id: actorId,
+      action,
+      target_type: targetType,
+      target_id: targetId,
+      metadata,
+    })
+  } catch (err) {
+    console.error('[PLATFORM AUDIT ERROR]', err)
   }
 }

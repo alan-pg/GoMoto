@@ -13,6 +13,7 @@ export async function getCurrentTenantId(client: SupabaseClient): Promise<string
     .from('tenant_members')
     .select('tenant_id')
     .eq('user_id', user.id)
+    .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle()
   return data?.tenant_id ?? null

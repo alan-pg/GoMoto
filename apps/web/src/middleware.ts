@@ -1,9 +1,7 @@
 /**
- * @file middleware.ts
- * @description Interceptor de requisições (Middleware) do Next.js para o Sistema GoMoto.
- * Este arquivo é responsável por gerenciar a sessão do usuário, atualizar tokens de autenticação
- * e proteger rotas privadas contra acesso não autorizado.
- * A lógica aqui garante que apenas usuários autenticados acessem o dashboard.
+ * Intercepta requisições do Next.js: atualiza tokens de sessão, protege rotas privadas
+ * e redireciona pós-login conforme o papel do usuário (platform_admin → /admin/dashboard,
+ * demais → /dashboard). Papéis são mutuamente exclusivos — sem lógica de dual-role.
  */
 
 import { createServerClient } from '@supabase/ssr';
@@ -127,30 +125,36 @@ export async function middleware(request: NextRequest) {
    */
   const isPublicPath = request.nextUrl.pathname.startsWith('/auth');
 
-  /**
-   * LÓGICA DE REDIRECIONAMENTO:
-   * 1. Se o usuário não está logado e tenta acessar uma página privada (que não seja /login ou /auth/*),
-   *    ele é redirecionado para a tela de login.
-   */
+  const pathname = request.nextUrl.pathname;
+
+  // 1. Não autenticado → redirecionar para login (exceto rotas públicas)
   if (!user && !isLoginPage && !isPublicPath) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
   }
 
-  /**
-   * 2. Se o usuário já está logado e tenta acessar a página de /login,
-   *    ele é redirecionado automaticamente para o dashboard.
-   */
+  // 2. Autenticado na página de login → redirecionar pelo papel
   if (user && isLoginPage) {
+    const { data: platformRole } = await supabase.rpc('get_platform_role');
+    if (platformRole === 'owner' || platformRole === 'operator') {
+      const url = request.nextUrl.clone();
+      url.pathname = '/admin/dashboard';
+      return NextResponse.redirect(url);
+    }
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
     return NextResponse.redirect(url);
   }
 
-  /**
-   * Retorna a resposta processada, mantendo os cookies atualizados.
-   */
+  // 3. Proteção de rotas /admin/*: non-platform-admins recebem 404
+  if (user && pathname.startsWith('/admin')) {
+    const { data: platformRole } = await supabase.rpc('get_platform_role');
+    if (!platformRole) {
+      return NextResponse.rewrite(new URL('/404', request.url));
+    }
+  }
+
   return supabaseResponse;
 }
 

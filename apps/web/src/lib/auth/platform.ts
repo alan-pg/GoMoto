@@ -40,3 +40,10 @@ export async function requirePlatformAdmin(): Promise<PlatformAdminContext> {
 
   return { supabase, userId: user.id, role }
 }
+
+/** Guard restrito a Platform Owner. Lança FORBIDDEN se for apenas Operator. */
+export async function requirePlatformOwner(): Promise<PlatformAdminContext> {
+  const ctx = await requirePlatformAdmin()
+  if (ctx.role !== 'owner') throw new Error('FORBIDDEN')
+  return ctx
+}
