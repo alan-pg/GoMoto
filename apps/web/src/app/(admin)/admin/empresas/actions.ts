@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import type { ZodError } from 'zod'
 import {
   CreateTenantWithOwnerSchema,
@@ -8,7 +9,8 @@ import {
   TenantSuspendSchema,
 } from '@gomoto/core'
 
-import { requirePlatformAdmin } from '@/lib/auth/platform'
+import { requirePlatformAdmin, requirePlatformOwner } from '@/lib/auth/platform'
+import { logPlatformAction } from '@/lib/audit'
 
 const PG_ERROR_MAP: Record<string, string> = {
   '23505': 'Conflito de unicidade: slug, CNPJ ou email já cadastrado',
@@ -75,24 +77,6 @@ function pgErrorToFieldIssues(err: {
   return []
 }
 
-type AuditMeta = Record<string, unknown>
-
-async function logPlatformAction(
-  supabase: Awaited<ReturnType<typeof requirePlatformAdmin>>['supabase'],
-  actorId: string,
-  action: string,
-  targetType: string,
-  targetId: string | null,
-  metadata: AuditMeta,
-) {
-  await supabase.from('platform_audit_logs').insert({
-    actor_id: actorId,
-    action,
-    target_type: targetType,
-    target_id: targetId,
-    metadata,
-  })
-}
 
 export async function createTenant(rawData: unknown) {
   let ctx
@@ -197,7 +181,7 @@ export async function updateTenant(id: string, rawData: unknown) {
 export async function suspendTenant(id: string, rawData: unknown) {
   let ctx
   try {
-    ctx = await requirePlatformAdmin()
+    ctx = await requirePlatformOwner()
   } catch {
     return { error: 'Acesso negado' }
   }
@@ -227,7 +211,7 @@ export async function suspendTenant(id: string, rawData: unknown) {
 export async function reactivateTenant(id: string) {
   let ctx
   try {
-    ctx = await requirePlatformAdmin()
+    ctx = await requirePlatformOwner()
   } catch {
     return { error: 'Acesso negado' }
   }
@@ -247,4 +231,45 @@ export async function reactivateTenant(id: string) {
 
   revalidatePath('/admin/empresas')
   return { success: true }
+}
+
+export async function regenerateOwnerLink(tenantId: string) {
+  let ctx
+  try {
+    ctx = await requirePlatformAdmin()
+  } catch {
+    return { error: 'Acesso negado' }
+  }
+
+  const serviceUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceUrl || !serviceKey) return { error: 'Configuração do servidor incompleta' }
+
+  const { data: member, error: memberErr } = await ctx.supabase
+    .from('tenant_members')
+    .select('user_id')
+    .eq('tenant_id', tenantId)
+    .eq('role', 'owner')
+    .limit(1)
+    .maybeSingle()
+
+  if (memberErr || !member) return { error: 'Owner do tenant não encontrado' }
+
+  const supabaseAdmin = createAdminClient(serviceUrl, serviceKey, { auth: { persistSession: false } })
+
+  const { data: authUser, error: userErr } = await supabaseAdmin.auth.admin.getUserById(member.user_id)
+  if (userErr || !authUser.user?.email) return { error: 'Usuário do owner não encontrado' }
+
+  const { data: linkData, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
+    type: 'magiclink',
+    email: authUser.user.email,
+    // expiresIn não está nos tipos do SDK 2.x mas é suportado pela API
+    options: { expiresIn: 259200 } as { redirectTo?: string },
+  })
+
+  if (linkErr) return { error: `Falha ao gerar link: ${linkErr.message}` }
+
+  await logPlatformAction(ctx.supabase, ctx.userId, 'regenerate_owner_link', 'tenant', tenantId, {})
+
+  return { link: linkData.properties?.action_link ?? null }
 }

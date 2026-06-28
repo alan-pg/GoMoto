@@ -7,6 +7,13 @@ import { CustomerSchema, cpfShellEmail } from '@gomoto/core'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 
+function getAdminClient() {
+  const serviceUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceUrl || !serviceKey) return null
+  return createAdminClient(serviceUrl, serviceKey, { auth: { persistSession: false } })
+}
+
 const MOBILE_REDIRECT = 'gomoto://auth-callback'
 
 async function getAuthenticatedUser() {
@@ -33,9 +40,27 @@ export async function createCustomer(rawData: unknown) {
 
   if (error) return { error: `Erro ao criar cliente: ${error.message}` }
 
+  // RF-023: auto-link cross-tenant — vincula auth.user existente sem criar novo login
+  let alreadyLinked = false
+  const supabaseAdmin = getAdminClient()
+  if (supabaseAdmin && !data.user_id && parsed.data.cpf) {
+    try {
+      const cpfEmail = cpfShellEmail(parsed.data.cpf)
+      const { data: list } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 })
+      const existing = list?.users.find((u) => u.email?.toLowerCase() === cpfEmail)
+      if (existing) {
+        await supabase.from('customers').update({ user_id: existing.id }).eq('id', data.id)
+        data.user_id = existing.id
+        alreadyLinked = true
+      }
+    } catch {
+      console.warn('[createCustomer] cross-tenant lookup falhou', { customerId: data.id })
+    }
+  }
+
   await logAction({ action: 'create', table: 'customers', recordId: data.id, newData: data })
   revalidatePath('/clientes')
-  return { data }
+  return { data, alreadyLinked }
 }
 
 export async function updateCustomer(id: string, rawData: unknown) {
@@ -76,11 +101,9 @@ export async function setCustomerPassword(id: string, password: string) {
   if (fetchErr || !customer) return { error: 'Cliente não encontrado' }
   if (!customer.cpf) return { error: 'Cliente sem CPF cadastrado' }
 
-  const serviceUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!serviceUrl || !serviceKey) return { error: 'SUPABASE_SERVICE_ROLE_KEY ausente no servidor' }
+  const supabaseAdmin = getAdminClient()
+  if (!supabaseAdmin) return { error: 'SUPABASE_SERVICE_ROLE_KEY ausente no servidor' }
 
-  const supabaseAdmin = createAdminClient(serviceUrl, serviceKey, { auth: { persistSession: false } })
   // O app faz login com cpfShellEmail(cpf) — o auth.users DEVE ter esse email como identificador.
   const cpfEmail = cpfShellEmail(customer.cpf)
 
@@ -147,13 +170,10 @@ export async function inviteCustomerToApp(id: string) {
 
   if (fetchErr || !customer) return { error: 'Cliente não encontrado' }
   if (!customer.cpf) return { error: 'Cliente sem CPF cadastrado' }
-  if (customer.user_id) return { error: 'Cliente já tem acesso ao app' }
 
-  const serviceUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!serviceUrl || !serviceKey) return { error: 'SUPABASE_SERVICE_ROLE_KEY ausente no servidor' }
+  const supabaseAdmin = getAdminClient()
+  if (!supabaseAdmin) return { error: 'SUPABASE_SERVICE_ROLE_KEY ausente no servidor' }
 
-  const supabaseAdmin = createAdminClient(serviceUrl, serviceKey, { auth: { persistSession: false } })
   // O app faz login com cpfShellEmail(cpf) — o auth.users DEVE ter esse email como identificador.
   // O link gerado é retornado para o operador compartilhar (ex: WhatsApp), pois o cpfEmail não tem caixa real.
   const cpfEmail = cpfShellEmail(customer.cpf)
@@ -170,7 +190,8 @@ export async function inviteCustomerToApp(id: string) {
     const { data: linkData, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
       type: 'magiclink',
       email: cpfEmail,
-      options: { redirectTo: MOBILE_REDIRECT },
+      // expiresIn não está nos tipos do SDK 2.x mas é suportado pela API
+      options: { redirectTo: MOBILE_REDIRECT, expiresIn: 259200 } as { redirectTo: string },
     })
     if (linkErr) return { error: `Falha ao gerar link: ${linkErr.message}` }
     link = linkData.properties?.action_link ?? null
@@ -178,7 +199,8 @@ export async function inviteCustomerToApp(id: string) {
     const { data: linkData, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
       type: 'invite',
       email: cpfEmail,
-      options: { redirectTo: MOBILE_REDIRECT },
+      // expiresIn não está nos tipos do SDK 2.x mas é suportado pela API
+      options: { redirectTo: MOBILE_REDIRECT, expiresIn: 259200 } as { redirectTo: string },
     })
     if (linkErr || !linkData.user) {
       return { error: `Falha ao gerar link de acesso: ${linkErr?.message ?? 'erro desconhecido'}` }
@@ -218,17 +240,16 @@ export async function resetCustomerPassword(id: string) {
   if (fetchErr || !customer) return { error: 'Cliente não encontrado' }
   if (!customer.cpf) return { error: 'Cliente sem CPF cadastrado' }
 
-  const serviceUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!serviceUrl || !serviceKey) return { error: 'SUPABASE_SERVICE_ROLE_KEY ausente no servidor' }
+  const supabaseAdmin = getAdminClient()
+  if (!supabaseAdmin) return { error: 'SUPABASE_SERVICE_ROLE_KEY ausente no servidor' }
 
-  const supabaseAdmin = createAdminClient(serviceUrl, serviceKey, { auth: { persistSession: false } })
   const cpfEmail = cpfShellEmail(customer.cpf)
 
   const { data: linkData, error: resetErr } = await supabaseAdmin.auth.admin.generateLink({
     type: 'recovery',
     email: cpfEmail,
-    options: { redirectTo: MOBILE_REDIRECT },
+    // expiresIn não está nos tipos do SDK 2.x mas é suportado pela API
+    options: { redirectTo: MOBILE_REDIRECT, expiresIn: 3600 } as { redirectTo: string },
   })
 
   if (resetErr) return { error: `Falha ao gerar link de recuperação: ${resetErr.message}` }
