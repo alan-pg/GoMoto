@@ -79,7 +79,7 @@ export async function markBillingAsPaid(id: string, paymentMethod: string) {
 
   const { data, error } = await supabase
     .from('billings')
-    .update({ status: 'paid', payment_date: today, observations })
+    .update({ status: 'paid', payment_date: today, observations, confirmed_source: 'manual' })
     .eq('id', id)
     .select()
     .single()

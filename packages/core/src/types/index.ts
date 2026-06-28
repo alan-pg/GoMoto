@@ -637,6 +637,8 @@ export interface Billing {
   paid_at?: string | null;
   /** Forma de pagamento registrada pelo operador. */
   payment_method?: 'pix' | 'cash' | 'credit_card' | 'debit_card' | 'bank_transfer' | null;
+  /** Origem da confirmação: 'mp_webhook' (automático) ou 'manual' (operador). Null = legado. */
+  confirmed_source?: 'mp_webhook' | 'manual' | null;
   /** user_id do operador que registrou o pagamento. */
   paid_by?: string | null;
   /** user_id do operador que aplicou o desconto. */

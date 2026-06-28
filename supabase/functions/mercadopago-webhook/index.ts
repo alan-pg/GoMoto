@@ -134,7 +134,7 @@ Deno.serve(async (req: Request) => {
 
   await supabase
     .from('billings')
-    .update({ status: 'paid', payment_method: 'pix', paid_at: now })
+    .update({ status: 'paid', payment_method: 'pix', paid_at: now, confirmed_source: 'mp_webhook' })
     .eq('id', billingId)
     .neq('status', 'paid')
 
