@@ -44,7 +44,7 @@ export async function getOrCreatePix(
   // 4. Buscar dados da cobrança
   const { data: billing, error: billErr } = await supabase
     .from('billings')
-    .select('id, original_amount, discount_amount, customers(email, name)')
+    .select('id, original_amount, discount_amount, customers(email, name, cpf)')
     .eq('id', billingId)
     .eq('tenant_id', tenantId)
     .maybeSingle()
@@ -52,7 +52,7 @@ export async function getOrCreatePix(
   if (billErr || !billing) throw Object.assign(new Error('NOT_FOUND'), { code: 'NOT_FOUND' })
 
   const amount = (billing.original_amount ?? 0) - (billing.discount_amount ?? 0)
-  const customer = billing.customers as { email?: string | null; name?: string | null } | null
+  const customer = billing.customers as { email?: string | null; name?: string | null; cpf?: string | null } | null
   const customerEmail = customer?.email ?? 'cliente@gomoto.app'
   const nameParts = (customer?.name ?? '').trim().split(/\s+/)
   const customerFirstName = nameParts[0] ?? 'Cliente'
@@ -67,6 +67,7 @@ export async function getOrCreatePix(
       customerEmail,
       customerFirstName,
       customerLastName,
+      customerCpf: customer?.cpf ?? null,
       accessToken: conn.access_token,
     })
   } catch (err: unknown) {
@@ -83,6 +84,7 @@ export async function getOrCreatePix(
         customerEmail,
         customerFirstName,
         customerLastName,
+        customerCpf: customer?.cpf ?? null,
         accessToken: refreshed.access_token,
       })
     } else {

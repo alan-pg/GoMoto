@@ -73,6 +73,7 @@ export interface PixChargeParams {
   customerEmail: string
   customerFirstName: string
   customerLastName: string
+  customerCpf?: string | null
   accessToken: string
 }
 
@@ -95,10 +96,24 @@ export async function createPixCharge(params: PixChargeParams): Promise<PixCharg
       transaction_amount: params.amount,
       payment_method_id:  'pix',
       external_reference: params.billingId,
+      description:        'Cobrança GoMoto',
+      notification_url:   process.env.MERCADOPAGO_WEBHOOK_URL ?? undefined,
+      items: [
+        {
+          id:          params.billingId,
+          title:       'Cobrança GoMoto',
+          description: 'Serviços de manutenção',
+          quantity:    1,
+          unit_price:  params.amount,
+        },
+      ],
       payer: {
         email:      params.customerEmail,
         first_name: params.customerFirstName,
         last_name:  params.customerLastName,
+        ...(params.customerCpf
+          ? { identification: { type: 'CPF', number: params.customerCpf.replace(/\D/g, '') } }
+          : {}),
       },
       date_of_expiration: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     }),
