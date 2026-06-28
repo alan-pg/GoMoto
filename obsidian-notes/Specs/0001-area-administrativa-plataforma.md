@@ -1,9 +1,9 @@
 ---
 status: aprovado
-versão: 1.0
+versão: 1.1
 modo: completo
 autor: Alan (com agente IA)
-data: 2026-06-26
+data: 2026-06-27
 prd: "[[PRDs/0001-area-administrativa-plataforma]]"
 adr:
   - "[[decisions/0003-escopo-e-auth-do-mobile-cliente]]"
@@ -21,7 +21,7 @@ tags:
 
 # Spec 0001 — Área Administrativa da Plataforma e Identidade de Usuários
 
-> ✅ **Status: aprovado** em 2026-06-26. Spec técnica derivada de [[PRDs/0001-area-administrativa-plataforma]] (v2.0). Próximo passo: implementar começando pela migration `customers_tenant_cpf_unique` → `validateCpfDigits` em `@gomoto/core` → Server Actions → UI → testes.
+> ✅ **Status: aprovado** em 2026-06-27 (v1.1). Spec técnica derivada de [[PRDs/0001-area-administrativa-plataforma]] (v2.1). Remove §3.2 (dual-role), `select-context/page.tsx` e `api/switch-context/route.ts`. Adiciona migration de constraint de exclusividade entre `platform_admins` e `tenant_members`.
 
 ---
 
@@ -33,7 +33,7 @@ Esta Spec cobre três grupos de trabalho derivados do PRD 0001:
 
 **B — Validação matemática de CPF ausente:** `isCpfDigits()` em `packages/core` verifica apenas 11 dígitos de formato, sem o algoritmo módulo-11. RF-016 e RF-022 exigem validação do dígito verificador antes de qualquer chamada ao servidor. Fix: adicionar `validateCpfDigits()` ao `@gomoto/core` e um segundo `.refine()` no schema `cpfDigitsString`.
 
-**C — Funcionalidades novas do PRD:** (1) Painel de KPIs no Control Plane via RPC `get_platform_kpis()`; (2) seletor de contexto para usuário dual-role (cookie `gomoto-context`); (3) links de convite/reset com `expiresIn` correto; (4) regeneração de link do owner pelo Platform Admin; (5) badge de tenant suspenso na tela `select-tenant` do mobile; (6) auto-link cross-tenant em `createCustomer` via `service_role`.
+**C — Funcionalidades novas do PRD:** (1) Painel de KPIs no Control Plane via RPC `get_platform_kpis()`; (2) links de convite/reset com `expiresIn` correto; (3) regeneração de link do owner pelo Platform Admin; (4) badge de tenant suspenso na tela `select-tenant` do mobile; (5) auto-link cross-tenant em `createCustomer` via `service_role`; (6) constraint de exclusividade entre `platform_admins` e `tenant_members` no banco.
 
 **Componentes envolvidos:** `packages/core/src/identity/`, `packages/core/src/schemas/`, `apps/web/src/app/(admin)/admin/`, `apps/web/src/app/(dashboard)/`, `apps/web/src/middleware.ts`, `apps/mobile/src/contexts/auth.tsx`, `apps/mobile/app/select-tenant.tsx`, `supabase/migrations/`.
 
@@ -77,16 +77,16 @@ Cada plano é isolado por RLS. O contexto de tenant é sempre resolvido no servi
 - `packages/core/src/identity/index.test.ts` — testes para `validateCpfDigits`
 - `packages/core/src/schemas/index.ts` — `cpfDigitsString` recebe segundo `.refine(validateCpfDigits)`
 - `apps/web/src/lib/auth/tenant.ts` — `getCurrentTenantId` corrigido (ORDER BY + campo `suspended_at`)
-- `apps/web/src/middleware.ts` — proteção das rotas `/admin/*` (requer `is_platform_admin`); lógica de contexto `gomoto-context`
+- `apps/web/src/middleware.ts` — proteção das rotas `/admin/*` (requer `is_platform_admin`); sem cookie de contexto (dual-role removido)
 - `apps/web/src/app/(admin)/admin/page.tsx` — painel KPIs via `get_platform_kpis()` RPC
 - `apps/web/src/app/(admin)/admin/empresas/actions.ts` — `regenerateOwnerLink(tenantId)`
 - `apps/web/src/app/(dashboard)/layout.tsx` — verificação de suspensão do tenant (uma vez por navegação)
 - `apps/web/src/app/(dashboard)/clientes/actions.ts` — `createCustomer` com cross-tenant lookup; `inviteCustomerToApp` e `resetCustomerPassword` com `expiresIn`
-- `apps/web/src/app/select-context/page.tsx` — **nova** — seletor de contexto para usuário dual-role
 - `apps/mobile/src/contexts/auth.tsx` — `signIn` chama `validateCpfDigits` antes de ir ao servidor
 - `apps/mobile/app/select-tenant.tsx` — badge "Temporariamente indisponível" para tenants suspensos
 - `supabase/migrations/<ts>_customers_cpf_per_tenant_unique.sql` — troca `UNIQUE(cpf)` global por `UNIQUE(tenant_id, cpf)`
 - `supabase/migrations/<ts>_create_platform_kpis_rpc.sql` — função `get_platform_kpis()` SECURITY DEFINER
+- `supabase/migrations/<ts>_enforce_role_exclusivity.sql` — **nova** — triggers que impedem o mesmo user_id de estar em `platform_admins` e `tenant_members` simultaneamente
 
 ### 2.3 Responsabilidades
 
@@ -95,9 +95,10 @@ Cada plano é isolado por RLS. O contexto de tenant é sempre resolvido no servi
 | `packages/core` | Validação pura (CPF formato + dígito verificador); schemas Zod canônicos |
 | Server Actions (`actions.ts`) | Resolução server-side de `tenant_id`, validação Zod, mutação no Supabase, `logAction`/`logPlatformAction`, `revalidatePath` |
 | RLS (Supabase) | Isolamento de dados — última linha de defesa; não depende de validação do app |
-| Middleware (`middleware.ts`) | Proteção de rotas `/admin/*` (checar `is_platform_admin`); redirecionamento de contexto dual-role |
+| Middleware (`middleware.ts`) | Proteção de rotas `/admin/*` (checar `is_platform_admin`); redirecionamento pós-login simples: platform_admin → `/admin/dashboard`, demais → `/dashboard` |
 | Layout `(dashboard)/layout.tsx` | Verificar `tenant.suspended_at` uma vez por navegação — exibir tela de indisponibilidade se suspenso |
 | Mobile `AuthProvider` | Validação de CPF no dispositivo; seleção de contexto de tenant; routing pós-login |
+| DB Triggers | `trg_platform_admin_not_tenant_member` e `trg_tenant_member_not_platform_admin` — enforçam exclusividade mútua em nível de banco |
 
 ---
 
@@ -147,37 +148,27 @@ Platform Admin                apps/web                          Supabase
 
 ---
 
-### 3.2 Fluxo B — Seletor de contexto dual-role (RF-013)
+### 3.2 Fluxo B — Redirecionamento pós-login (RF-013)
 
 ```
-Usuário dual-role             middleware.ts               Supabase
+Usuário web                   middleware.ts               Supabase
      │                            │                          │
-     │── GET / (pós-login) ───────▶                          │
-     │                            │── getSession() ─────────▶│
+     │── GET /login (pós-auth) ───▶                          │
+     │                            │── getUser() ────────────▶│
      │                            │◀─── { user } ───────────│
-     │                            │── checar cookie          │
-     │                            │   gomoto-context         │
-     │                            │   (ausente no 1º login)  │
      │                            │── get_platform_role() ──▶│
-     │                            │◀─── 'owner'/'operator' ─│
-     │                            │── query tenant_members  ─▶│
-     │                            │   WHERE user_id = uid()  │
-     │                            │◀─── [tenant_id, ...]    ─│
-     │                            │   (dual: admin + membro) │
-     │◀── redirect /select-context│                          │
+     │                            │◀─── 'owner'|'operator'  │
+     │                            │     OR null             │
      │                            │                          │
-     │── GET /select-context ─────▶                          │
-     │◀── tela seleção ───────────│                          │
+     │        [platform_admin]    │                          │
+     │◀── redirect /admin/dashboard                          │
      │                            │                          │
-     │── escolhe "Plataforma" ────▶                          │
-     │                            │── Set-Cookie:            │
-     │                            │   gomoto-context=platform│
-     │◀── redirect /admin ────────│                          │
+     │        [tenant_member]     │                          │
+     │◀── redirect /dashboard ────│                          │
 ```
 
-- Cookie `gomoto-context: 'platform' | 'tenant'` — httpOnly, session-scoped (sem `maxAge`).
-- Middleware verifica o cookie **apenas na página de login** para decidir para onde redirecionar pós-auth. Para requests subsequentes, não faz query ao banco.
-- Alternância de contexto: botão em qualquer tela → POST `/api/switch-context` → atualiza cookie → redirect.
+- Nenhum cookie de contexto. O redirecionamento é determinístico: platform_admin → `/admin/dashboard`, todos os demais → `/dashboard`.
+- O mesmo email não pode ser ao mesmo tempo platform_admin e tenant_member — impedido por trigger no banco.
 
 ---
 
@@ -327,9 +318,9 @@ const { data, error } = await supabase
 |---|---|---|
 | `tenants` | Existente | Nenhuma coluna nova — `suspended_at/reason/by` já existe |
 | `customers` | Existente — **constraint alterada** | Drop `UNIQUE(cpf)` global → `UNIQUE(tenant_id, cpf)` composto |
-| `platform_admins` | Existente | Sem alteração |
+| `platform_admins` | Existente — **triggers adicionados** | `trg_platform_admin_not_tenant_member` impede inserção de user_id já em `tenant_members` |
 | `platform_audit_logs` | Existente | Sem alteração |
-| `tenant_members` | Existente | Sem alteração |
+| `tenant_members` | Existente — **triggers adicionados** | `trg_tenant_member_not_platform_admin` impede inserção de user_id já em `platform_admins` |
 | `get_platform_kpis()` | **Nova** | RPC SECURITY DEFINER — agregação global |
 
 ### 4.2 Campos (SQL concreto)
@@ -374,6 +365,43 @@ BEGIN
   );
 END;
 $$;
+```
+
+#### Migration 3 — `enforce_role_exclusivity`
+
+```sql
+-- Impede que um mesmo user_id exista em platform_admins e tenant_members simultaneamente.
+-- Enforça RN-015: os papéis são mutuamente exclusivos.
+
+CREATE OR REPLACE FUNCTION check_not_tenant_member()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM tenant_members WHERE user_id = NEW.user_id) THEN
+    RAISE EXCEPTION 'Usuário já é membro de tenant e não pode ser Platform Admin'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_platform_admin_not_tenant_member
+  BEFORE INSERT ON platform_admins
+  FOR EACH ROW EXECUTE FUNCTION check_not_tenant_member();
+
+CREATE OR REPLACE FUNCTION check_not_platform_admin()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM platform_admins WHERE user_id = NEW.user_id) THEN
+    RAISE EXCEPTION 'Usuário já é Platform Admin e não pode ser membro de tenant'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_tenant_member_not_platform_admin
+  BEFORE INSERT ON tenant_members
+  FOR EACH ROW EXECUTE FUNCTION check_not_platform_admin();
 ```
 
 ### 4.3 Relacionamentos, índices e RLS
@@ -500,7 +528,7 @@ O shell email (`<11dígitos>@cliente.gomoto.app`) nunca é exposto ao cliente fi
 **Contexto de tenant — determinado pelo servidor (RN-004):**
 `getCurrentTenantId(supabase)` usa `auth.uid()` server-side para resolver o tenant. Nenhum valor do cliente é aceito como `tenant_id`.
 
-**Sessão dual-role:** cookie `gomoto-context` (httpOnly, session-scoped) controla qual contexto o usuário está navegando. Sem o cookie, o middleware detecta o duplo papel e redireciona para `/select-context`.
+**Exclusividade de papel:** platform_admin e tenant_member são mutuamente exclusivos para o mesmo user_id. Enforçado por triggers no banco (`trg_platform_admin_not_tenant_member`, `trg_tenant_member_not_platform_admin`) e validado nas Server Actions de criação de tenant e promoção de Platform Admin.
 
 ### 6.2 Autorização
 
@@ -628,7 +656,6 @@ describe('CustomerSchema CPF', () => {
 | Tenant B não vê dados do Tenant A | CA-011 | Login com user-B → assert que API retorna somente registros com `tenant_id = tenantB` |
 | Cross-tenant por ID manipulado → 404 | CA-012 | Autenticado como Tenant B, GET `/clientes/<id-de-A>` → assert "não encontrado" |
 | Membro vê tela de suspensão | CA-013 | Suspender Tenant A → login com membro-A → assert `<TenantSuspendedPage>` visível |
-| Seletor de contexto dual-role | CA-015 | Login com usuário admin+membro → assert redirect `/select-context` → selecionar contexto → assert rota correta |
 | Não-admin acessa `/admin` → 404 | CA-016 | Login com user-tenant → GET `/admin` → assert status 404 |
 | Criar empresa + link | CA-001 | Login como Platform Admin Owner → criar empresa → assert link retornado e audit log criado |
 | Suspender sem motivo bloqueado | CA-005 | POST `suspendTenant` sem `reason` → assert erro de validação Zod |

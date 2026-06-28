@@ -1,9 +1,9 @@
 ---
 status: aprovado
-versão: 2.0
+versão: 2.1
 autor: Alan (com agente IA)
-data: 2026-06-26
-revisão: Revisado e corrigido em 2026-06-26 — isolamento de tenant, identidade do cliente, formato canônico PRD
+data: 2026-06-27
+revisão: v2.1 em 2026-06-27 — remove conceito de dual-role; platform_admin e tenant_member são mutuamente exclusivos; unicidade global de email no plano web
 adr:
   - "[[decisions/0003-escopo-e-auth-do-mobile-cliente]]"
   - "[[decisions/0004-control-plane-e-identidade-do-cliente]]"
@@ -20,7 +20,7 @@ tags:
 
 # PRD 0001 — Área Administrativa da Plataforma e Identidade de Usuários
 
-> ✅ **Status: aprovado.** Versão 2.0 — revisada em 2026-06-26. Corrige contradição de identidade do cliente, formaliza regras de isolamento de tenant e adiciona estrutura canônica de RF/RN/RNF/CA. Próximo passo: `/spec-generator obsidian-notes/PRDs/0001-area-administrativa-plataforma.md`
+> ✅ **Status: aprovado.** Versão 2.1 — revisada em 2026-06-27. Elimina o conceito de dual-role: platform_admin e tenant_member são papéis mutuamente exclusivos. O mesmo email não pode ser usado para ambos. Remove RF-013 (seletor de contexto), RN-015 e CA-015. Adiciona RN-015 (novo) com regra de exclusividade.
 
 ---
 
@@ -55,7 +55,7 @@ Adicionalmente, as regras de identidade do sistema — especialmente a identidad
 |---|---|
 | **Control Plane** | Área administrativa da plataforma. Opera *sobre* os tenants: cria empresas, visualiza métricas globais, suspende e reativa contas. Acessível apenas por Platform Admins. |
 | **Tenant Plane** | Área operacional *dentro* de um tenant. É o dashboard que cada empresa-cliente usa no dia a dia para gerenciar frota, clientes, contratos, cobranças e manutenções. |
-| **Platform Admin** | Usuário com permissão de operar o Control Plane. Não opera nenhum tenant específico (a menos que explicitamente também seja membro de um tenant). |
+| **Platform Admin** | Usuário com permissão de operar o Control Plane. Não opera nenhum tenant específico e não pode ser, simultaneamente, membro de nenhum tenant. Os papéis de Platform Admin e Membro de Tenant são mutuamente exclusivos. |
 | **Tenant** | Uma empresa locadora de motos que usa o GoMoto como plataforma. Também chamada de "empresa-cliente" ou "locadora" na interface de produto. Cada tenant tem seus dados completamente isolados dos demais. |
 | **Tenant Owner** | O usuário principal de um tenant — papel de maior privilégio dentro da empresa-cliente. Criado pelo Platform Admin no momento do onboarding. |
 | **Membro do Tenant** | Qualquer usuário com acesso ao Tenant Plane de uma empresa: Owner, Admin, Operador ou Visualizador. Opera exclusivamente dentro do seu tenant. |
@@ -108,6 +108,7 @@ Adicionalmente, as regras de identidade do sistema — especialmente a identidad
 | Impersonação de tenant (login-as) | Risco de segurança alto sem caso de uso concreto |
 | White-label / branding por tenant | Fora da visão do produto por ora |
 | Usuário membro de múltiplos tenants | Caso raro — resolvido com emails distintos |
+| Usuário com duplo papel (platform_admin + tenant_member) | Impossível por design — os papéis são mutuamente exclusivos; o mesmo email/usuário não pode ter os dois |
 | Exclusão permanente de tenant | Somente suspensão indefinida no V1 |
 | SSO / SAML | Sem demanda identificada |
 | LGPD — direito ao esquecimento | PRD próprio quando houver demanda legal |
@@ -169,13 +170,7 @@ Dono único: Alan (LW Tecnologia).
 3. Sistema direciona para o dashboard da empresa, exibindo exclusivamente os dados daquele tenant
 4. Todas as operações da sessão ficam restritas ao tenant resolvido — sem exceção
 
-**Alternativo A1 — Usuário é Platform Admin E membro de tenant:**
-1. Após autenticação, sistema detecta que o usuário possui ambos os papéis
-2. Exibe seletor de contexto: "Acessar como Plataforma" ou "Acessar como [Nome da Empresa]"
-3. Contexto escolhido determina quais funcionalidades e dados estão visíveis
-4. Usuário pode alternar entre contextos sem precisar fazer logout
-
-**Alternativo A2 — Usuário é apenas Platform Admin:**
+**Alternativo A1 — Usuário é Platform Admin:**
 1. Após autenticação, sistema direciona automaticamente para o Control Plane
 2. Sem seleção de contexto
 
@@ -308,7 +303,7 @@ Dono único: Alan (LW Tecnologia).
 
 **RF-012** — Na próxima requisição após a suspensão do seu tenant, o membro recebe tela de indisponibilidade e perde acesso a todos os dados. A sessão de autenticação permanece válida — apenas o acesso aos dados é bloqueado.
 
-**RF-013** — Um usuário com papel de Platform Admin E de membro de tenant, ao autenticar, vê um seletor de contexto para escolher entre Plataforma e Empresa. O contexto pode ser alternado sem logout.
+**RF-013** — O sistema impede que o mesmo usuário (identificado pelo email) seja simultaneamente Platform Admin e membro de qualquer tenant. Ao tentar criar um tenant com email de Platform Admin existente, ou ao tentar promover a Platform Admin um usuário que é membro de tenant, o sistema rejeita a operação com mensagem de conflito de papel.
 
 **RF-014** — Um usuário sem papel de Platform Admin recebe resposta de "não encontrado" ao tentar acessar rotas do Control Plane, sem revelar a existência dessas rotas.
 
@@ -434,7 +429,7 @@ Dono único: Alan (LW Tecnologia).
 
 **RN-014** — O primeiro Platform Admin Owner é criado por processo de bootstrap controlado, fora da interface do sistema.
 
-**RN-015** — Um Platform Admin pode simultaneamente ser membro de um tenant. Nesse caso, os contextos (Plataforma e Empresa) são separados e alternados explicitamente pelo usuário — nunca misturados automaticamente.
+**RN-015** — Os papéis de Platform Admin e Membro de Tenant são mutuamente exclusivos para o mesmo usuário (email). Um usuário não pode ser simultaneamente Platform Admin e membro de qualquer tenant. O sistema reforça essa regra em nível de banco de dados (trigger) e em nível de aplicação (Server Actions de criação de tenant e promoção de Platform Admin).
 
 ### 9.5 Suspensão de tenant
 
@@ -534,10 +529,10 @@ Dono único: Alan (LW Tecnologia).
 > **Quando** o cliente abre o app mobile,
 > **Então** o Tenant A aparece na lista de seleção como "Temporariamente indisponível" (sem acesso) e o cliente acessa o Tenant B normalmente.
 
-**CA-015 (RF-013)** — Seletor de contexto para usuário com duplo papel
-> **Dado** que um usuário é Platform Admin e também membro do Tenant X,
-> **Quando** faz login no sistema web,
-> **Então** vê um seletor entre "Plataforma" e "Nome do Tenant X" e pode alternar entre os contextos sem fazer logout.
+**CA-015 (RF-013)** — Rejeição de email conflitante ao criar tenant
+> **Dado** que sou Platform Admin Owner,
+> **Quando** informo o email do owner de uma nova empresa com um endereço que já pertence a um Platform Admin,
+> **Então** o sistema rejeita a criação e exibe mensagem de conflito de papel — informando que o email já é um administrador da plataforma.
 
 **CA-016 (RF-014)** — Proteção das rotas do Control Plane
 > **Dado** que um usuário autenticado é apenas membro de tenant (sem papel de Platform Admin),
