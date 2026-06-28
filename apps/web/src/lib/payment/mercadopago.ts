@@ -1,5 +1,5 @@
 const MP_BASE  = 'https://api.mercadopago.com'
-const MP_AUTH  = 'https://auth.mercadopago.com'
+const MP_AUTH  = 'https://auth.mercadopago.com.br'
 const MP_TOKEN = 'https://api.mercadopago.com'
 
 function envVar(name: string): string {
