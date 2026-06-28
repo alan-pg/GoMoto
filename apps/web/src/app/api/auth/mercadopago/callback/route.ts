@@ -65,6 +65,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL(`${REDIRECT_BASE}?payment=error&reason=db_error`, req.url))
   }
 
+  // Expirar Pixes ativos da conta anterior: ao trocar de conta MP os QR codes antigos
+  // apontam para o mp_user_id anterior e o webhook não conseguiria resolver o tenant.
+  await supabase
+    .from('billing_pix')
+    .update({ status: 'expired' })
+    .eq('tenant_id', tenantId)
+    .eq('status', 'active')
+
   await logAction({
     action: 'connect_payment',
     table: 'payment_connections',

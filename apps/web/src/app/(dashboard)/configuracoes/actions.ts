@@ -51,6 +51,13 @@ export async function disconnectPaymentAction() {
 
   if (error) return { ok: false, error: { code: 'INTERNAL', message: 'Erro ao desconectar' } }
 
+  // Expirar Pixes ativos: QR codes da conta desconectada não podem mais ser confirmados via webhook.
+  await ctx.supabase
+    .from('billing_pix')
+    .update({ status: 'expired' })
+    .eq('tenant_id', ctx.tenantId)
+    .eq('status', 'active')
+
   await logAction({
     action: 'disconnect_payment',
     table: 'payment_connections',
