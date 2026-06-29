@@ -510,8 +510,8 @@ export default function MotorcyclesPage() {
     setCrlvImportMessage(null)
 
     try {
-      const pdfjsLib = await import('pdfjs-dist')
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+      const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf')
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
 
       const buffer = await file.arrayBuffer()
       const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise
@@ -520,7 +520,11 @@ export default function MotorcyclesPage() {
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i)
         const content = await page.getTextContent()
-        rawText += content.items.map((item) => ('str' in item ? item.str : '')).join(' ') + '\n'
+        for (const item of content.items) {
+          if (!('str' in item)) continue
+          rawText += item.str + (item.hasEOL ? '\n' : ' ')
+        }
+        rawText += '\n'
       }
 
       const fields = parseCRLVText(rawText)

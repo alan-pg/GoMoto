@@ -16,13 +16,9 @@ const csp = [
 const nextConfig = {
   transpilePackages: ['@gomoto/core'],
   webpack(config) {
-    // pdfjs-dist@5 é ESM puro e usa import.meta internamente.
-    // Sem esta regra, o webpack do Next.js falha ao compilar o bundle do cliente.
-    config.module.rules.push({
-      test: /\.m?js$/,
-      include: [/node_modules\/pdfjs-dist/],
-      type: 'javascript/esm',
-    })
+    // pdfjs-dist legacy/build inclui canvas (addon nativo Node.js) como fallback server-side.
+    // No cliente, canvas não existe — alias para false evita o erro de bundle.
+    config.resolve.alias = { ...config.resolve.alias, canvas: false }
     return config
   },
   async headers() {
