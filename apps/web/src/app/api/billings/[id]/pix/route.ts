@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { getOrCreatePix } from '@/lib/payment/pix'
 import { GeneratePixSchema } from '@gomoto/core'
 
@@ -24,11 +25,19 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   const token = authHeader?.replace('Bearer ', '')
   if (!token) return json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Token não fornecido' } }, 401)
 
+  // Validar token via Supabase auth (funciona com Bearer token sem cookie)
   const supabase = await createClient()
   const { data: { user }, error: authErr } = await supabase.auth.getUser(token)
   if (authErr || !user) return json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }, 401)
 
-  const { data: customer } = await supabase
+  // Queries de banco usam service role: o token do mobile não é propagado via cookie,
+  // então o cliente SSR roda como anon e a RLS bloqueia leituras de customers/billings.
+  const admin = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  )
+
+  const { data: customer } = await admin
     .from('customers')
     .select('tenant_id')
     .eq('user_id', user.id)
@@ -39,7 +48,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     return json({ ok: false, error: { code: 'FORBIDDEN', message: 'Cliente não encontrado' } }, 403)
   }
 
-  const { data: billing } = await supabase
+  const { data: billing } = await admin
     .from('billings')
     .select('id, status, tenant_id, original_amount, discount_amount')
     .eq('id', billingId)
@@ -57,7 +66,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   }
 
   try {
-    const result = await getOrCreatePix(billingId, customer.tenant_id, supabase)
+    const result = await getOrCreatePix(billingId, customer.tenant_id, admin)
     log('info', 'pix.generated', { billing_id: billingId, tenant_id: customer.tenant_id, is_reused: result.is_reused })
     return json({ ok: true, data: result })
   } catch (err: unknown) {

@@ -12,7 +12,8 @@
       "bundleIdentifier": "com.gomoto.mobile"
     },
     "android": {
-      "package": "com.gomoto.mobile"
+      "package": "com.gomoto.mobile",
+      "versionCode": 5
     },
     "web": {
       "bundler": "metro"
