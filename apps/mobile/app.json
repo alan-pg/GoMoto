@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "GoMoto Mobile",
-    "slug": "gomoto-mobile",
+    "slug": "gomotos",
     "version": "0.1.0",
     "scheme": "gomoto",
     "orientation": "portrait",
@@ -17,6 +17,15 @@
     "web": {
       "bundler": "metro"
     },
-    "plugins": ["expo-router"]
+    "plugins": [
+      "expo-router"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "e2ae872e-1f8a-4827-94af-50d8b51f76a9"
+      }
+    },
+    "owner": "apg-dev"
   }
 }

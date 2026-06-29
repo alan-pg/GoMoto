@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import * as Clipboard from 'expo-clipboard'
 import {
   ActivityIndicator,
   Alert,
-  Clipboard,
   Image,
   Modal,
   Pressable,
@@ -271,7 +271,7 @@ function PixModal({
   const finalAmt = calculateFinalAmount(original, discount)
 
   function copyCode() {
-    Clipboard.setString(result.qr_code)
+    void Clipboard.setStringAsync(result.qr_code)
     Alert.alert('Copiado!', 'Código Pix copiado para a área de transferência.')
   }
 
