@@ -69,6 +69,7 @@ import { formatCurrency } from '@/lib/utils'
 
 // Importação de definições de tipos TypeScript globais
 import type { Motorcycle, MotorcycleStatus, Contract, Customer, MaintenancePlanItem } from '@gomoto/core'
+import { parseCRLVText, crlvSuccessRate } from '@gomoto/core'
 
 /**
  * Importação dinâmica do mapa Leaflet sem SSR.
@@ -504,39 +505,27 @@ export default function MotorcyclesPage() {
     setModalOpen(true)                           // Abre o modal
   }
 
-  /**
-   * @function handleCrlvImport
-   * @description Sobe um PDF do CRLV-e para /api/crlv/parse, recebe os campos
-   * extraídos e aplica em `form`. O mesmo arquivo já fica em `crvFile` —
-   * reaproveitado pelo handleSubmitFinal para subir ao bucket vehicle-documents.
-   *
-   * Overwrite total: todos os campos parseados sobrescrevem o que estava no
-   * form (decisão do usuário — confiar no parser; operador pode editar
-   * manualmente antes de avançar).
-   */
   async function handleCrlvImport(file: File) {
     setCrlvImporting(true)
     setCrlvImportMessage(null)
 
     try {
-      const body = new FormData()
-      body.append('file', file)
-      const response = await fetch('/api/crlv/parse', { method: 'POST', body })
-      const payload = await response.json()
+      const pdfjsLib = await import('pdfjs-dist')
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
-      if (!response.ok) {
-        setCrlvImportMessage({ kind: 'error', text: payload?.error ?? 'Falha ao processar o PDF.' })
-        return
+      const buffer = await file.arrayBuffer()
+      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise
+
+      let rawText = ''
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i)
+        const content = await page.getTextContent()
+        rawText += content.items.map((item) => ('str' in item ? item.str : '')).join(' ') + '\n'
       }
 
-      const { fields, stats } = payload as {
-        fields: Record<string, string | null>
-        stats: { found: number; total: number }
-      }
+      const fields = parseCRLVText(rawText)
+      const stats = crlvSuccessRate(fields)
 
-      // Normaliza valores parseados → forma esperada pelos inputs.
-      // Cilindrada vem como "162 cc"; queremos só o número/uso bruto.
-      // O parser entrega tudo em maiúsculas — o submit ainda faz UPPER nos casos relevantes.
       setForm((prev) => ({
         ...prev,
         licensePlate: fields.placa ?? prev.licensePlate,
@@ -549,7 +538,6 @@ export default function MotorcyclesPage() {
         chassis: fields.chassi ?? prev.chassis,
         engineCapacity: fields.cilindrada ?? prev.engineCapacity,
         fuel: mapCombustivelToFuel(fields.combustivel) ?? prev.fuel,
-        // Passo 2 — identidade documental atual
         registeredOwnerName: fields.proprietario ?? prev.registeredOwnerName,
         registeredOwnerDocument: fields.cpfCnpj ?? prev.registeredOwnerDocument,
         registeredOwnerType: detectOwnerType(fields.cpfCnpj) ?? prev.registeredOwnerType,
@@ -558,18 +546,12 @@ export default function MotorcyclesPage() {
         crvExerciseYear: fields.exercicio ?? prev.crvExerciseYear,
       }))
 
-      // PDF importado vira o anexo do CRV (mesmo pipeline do botão de upload no Passo 2).
       setCrvFile(file)
 
-      setCrlvImportMessage({
-        kind: 'success',
-        found: stats.found,
-        total: stats.total,
-        fileName: file.name,
-      })
+      setCrlvImportMessage({ kind: 'success', found: stats.found, total: stats.total, fileName: file.name })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'erro desconhecido'
-      setCrlvImportMessage({ kind: 'error', text: `Falha na rede: ${message}` })
+      setCrlvImportMessage({ kind: 'error', text: `Erro ao processar o PDF: ${message}` })
     } finally {
       setCrlvImporting(false)
     }

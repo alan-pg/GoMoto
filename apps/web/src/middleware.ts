@@ -165,5 +165,6 @@ export async function middleware(request: NextRequest) {
  * e focar apenas nas rotas de aplicação.
  */
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  // Rotas /api/* têm auth própria (Bearer token ou cookie) — middleware não deve interceptá-las.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 };
