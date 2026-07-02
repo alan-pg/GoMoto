@@ -6,6 +6,7 @@ import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { CONTRACT_TERMINATION_FINE_BRL } from '@gomoto/core'
 import { z } from 'zod'
+import { recordStatusTransition } from '@/lib/vehicle-status-history'
 
 async function getAuthenticatedUser() {
   const supabase = await createClient()
@@ -49,7 +50,34 @@ export async function createContract(rawData: unknown) {
   if (error) return { error: 'Erro ao criar contrato' }
 
   await logAction({ action: 'create', table: 'rentals', recordId: data.id, newData: data })
+
+  // RF-022: criar contrato → moto passa a 'rented'
+  const { data: motoBefore } = await supabase
+    .from('motorcycles').select('status').eq('id', parsed.data.motorcycle_id).single()
+  const { error: motoErr } = await supabase
+    .from('motorcycles')
+    .update({ status: 'rented' })
+    .eq('id', parsed.data.motorcycle_id)
+  if (!motoErr) {
+    try {
+      await recordStatusTransition(supabase, {
+        motorcycleId:   parsed.data.motorcycle_id,
+        tenantId,
+        previousStatus: motoBefore?.status ?? null,
+        newStatus:      'rented',
+        userId:         user.id,
+      })
+    } catch (e) {
+      console.error('[createContract] recordStatusTransition failed', e)
+    }
+    await logAction({
+      action: 'update', table: 'motorcycles', recordId: parsed.data.motorcycle_id,
+      oldData: motoBefore, newData: { status: 'rented' },
+    })
+  }
+
   revalidatePath('/contratos')
+  revalidatePath('/motos')
   return { data }
 }
 
@@ -156,7 +184,21 @@ export async function terminateContractByCustomer(contractId: string) {
     oldData: motoBefore, newData: moto,
   })
 
+  // RF-023: encerrar contrato → moto volta a 'available'
+  try {
+    await recordStatusTransition(supabase, {
+      motorcycleId:   contract.motorcycle_id,
+      tenantId,
+      previousStatus: 'rented',
+      newStatus:      'available',
+      userId:         user.id,
+    })
+  } catch (e) {
+    console.error('[terminateContractByCustomer] recordStatusTransition failed', e)
+  }
+
   revalidatePath('/contratos')
+  revalidatePath('/motos')
   return { data: { fineAmount: CONTRACT_TERMINATION_FINE_BRL } }
 }
 
@@ -207,7 +249,24 @@ export async function terminateContractByCompany(contractId: string, reason: str
     oldData: motoBefore, newData: moto,
   })
 
+  // RF-023: encerrar contrato → moto volta a 'available'
+  const tenantId = await getCurrentTenantId(supabase)
+  if (tenantId) {
+    try {
+      await recordStatusTransition(supabase, {
+        motorcycleId:   contract.motorcycle_id,
+        tenantId,
+        previousStatus: 'rented',
+        newStatus:      'available',
+        userId:         user.id,
+      })
+    } catch (e) {
+      console.error('[terminateContractByCompany] recordStatusTransition failed', e)
+    }
+  }
+
   revalidatePath('/contratos')
+  revalidatePath('/motos')
   return { success: true }
 }
 

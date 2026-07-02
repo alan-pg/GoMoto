@@ -135,8 +135,8 @@ export interface Motorcycle {
   ownership_transferred?: boolean;
   /** @property ownership_transfer_date - Data da transferência efetivada. */
   ownership_transfer_date?: string | null;
-  /** @property acquisition_type - Como a empresa adquiriu o veículo (≠ FIPE). */
-  acquisition_type?: 'zero_km' | 'purchase' | 'consignment' | 'lease' | 'donation' | 'other' | null;
+  /** @property acquisition_type - Como a empresa adquiriu o veículo (≠ FIPE). Spec 0006: purchase→used, lease→other; adicionados settled, financed. */
+  acquisition_type?: 'zero_km' | 'used' | 'settled' | 'financed' | 'consignment' | 'donation' | 'other' | null;
   /** @property acquisition_amount - Valor pago pela empresa na aquisição. */
   acquisition_amount?: number | null;
   /** @property maintenance_plan_id - Plano de manutenção atribuído (PRD 0003 F1). Nullable; bootstrap retroativo. */

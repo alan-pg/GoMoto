@@ -327,10 +327,10 @@ INSERT INTO motorcycles (
     registered_owner_name, registered_owner_document, registered_owner_type, registration_state,
     ownership_transferred, acquisition_type, acquisition_amount
 ) VALUES
-('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000001', 'ABC-1234', 'CG 160 Start', 'Honda',  '2021', '2021', 'Vermelha', '12345678901', '9C2KC2220MR123456', 'Gasolina', '160cc', 'rented',    45000, 'GoMoto Bonze Locadora LTDA', '12345678000190', 'cnpj', 'SP', true,  'purchase',     11500.00),
+('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000001', 'ABC-1234', 'CG 160 Start', 'Honda',  '2021', '2021', 'Vermelha', '12345678901', '9C2KC2220MR123456', 'Gasolina', '160cc', 'rented',    45000, 'GoMoto Bonze Locadora LTDA', '12345678000190', 'cnpj', 'SP', true,  'used',         11500.00),
 ('22222222-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000001', 'ABC1D23',  'CG 160 Fan',   'Honda',  '2022', '2023', 'Preta',    '10987654321', '9C2KC2220NR654321', 'Flex',     '160cc', 'rented',    25000, 'GoMoto Bonze Locadora LTDA', '12345678000190', 'cnpj', 'SP', true,  'zero_km',      13900.00),
 ('33333333-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000001', 'DEF-5678', 'Factor 150',   'Yamaha', '2023', '2023', 'Branca',   '11223344556', '9C6KE2020PR112233', 'Flex',     '150cc', 'available', 15000, 'GoMoto Bonze Locadora LTDA', '12345678000190', 'cnpj', 'SP', true,  'zero_km',      14250.00),
-('44444444-4444-4444-4444-444444444444', '00000000-0000-0000-0000-000000000001', 'GHI-9012', 'Biz 125',      'Honda',  '2021', '2022', 'Vermelha', '66554433221', '9C2JC1110MR998877', 'Flex',     '125cc', 'available', 32000, 'José Vendedor Antigo',       '11122233344', 'cpf',  'SP', false, 'purchase',      9800.00),
+('44444444-4444-4444-4444-444444444444', '00000000-0000-0000-0000-000000000001', 'GHI-9012', 'Biz 125',      'Honda',  '2021', '2022', 'Vermelha', '66554433221', '9C2JC1110MR998877', 'Flex',     '125cc', 'available', 32000, 'José Vendedor Antigo',       '11122233344', 'cpf',  'SP', false, 'used',          9800.00),
 ('55555555-5555-5555-5555-555555555555', '00000000-0000-0000-0000-000000000001', 'JKL3M45',  'Pop 110i',     'Honda',  '2022', '2022', 'Preta',    '99887766554', '9C2HA1010NR554433', 'Gasolina', '110cc', 'available',  8000, 'GoMoto Bonze Locadora LTDA', '12345678000190', 'cnpj', 'SP', true,  'consignment',   7600.00);
 
 -- Previous owner para a Biz 125 (transferência ainda pendente — registered_owner ainda é o vendedor).
@@ -476,3 +476,13 @@ INSERT INTO maintenances (
     44000, NULL,
     44050, CURRENT_DATE - INTERVAL '30 days', true, 80.00,
     'Oficina do Careca', 'company', 0);
+
+-- ============================================================
+-- SEED: Spec 0006 — vehicle_status_history backfill para dev
+-- (Em produção, a migration 20260702100001 faz isso automaticamente
+--  antes do deploy. Aqui é necessário porque o seed roda depois das migrations.)
+-- ============================================================
+INSERT INTO vehicle_status_history (motorcycle_id, tenant_id, previous_status, new_status, changed_by, created_at)
+SELECT id, tenant_id, NULL, status, NULL, created_at
+FROM motorcycles
+ON CONFLICT DO NOTHING;

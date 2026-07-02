@@ -14,37 +14,7 @@ const cpfDigitsString = z
   .refine((digits) => isCpfDigits(digits), { message: 'CPF inválido: precisa ter 11 dígitos' })
   .refine((digits) => validateCpfDigits(digits), { message: 'CPF inválido: dígito verificador incorreto' })
 
-export const MotorcycleSchema = z.object({
-  license_plate: z.string().trim().max(10),
-  model: z.string().trim().max(100).optional().nullable(),
-  make: z.string().trim().max(100).optional().nullable(),
-  year_manufacture: z.string().trim().max(10).optional().nullable(),
-  year_model: z.string().trim().max(10).optional().nullable(),
-  color: z.string().trim().max(50).optional().nullable(),
-  renavam: z.string().trim().max(20).optional().nullable(),
-  chassis: z.string().trim().max(20).optional().nullable(),
-  fuel: z.string().trim().max(50).optional().nullable(),
-  engine_capacity: z.string().trim().max(20).optional().nullable(),
-  previous_owner: z.string().trim().max(200).optional().nullable(),
-  previous_owner_cpf: z.string().trim().max(14).optional().nullable(),
-  purchase_date: dateString.optional().nullable(),
-  fipe_value: z.number().positive().max(9999999).optional().nullable(),
-  maintenance_up_to_date: z.boolean().optional().nullable(),
-  status: z.enum(['available', 'rented', 'maintenance', 'inactive']).optional(),
-  photo_url: z.string().url().optional().nullable(),
-  km_current: z.number().int().min(0).optional().nullable(),
-  observations: z.string().trim().max(2000).optional().nullable(),
-  // PRD 0002 — identidade documental atual (CRV/CRLV vigente)
-  registered_owner_name: z.string().trim().max(200).optional().nullable(),
-  registered_owner_document: z.string().trim().max(20).optional().nullable(),
-  registered_owner_type: z.enum(['cpf', 'cnpj']).optional().nullable(),
-  registration_state: z.string().trim().max(2).optional().nullable(),
-  ownership_transferred: z.boolean().optional(),
-  ownership_transfer_date: dateString.optional().nullable(),
-  // PRD 0002 — aquisição pela empresa
-  acquisition_type: z.enum(['zero_km', 'purchase', 'consignment', 'lease', 'donation', 'other']).optional(),
-  acquisition_amount: z.number().positive().max(9999999).optional().nullable(),
-})
+// MotorcycleSchema migrado para packages/core/src/schemas/vehicles.ts (Spec 0006)
 
 /**
  * VehicleDocumentSchema — CRV/CRLV/recibo de transferência (PRD 0002).
@@ -238,6 +208,7 @@ export const CreateTenantWithOwnerSchema = z.object({
 
 export * from './rentals'
 export * from './payments'
+export * from './vehicles'
 
 export const TenantSuspendSchema = z.object({
   reason: z.string().trim().min(1, 'Informe o motivo da suspensão').max(500),

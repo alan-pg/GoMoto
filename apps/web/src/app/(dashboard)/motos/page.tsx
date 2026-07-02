@@ -94,22 +94,30 @@ type ContractWithCustomer = Contract & { customer?: Customer }
  * @constant filterOptions
  * @description Define os botões de filtro rápido acima da listagem.
  */
+// Filtros padrão excluem Vendido e Desativado (RF-003)
 const filterOptions = [
-  { label: 'Todas', value: 'all' },
-  { label: 'Disponíveis', value: 'available' },
-  { label: 'Alugadas', value: 'rented' },
-  { label: 'Em Manutenção', value: 'maintenance' },
+  { label: 'Ativas',        value: 'active' },   // virtual: available+rented+reserved+maintenance+sinister
+  { label: 'Disponíveis',   value: 'available' },
+  { label: 'Alugadas',      value: 'rented' },
+  { label: 'Reservadas',    value: 'reserved' },
+  { label: 'Manutenção',    value: 'maintenance' },
+  { label: 'Sinistradas',   value: 'sinister' },
+  { label: 'Vendidas',      value: 'sold' },
+  { label: 'Desativadas',   value: 'inactive' },
+  { label: 'Todas',         value: 'all' },
 ]
+
+const ACTIVE_STATUSES = ['available', 'rented', 'reserved', 'maintenance', 'sinister']
 
 /**
  * @constant statusOptions
- * @description Opções para o campo Select do formulário de cadastro.
+ * @description Opções para o campo Select do formulário de cadastro (wizard).
  */
 const statusOptions = [
-  { value: 'available', label: 'Disponível' },
-  { value: 'rented', label: 'Alugada' },
+  { value: 'available',   label: 'Disponível' },
+  { value: 'reserved',    label: 'Reservado' },
   { value: 'maintenance', label: 'Em Manutenção' },
-  { value: 'inactive', label: 'Inativa' },
+  { value: 'sinister',    label: 'Sinistrado' },
 ]
 
 /**
@@ -128,10 +136,11 @@ const fuelOptions = [
  * `zero_km` esconde os campos de dono anterior no Passo 2 (D5).
  */
 const acquisitionTypeOptions = [
-  { value: 'purchase',    label: 'Compra (usada)' },
   { value: 'zero_km',     label: 'Zero KM' },
+  { value: 'used',        label: 'Compra (usada)' },
+  { value: 'settled',     label: 'Quitada' },
+  { value: 'financed',    label: 'Financiada' },
   { value: 'consignment', label: 'Consignação' },
-  { value: 'lease',       label: 'Leasing' },
   { value: 'donation',    label: 'Doação' },
   { value: 'other',       label: 'Outro' },
 ]
@@ -196,7 +205,7 @@ const defaultFormState = {
   status: 'available',      // Status operacional inicial
   observations: '',         // Observações de vistoria de entrada
   // PRD 0002 — aquisição
-  acquisitionType: 'purchase' as 'purchase' | 'zero_km' | 'consignment' | 'lease' | 'donation' | 'other',
+  acquisitionType: 'used' as 'zero_km' | 'used' | 'settled' | 'financed' | 'consignment' | 'donation' | 'other',
   acquisitionAmount: '',    // Valor pago pela empresa (≠ FIPE)
   // PRD 0002 — identidade documental atual (CRV/CRLV vigente)
   registeredOwnerName: '',
@@ -228,7 +237,10 @@ const defaultObligationsState = {
 const statusColorMap: Record<string, string> = {
   available:   '#28b438',
   rented:      '#a880ff',
+  reserved:    '#818cf8',
   maintenance: '#e65e24',
+  sinister:    '#f87171',
+  sold:        '#9e9e9e',
   inactive:    '#474747',
 }
 
@@ -326,7 +338,7 @@ function motorcycleToForm(motorcycle: Motorcycle): typeof defaultFormState {
     status: motorcycle.status,
     observations: motorcycle.observations ?? '',
     // PRD 0002
-    acquisitionType: (motorcycle.acquisition_type ?? 'purchase') as typeof defaultFormState.acquisitionType,
+    acquisitionType: (motorcycle.acquisition_type ?? 'used') as typeof defaultFormState.acquisitionType,
     acquisitionAmount: motorcycle.acquisition_amount ? String(motorcycle.acquisition_amount) : '',
     registeredOwnerName: motorcycle.registered_owner_name ?? '',
     registeredOwnerDocument: motorcycle.registered_owner_document ?? '',
@@ -369,8 +381,8 @@ export default function MotorcyclesPage() {
     createMotorcycleMutation.isPending ||
     updateMotorcycleMutation.isPending ||
     deleteMotorcycleMutation.isPending
-  // Valor atual do filtro de status (todas, disponivel, etc).
-  const [filter, setFilter] = useState('all')
+  // Filtro padrão 'active' oculta Vendido e Desativado (RF-003)
+  const [filter, setFilter] = useState('active')
   // Texto digitado no campo de busca para filtragem dinâmica.
   const [search, setSearch] = useState('')
   // Controla se o modal de formulário está visível.
@@ -450,9 +462,14 @@ export default function MotorcyclesPage() {
    */
   const filteredMotorcycles = useMemo(
     () => motorcycles.filter((m) => {
-      // Verifica se a moto pertence à categoria de status selecionada
-      const passesFilter = filter === 'all' || m.status === filter
-      // Verifica se algum campo contém o texto buscado (case-insensitive)
+      let passesFilter: boolean
+      if (filter === 'all') {
+        passesFilter = true
+      } else if (filter === 'active') {
+        passesFilter = ACTIVE_STATUSES.includes(m.status)
+      } else {
+        passesFilter = m.status === filter
+      }
       const passesSearch = !search || [m.license_plate, m.model, m.make, m.color].some(
         (v) => v?.toLowerCase().includes(search.toLowerCase())
       )
@@ -922,16 +939,19 @@ export default function MotorcyclesPage() {
           <div className="flex flex-wrap border-b border-[#616161]">
             {filterOptions.map((opt) => {
               const isActive = filter === opt.value
+              const count = opt.value === 'all'
+                ? motorcycles.length
+                : opt.value === 'active'
+                  ? motorcycles.filter((m) => ACTIVE_STATUSES.includes(m.status)).length
+                  : motorcycles.filter((m) => m.status === opt.value).length
               return (
                 <button
                   key={opt.value}
                   onClick={() => setFilter(opt.value)}
-                  className={`px-3 py-2 text-[16px] font-medium transition-all border-b-2 ${isActive ? 'border-[#BAFF1A] text-[#f5f5f5]' : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'}`}
+                  className={`px-3 py-2 text-[13px] font-medium transition-all border-b-2 ${isActive ? 'border-[#BAFF1A] text-[#f5f5f5]' : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'}`}
                 >
                   {opt.label}
-                  {opt.value !== 'all' && (
-                    <span className="ml-1.5 text-[#616161]">({motorcycles.filter((m) => m.status === opt.value).length})</span>
-                  )}
+                  <span className="ml-1.5 text-[#616161]">({count})</span>
                 </button>
               )
             })}
@@ -954,11 +974,11 @@ export default function MotorcyclesPage() {
           <table className="w-full text-left text-[13px] text-[#f5f5f5]">
             <thead className="text-[#9e9e9e] border-b border-[#323232]">
               <tr>
+                <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e] w-10" />
                 <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Placa</th>
                 <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Motocicleta</th>
                 <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Cliente</th>
                 <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Valor/Semana</th>
-                <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Endereço</th>
                 <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Status</th>
                 <th className="h-9 px-4 text-right text-[13px] font-medium text-[#9e9e9e]">Ações</th>
               </tr>
@@ -967,7 +987,7 @@ export default function MotorcyclesPage() {
               {loading ? (
                 <tr><td colSpan={7}><div className='flex items-center justify-center py-16'><div className='w-6 h-6 border-2 border-[#BAFF1A] border-t-transparent rounded-full animate-spin' /></div></td></tr>
               ) : filteredMotorcycles.length === 0 ? (
-                <tr><td colSpan={7}><div className='flex flex-col items-center justify-center py-16 gap-3 text-[#9e9e9e]'><div className='w-12 h-12 bg-[#323232] rounded-full flex items-center justify-center'><Bike className='w-6 h-6 text-[#9e9e9e]' /></div><p className='text-[13px] text-[#9e9e9e]'>Nenhum veículo encontrado.</p><button onClick={() => { setFilter('all'); setSearch('') }} className='text-[13px] text-[#BAFF1A] hover:underline'>Limpar filtros</button></div></td></tr>
+                <tr><td colSpan={7}><div className='flex flex-col items-center justify-center py-16 gap-3 text-[#9e9e9e]'><div className='w-12 h-12 bg-[#323232] rounded-full flex items-center justify-center'><Bike className='w-6 h-6 text-[#9e9e9e]' /></div><p className='text-[13px] text-[#9e9e9e]'>Nenhum veículo encontrado.</p><button onClick={() => { setFilter('active'); setSearch('') }} className='text-[13px] text-[#BAFF1A] hover:underline'>Limpar filtros</button></div></td></tr>
               ) : (
                 filteredMotorcycles.map((moto) => {
                   const contract = contractByMotoId[moto.id]
@@ -975,6 +995,16 @@ export default function MotorcyclesPage() {
                   const weeklyValue = contract?.monthly_amount ? formatCurrency(contract.monthly_amount) : null
                   return (
                     <tr key={moto.id} onClick={() => setSelectedMotoId(moto.id === selectedMotoId ? null : moto.id)} className="h-9 text-[13px] border-b border-[#323232] transition-colors hover:bg-[#323232] cursor-pointer">
+                      {/* Foto principal (placeholder se ausente) */}
+                      <td className="px-2">
+                        {moto.photo_url ? (
+                          <img src={moto.photo_url} alt="" className="w-7 h-7 rounded object-cover" />
+                        ) : (
+                          <div className="w-7 h-7 rounded bg-[#323232] flex items-center justify-center">
+                            <Bike className="w-3.5 h-3.5 text-[#616161]" />
+                          </div>
+                        )}
+                      </td>
                       <td className="px-4"><div className='flex items-center gap-2'><div className='w-2 h-2 rounded-full flex-shrink-0' style={{ background: statusColorMap[moto.status] ?? '#9e9e9e' }} /><span className='font-mono font-bold text-[#f5f5f5]'>{moto.license_plate}</span></div></td>
                       <td className="px-4">
                         <div className="flex items-center gap-2">
@@ -991,9 +1021,8 @@ export default function MotorcyclesPage() {
                       </td>
                       <td className="px-4">{customer ? (<div className="flex items-center gap-1.5"><User className="w-4 h-4 text-[#a880ff] flex-shrink-0" /><p className="font-medium text-[#f5f5f5] truncate">{customer.name}</p></div>) : (<p className="text-[#9e9e9e]">Sem locatário</p>)}</td>
                       <td className="px-4">{weeklyValue ? (<span className='text-[#BAFF1A] font-medium'>{weeklyValue}</span>) : (<span className='text-[#9e9e9e]'>—</span>)}</td>
-                      <td className="px-4">{customer?.address ? (<div className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-[#9e9e9e] flex-shrink-0" /><p className="text-[#9e9e9e] truncate max-w-[180px]">{customer.address}</p></div>) : (<p className="text-[#9e9e9e]">—</p>)}</td>
                       <td className="px-4"><StatusBadge status={moto.status} /></td>
-                      <td className="px-4 text-right"><div className="flex items-center justify-end gap-1"><Button variant="secondary" size="sm" className="h-8 w-8 p-0" title="Ver detalhes" onClick={(e) => { e.stopPropagation(); setMotorcycleDetails(moto) }}><Eye className="h-4 w-4" /></Button><Button variant="secondary" size="sm" className="h-8 w-8 p-0" title="Editar" onClick={(e) => { e.stopPropagation(); openEditMotorcycle(moto) }}><Edit2 className="h-4 w-4" /></Button><Button variant="danger" size="sm" className="h-8 w-8 p-0" title="Excluir" onClick={(e) => { e.stopPropagation(); setDeletingMotorcycle(moto) }}><Trash2 className="h-4 w-4" /></Button></div></td>
+                      <td className="px-4 text-right"><div className="flex items-center justify-end gap-1"><Link href={`/motos/${moto.id}`} onClick={(e) => e.stopPropagation()} className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-[#323232] text-[#9e9e9e] hover:bg-[#474747] hover:text-[#f5f5f5] transition-colors" title="Ver detalhes"><Eye className="h-4 w-4" /></Link><Button variant="secondary" size="sm" className="h-8 w-8 p-0" title="Editar" onClick={(e) => { e.stopPropagation(); openEditMotorcycle(moto) }}><Edit2 className="h-4 w-4" /></Button><Button variant="danger" size="sm" className="h-8 w-8 p-0" title="Excluir" onClick={(e) => { e.stopPropagation(); setDeletingMotorcycle(moto) }}><Trash2 className="h-4 w-4" /></Button></div></td>
                     </tr>
                   )
                 })
