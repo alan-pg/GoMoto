@@ -1518,7 +1518,7 @@ export default function MaintenancePage() {
                 <p className="text-[13px] text-[#e65e24]">KM previsto: {fmtKm(completingMaintenance.predicted_km)}</p>
               )}
               {completingMaintenance.vehicle?.km_current != null && (
-                <p className="text-[13px] text-[#9e9e9e]">KM atual: {fmtKm(completingMaintenance.vehorcycle.km_current)}</p>
+                <p className="text-[13px] text-[#9e9e9e]">KM atual: {fmtKm(completingMaintenance.vehicle.km_current)}</p>
               )}
               {completingMaintenance.scheduled_date && (
                 <p className="text-[13px] text-[#e65e24]">Data prevista: {formatDate(completingMaintenance.scheduled_date + 'T12:00:00')}</p>
