@@ -1,0 +1,1182 @@
+'use client'
+
+import { useState, useTransition, useRef, useMemo, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import Image from 'next/image'
+import {
+  Upload,
+  AlertCircle,
+  X,
+  Plus,
+} from 'lucide-react'
+
+import {
+  VEHICLE_STATUS_LABELS,
+  VEHICLE_PHOTO_SLOT_LABELS,
+  ACQUISITION_TYPE_LABELS,
+  type VehiclePhotoSlot,
+  type VehicleStatus,
+  type MaintenancePlanItem,
+  parseCRLVText,
+  crlvSuccessRate,
+} from '@gomoto/core'
+import {
+  useSupabaseContext,
+  useRequiredTenantId,
+  useMaintenancePlans,
+  useMaintenancePlan,
+} from '@gomoto/data'
+
+import { createVehicle, updateVehicle, deleteVehiclePhoto, saveVehicleObligations } from '../actions'
+
+// ─── Constantes ──────────────────────────────────────────────────────────────
+
+const PHOTO_SLOTS: VehiclePhotoSlot[] = ['principal', 'front', 'left_side', 'right_side', 'rear', 'dashboard']
+
+const FUEL_OPTIONS = [
+  { value: 'GASOLINA',        label: 'Gasolina' },
+  { value: 'ÁLCOOL/GASOLINA', label: 'Flex (Álcool/Gasolina)' },
+  { value: 'ELÉTRICO',        label: 'Elétrico' },
+]
+
+const OWNER_TYPE_OPTIONS = [
+  { value: 'cpf',  label: 'CPF' },
+  { value: 'cnpj', label: 'CNPJ' },
+]
+
+const OBLIGATION_STATUS_OPTIONS = [
+  { value: 'pending', label: 'Pendente' },
+  { value: 'paid',    label: 'Pago' },
+  { value: 'exempt',  label: 'Isento' },
+]
+
+const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
+  available:   { label: 'Disponível',    bg: '#143c18', text: '#4ade80', border: '#4ade8060' },
+  reserved:    { label: 'Reservado',     bg: '#1a1a3e', text: '#818cf8', border: '#818cf860' },
+  maintenance: { label: 'Em manutenção', bg: '#3a1800', text: '#fb923c', border: '#fb923c60' },
+  sinister:    { label: 'Sinistrado',    bg: '#3a0000', text: '#f87171', border: '#f8717160' },
+}
+
+const NAV_ITEMS = [
+  { id: 'sec-identification', label: 'Identificação' },
+  { id: 'sec-document',       label: 'Documentação' },
+  { id: 'sec-status',         label: 'Status' },
+  { id: 'sec-acquisition',    label: 'Aquisição' },
+  { id: 'sec-tracker',        label: 'Rastreador' },
+  { id: 'sec-insurance',      label: 'Seguro' },
+  { id: 'sec-photos',         label: 'Fotos' },
+  { id: 'sec-maintenance',    label: 'Manutenção', createOnly: true },
+]
+
+// ─── Tipos ───────────────────────────────────────────────────────────────────
+
+type ObligationStatus = 'pending' | 'paid' | 'exempt'
+type ObligationEntry  = { amount: string; dueDate: string; status: ObligationStatus }
+type ObligationType   = 'ipva' | 'licensing' | 'dpvat'
+
+interface VehicleFormProps {
+  vehicleId?: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  initialData?: Record<string, any>
+  initialPhotoUrls?: Partial<Record<VehiclePhotoSlot, string>>
+  initialObligations?: Partial<Record<ObligationType, { amount: string; dueDate: string; status: string } | null>>
+}
+
+// ─── Cabeçalho de seção ──────────────────────────────────────────────────────
+
+function SectionHeader({ title, hint }: { title: string; hint?: string }) {
+  return (
+    <div className="flex items-baseline gap-3 mb-5">
+      <h2 className="text-[15px] font-bold text-[#f5f5f5]">{title}</h2>
+      {hint && <span className="text-[12px] text-[#616161]">{hint}</span>}
+    </div>
+  )
+}
+
+// ─── Field wrapper ───────────────────────────────────────────────────────────
+
+const labelCls = 'block text-[13px] text-[#9e9e9e] mb-1.5'
+const inputCls = 'w-full h-9 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all'
+const inputErrCls = 'w-full h-9 px-3 rounded-lg bg-[#282828] border border-[#ff9c9a] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#ff9c9a] transition-all'
+
+function Field({
+  label,
+  error,
+  children,
+  className,
+}: {
+  label: string
+  error?: string
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div className={className}>
+      <label className={labelCls}>{label}</label>
+      {children}
+      {error && <p className="text-[12px] text-[#ff9c9a] mt-1">{error}</p>}
+    </div>
+  )
+}
+
+// ─── Toggle ──────────────────────────────────────────────────────────────────
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="relative inline-flex items-center cursor-pointer">
+      <input
+        type="checkbox"
+        className="sr-only peer"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <div className="w-10 h-5 bg-[#323232] rounded-full peer peer-checked:bg-[#BAFF1A] transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" />
+    </label>
+  )
+}
+
+// ─── Utilitários ─────────────────────────────────────────────────────────────
+
+function mapCombustivelToFuel(combustivel: string | null | undefined): string | null {
+  if (!combustivel) return null
+  const u = combustivel.toUpperCase()
+  if (u.includes('ELÉTR') || u.includes('ELETR')) return 'ELÉTRICO'
+  if (u.includes('FLEX') || u.includes('ÁLCOOL') || u.includes('ALCOOL') || u.includes('ETANOL')) return 'ÁLCOOL/GASOLINA'
+  if (u.includes('GASOLINA')) return 'GASOLINA'
+  return null
+}
+
+function detectOwnerType(doc: string | null | undefined): 'cpf' | 'cnpj' {
+  if (!doc) return 'cnpj'
+  return doc.replace(/\D/g, '').length === 11 ? 'cpf' : 'cnpj'
+}
+
+function planItemMetric(item: MaintenancePlanItem): 'km' | 'date' {
+  return item.interval_km != null ? 'km' : 'date'
+}
+
+function planItemHint(item: MaintenancePlanItem): string {
+  if (item.interval_km != null)   return `a cada ${item.interval_km.toLocaleString('pt-BR')} km`
+  if (item.interval_days != null) return `a cada ${item.interval_days} dia${item.interval_days === 1 ? '' : 's'}`
+  return ''
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildInitialForm(d?: Record<string, any>) {
+  return {
+    license_plate:             d?.license_plate ?? '',
+    renavam:                   d?.renavam ?? '',
+    make:                      d?.make ?? '',
+    model:                     d?.model ?? '',
+    year_manufacture:          d?.year_manufacture ?? '',
+    year_model:                d?.year_model ?? '',
+    color:                     d?.color ?? '',
+    fuel:                      d?.fuel ?? 'GASOLINA',
+    chassis:                   d?.chassis ?? '',
+    engine_capacity:           d?.engine_capacity ?? '',
+    km_entry:                  '',
+    observations:              d?.observations ?? '',
+    status:                    (d?.status && d.status !== 'rented' ? d.status : 'available') as string,
+    acquisition_type:          d?.acquisition_type ?? 'used',
+    purchase_date:             d?.purchase_date ?? '',
+    acquisition_amount:        d?.acquisition_amount != null ? String(d.acquisition_amount) : '',
+    fipe_value:                d?.fipe_value != null ? String(d.fipe_value) : '',
+    previous_owner:            d?.previous_owner ?? '',
+    previous_owner_cpf:        d?.previous_owner_cpf ?? '',
+    registered_owner_name:     d?.registered_owner_name ?? '',
+    registered_owner_document: d?.registered_owner_document ?? '',
+    registered_owner_type:     (d?.registered_owner_type ?? 'cnpj') as 'cpf' | 'cnpj',
+    registration_state:        d?.registration_state ?? '',
+    ownership_transferred:     d?.ownership_transferred ? 'true' : 'false',
+    ownership_transfer_date:   d?.ownership_transfer_date ?? '',
+    crv_number:                '',
+    crv_exercise_year:         '',
+    has_tracker:               d?.has_tracker ? 'true' : 'false',
+    tracker_brand:             d?.tracker_brand ?? '',
+    tracker_model:             d?.tracker_model ?? '',
+    tracker_imei:              d?.tracker_imei ?? '',
+    has_insurance:             d?.has_insurance ? 'true' : 'false',
+    insurance_monthly_amount:  d?.insurance_monthly_amount != null ? String(d.insurance_monthly_amount) : '',
+    insurance_expiry_date:     d?.insurance_expiry_date ?? '',
+  }
+}
+
+// ─── Componente principal ─────────────────────────────────────────────────────
+
+export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, initialObligations }: VehicleFormProps) {
+  const isEditMode = !!vehicleId
+  const currentStatus = initialData?.status as VehicleStatus | undefined
+  const isRented = currentStatus === 'rented'
+
+  const router = useRouter()
+  const supabase = useSupabaseContext()
+  const getTenantId = useRequiredTenantId()
+  const [isPending, startTransition] = useTransition()
+
+  const [form, setForm] = useState(() => buildInitialForm(initialData))
+  function set(key: keyof ReturnType<typeof buildInitialForm>, value: string) {
+    setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<string, string>>>({})
+  const [globalError, setGlobalError] = useState<string | null>(null)
+  const [postWarnings, setPostWarnings] = useState<string[] | null>(null)
+
+  // ── Fotos
+  const [photoUrls, setPhotoUrls] = useState<Partial<Record<VehiclePhotoSlot, string>>>(initialPhotoUrls)
+  const [pendingFiles, setPendingFiles] = useState<Partial<Record<VehiclePhotoSlot, File>>>({})
+  const [uploadingSlot, setUploadingSlot] = useState<VehiclePhotoSlot | null>(null)
+  const fileInputRefs = useRef<Partial<Record<VehiclePhotoSlot, HTMLInputElement | null>>>({})
+
+  // ── CRLV
+  const [crvFile, setCrvFile] = useState<File | null>(null)
+  const [crlvImporting, setCrlvImporting] = useState(false)
+  const [crlvMsg, setCrlvMsg] = useState<
+    | { kind: 'success'; found: number; total: number; fileName: string }
+    | { kind: 'error'; text: string }
+    | null
+  >(null)
+
+  // ── Obrigações anuais
+  const [obligations, setObligations] = useState<Record<ObligationType, ObligationEntry>>(() => {
+    function fromInit(key: ObligationType, defaultStatus: ObligationStatus): ObligationEntry {
+      const init = initialObligations?.[key]
+      if (init) return { amount: init.amount, dueDate: init.dueDate, status: (init.status as ObligationStatus) || defaultStatus }
+      return { amount: '', dueDate: '', status: defaultStatus }
+    }
+    return {
+      ipva:      fromInit('ipva',      'pending'),
+      licensing: fromInit('licensing', 'pending'),
+      dpvat:     fromInit('dpvat',     'exempt'),
+    }
+  })
+  function setObligation(key: ObligationType, patch: Partial<ObligationEntry>) {
+    setObligations((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }))
+  }
+
+  // ── Manutenção
+  const maintenancePlansQuery = useMaintenancePlans()
+  const plans = useMemo(
+    () => (maintenancePlansQuery.data ?? []).filter((p) => !p.archived_at),
+    [maintenancePlansQuery.data],
+  )
+  const [selectedPlanId, setSelectedPlanId] = useState<string>('')
+  const selectedPlanQuery = useMaintenancePlan(selectedPlanId || undefined)
+  const planItems = (selectedPlanQuery.data?.items ?? []) as MaintenancePlanItem[]
+  const [bootstrapItems, setBootstrapItems] = useState<Record<string, string>>({})
+
+  // ── Âncoras: rastrear seção ativa via IntersectionObserver
+  const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
+  const [activeSection, setActiveSection] = useState('sec-identification')
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Pega a seção com maior interseção visível
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)
+        if (visible.length > 0) {
+          setActiveSection(visible[0].target.id)
+        }
+      },
+      { rootMargin: '-20% 0px -60% 0px', threshold: [0, 0.25, 0.5, 0.75, 1] },
+    )
+
+    Object.values(sectionRefs.current).forEach((el) => {
+      if (el) observer.observe(el)
+    })
+
+    return () => observer.disconnect()
+  }, [isEditMode])
+
+  function scrollTo(id: string) {
+    sectionRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  // ─── CRLV ────────────────────────────────────────────────────────────────
+
+  async function handleCrlvImport(file: File) {
+    setCrlvImporting(true)
+    setCrlvMsg(null)
+    try {
+      const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf')
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
+      const buffer = await file.arrayBuffer()
+      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise
+      let rawText = ''
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i)
+        const content = await page.getTextContent()
+        for (const item of content.items) {
+          if (!('str' in item)) continue
+          rawText += item.str + (item.hasEOL ? '\n' : ' ')
+        }
+        rawText += '\n'
+      }
+      const fields = parseCRLVText(rawText)
+      const stats = crlvSuccessRate(fields)
+      setForm((prev) => ({
+        ...prev,
+        license_plate:             fields.placa          ?? prev.license_plate,
+        renavam:                   fields.renavam         ?? prev.renavam,
+        make:                      fields.marca           ?? prev.make,
+        model:                     [fields.modelo, fields.versao].filter(Boolean).join(' ') || prev.model,
+        year_manufacture:          fields.anoFabricacao   ?? prev.year_manufacture,
+        year_model:                fields.anoModelo       ?? prev.year_model,
+        color:                     fields.cor             ?? prev.color,
+        chassis:                   fields.chassi          ?? prev.chassis,
+        engine_capacity:           fields.cilindrada      ?? prev.engine_capacity,
+        fuel:                      mapCombustivelToFuel(fields.combustivel) ?? prev.fuel,
+        registered_owner_name:     fields.proprietario    ?? prev.registered_owner_name,
+        registered_owner_document: fields.cpfCnpj         ?? prev.registered_owner_document,
+        registered_owner_type:     detectOwnerType(fields.cpfCnpj),
+        registration_state:        fields.uf              ?? prev.registration_state,
+        crv_number:                fields.numeroCrv       ?? prev.crv_number,
+        crv_exercise_year:         fields.exercicio       ?? prev.crv_exercise_year,
+      }))
+      setCrvFile(file)
+      setCrlvMsg({ kind: 'success', found: stats.found, total: stats.total, fileName: file.name })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'erro desconhecido'
+      setCrlvMsg({ kind: 'error', text: `Erro ao processar o PDF: ${message}` })
+    } finally {
+      setCrlvImporting(false)
+    }
+  }
+
+  // ─── Fotos ───────────────────────────────────────────────────────────────
+
+  function handleFileSelect(slot: VehiclePhotoSlot, file: File) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      setFieldErrors((prev) => ({ ...prev, [`photo_${slot}`]: 'Use JPG, PNG ou WEBP até 5MB.' }))
+      return
+    }
+    setFieldErrors((prev) => { const n = { ...prev }; delete n[`photo_${slot}`]; return n })
+
+    if (isEditMode) {
+      void uploadPhotoEdit(slot, file)
+    } else {
+      setPendingFiles((prev) => ({ ...prev, [slot]: file }))
+      setPhotoUrls((prev) => ({ ...prev, [slot]: URL.createObjectURL(file) }))
+    }
+  }
+
+  async function uploadPhotoEdit(slot: VehiclePhotoSlot, file: File) {
+    const tenantId = getTenantId()
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+    const path = `${tenantId}/${vehicleId}/${slot}/${Date.now()}.${ext}`
+    setUploadingSlot(slot)
+    try {
+      const { error } = await supabase.storage
+        .from('vehicle-photos')
+        .upload(path, file, { upsert: true, contentType: file.type })
+      if (error) {
+        setFieldErrors((prev) => ({ ...prev, [`photo_${slot}`]: `Upload falhou: ${error.message}` }))
+        return
+      }
+      setPhotoUrls((prev) => ({ ...prev, [slot]: URL.createObjectURL(file) }))
+      await updateVehicle(vehicleId!, { license_plate: form.license_plate }, { [slot]: path })
+    } finally {
+      setUploadingSlot(null)
+    }
+  }
+
+  async function handleDeletePhoto(slot: VehiclePhotoSlot) {
+    if (isEditMode) {
+      const result = await deleteVehiclePhoto(vehicleId!, slot)
+      if (!result.ok) {
+        setFieldErrors((prev) => ({ ...prev, [`photo_${slot}`]: result.error.message }))
+        return
+      }
+    } else {
+      setPendingFiles((prev) => { const n = { ...prev }; delete n[slot]; return n })
+    }
+    setPhotoUrls((prev) => { const n = { ...prev }; delete n[slot]; return n })
+  }
+
+  // ─── Submit ───────────────────────────────────────────────────────────────
+
+  function buildPayload() {
+    const num = (v: string) => { const n = parseFloat(v.replace(/\./g, '').replace(',', '.')); return isNaN(n) ? null : n }
+    return {
+      license_plate:             form.license_plate.toUpperCase().trim(),
+      renavam:                   form.renavam.trim(),
+      make:                      form.make.toUpperCase().trim(),
+      model:                     form.model.trim(),
+      year_manufacture:          form.year_manufacture || null,
+      year_model:                form.year_model || null,
+      color:                     form.color.toUpperCase() || null,
+      fuel:                      form.fuel || null,
+      chassis:                   form.chassis.toUpperCase() || null,
+      engine_capacity:           form.engine_capacity || null,
+      observations:              form.observations || null,
+      status:                    isRented ? currentStatus : form.status,
+      acquisition_type:          form.acquisition_type || null,
+      purchase_date:             form.purchase_date || null,
+      acquisition_amount:        num(form.acquisition_amount),
+      fipe_value:                num(form.fipe_value),
+      previous_owner:            form.acquisition_type !== 'zero_km' ? (form.previous_owner || null) : null,
+      previous_owner_cpf:        form.acquisition_type !== 'zero_km' ? (form.previous_owner_cpf || null) : null,
+      registered_owner_name:     form.registered_owner_name || null,
+      registered_owner_document: form.registered_owner_document || null,
+      registered_owner_type:     form.registered_owner_document ? form.registered_owner_type : null,
+      registration_state:        form.registration_state || null,
+      ownership_transferred:     form.ownership_transferred === 'true',
+      ownership_transfer_date:   form.ownership_transfer_date || null,
+      has_tracker:               form.has_tracker === 'true',
+      tracker_brand:             form.has_tracker === 'true' ? (form.tracker_brand || null) : null,
+      tracker_model:             form.has_tracker === 'true' ? (form.tracker_model || null) : null,
+      tracker_imei:              form.has_tracker === 'true' ? (form.tracker_imei || null) : null,
+      has_insurance:             form.has_insurance === 'true',
+      insurance_monthly_amount:  form.has_insurance === 'true' ? num(form.insurance_monthly_amount) : null,
+      insurance_expiry_date:     form.has_insurance === 'true' ? (form.insurance_expiry_date || null) : null,
+    }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setGlobalError(null)
+    setFieldErrors({})
+
+    startTransition(async () => {
+      const payload = buildPayload()
+
+      if (isEditMode) {
+        const result = await updateVehicle(vehicleId!, payload)
+        if (!result.ok) {
+          if (result.error.field) setFieldErrors({ [result.error.field]: result.error.message })
+          else setGlobalError(result.error.message)
+          return
+        }
+
+        // Salvar obrigações anuais em edit mode
+        const today = new Date().toISOString().split('T')[0]
+        const oblRows = (Object.entries(obligations) as [ObligationType, ObligationEntry][])
+          .filter(([, e]) => e.amount || e.dueDate || e.status === 'exempt')
+          .map(([type, e]) => {
+            const dueDate = e.dueDate || today
+            const refYear = parseInt(dueDate.slice(0, 4), 10) || new Date().getFullYear()
+            const amount  = parseFloat(e.amount.replace(/\./g, '').replace(',', '.')) || 0
+            return { type, amount, due_date: dueDate, status: e.status, reference_year: refYear }
+          })
+        if (oblRows.length > 0) {
+          await saveVehicleObligations(vehicleId!, oblRows)
+        }
+
+        router.push(`/veiculos/${vehicleId}`)
+        return
+      }
+
+      // ── Criação
+      const kmEntry = form.km_entry ? parseInt(form.km_entry, 10) : undefined
+      const result = await createVehicle({ ...payload, ...(kmEntry != null ? { km_entry: kmEntry } : {}) })
+      if (!result.ok) {
+        if (result.error.field) setFieldErrors({ [result.error.field]: result.error.message })
+        else setGlobalError(result.error.message)
+        return
+      }
+
+      const newId = result.data.id
+      const tenantId = getTenantId()
+      const warnings: string[] = []
+
+      // Upload fotos pendentes
+      if (Object.keys(pendingFiles).length > 0) {
+        const photoPaths: Partial<Record<VehiclePhotoSlot, string>> = {}
+        await Promise.allSettled(
+          (Object.entries(pendingFiles) as [VehiclePhotoSlot, File][]).map(async ([slot, file]) => {
+            const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+            const path = `${tenantId}/${newId}/${slot}/${Date.now()}.${ext}`
+            const { error } = await supabase.storage.from('vehicle-photos').upload(path, file, { contentType: file.type })
+            if (error) warnings.push(`Foto "${VEHICLE_PHOTO_SLOT_LABELS[slot]}" não enviada: ${error.message}`)
+            else photoPaths[slot] = path
+          }),
+        )
+        if (Object.keys(photoPaths).length > 0) {
+          await updateVehicle(newId, { license_plate: form.license_plate }, photoPaths)
+        }
+      }
+
+      // CRV
+      let crvFileUrl: string | null = null
+      if (crvFile) {
+        const ext = crvFile.name.split('.').pop()?.toLowerCase() || 'pdf'
+        const path = `${tenantId}/${newId}/crv-${Date.now()}.${ext}`
+        const { error } = await supabase.storage.from('vehicle-documents').upload(path, crvFile, { upsert: false, contentType: crvFile.type })
+        if (error) warnings.push(`Anexo do CRV não salvo: ${error.message}`)
+        else crvFileUrl = path
+      }
+      const hasCrvData = form.crv_number || form.crv_exercise_year || form.registered_owner_name || crvFileUrl
+      if (hasCrvData) {
+        const { error } = await supabase.from('vehicle_documents').insert({
+          tenant_id: tenantId, vehicle_id: newId, type: 'crv',
+          exercise_year:             form.crv_exercise_year ? parseInt(form.crv_exercise_year, 10) : null,
+          document_number:           form.crv_number || null,
+          registered_owner_name:     form.registered_owner_name || null,
+          registered_owner_document: form.registered_owner_document || null,
+          registered_owner_type:     form.registered_owner_document ? form.registered_owner_type : null,
+          file_url: crvFileUrl, is_current: true,
+        })
+        if (error) warnings.push(`Registro do CRV não criado: ${error.message}`)
+      }
+
+      // Obrigações anuais
+      const today = new Date().toISOString().split('T')[0]
+      const obligationRows: Record<string, unknown>[] = []
+      for (const [key, entry] of Object.entries(obligations) as ['ipva' | 'licensing' | 'dpvat', ObligationEntry][]) {
+        if (!entry.amount && !entry.dueDate && entry.status !== 'exempt') continue
+        const dueDate = entry.dueDate || today
+        const refYear = parseInt(dueDate.slice(0, 4), 10) || new Date().getFullYear()
+        const amount = parseFloat(entry.amount.replace(/\./g, '').replace(',', '.')) || 0
+        obligationRows.push({
+          tenant_id: tenantId, vehicle_id: newId, type: key,
+          reference_year: refYear, amount: isNaN(amount) ? 0 : amount,
+          due_date: dueDate, status: entry.status,
+          paid_at: entry.status === 'paid' ? dueDate : null,
+        })
+      }
+      if (obligationRows.length > 0) {
+        const { error } = await supabase.from('vehicle_obligations').insert(obligationRows)
+        if (error) warnings.push(`Obrigações anuais não salvas: ${error.message}`)
+      }
+
+      // Bootstrap de manutenção
+      if (selectedPlanId && planItems.length > 0) {
+        const currentKm = form.km_entry ? parseInt(form.km_entry, 10) : 0
+        const maintenanceRecords: Record<string, unknown>[] = []
+        for (const item of planItems) {
+          if (planItemMetric(item) === 'km' && item.interval_km != null) {
+            const lastKm = bootstrapItems[item.id] ? parseInt(bootstrapItems[item.id], 10) : 0
+            const nextDueKm = lastKm + item.interval_km
+            maintenanceRecords.push({
+              tenant_id: tenantId, vehicle_id: newId, type: 'preventive',
+              description: item.name, predicted_km: nextDueKm, completed: false,
+              observations: nextDueKm <= currentKm ? `Vencida — aos ${nextDueKm.toLocaleString('pt-BR')} km` : lastKm === 0 ? 'Sem histórico anterior' : `Última aos ${lastKm.toLocaleString('pt-BR')} km`,
+            })
+          } else if (item.interval_days != null) {
+            const lastDateStr = bootstrapItems[item.id] || today
+            const nextDueDate = new Date(lastDateStr + 'T12:00:00')
+            nextDueDate.setDate(nextDueDate.getDate() + item.interval_days)
+            maintenanceRecords.push({
+              tenant_id: tenantId, vehicle_id: newId, type: 'inspection',
+              description: item.name, scheduled_date: nextDueDate.toISOString().split('T')[0],
+              completed: false, observations: `Última em ${lastDateStr === today ? 'data não informada' : lastDateStr}`,
+            })
+          }
+        }
+        if (maintenanceRecords.length > 0) {
+          const { error } = await supabase.from('maintenances').insert(maintenanceRecords)
+          if (error) warnings.push(`Bootstrap de manutenção não salvo: ${error.message}`)
+        }
+      }
+
+      if (warnings.length > 0) { setPostWarnings(warnings); return }
+      router.push(`/veiculos/${newId}`)
+    })
+  }
+
+  // ─── Avisos pós-cadastro ─────────────────────────────────────────────────
+
+  if (postWarnings) {
+    return (
+      <div className="min-h-screen bg-[#121212] px-6 py-8 max-w-2xl space-y-4">
+        <div className="flex items-start gap-3 px-4 py-4 bg-[#3a2f00] border border-[#ffd166] rounded-xl">
+          <AlertCircle className="w-4 h-4 text-[#ffd166] flex-shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="text-[13px] text-[#ffd166] font-medium">Veículo cadastrado, mas alguns itens não foram salvos:</p>
+            <ul className="list-disc list-inside text-[12px] text-[#ffd166] space-y-0.5">
+              {postWarnings.map((w, i) => <li key={i}>{w}</li>)}
+            </ul>
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <button onClick={() => router.push('/veiculos')} className="h-9 px-6 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors">
+            Ir para a listagem
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Layout com sidebar ──────────────────────────────────────────────────
+
+  const acquisitionOptions = Object.entries(ACQUISITION_TYPE_LABELS).map(([value, label]) => ({ value, label }))
+  const backHref  = isEditMode ? `/veiculos/${vehicleId}` : '/veiculos'
+  const backLabel = isEditMode ? (`${initialData?.make ?? ''} ${initialData?.model ?? ''}`.trim() || 'Veículo') : 'Veículos'
+
+  const navItems = NAV_ITEMS.filter((n) => !n.createOnly || !isEditMode)
+
+  return (
+    <div className="min-h-screen bg-[#121212]">
+
+      {/* ── Sticky header ─────────────────────────────────────────────────── */}
+      <div className="sticky top-0 z-20 bg-[#121212]/95 backdrop-blur border-b border-[#2a2a2a] px-6 h-14 flex items-center gap-3">
+        <Link href={backHref} className="text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors whitespace-nowrap">
+          ← {backLabel}
+        </Link>
+        <span className="text-[#3a3a3a]">/</span>
+        <h1 className="text-[15px] font-bold text-[#f5f5f5] flex-1 truncate">
+          {isEditMode ? 'Editar veículo' : 'Cadastrar veículo'}
+        </h1>
+        <Link href={backHref} className="h-8 px-4 rounded-full border border-[#474747] text-[#9e9e9e] text-[13px] font-medium hover:text-[#f5f5f5] hover:border-[#616161] transition-colors inline-flex items-center">
+          Cancelar
+        </Link>
+        <button
+          type="submit"
+          form="vehicle-form"
+          disabled={isPending}
+          className="h-8 px-5 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors disabled:opacity-60"
+        >
+          {isPending ? 'Salvando…' : isEditMode ? 'Salvar' : 'Cadastrar'}
+        </button>
+      </div>
+
+      {/* ── Corpo: sidebar + conteúdo ─────────────────────────────────────── */}
+      <div className="flex gap-0 max-w-5xl mx-auto">
+
+        {/* ── Sidebar de navegação ─────────────────────────────────────── */}
+        <aside className="w-44 flex-shrink-0 hidden md:block">
+          <nav className="sticky top-14 pt-8 pb-8 pr-4 space-y-0.5">
+            {navItems.map((item) => {
+              const isActive = activeSection === item.id
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => scrollTo(item.id)}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+                    isActive
+                      ? 'bg-[#222222] text-[#f5f5f5]'
+                      : 'text-[#616161] hover:text-[#9e9e9e] hover:bg-[#1e1e1e]'
+                  }`}
+                >
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full mr-2.5 mb-0.5 transition-colors ${isActive ? 'bg-[#BAFF1A]' : 'bg-[#3a3a3a]'}`} />
+                  {item.label}
+                </button>
+              )
+            })}
+          </nav>
+        </aside>
+
+        {/* ── Formulário ───────────────────────────────────────────────── */}
+        <form
+          id="vehicle-form"
+          onSubmit={handleSubmit}
+          className="flex-1 min-w-0 px-6 py-8 space-y-14"
+        >
+
+          {/* ══ Identificação ════════════════════════════════════════════ */}
+          <section
+            id="sec-identification"
+            ref={(el) => { sectionRefs.current['sec-identification'] = el }}
+          >
+            <SectionHeader title="Identificação" hint="campos obrigatórios marcados com *" />
+
+            {/* Banner CRLV — somente criação */}
+            {!isEditMode && (
+              <div className="flex items-center gap-4 px-4 py-3 bg-[#1e1030] border border-[#a880ff]/30 rounded-xl mb-5">
+                <div className="w-8 h-8 rounded-full bg-[#2d0363] flex items-center justify-center flex-shrink-0">
+                  <Upload className="w-3.5 h-3.5 text-[#a880ff]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-bold text-[#f5f5f5]">Importar CRLV</p>
+                  <p className="text-[12px] text-[#9e9e9e]">Preenche placa, RENAVAM, chassi e proprietário automaticamente.</p>
+                  {crlvMsg?.kind === 'success' && (
+                    <p className="text-[12px] text-[#BAFF1A] mt-1">✔ {crlvMsg.fileName} — {crlvMsg.found}/{crlvMsg.total} campos importados.</p>
+                  )}
+                  {crlvMsg?.kind === 'error' && (
+                    <p className="text-[12px] text-[#ff9c9a] mt-1">✘ {crlvMsg.text}</p>
+                  )}
+                </div>
+                <label className={`flex-shrink-0 h-8 px-4 rounded-full bg-[#a880ff] text-[#121212] text-[12px] font-bold cursor-pointer hover:bg-[#9166ff] transition-colors inline-flex items-center ${crlvImporting ? 'opacity-60 pointer-events-none' : ''}`}>
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    className="hidden"
+                    disabled={crlvImporting}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) void handleCrlvImport(file)
+                      e.target.value = ''
+                    }}
+                  />
+                  {crlvImporting ? 'Lendo…' : 'Selecionar PDF'}
+                </label>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Placa *" error={fieldErrors.license_plate}>
+                  <input className={fieldErrors.license_plate ? inputErrCls : inputCls} placeholder="ABC1D23" value={form.license_plate} onChange={(e) => set('license_plate', e.target.value)} required />
+                </Field>
+                <Field label="RENAVAM *" error={fieldErrors.renavam}>
+                  <input className={fieldErrors.renavam ? inputErrCls : inputCls} placeholder="11 dígitos" value={form.renavam} onChange={(e) => set('renavam', e.target.value)} required />
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Marca *" error={fieldErrors.make}>
+                  <input className={fieldErrors.make ? inputErrCls : inputCls} placeholder="HONDA" value={form.make} onChange={(e) => set('make', e.target.value)} required />
+                </Field>
+                <Field label="Modelo *" error={fieldErrors.model}>
+                  <input className={fieldErrors.model ? inputErrCls : inputCls} placeholder="CG 160 FAN" value={form.model} onChange={(e) => set('model', e.target.value)} required />
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <Field label="Ano fabricação">
+                  <input className={inputCls} placeholder="2024" value={form.year_manufacture} onChange={(e) => set('year_manufacture', e.target.value)} />
+                </Field>
+                <Field label="Ano modelo">
+                  <input className={inputCls} placeholder="2025" value={form.year_model} onChange={(e) => set('year_model', e.target.value)} />
+                </Field>
+                <Field label="Cor">
+                  <input className={inputCls} placeholder="PRETA" value={form.color} onChange={(e) => set('color', e.target.value)} />
+                </Field>
+                <Field label="Combustível">
+                  <select className={inputCls} value={form.fuel} onChange={(e) => set('fuel', e.target.value)}>
+                    {FUEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </Field>
+              </div>
+
+              <div className={`grid gap-4 ${!isEditMode ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                <Field label="Chassi">
+                  <input className={inputCls} placeholder="Código do chassi" value={form.chassis} onChange={(e) => set('chassis', e.target.value)} />
+                </Field>
+                <Field label="Cilindrada">
+                  <input className={inputCls} placeholder="162cc" value={form.engine_capacity} onChange={(e) => set('engine_capacity', e.target.value)} />
+                </Field>
+                {!isEditMode && (
+                  <Field label="KM de entrada" error={fieldErrors.km_entry}>
+                    <input className={fieldErrors.km_entry ? inputErrCls : inputCls} type="number" min={0} placeholder="KM no painel" value={form.km_entry} onChange={(e) => set('km_entry', e.target.value)} />
+                  </Field>
+                )}
+              </div>
+
+              <Field label="Observações / Laudo de vistoria">
+                <textarea className={`${inputCls} h-20 py-2 resize-none`} placeholder="Arranhões, avarias ou detalhes na entrega…" value={form.observations} onChange={(e) => set('observations', e.target.value)} />
+              </Field>
+            </div>
+          </section>
+
+          {/* ══ Documentação ═════════════════════════════════════════════ */}
+          <section
+            id="sec-document"
+            ref={(el) => { sectionRefs.current['sec-document'] = el }}
+          >
+            <SectionHeader title="Documentação (CRV)" hint="opcional" />
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Proprietário registrado">
+                  <input className={inputCls} placeholder="Quem consta no CRV" value={form.registered_owner_name} onChange={(e) => set('registered_owner_name', e.target.value)} />
+                </Field>
+                <div className="grid grid-cols-[90px_1fr] gap-2">
+                  <Field label="Tipo doc.">
+                    <select className={inputCls} value={form.registered_owner_type} onChange={(e) => set('registered_owner_type', e.target.value as 'cpf' | 'cnpj')}>
+                      {OWNER_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="CPF / CNPJ">
+                    <input className={inputCls} placeholder="Documento" value={form.registered_owner_document} onChange={(e) => set('registered_owner_document', e.target.value)} />
+                  </Field>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <Field label="UF">
+                  <input className={inputCls} maxLength={2} placeholder="SP" value={form.registration_state} onChange={(e) => set('registration_state', e.target.value.toUpperCase())} />
+                </Field>
+                <Field label="Número do CRV">
+                  <input className={inputCls} placeholder="1234567890" value={form.crv_number} onChange={(e) => set('crv_number', e.target.value)} />
+                </Field>
+                <Field label="Ano-exercício">
+                  <input className={inputCls} placeholder="2025" value={form.crv_exercise_year} onChange={(e) => set('crv_exercise_year', e.target.value)} />
+                </Field>
+                <Field label="Transferência">
+                  <select className={inputCls} value={form.ownership_transferred} onChange={(e) => set('ownership_transferred', e.target.value)}>
+                    <option value="false">Pendente</option>
+                    <option value="true">Concluída</option>
+                  </select>
+                </Field>
+              </div>
+
+              {form.ownership_transferred === 'true' && (
+                <Field label="Data da transferência" className="max-w-xs">
+                  <input type="date" className={inputCls} value={form.ownership_transfer_date} onChange={(e) => set('ownership_transfer_date', e.target.value)} />
+                </Field>
+              )}
+
+              {/* Obrigações anuais */}
+              <div className="pt-2 space-y-2.5">
+                <p className="text-[13px] font-bold text-[#f5f5f5]">
+                  Documentação anual <span className="text-[12px] font-normal text-[#616161]">(opcional)</span>
+                </p>
+                {([
+                  { key: 'ipva'      as const, label: 'IPVA' },
+                  { key: 'licensing' as const, label: 'Licenciamento' },
+                  { key: 'dpvat'     as const, label: 'DPVAT' },
+                ]).map((row) => (
+                  <div key={row.key} className="grid grid-cols-[80px_1fr_1fr_130px] gap-3 items-end bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl px-4 py-3">
+                    <span className="text-[13px] font-bold text-[#f5f5f5] pb-2.5">{row.label}</span>
+                    <Field label="Valor (R$)">
+                      <input className={inputCls} placeholder="0,00" value={obligations[row.key].amount} onChange={(e) => setObligation(row.key, { amount: e.target.value })} />
+                    </Field>
+                    <Field label="Vencimento">
+                      <input type="date" className={inputCls} value={obligations[row.key].dueDate} onChange={(e) => setObligation(row.key, { dueDate: e.target.value })} />
+                    </Field>
+                    <Field label="Status">
+                      <select className={inputCls} value={obligations[row.key].status} onChange={(e) => setObligation(row.key, { status: e.target.value as ObligationStatus })}>
+                        {OBLIGATION_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </Field>
+                  </div>
+                ))}
+              </div>
+
+              {/* Anexo CRV — somente criação */}
+              {!isEditMode && (
+                <div>
+                  <label className={labelCls}>Anexo do CRV <span className="text-[12px] text-[#616161]">PDF, JPG, PNG ou WebP · máx. 10MB</span></label>
+                  <div className="flex items-center gap-3">
+                    <label className="h-9 px-4 rounded-full bg-[#282828] border border-[#474747] text-[13px] text-[#9e9e9e] cursor-pointer hover:border-[#616161] transition-colors inline-flex items-center gap-2">
+                      <Upload className="w-3.5 h-3.5" />
+                      <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => setCrvFile(e.target.files?.[0] ?? null)} />
+                      {crvFile ? 'Trocar arquivo' : 'Selecionar arquivo'}
+                    </label>
+                    {crvFile && (
+                      <div className="flex items-center gap-2 text-[12px] text-[#a880ff]">
+                        <span>{crvFile.name} ({Math.round(crvFile.size / 1024)} KB)</span>
+                        <button type="button" onClick={() => setCrvFile(null)} className="text-[#616161] hover:text-[#f5f5f5] transition-colors">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* ══ Status ═══════════════════════════════════════════════════ */}
+          <section
+            id="sec-status"
+            ref={(el) => { sectionRefs.current['sec-status'] = el }}
+          >
+            <SectionHeader title="Status na Frota" />
+            {isRented ? (
+              <div className="flex items-center gap-3">
+                <div className="h-9 px-4 rounded-full text-[13px] font-medium border inline-flex items-center" style={{ background: '#2d0363', color: '#a880ff', borderColor: '#a880ff40' }}>
+                  {VEHICLE_STATUS_LABELS.rented}
+                </div>
+                <p className="text-[12px] text-[#9e9e9e]">Status Locado é gerenciado automaticamente via contratos.</p>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(STATUS_CONFIG).map(([value, cfg]) => {
+                  const isActive = form.status === value
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => set('status', value)}
+                      className="h-9 px-5 rounded-full text-[13px] font-medium border transition-all"
+                      style={isActive
+                        ? { background: cfg.bg, color: cfg.text, borderColor: cfg.border }
+                        : { background: 'transparent', color: '#616161', borderColor: '#323232' }
+                      }
+                    >
+                      {cfg.label}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* ══ Aquisição ════════════════════════════════════════════════ */}
+          <section
+            id="sec-acquisition"
+            ref={(el) => { sectionRefs.current['sec-acquisition'] = el }}
+          >
+            <SectionHeader title="Aquisição" hint="opcional" />
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Tipo de aquisição">
+                  <select className={inputCls} value={form.acquisition_type} onChange={(e) => set('acquisition_type', e.target.value)}>
+                    <option value="">Selecione…</option>
+                    {acquisitionOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </Field>
+                <Field label="Data da compra">
+                  <input type="date" className={inputCls} value={form.purchase_date} onChange={(e) => set('purchase_date', e.target.value)} />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Valor pago (R$)">
+                  <input className={inputCls} placeholder="0,00" value={form.acquisition_amount} onChange={(e) => set('acquisition_amount', e.target.value)} />
+                </Field>
+                <Field label="Valor FIPE (R$)">
+                  <input className={inputCls} placeholder="0,00" value={form.fipe_value} onChange={(e) => set('fipe_value', e.target.value)} />
+                </Field>
+              </div>
+              {form.acquisition_type !== 'zero_km' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Dono anterior">
+                    <input className={inputCls} placeholder="Nome conforme documento" value={form.previous_owner} onChange={(e) => set('previous_owner', e.target.value)} />
+                  </Field>
+                  <Field label="CPF / CNPJ do vendedor">
+                    <input className={inputCls} placeholder="000.000.000-00" value={form.previous_owner_cpf} onChange={(e) => set('previous_owner_cpf', e.target.value)} />
+                  </Field>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* ══ Rastreador GPS ═══════════════════════════════════════════ */}
+          <section
+            id="sec-tracker"
+            ref={(el) => { sectionRefs.current['sec-tracker'] = el }}
+          >
+            <SectionHeader title="Rastreador GPS" hint="opcional" />
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <Toggle
+                  checked={form.has_tracker === 'true'}
+                  onChange={(v) => set('has_tracker', v ? 'true' : 'false')}
+                />
+                <span className="text-[13px] text-[#f5f5f5]">
+                  {form.has_tracker === 'true' ? 'Possui rastreador instalado' : 'Sem rastreador'}
+                </span>
+              </div>
+              {form.has_tracker === 'true' && (
+                <div className="grid grid-cols-3 gap-4">
+                  <Field label="Marca *">
+                    <input className={inputCls} placeholder="Ex: Sascar" value={form.tracker_brand} onChange={(e) => set('tracker_brand', e.target.value)} />
+                  </Field>
+                  <Field label="Modelo *">
+                    <input className={inputCls} placeholder="Ex: Track & Drive" value={form.tracker_model} onChange={(e) => set('tracker_model', e.target.value)} />
+                  </Field>
+                  <Field label="IMEI (15 dígitos) *" error={fieldErrors.tracker_imei}>
+                    <input
+                      className={fieldErrors.tracker_imei ? inputErrCls : inputCls}
+                      maxLength={15}
+                      placeholder="123456789012345"
+                      value={form.tracker_imei}
+                      onChange={(e) => set('tracker_imei', e.target.value.replace(/\D/g, ''))}
+                    />
+                  </Field>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* ══ Seguro ═══════════════════════════════════════════════════ */}
+          <section
+            id="sec-insurance"
+            ref={(el) => { sectionRefs.current['sec-insurance'] = el }}
+          >
+            <SectionHeader title="Seguro" hint="opcional" />
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <Toggle
+                  checked={form.has_insurance === 'true'}
+                  onChange={(v) => set('has_insurance', v ? 'true' : 'false')}
+                />
+                <span className="text-[13px] text-[#f5f5f5]">
+                  {form.has_insurance === 'true' ? 'Possui seguro ativo' : 'Sem seguro'}
+                </span>
+              </div>
+              {form.has_insurance === 'true' && (
+                <div className="grid grid-cols-2 gap-4 max-w-sm">
+                  <Field label="Valor mensal (R$) *">
+                    <input className={inputCls} placeholder="0,00" value={form.insurance_monthly_amount} onChange={(e) => set('insurance_monthly_amount', e.target.value)} />
+                  </Field>
+                  <Field label="Vencimento *">
+                    <input type="date" className={inputCls} value={form.insurance_expiry_date} onChange={(e) => set('insurance_expiry_date', e.target.value)} />
+                  </Field>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* ══ Fotos ════════════════════════════════════════════════════ */}
+          <section
+            id="sec-photos"
+            ref={(el) => { sectionRefs.current['sec-photos'] = el }}
+          >
+            <SectionHeader title="Fotos" hint="JPG, PNG ou WebP · máx. 5MB por slot · todos opcionais" />
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+              {PHOTO_SLOTS.map((slot) => {
+                const url = photoUrls[slot]
+                const isUploading = uploadingSlot === slot
+                const slotError = fieldErrors[`photo_${slot}`]
+                return (
+                  <div key={slot} className="space-y-1.5">
+                    <div className={`aspect-square rounded-xl overflow-hidden border relative group transition-colors ${slotError ? 'border-[#ff9c9a] bg-[#2a1a1a]' : 'border-[#2a2a2a] bg-[#1e1e1e] hover:border-[#3a3a3a]'}`}>
+                      {url ? (
+                        <>
+                          <Image
+                            src={url}
+                            alt={VEHICLE_PHOTO_SLOT_LABELS[slot]}
+                            width={160}
+                            height={160}
+                            className="w-full h-full object-cover"
+                            unoptimized
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePhoto(slot)}
+                            className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-white hidden group-hover:flex items-center justify-center"
+                            title="Remover foto"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </>
+                      ) : (
+                        <label className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer text-[#3a3a3a] hover:text-[#616161] transition-colors">
+                          {isUploading
+                            ? <div className="w-4 h-4 border-2 border-[#BAFF1A] border-t-transparent rounded-full animate-spin" />
+                            : <Plus className="w-5 h-5" />
+                          }
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            className="hidden"
+                            ref={(el) => { fileInputRefs.current[slot] = el }}
+                            disabled={isUploading}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              if (file) handleFileSelect(slot, file)
+                              e.target.value = ''
+                            }}
+                          />
+                        </label>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-center text-[#616161] leading-tight">{VEHICLE_PHOTO_SLOT_LABELS[slot]}</p>
+                    {slotError && <p className="text-[10px] text-center text-[#ff9c9a] leading-tight">{slotError}</p>}
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+
+          {/* ══ Plano de Manutenção — somente criação ════════════════════ */}
+          {!isEditMode && (
+            <section
+              id="sec-maintenance"
+              ref={(el) => { sectionRefs.current['sec-maintenance'] = el }}
+            >
+              <SectionHeader title="Plano de Manutenção" hint="opcional" />
+              {maintenancePlansQuery.isLoading ? (
+                <div className="flex justify-center py-6">
+                  <div className="w-5 h-5 border-2 border-[#BAFF1A] border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : plans.length === 0 ? (
+                <div className="flex items-start gap-3 px-4 py-3 bg-[#1e1a00] border border-[#ffd166]/30 rounded-xl">
+                  <AlertCircle className="w-4 h-4 text-[#ffd166] flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-[13px] text-[#ffd166]">Nenhum plano cadastrado — você pode criar depois.</p>
+                    <Link href="/planos-manutencao" className="text-[12px] text-[#BAFF1A] hover:underline">Criar plano →</Link>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <label className={labelCls}>Plano atribuído</label>
+                    <select
+                      className={`${inputCls} max-w-sm`}
+                      value={selectedPlanId}
+                      onChange={(e) => setSelectedPlanId(e.target.value)}
+                    >
+                      <option value="">Sem plano (atribuir depois)</option>
+                      {plans.map((p) => (
+                        <option key={p.id} value={p.id}>{p.is_default ? `${p.name} (padrão)` : p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {selectedPlanId && (
+                    <>
+                      <div className="px-3 py-2.5 bg-[#1a2000] border border-[#6b9900]/30 rounded-lg">
+                        <p className="text-[12px] text-[#9e9e9e]">
+                          Informe a <strong className="text-[#f5f5f5]">última vez</strong> que cada item foi realizado. Deixe em branco se não souber — será marcado para revisão imediata.
+                        </p>
+                      </div>
+                      {selectedPlanQuery.isLoading ? (
+                        <div className="flex justify-center py-4">
+                          <div className="w-5 h-5 border-2 border-[#BAFF1A] border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      ) : planItems.length === 0 ? (
+                        <p className="text-[13px] text-[#9e9e9e]">Este plano ainda não tem itens.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {planItems.map((item) => {
+                            const metric = planItemMetric(item)
+                            return (
+                              <div key={item.id} className="flex items-center gap-4 bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl px-4 py-3">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[13px] font-bold text-[#f5f5f5] truncate">{item.name}</p>
+                                  <p className="text-[11px] text-[#616161]">{planItemHint(item)}</p>
+                                </div>
+                                {metric === 'km' ? (
+                                  <div className="relative flex-shrink-0">
+                                    <input
+                                      type="number"
+                                      placeholder="KM da última troca"
+                                      value={bootstrapItems[item.id] ?? ''}
+                                      onChange={(e) => setBootstrapItems((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                      className="w-36 h-8 px-3 pr-8 rounded-lg bg-[#282828] border border-[#474747] text-[12px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] text-right"
+                                    />
+                                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-[#616161] font-bold pointer-events-none">KM</span>
+                                  </div>
+                                ) : (
+                                  <input
+                                    type="date"
+                                    value={bootstrapItems[item.id] ?? ''}
+                                    onChange={(e) => setBootstrapItems((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                    className="w-36 h-8 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[12px] text-[#f5f5f5] outline-none focus:border-[#BAFF1A] flex-shrink-0"
+                                  />
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* ── Erro global ────────────────────────────────────────────── */}
+          {globalError && (
+            <div className="flex items-start gap-3 px-4 py-3 bg-[#7c1c1c] border border-[#ff9c9a]/30 rounded-xl">
+              <AlertCircle className="w-4 h-4 text-[#ff9c9a] flex-shrink-0 mt-0.5" />
+              <p className="text-[13px] text-[#ff9c9a]">{globalError}</p>
+            </div>
+          )}
+
+          {/* ── Footer ────────────────────────────────────────────────── */}
+          <div className="flex gap-3 justify-end pt-4 pb-16 border-t border-[#2a2a2a]">
+            <Link href={backHref} className="inline-flex items-center h-9 px-5 rounded-full border border-[#474747] text-[#9e9e9e] text-[13px] font-medium hover:text-[#f5f5f5] hover:border-[#616161] transition-colors">
+              Cancelar
+            </Link>
+            <button
+              type="submit"
+              disabled={isPending}
+              className="h-9 px-6 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors disabled:opacity-60"
+            >
+              {isPending ? 'Salvando…' : isEditMode ? 'Salvar alterações' : 'Cadastrar veículo'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}

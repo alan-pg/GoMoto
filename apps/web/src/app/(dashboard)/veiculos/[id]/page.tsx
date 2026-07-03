@@ -227,10 +227,10 @@ export default async function VehicleDetailPage({
         </section>
 
         {/* Rastreador */}
-        {moto.has_tracker && (
-          <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Rastreador GPS</h2>
-            <div className="bg-[#202020] rounded-xl overflow-hidden">
+        <section>
+          <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Rastreador GPS</h2>
+          <div className="bg-[#202020] rounded-xl overflow-hidden">
+            {moto.has_tracker ? (
               <table className="w-full text-[13px]">
                 <tbody>
                   {[
@@ -245,15 +245,17 @@ export default async function VehicleDetailPage({
                   ))}
                 </tbody>
               </table>
-            </div>
-          </section>
-        )}
+            ) : (
+              <p className="h-9 px-4 flex items-center text-[13px] text-[#616161]">Sem rastreador cadastrado</p>
+            )}
+          </div>
+        </section>
 
         {/* Seguro */}
-        {moto.has_insurance && (
-          <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Seguro</h2>
-            <div className="bg-[#202020] rounded-xl overflow-hidden">
+        <section>
+          <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Seguro</h2>
+          <div className="bg-[#202020] rounded-xl overflow-hidden">
+            {moto.has_insurance ? (
               <table className="w-full text-[13px]">
                 <tbody>
                   {[
@@ -267,9 +269,11 @@ export default async function VehicleDetailPage({
                   ))}
                 </tbody>
               </table>
-            </div>
-          </section>
-        )}
+            ) : (
+              <p className="h-9 px-4 flex items-center text-[13px] text-[#616161]">Sem seguro cadastrado</p>
+            )}
+          </div>
+        </section>
 
         {/* Histórico de status */}
         <section>
@@ -323,6 +327,7 @@ export default async function VehicleDetailPage({
                   <tr>
                     <th className="h-9 px-4 text-left text-[#9e9e9e] font-medium">Tipo</th>
                     <th className="h-9 px-4 text-left text-[#9e9e9e] font-medium">Nº</th>
+                    <th className="h-9 px-4 text-left text-[#9e9e9e] font-medium">Ano-exercício</th>
                     <th className="h-9 px-4 text-left text-[#9e9e9e] font-medium">Emissão</th>
                   </tr>
                 </thead>
@@ -331,6 +336,7 @@ export default async function VehicleDetailPage({
                     <tr key={doc.id} className="border-b border-[#323232] last:border-0">
                       <td className="h-9 px-4 text-[#f5f5f5] uppercase">{doc.type}</td>
                       <td className="h-9 px-4 text-[#9e9e9e] font-mono">{doc.document_number || '—'}</td>
+                      <td className="h-9 px-4 text-[#9e9e9e]">{doc.exercise_year ?? '—'}</td>
                       <td className="h-9 px-4 text-[#9e9e9e]">{formatDate(doc.issued_at)}</td>
                     </tr>
                   ))}
@@ -341,14 +347,17 @@ export default async function VehicleDetailPage({
         )}
 
         {/* Obrigações */}
-        {obligations.length > 0 && (
-          <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Obrigações Anuais</h2>
-            <div className="bg-[#202020] rounded-xl overflow-hidden">
+        <section>
+          <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Obrigações Anuais</h2>
+          <div className="bg-[#202020] rounded-xl overflow-hidden">
+            {obligations.length === 0 ? (
+              <p className="h-9 px-4 flex items-center text-[13px] text-[#616161]">Nenhuma obrigação cadastrada</p>
+            ) : (
               <table className="w-full text-[13px]">
                 <thead className="border-b border-[#323232]">
                   <tr>
                     <th className="h-9 px-4 text-left text-[#9e9e9e] font-medium">Tipo</th>
+                    <th className="h-9 px-4 text-left text-[#9e9e9e] font-medium">Ano ref.</th>
                     <th className="h-9 px-4 text-left text-[#9e9e9e] font-medium">Valor</th>
                     <th className="h-9 px-4 text-left text-[#9e9e9e] font-medium">Vencimento</th>
                     <th className="h-9 px-4 text-left text-[#9e9e9e] font-medium">Status</th>
@@ -358,10 +367,11 @@ export default async function VehicleDetailPage({
                   {obligations.map((obl) => (
                     <tr key={obl.id} className="border-b border-[#323232] last:border-0">
                       <td className="h-9 px-4 text-[#f5f5f5]">{OBLIGATION_TYPE_LABELS[obl.type] ?? obl.type}</td>
+                      <td className="h-9 px-4 text-[#9e9e9e]">{obl.reference_year ?? '—'}</td>
                       <td className="h-9 px-4 text-[#BAFF1A]">{formatCurrency(obl.amount)}</td>
                       <td className="h-9 px-4 text-[#9e9e9e]">{formatDate(obl.due_date)}</td>
                       <td className="h-9 px-4">
-                        <span className={`text-[12px] font-medium ${obl.status === 'paid' ? 'text-[#4ade80]' : obl.status === 'overdue' ? 'text-[#f87171]' : 'text-[#fbbf24]'}`}>
+                        <span className={`text-[12px] font-medium ${obl.status === 'paid' ? 'text-[#4ade80]' : obl.status === 'overdue' ? 'text-[#f87171]' : obl.status === 'exempt' ? 'text-[#9e9e9e]' : 'text-[#fbbf24]'}`}>
                           {obl.status === 'paid' ? 'Pago' : obl.status === 'overdue' ? 'Vencido' : obl.status === 'exempt' ? 'Isento' : 'Pendente'}
                         </span>
                       </td>
@@ -369,9 +379,9 @@ export default async function VehicleDetailPage({
                   ))}
                 </tbody>
               </table>
-            </div>
-          </section>
-        )}
+            )}
+          </div>
+        </section>
 
         {/* Manutenções recentes */}
         {maintenances.length > 0 && (

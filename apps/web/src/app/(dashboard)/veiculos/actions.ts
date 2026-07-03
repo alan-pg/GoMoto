@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import {
   VehicleSchema,
+  VehicleBaseSchema,
   VehicleStatusTransitionSchema,
   type VehicleStatus,
   type VehiclePhotoSlot,
@@ -68,7 +69,7 @@ export async function createVehicle(
       vehicleId:      vehicle.id,
       tenantId,
       previousStatus: null,
-      newStatus:      moto.status as VehicleStatus,
+      newStatus:      vehicle.status as VehicleStatus,
       userId:         user.id,
     })
   } catch {
@@ -130,7 +131,7 @@ export async function updateVehicle(
     return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Veículo não encontrado', field: 'id' } }
   }
 
-  const parsed = VehicleSchema.partial().safeParse(input)
+  const parsed = VehicleBaseSchema.partial().safeParse(input)
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0]
     return {
@@ -307,6 +308,47 @@ export async function changeVehicleStatus(
   revalidatePath(`/veiculos/${vehicleId}`)
 
   return { ok: true, data: { id: vehicleId } }
+}
+
+export async function saveVehicleObligations(
+  vehicleId: string,
+  obligations: Array<{
+    type: 'ipva' | 'licensing' | 'dpvat'
+    amount: number
+    due_date: string
+    status: 'pending' | 'paid' | 'exempt'
+    reference_year: number
+  }>,
+): Promise<ActionResult<void>> {
+  const { supabase, user, tenantId } = await getAuthenticatedContext()
+
+  if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+  if (!tenantId) return { ok: false, error: { code: 'FORBIDDEN', message: 'Tenant não resolvido' } }
+
+  for (const obl of obligations) {
+    const { error } = await supabase
+      .from('vehicle_obligations')
+      .upsert(
+        {
+          tenant_id:      tenantId,
+          vehicle_id:     vehicleId,
+          type:           obl.type,
+          reference_year: obl.reference_year,
+          amount:         obl.amount,
+          due_date:       obl.due_date,
+          status:         obl.status,
+          paid_at:        obl.status === 'paid' ? obl.due_date : null,
+        },
+        { onConflict: 'vehicle_id,type,reference_year' },
+      )
+    if (error) {
+      return { ok: false, error: { code: 'INTERNAL_ERROR', message: `Erro ao salvar ${obl.type}: ${error.message}` } }
+    }
+  }
+
+  await logAction({ action: 'update', table: 'vehicle_obligations', recordId: vehicleId })
+  revalidatePath(`/veiculos/${vehicleId}`)
+  return { ok: true, data: undefined }
 }
 
 export async function deleteVehiclePhoto(
