@@ -59,12 +59,12 @@ export async function createMaintenancePlan(rawData: unknown) {
   if (wantsDefault) {
     const res = await setDefaultMaintenancePlan(data.id)
     if (res.error) {
-      revalidatePath('/planos-manutencao')
+      revalidatePath('/planos-manutencao', 'layout')
       return { data, warning: res.error }
     }
   }
 
-  revalidatePath('/planos-manutencao')
+  revalidatePath('/planos-manutencao', 'layout')
   return { data }
 }
 
@@ -100,12 +100,12 @@ export async function updateMaintenancePlan(id: string, rawData: unknown) {
   if (wantsDefault) {
     const res = await setDefaultMaintenancePlan(id)
     if (res.error) {
-      revalidatePath('/planos-manutencao')
+      revalidatePath('/planos-manutencao', 'layout')
       return { data: updated, warning: res.error }
     }
   }
 
-  revalidatePath('/planos-manutencao')
+  revalidatePath('/planos-manutencao', 'layout')
   return { data: updated }
 }
 
@@ -151,7 +151,7 @@ export async function setDefaultMaintenancePlan(planId: string) {
   if (error) return { error: 'Erro ao marcar como default' }
 
   await logAction({ action: 'update', table: 'maintenance_plans', recordId: planId, newData: { is_default: true } })
-  revalidatePath('/planos-manutencao')
+  revalidatePath('/planos-manutencao', 'layout')
   return { data }
 }
 
@@ -172,7 +172,7 @@ export async function archiveMaintenancePlan(id: string) {
   if (error) return { error: 'Erro ao arquivar plano' }
 
   await logAction({ action: 'update', table: 'maintenance_plans', recordId: id, oldData: before, newData: data })
-  revalidatePath('/planos-manutencao')
+  revalidatePath('/planos-manutencao', 'layout')
   return { data }
 }
 
@@ -193,7 +193,7 @@ export async function unarchiveMaintenancePlan(id: string) {
   if (error) return { error: 'Erro ao desarquivar plano' }
 
   await logAction({ action: 'update', table: 'maintenance_plans', recordId: id, oldData: before, newData: data })
-  revalidatePath('/planos-manutencao')
+  revalidatePath('/planos-manutencao', 'layout')
   return { data }
 }
 
@@ -254,7 +254,7 @@ export async function cloneMaintenancePlan(sourceId: string, newName: string) {
     recordId: newPlan.id,
     newData: { ...newPlan, cloned_from: sourceId, items_cloned: items?.length ?? 0 },
   })
-  revalidatePath('/planos-manutencao')
+  revalidatePath('/planos-manutencao', 'layout')
   return { data: newPlan }
 }
 
@@ -305,7 +305,7 @@ export async function createMaintenancePlanItem(rawData: unknown) {
     interval_days: parsed.data.interval_days ?? null,
   })
 
-  revalidatePath('/planos-manutencao')
+  revalidatePath('/planos-manutencao', 'layout')
   revalidatePath('/manutencao')
   return { data, propagated }
 }
@@ -404,7 +404,7 @@ export async function updateMaintenancePlanItem(id: string, rawData: unknown) {
   if (error) return { error: 'Erro ao atualizar item' }
 
   await logAction({ action: 'update', table: 'maintenance_plan_items', recordId: id, oldData: before, newData: data })
-  revalidatePath('/planos-manutencao')
+  revalidatePath('/planos-manutencao', 'layout')
   return { data }
 }
 
@@ -419,6 +419,6 @@ export async function deleteMaintenancePlanItem(id: string) {
   if (error) return { error: 'Erro ao excluir item' }
 
   await logAction({ action: 'delete', table: 'maintenance_plan_items', recordId: id, oldData: before })
-  revalidatePath('/planos-manutencao')
+  revalidatePath('/planos-manutencao', 'layout')
   return { success: true }
 }
