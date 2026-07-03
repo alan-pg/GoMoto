@@ -167,21 +167,26 @@ Dono único: Alan. Sem stakeholders externos.
 ```
 [Operador] /motos → "Novo veículo" → /motos/novo
 
-  Formulário em seções visíveis:
+  Formulário em seções visíveis (sidebar âncora à esquerda, seções à direita):
   ┌ Identificação: placa, RENAVAM, marca, modelo, ano fab/mod,
   │   cor, combustível, chassi, cilindrada, KM de entrada, observações
-  ├ Aquisição: tipo (zero km/usado/quitado/financiado/consignado/
-  │   doação/outros), data da compra, valor pago, valor FIPE
-  │   → se tipo ≠ zero km: dono anterior + CPF do vendedor
-  ├ Documento: proprietário registrado (nome + CPF/CNPJ), UF,
-  │   nº CRV, transferência feita?, data da transferência
+  │   → banner de importação CRLV (preenche campos automaticamente)
+  ├ Documentação (CRV): proprietário registrado (nome + CPF/CNPJ), UF,
+  │   nº CRV, ano-exercício, transferência feita?, data da transferência
+  │   → Documentação anual: IPVA, Licenciamento, DPVAT (valor, vencimento, status)
+  │   → Anexo do CRV (PDF ou imagem)
   ├ Status: seletor — Disponível (default) / Reservado /
   │   Em manutenção / Sinistrado
   │   (Locado, Vendido e Desativado não aparecem na criação)
+  ├ Aquisição: tipo (zero km/usado/quitado/financiado/consignado/
+  │   doação/outros), data da compra, valor pago, valor FIPE
+  │   → se tipo ≠ zero km: dono anterior + CPF do vendedor
   ├ Rastreador: possui rastreador? → se sim: marca, modelo, IMEI
   ├ Seguro: possui seguro? → se sim: valor mensal, vencimento
-  └ Fotos: 6 slots — principal, frente, lateral esquerda,
-      lateral direita, traseira, painel
+  ├ Fotos: 6 slots — principal, frente, lateral esquerda,
+  │   lateral direita, traseira, painel
+  └ Plano de Manutenção: selecionar plano + KM/data da última revisão por item
+      (somente no cadastro; omitido na edição)
 
 [Operador] → "Salvar"
 [Sistema]
@@ -232,6 +237,9 @@ Dono único: Alan. Sem stakeholders externos.
   → Se veículo está Locado: seletor de status exibido como
     somente-leitura até encerramento do contrato
   (Locado, Vendido e Desativado não aparecem no seletor)
+  Documentação anual (IPVA/Licenciamento/DPVAT) pré-preenchida com
+    os registros existentes; operador pode adicionar ou atualizar valores.
+  Seção "Plano de Manutenção" não aparece na edição.
 
 [Operador] → "Salvar"
 [Sistema]
@@ -319,7 +327,7 @@ Ao encerrar contrato (encerramento ou cancelamento):
 
 ### Cadastro e edição
 
-- **RF-011** — O formulário de cadastro e edição de veículo apresenta todas as seções visíveis simultaneamente, sem wizard. As seções são: Identificação, Aquisição, Documento, Status, Rastreador, Seguro e Fotos.
+- **RF-011** — O formulário de cadastro e edição de veículo apresenta todas as seções visíveis simultaneamente, sem wizard. As seções são: Identificação, Documentação (CRV), Status, Aquisição, Rastreador, Seguro, Fotos e Documentação Anual (IPVA/Licenciamento/DPVAT). A seção de Plano de Manutenção aparece somente no cadastro.
 - **RF-012** — Os campos obrigatórios no cadastro são: placa, RENAVAM, marca e modelo. Os demais campos são opcionais.
 - **RF-013** — O sistema rejeita o cadastro de veículo com placa já existente no mesmo tenant e exibe mensagem de erro inline no campo.
 - **RF-014** — A seção de Aquisição exibe os campos "dono anterior" e "CPF do vendedor" apenas quando o tipo de aquisição for diferente de "zero km".

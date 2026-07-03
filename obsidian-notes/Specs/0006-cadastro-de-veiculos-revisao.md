@@ -197,17 +197,18 @@ Botões: getSelectableStatuses(moto.status) → ações disponíveis
 #### 3.3.2 Editar veículo
 
 ```
-POST → updateVehicle(motorcycleId, formData)
+POST → updateVehicle(vehicleId, formData)
   1. Resolver user + tenantId
-  2. Buscar status atual da moto (para detectar mudança)
-  3. MotorcycleSchema.partial().safeParse(formData)
+  2. Buscar status atual do veículo (para detectar mudança)
+  3. VehicleBaseSchema.partial().safeParse(formData)
      - km_entry ignorado mesmo se enviado (RF-015)
-     - Se moto.status === 'rented': forçar status = 'rented' (RN-002)
+     - Se vehicle.status === 'rented': forçar status = 'rented' (RN-002)
      - status aceita apenas ['available','reserved','maintenance','sinister']
-  4. Se parsed.status ≠ moto.status: recordStatusTransition(...)
-  5. UPDATE motorcycles
+  4. Se parsed.status ≠ vehicle.status: recordStatusTransition(...)
+  5. UPDATE vehicles
   6. Fotos: upsert por URL presente; DELETE por null (remove do Storage + tabela)
   7. logAction + revalidatePath
+  8. Se obrigações enviadas: upsert em vehicle_obligations via saveVehicleObligations
 ```
 
 #### 3.3.3 Vender ou Desativar
@@ -519,7 +520,10 @@ export const AcquisitionTypeEnum = z.enum([
 
 const imeiSchema = z.string().regex(/^\d{15}$/, 'IMEI deve ter 15 dígitos').optional().nullable()
 
-export const MotorcycleSchema = z.object({
+// VehicleBaseSchema: objeto puro sem refinamentos — usado em VehicleSchema.partial() em updateVehicle.
+// Zod não permite .partial() sobre ZodEffects (resultado de .refine()), por isso o objeto base
+// é exportado separadamente. VehicleSchema = VehicleBaseSchema + refinamentos cruzados.
+export const VehicleBaseSchema = z.object({
   license_plate:             z.string().trim().min(1).max(10),
   renavam:                   z.string().trim().min(1).max(20),
   make:                      z.string().trim().min(1).max(100),
@@ -553,7 +557,9 @@ export const MotorcycleSchema = z.object({
   has_insurance:             z.boolean().optional(),
   insurance_monthly_amount:  z.number().positive().max(9_999_999).optional().nullable(),
   insurance_expiry_date:     dateString.optional().nullable(),
-}).refine(
+})
+
+export const VehicleSchema = VehicleBaseSchema.refine(
   (d) => !d.has_tracker || (d.tracker_brand && d.tracker_model && d.tracker_imei),
   { message: 'Preencha marca, modelo e IMEI do rastreador', path: ['tracker_brand'] }
 ).refine(
@@ -562,14 +568,14 @@ export const MotorcycleSchema = z.object({
 )
 
 export const VehicleStatusTransitionSchema = z.object({
-  motorcycle_id: z.string().uuid(),
-  new_status:    VehicleStatusEnum,
+  vehicle_id: z.string().uuid(),
+  new_status: VehicleStatusEnum,
 })
 
 export const VehiclePhotoUpsertSchema = z.object({
-  motorcycle_id: z.string().uuid(),
-  slot:          VehiclePhotoSlotEnum,
-  url:           z.string().url(),
+  vehicle_id: z.string().uuid(),
+  slot:       VehiclePhotoSlotEnum,
+  url:        z.string().url(),
 })
 ```
 
@@ -598,8 +604,11 @@ export async function updateVehicle(
 ): Promise<ActionResult<{ id: string; failedSlots?: VehiclePhotoSlot[] }>>
 ```
 
-Input: `MotorcycleSchema.partial()` + `photos?: Record<VehiclePhotoSlot, string | null>` (`null` = deletar slot).
-Regras: `km_entry` ignorado; `status` bloqueado em `rented` se moto está Locada; `status` não aceita `rented/sold/inactive`.
+Input: `VehicleBaseSchema.partial()` + `photos?: Record<VehiclePhotoSlot, string | null>` (`null` = deletar slot).
+
+> **Nota:** usa `VehicleBaseSchema.partial()` (objeto puro) em vez de `VehicleSchema.partial()` porque `VehicleSchema` é `ZodEffects` (resultado de `.refine()`), e Zod não permite `.partial()` sobre `ZodEffects`. As validações cruzadas de rastreador/seguro não fazem sentido em updates parciais.
+
+Regras: `km_entry` ignorado; `status` bloqueado em `rented` se veículo está Locado; `status` não aceita `rented/sold/inactive`.
 Efeito colateral: se status mudou → `recordStatusTransition`.
 Erros: idem §5.1 + `NOT_FOUND`.
 
@@ -622,6 +631,25 @@ Regra: `canChangeStatus(current, new)` — tabela de transições:
 | sold / inactive | ✅ (Reativar) | ❌ | ❌ |
 
 Erros: `UNAUTHORIZED`, `FORBIDDEN` (`canChangeStatus=false`), `NOT_FOUND`, `VALIDATION_ERROR`, `INTERNAL`.
+
+### 5.3b `saveVehicleObligations`
+
+```ts
+export async function saveVehicleObligations(
+  vehicleId: string,
+  obligations: Array<{
+    type: 'ipva' | 'licensing' | 'dpvat'
+    amount: number
+    due_date: string
+    status: 'pending' | 'paid' | 'exempt'
+    reference_year: number
+  }>,
+): Promise<ActionResult<void>>
+```
+
+Upsert em `vehicle_obligations` com `onConflict: 'vehicle_id,type,reference_year'`.
+Resolve `tenantId` server-side; injeta `tenant_id` em cada linha do upsert.
+Chamada ao final do submit de edição (após `updateVehicle`), somente se houver linhas com `amount` ou `dueDate` preenchidos (ou `status === 'exempt'`).
 
 ### 5.4 `deleteVehiclePhoto`
 
@@ -650,10 +678,12 @@ Lança exceção em falha (não retorna ActionResult) — garante que a action c
 
 | Query | Tabelas | Filtros |
 |---|---|---|
-| Listagem | `motorcycles` + sub-query `vehicle_photos(slot=principal)` | `tenant_id`, `status IN [...]`, `ilike` |
-| Contadores | `motorcycles` | `tenant_id` — aggregate no cliente |
-| Detalhe | 6 tabelas via `Promise.all` | `motorcycle_id` em todas |
-| Edição | `motorcycles` + `vehicle_photos` | `motorcycle_id` |
+| Listagem | `vehicles` + sub-query `vehicle_photos(slot=principal)` | `tenant_id`, `status IN [...]`, `ilike` |
+| Contadores | `vehicles` | `tenant_id` — aggregate no cliente |
+| Detalhe | 6 tabelas via `Promise.all` | `vehicle_id` em todas |
+| Edição | `vehicles` + `vehicle_photos` + `vehicle_obligations` + `vehicle_documents (type=crv, is_current=true)` | `vehicle_id` — 4 queries em paralelo |
+
+Página de edição: as 4 queries rodam em `Promise.all`; `vehicle_obligations` retorna ordenado por `due_date DESC` (pega o mais recente de cada tipo); `vehicle_documents` retorna via `.maybeSingle()` (CRV atual). Os campos `crv_number` e `crv_exercise_year` são injetados em `initialData` a partir do doc CRV, pois não existem na tabela `vehicles`.
 
 URLs de fotos: `createSignedUrl(path, 3600)` em paralelo no Server Component (RNF-005).
 
