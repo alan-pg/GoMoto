@@ -53,7 +53,7 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
     <Providers>
       <div className="flex min-h-screen bg-[#121212]">
         <Sidebar userName={userName} userEmail={userEmail} />
-        <main className="flex-1 pl-[85px] min-h-screen overflow-auto">
+        <main className="flex-1 pl-[85px] min-h-screen">
           {children}
         </main>
       </div>
