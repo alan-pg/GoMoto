@@ -29,7 +29,7 @@ const imeiSchema = z
   .optional()
   .nullable()
 
-export const VehicleSchema = z.object({
+export const VehicleBaseSchema = z.object({
   license_plate:             z.string().trim().min(1, 'Placa é obrigatória').max(10),
   renavam:                   z.string().trim().min(1, 'RENAVAM é obrigatório').max(20),
   make:                      z.string().trim().min(1, 'Marca é obrigatória').max(100),
@@ -64,7 +64,9 @@ export const VehicleSchema = z.object({
   has_insurance:             z.boolean().optional(),
   insurance_monthly_amount:  z.number().positive().max(9_999_999).optional().nullable(),
   insurance_expiry_date:     dateString.optional().nullable(),
-}).refine(
+})
+
+export const VehicleSchema = VehicleBaseSchema.refine(
   (d) => !d.has_tracker || (d.tracker_brand && d.tracker_model && d.tracker_imei),
   { message: 'Preencha marca, modelo e IMEI do rastreador', path: ['tracker_brand'] },
 ).refine(
