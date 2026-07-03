@@ -14,15 +14,13 @@ const cpfDigitsString = z
   .refine((digits) => isCpfDigits(digits), { message: 'CPF inválido: precisa ter 11 dígitos' })
   .refine((digits) => validateCpfDigits(digits), { message: 'CPF inválido: dígito verificador incorreto' })
 
-// MotorcycleSchema migrado para packages/core/src/schemas/vehicles.ts (Spec 0006)
-
 /**
  * VehicleDocumentSchema — CRV/CRLV/recibo de transferência (PRD 0002).
  * Cada moto tem no máximo 1 documento `is_current=true` por tipo
  * (garantido por índice parcial único na migration).
  */
 export const VehicleDocumentSchema = z.object({
-  motorcycle_id: z.string().uuid(),
+  vehicle_id: z.string().uuid(),
   type: z.enum(['crv', 'crlv', 'transfer_receipt', 'other']),
   exercise_year: z.number().int().min(1900).max(2100).optional().nullable(),
   document_number: z.string().trim().max(50).optional().nullable(),
@@ -41,7 +39,7 @@ export const VehicleDocumentSchema = z.object({
  * gravado diretamente no V1, mas é aceito no enum para o futuro PRD de alertas.
  */
 export const VehicleObligationSchema = z.object({
-  motorcycle_id: z.string().uuid(),
+  vehicle_id: z.string().uuid(),
   type: z.enum(['ipva', 'licensing', 'dpvat', 'insurance', 'crv_issuance', 'detran_fee', 'other']),
   reference_year: z.number().int().min(1900).max(2100),
   description: z.string().trim().max(300).optional().nullable(),
@@ -108,7 +106,7 @@ export const ExpenseSchema = z.object({
   amount: z.number().positive().max(9999999),
   category: z.string().trim().max(100),
   date: dateString,
-  motorcycle_id: z.string().uuid().optional().nullable(),
+  vehicle_id: z.string().uuid().optional().nullable(),
   observations: z.string().trim().max(2000).optional().nullable(),
   invoice_url: z.string().url().optional().nullable(),
   attachment_url: z.string().url().optional().nullable(),
@@ -123,7 +121,7 @@ export const ExpenseSchema = z.object({
  */
 export const FineSchema = z.object({
   customer_id: z.string().uuid().optional().nullable(),
-  motorcycle_id: z.string().uuid(),
+  vehicle_id: z.string().uuid(),
   description: z.string().trim().min(1).max(300),
   amount: z.number().positive().max(9999999),
   infraction_date: dateString,

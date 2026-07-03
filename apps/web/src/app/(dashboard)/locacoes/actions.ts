@@ -73,7 +73,7 @@ export async function createRental(
 
   const { data: leaseId, error } = await supabase.rpc('create_rental_with_charges', {
     p_tenant_id:     tenantId,
-    p_motorcycle_id: parsed.data.motorcycle_id,
+    p_vehicle_id:    parsed.data.vehicle_id,
     p_customer_id:   parsed.data.customer_id,
     p_cycle:         parsed.data.cycle,
     p_due_day:       parsed.data.due_day,
@@ -96,7 +96,7 @@ export async function createRental(
 
   await logAction({ action: 'create', table: 'rentals', recordId: leaseId, newData: { charges_count: charges.length } })
   revalidateRentalPaths()
-  revalidatePath('/motos')
+  revalidatePath('/veiculos')
   return { ok: true, data: { lease_id: leaseId as string } }
 }
 
@@ -153,7 +153,7 @@ export async function terminateRental(
 
   await logAction({ action: 'update', table: 'rentals', recordId: parsed.data.lease_id })
   revalidateRentalPaths()
-  revalidatePath('/motos')
+  revalidatePath('/veiculos')
   return { ok: true, data: undefined }
 }
 

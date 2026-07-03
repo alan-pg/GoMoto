@@ -22,7 +22,7 @@ const UUID_LOOSE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 const ContractSchema = z.object({
   customer_id: z.string().regex(UUID_LOOSE),
-  motorcycle_id: z.string().regex(UUID_LOOSE),
+  vehicle_id: z.string().regex(UUID_LOOSE),
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   monthly_amount: z.number().positive().max(9999999),
@@ -53,15 +53,15 @@ export async function createContract(rawData: unknown) {
 
   // RF-022: criar contrato → moto passa a 'rented'
   const { data: motoBefore } = await supabase
-    .from('motorcycles').select('status').eq('id', parsed.data.motorcycle_id).single()
+    .from('vehicles').select('status').eq('id', parsed.data.vehicle_id).single()
   const { error: motoErr } = await supabase
-    .from('motorcycles')
+    .from('vehicles')
     .update({ status: 'rented' })
-    .eq('id', parsed.data.motorcycle_id)
+    .eq('id', parsed.data.vehicle_id)
   if (!motoErr) {
     try {
       await recordStatusTransition(supabase, {
-        motorcycleId:   parsed.data.motorcycle_id,
+        vehicleId:      parsed.data.vehicle_id,
         tenantId,
         previousStatus: motoBefore?.status ?? null,
         newStatus:      'rented',
@@ -71,13 +71,13 @@ export async function createContract(rawData: unknown) {
       console.error('[createContract] recordStatusTransition failed', e)
     }
     await logAction({
-      action: 'update', table: 'motorcycles', recordId: parsed.data.motorcycle_id,
+      action: 'update', table: 'vehicles', recordId: parsed.data.vehicle_id,
       oldData: motoBefore, newData: { status: 'rented' },
     })
   }
 
   revalidatePath('/contratos')
-  revalidatePath('/motos')
+  revalidatePath('/veiculos')
   return { data }
 }
 
@@ -133,7 +133,7 @@ export async function terminateContractByCustomer(contractId: string) {
 
   const { data: contract } = await supabase
     .from('rentals')
-    .select('id, customer_id, motorcycle_id, status, end_date')
+    .select('id, customer_id, vehicle_id, status, end_date')
     .eq('id', contractId)
     .single()
   if (!contract) return { error: 'Contrato não encontrado' }
@@ -156,7 +156,7 @@ export async function terminateContractByCustomer(contractId: string) {
     .from('fines')
     .insert({
       customer_id: contract.customer_id,
-      motorcycle_id: contract.motorcycle_id,
+      vehicle_id: contract.vehicle_id,
       description: 'Multa por rescisão antecipada de contrato',
       amount: CONTRACT_TERMINATION_FINE_BRL,
       infraction_date: today,
@@ -171,23 +171,23 @@ export async function terminateContractByCustomer(contractId: string) {
   await logAction({ action: 'create', table: 'fines', recordId: fine.id, newData: fine })
 
   const { data: motoBefore } = await supabase
-    .from('motorcycles').select().eq('id', contract.motorcycle_id).single()
+    .from('vehicles').select().eq('id', contract.vehicle_id).single()
   const { data: moto, error: motoErr } = await supabase
-    .from('motorcycles')
+    .from('vehicles')
     .update({ status: 'available' })
-    .eq('id', contract.motorcycle_id)
+    .eq('id', contract.vehicle_id)
     .select()
     .single()
-  if (motoErr) return { error: 'Erro ao liberar a moto' }
+  if (motoErr) return { error: 'Erro ao liberar o veículo' }
   await logAction({
-    action: 'update', table: 'motorcycles', recordId: contract.motorcycle_id,
+    action: 'update', table: 'vehicles', recordId: contract.vehicle_id,
     oldData: motoBefore, newData: moto,
   })
 
   // RF-023: encerrar contrato → moto volta a 'available'
   try {
     await recordStatusTransition(supabase, {
-      motorcycleId:   contract.motorcycle_id,
+      vehicleId:      contract.vehicle_id,
       tenantId,
       previousStatus: 'rented',
       newStatus:      'available',
@@ -198,7 +198,7 @@ export async function terminateContractByCustomer(contractId: string) {
   }
 
   revalidatePath('/contratos')
-  revalidatePath('/motos')
+  revalidatePath('/veiculos')
   return { data: { fineAmount: CONTRACT_TERMINATION_FINE_BRL } }
 }
 
@@ -216,7 +216,7 @@ export async function terminateContractByCompany(contractId: string, reason: str
 
   const { data: contract } = await supabase
     .from('rentals')
-    .select('id, motorcycle_id, status, end_date, observations')
+    .select('id, vehicle_id, status, end_date, observations')
     .eq('id', contractId)
     .single()
   if (!contract) return { error: 'Contrato não encontrado' }
@@ -236,16 +236,16 @@ export async function terminateContractByCompany(contractId: string, reason: str
   })
 
   const { data: motoBefore } = await supabase
-    .from('motorcycles').select().eq('id', contract.motorcycle_id).single()
+    .from('vehicles').select().eq('id', contract.vehicle_id).single()
   const { data: moto, error: motoErr } = await supabase
-    .from('motorcycles')
+    .from('vehicles')
     .update({ status: 'available' })
-    .eq('id', contract.motorcycle_id)
+    .eq('id', contract.vehicle_id)
     .select()
     .single()
-  if (motoErr) return { error: 'Erro ao liberar a moto' }
+  if (motoErr) return { error: 'Erro ao liberar o veículo' }
   await logAction({
-    action: 'update', table: 'motorcycles', recordId: contract.motorcycle_id,
+    action: 'update', table: 'vehicles', recordId: contract.vehicle_id,
     oldData: motoBefore, newData: moto,
   })
 
@@ -254,7 +254,7 @@ export async function terminateContractByCompany(contractId: string, reason: str
   if (tenantId) {
     try {
       await recordStatusTransition(supabase, {
-        motorcycleId:   contract.motorcycle_id,
+        vehicleId:      contract.vehicle_id,
         tenantId,
         previousStatus: 'rented',
         newStatus:      'available',
@@ -266,7 +266,7 @@ export async function terminateContractByCompany(contractId: string, reason: str
   }
 
   revalidatePath('/contratos')
-  revalidatePath('/motos')
+  revalidatePath('/veiculos')
   return { success: true }
 }
 

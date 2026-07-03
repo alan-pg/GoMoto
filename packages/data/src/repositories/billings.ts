@@ -66,7 +66,7 @@ export async function listBillingsForCustomer(
   // Usa a policy RLS 'customer_read_own_billings' — só retorna cobranças do cliente autenticado
   let q = client
     .from('billings')
-    .select('*, rentals(id, motorcycle:motorcycles(license_plate, model, make))')
+    .select('*, rentals(id, vehicles(license_plate, model, make))')
     .order('due_date', { ascending: false })
 
   if (filter?.status && filter.status !== 'all') {

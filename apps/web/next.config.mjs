@@ -21,6 +21,15 @@ const nextConfig = {
     config.resolve.alias = { ...config.resolve.alias, canvas: false }
     return config
   },
+  async redirects() {
+    return [
+      {
+        source: '/motos/:path*',
+        destination: '/veiculos/:path*',
+        permanent: true,
+      },
+    ]
+  },
   async headers() {
     return [
       {

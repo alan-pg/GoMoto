@@ -21,7 +21,7 @@ const NAV_ITEMS = [
   { href: '/despesas',      label: 'Despesas',          icon: TrendingDown },
   { href: '/entradas',      label: 'Entradas',          icon: TrendingUp },
   { href: '/cobrancas',     label: 'Cobranças',         icon: DollarSign },
-  { href: '/motos',         label: 'Motos',             icon: Bike },
+  { href: '/veiculos',      label: 'Veículos',          icon: Bike },
   { href: '/clientes',      label: 'Clientes',          icon: Users },
   { href: '/contratos',     label: 'Contratos',         icon: FileText },
   { href: '/relatorios',    label: 'Relatórios',        icon: BarChart2 },

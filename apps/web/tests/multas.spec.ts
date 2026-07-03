@@ -3,8 +3,8 @@ import {
   TEST_TAG,
   createTestCustomer,
   deleteTestCustomer,
-  createTestMotorcycle,
-  deleteTestMotorcycle,
+  createTestVehicle,
+  deleteTestVehicle,
   getModal,
   waitForPageLoad,
 } from './helpers'
@@ -21,13 +21,13 @@ test.describe('Multas — CRUD', () => {
   test.beforeAll(async () => {
     const customer = await createTestCustomer()
     customerId = customer.id
-    const moto = await createTestMotorcycle()
+    const moto = await createTestVehicle()
     motoId = moto.id
   })
 
   test.afterAll(async () => {
     await deleteTestCustomer(customerId)
-    await deleteTestMotorcycle(motoId)
+    await deleteTestVehicle(motoId)
   })
 
   test('criar, editar, pagar e excluir multa', async ({ page }) => {

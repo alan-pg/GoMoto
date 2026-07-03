@@ -1,5 +1,5 @@
 /**
- * @file MotorcycleMap.tsx
+ * @file VehicleMap.tsx
  * @description Componente de mapa interativo da frota GoMoto utilizando Leaflet.
  *
  * @funcionalidades
@@ -18,7 +18,7 @@
 import 'leaflet/dist/leaflet.css'
 
 import { useEffect, useRef, useState } from 'react'
-import type { Motorcycle, Contract, Customer } from '@gomoto/core'
+import type { Vehicle, Contract, Customer } from '@gomoto/core'
 import { formatCurrency } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,17 +29,17 @@ import { formatCurrency } from '@/lib/utils'
  * Dados que o mapa consome por marcador.
  * Combina a moto com seu contrato ativo e cliente para exibição no Popup.
  */
-interface MotorcycleMapItem {
-  motorcycle: Motorcycle
+interface VehicleMapItem {
+  vehicle: Vehicle
   contract?: Contract & { customer?: Customer }
 }
 
 /**
- * Props do componente MotorcycleMap.
+ * Props do componente VehicleMap.
  */
-interface MotorcycleMapProps {
-  /** Lista de motos com seus contratos/clientes para renderizar como marcadores */
-  items: MotorcycleMapItem[]
+interface VehicleMapProps {
+  /** Lista de veículos com seus contratos/clientes para renderizar como marcadores */
+  items: VehicleMapItem[]
   /** ID da moto selecionada na tabela — dispara o flyTo animado no mapa */
   selectedMotoId?: string | null
   /** IDs das motos visíveis conforme o filtro ativo na tabela — controla quais marcadores aparecem */
@@ -110,7 +110,7 @@ function getStatusLabel(status: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * @component MotorcycleMap
+ * @component VehicleMap
  *
  * DECISÕES TÉCNICAS IMPORTANTES:
  *
@@ -132,12 +132,12 @@ function getStatusLabel(status: string): string {
  *    Permite acesso O(1) ao marcador de qualquer moto pelo ID,
  *    necessário para o flyTo acionado pela tabela sem percorrer todas as camadas.
  */
-export default function MotorcycleMap({
+export default function VehicleMap({
   items,
   selectedMotoId,
   visibleMotoIds,
   defaultCenter = [-22.924523932502602, -43.685182991359035], // Sede GoMoto
-}: MotorcycleMapProps) {
+}: VehicleMapProps) {
 
   // Referência ao elemento HTML onde o Leaflet irá injetar o mapa
   const mapRef = useRef<HTMLDivElement>(null)
@@ -151,7 +151,7 @@ export default function MotorcycleMap({
   const tileLayerRef = useRef<any>(null)
 
   /**
-   * Dicionário: motorcycle.id → { marker, lat, lng }
+   * Dicionário: vehicle.id → { marker, lat, lng }
    * Armazena as referências dos marcadores para operações externas (flyTo, show/hide).
    * Usar ref em vez de estado evita re-renders ao adicionar/remover marcadores.
    */
@@ -211,8 +211,8 @@ export default function MotorcycleMap({
 
       // ── CRIAÇÃO DOS MARCADORES ──────────────────────────────────────────
       items.forEach((item) => {
-        const { motorcycle, contract } = item
-        const color = getMarkerColor(motorcycle.status)
+        const { vehicle, contract } = item
+        const color = getMarkerColor(vehicle.status)
 
         /**
          * Enquanto os rastreadores GPS não estão integrados, todos os marcadores
@@ -263,13 +263,13 @@ export default function MotorcycleMap({
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #e5e7eb;">
               <div style="width: 10px; height: 10px; border-radius: 50%; background: ${color}; flex-shrink: 0;"></div>
               <div>
-                <p style="font-weight: 700; font-size: 14px; margin: 0;">${motorcycle.make} ${motorcycle.model}</p>
-                <p style="font-size: 11px; color: #6b7280; margin: 2px 0 0;">${getStatusLabel(motorcycle.status)}</p>
+                <p style="font-weight: 700; font-size: 14px; margin: 0;">${vehicle.make} ${vehicle.model}</p>
+                <p style="font-size: 11px; color: #6b7280; margin: 2px 0 0;">${getStatusLabel(vehicle.status)}</p>
               </div>
             </div>
             <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
-              <tr><td style="color:#6b7280; padding:3px 0; font-weight:600;">Placa</td><td style="font-weight:700; font-family:monospace; text-align:right;">${motorcycle.license_plate}</td></tr>
-              <tr><td style="color:#6b7280; padding:3px 0; font-weight:600;">Ano</td><td style="text-align:right;">${motorcycle.year_manufacture}${motorcycle.year_model ? `/${motorcycle.year_model}` : ''}</td></tr>
+              <tr><td style="color:#6b7280; padding:3px 0; font-weight:600;">Placa</td><td style="font-weight:700; font-family:monospace; text-align:right;">${vehicle.license_plate}</td></tr>
+              <tr><td style="color:#6b7280; padding:3px 0; font-weight:600;">Ano</td><td style="text-align:right;">${vehicle.year_manufacture}${vehicle.year_model ? `/${vehicle.year_model}` : ''}</td></tr>
               <tr><td style="color:#6b7280; padding:3px 0; font-weight:600;">Cliente</td><td style="text-align:right;">${contract?.customer?.name ?? '—'}</td></tr>
               <tr><td style="color:#6b7280; padding:3px 0; font-weight:600;">Valor/Semana</td><td style="color:#16a34a; font-weight:700; text-align:right;">${weeklyValue}</td></tr>
               <tr><td style="color:#6b7280; padding:3px 0; font-weight:600; vertical-align:top;">Endereço</td><td style="text-align:right; max-width:130px;">${contract?.customer?.address ?? '—'}</td></tr>
@@ -284,7 +284,7 @@ export default function MotorcycleMap({
           .bindPopup(popupContent, { maxWidth: 280 })
 
         // Armazena no dicionário para acesso O(1) via ID — usado pelo flyTo e show/hide
-        markersRef.current[motorcycle.id] = { marker, lat, lng }
+        markersRef.current[vehicle.id] = { marker, lat, lng }
       })
     })
 

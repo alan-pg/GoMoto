@@ -15,8 +15,8 @@ export default async function VehicleEditPage({
   if (!tenantId) notFound()
 
   const [motoResult, photosResult] = await Promise.all([
-    supabase.from('motorcycles').select('*').eq('id', id).single(),
-    supabase.from('vehicle_photos').select('*').eq('motorcycle_id', id),
+    supabase.from('vehicles').select('*').eq('id', id).single(),
+    supabase.from('vehicle_photos').select('*').eq('vehicle_id', id),
   ])
 
   if (motoResult.error || !motoResult.data) notFound()
@@ -39,7 +39,7 @@ export default async function VehicleEditPage({
 
   return (
     <VehicleEditForm
-      motorcycleId={id}
+      vehicleId={id}
       moto={moto}
       initialPhotoUrls={photoUrls}
       currentStatus={moto.status as VehicleStatus}

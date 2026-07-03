@@ -15,7 +15,7 @@ export function useCreateExpense() {
   const getTenantId = useRequiredTenantId()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (payload: Omit<Expense, 'id' | 'tenant_id' | 'created_at' | 'motorcycle'>) =>
+    mutationFn: (payload: Omit<Expense, 'id' | 'tenant_id' | 'created_at' | 'vehicle'>) =>
       createExpense(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   })
@@ -30,7 +30,7 @@ export function useUpdateExpense() {
       payload,
     }: {
       id: string
-      payload: Partial<Omit<Expense, 'id' | 'created_at' | 'motorcycle'>>
+      payload: Partial<Omit<Expense, 'id' | 'created_at' | 'vehicle'>>
     }) => updateExpense(supabase, id, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   })

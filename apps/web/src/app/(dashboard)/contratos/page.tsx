@@ -20,7 +20,7 @@ import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'
 import { Header } from '@/components/layout/Header'
 import { Modal } from '@/components/ui/Modal'
-import type { Contract, Customer, Motorcycle } from '@gomoto/core'
+import type { Contract, Customer, Vehicle } from '@gomoto/core'
 import {
   CONTRACT_TERMINATION_FINE_BRL,
   calculateExpectedEndDate,
@@ -32,9 +32,9 @@ import {
 // Tipos
 // ---------------------------------------------------------------------------
 
-interface ContractRow extends Omit<Contract, 'customer' | 'motorcycle'> {
+interface ContractRow extends Omit<Contract, 'customer' | 'vehicle'> {
   customer: Pick<Customer, 'id' | 'name' | 'phone' | 'cpf' | 'rg' | 'state' | 'drivers_license' | 'drivers_license_category' | 'address' | 'zip_code'> | null
-  motorcycle: Pick<Motorcycle, 'id' | 'model' | 'make' | 'license_plate' | 'km_current' | 'year_manufacture' | 'year_model' | 'renavam' | 'chassis' | 'color' | 'fuel'> | null
+  vehicle: Pick<Vehicle, 'id' | 'model' | 'make' | 'license_plate' | 'km_current' | 'year_manufacture' | 'year_model' | 'renavam' | 'chassis' | 'color' | 'fuel'> | null
 }
 
 interface ContractTemplate {
@@ -230,7 +230,7 @@ async function buildContractDocxBlob(
     delimiters: { start: '{{', end: '}}' },
   })
   const c = contract.customer
-  const m = contract.motorcycle
+  const m = contract.vehicle
   const ano_fabricacao = m?.year_manufacture?.trim() ?? ''
   const ano_modelo = m?.year_model?.trim() ?? ano_fabricacao
   const rg_cliente = [c?.rg, c?.state ? `DETRAN ${c.state}` : ''].filter(Boolean).join(' ')
@@ -334,8 +334,8 @@ export default function ContratosPage() {
       const q = search.toLowerCase()
       rows = rows.filter(c =>
         c.customer?.name?.toLowerCase().includes(q) ||
-        c.motorcycle?.license_plate?.toLowerCase().includes(q) ||
-        c.motorcycle?.model?.toLowerCase().includes(q)
+        c.vehicle?.license_plate?.toLowerCase().includes(q) ||
+        c.vehicle?.model?.toLowerCase().includes(q)
       )
     }
     return rows
@@ -627,12 +627,12 @@ export default function ContratosPage() {
                             : <span className="text-[#9e9e9e]">—</span>}
                         </td>
                         <td className="px-4">
-                          {contract.motorcycle
+                          {contract.vehicle
                             ? <div className="flex items-center gap-2">
                                 <Bike className="w-4 h-4 text-[#9e9e9e] flex-shrink-0" />
-                                <span className="font-medium text-[#f5f5f5]">{contract.motorcycle.make} {contract.motorcycle.model}</span>
+                                <span className="font-medium text-[#f5f5f5]">{contract.vehicle.make} {contract.vehicle.model}</span>
                                 <span className="text-[#616161]">•</span>
-                                <span className="font-mono font-bold text-[#f5f5f5]">{contract.motorcycle.license_plate}</span>
+                                <span className="font-mono font-bold text-[#f5f5f5]">{contract.vehicle.license_plate}</span>
                               </div>
                             : <span className="text-[#9e9e9e]">—</span>}
                         </td>
@@ -686,12 +686,12 @@ export default function ContratosPage() {
                 <User className="w-5 h-5 text-[#a880ff]" />
                 <h2 className="text-[18px] font-bold text-[#f5f5f5]">{selectedContract.customer?.name ?? '—'}</h2>
               </div>
-              {selectedContract.motorcycle && (
+              {selectedContract.vehicle && (
                 <div className="flex items-center gap-2 text-[#9e9e9e]">
                   <Bike className="w-4 h-4" />
-                  <span className="text-[13px]">{selectedContract.motorcycle.make} {selectedContract.motorcycle.model}</span>
+                  <span className="text-[13px]">{selectedContract.vehicle.make} {selectedContract.vehicle.model}</span>
                   <span className="text-[#616161]">•</span>
-                  <span className="font-mono font-bold text-[#f5f5f5] text-[13px]">{selectedContract.motorcycle.license_plate}</span>
+                  <span className="font-mono font-bold text-[#f5f5f5] text-[13px]">{selectedContract.vehicle.license_plate}</span>
                 </div>
               )}
             </div>

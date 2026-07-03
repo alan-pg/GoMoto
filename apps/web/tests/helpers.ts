@@ -86,16 +86,16 @@ export async function deleteTestCustomer(id: string): Promise<void> {
 }
 
 /**
- * Cria uma moto de teste diretamente no banco.
+ * Cria um veículo de teste diretamente no banco.
  * Retorna o ID e a placa gerados.
  */
-export async function createTestMotorcycle(): Promise<{ id: string; license_plate: string }> {
+export async function createTestVehicle(): Promise<{ id: string; license_plate: string }> {
   const sb = await getSupabase()
   const suffix = Date.now().toString().slice(-5)
   const plate = `T${suffix}`.slice(0, 7).toUpperCase()
 
   const { data, error } = await sb
-    .from('motorcycles')
+    .from('vehicles')
     .insert({
       license_plate: plate,
       model: 'Model E2E',
@@ -112,20 +112,20 @@ export async function createTestMotorcycle(): Promise<{ id: string; license_plat
     .select('id, license_plate')
     .single()
 
-  if (error) throw new Error(`Erro ao criar moto de teste: ${error.message}`)
+  if (error) throw new Error(`Erro ao criar veículo de teste: ${error.message}`)
   return { id: data.id as string, license_plate: data.license_plate as string }
 }
 
 /**
- * Remove uma moto de teste pelo ID, limpando dados dependentes antes.
+ * Remove um veículo de teste pelo ID, limpando dados dependentes antes.
  */
-export async function deleteTestMotorcycle(id: string): Promise<void> {
+export async function deleteTestVehicle(id: string): Promise<void> {
   if (!id) return
   const sb = await getSupabase()
-  await sb.from('maintenances').delete().eq('motorcycle_id', id)
-  await sb.from('fines').delete().eq('motorcycle_id', id)
-  await sb.from('rentals').delete().eq('motorcycle_id', id)
-  await sb.from('motorcycles').delete().eq('id', id)
+  await sb.from('maintenances').delete().eq('vehicle_id', id)
+  await sb.from('fines').delete().eq('vehicle_id', id)
+  await sb.from('rentals').delete().eq('vehicle_id', id)
+  await sb.from('vehicles').delete().eq('id', id)
 }
 
 /**
@@ -133,7 +133,7 @@ export async function deleteTestMotorcycle(id: string): Promise<void> {
  * o campo `lessee` da tela de Entradas seja preenchido automaticamente via lookupLessee.
  * Retorna IDs do cliente e do contrato criados.
  */
-export async function createTestContract(motorcycleId: string): Promise<{ customerId: string; contractId: string }> {
+export async function createTestContract(vehicleId: string): Promise<{ customerId: string; contractId: string }> {
   const sb = await getSupabase()
   const today = new Date().toISOString().split('T')[0]
 
@@ -156,7 +156,7 @@ export async function createTestContract(motorcycleId: string): Promise<{ custom
     .from('rentals')
     .insert({
       customer_id:  customer.id,
-      motorcycle_id: motorcycleId,
+      vehicle_id: vehicleId,
       start_date:   today,
       end_date:     null,
       cycle_amount: 300,

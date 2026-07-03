@@ -21,7 +21,7 @@
  *
  * Banco de dados (Supabase — projeto: hcnxbqunescfanqzmsha):
  *   • Tabela principal: `fines`
- *   • Joins utilizados: `customers` (nome e telefone) e `motorcycles` (placa, marca, modelo)
+ *   • Joins utilizados: `customers` (nome e telefone) e `vehicles` (placa, marca, modelo)
  *   • Dependência extra: `contracts` (apenas contratos ativos, para auto-vincular cliente ↔ moto)
  *
  * Padrão de layout:
@@ -55,7 +55,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 
 // Camada de dados compartilhada (@gomoto/data) + Server Actions (façade de auditoria)
-import { useFines, useCustomers, useMotorcycles, useActiveContracts } from '@gomoto/data'
+import { useFines, useCustomers, useVehicles, useActiveContracts } from '@gomoto/data'
 import { createFine, updateFine, markFineAsPaid, deleteFine } from './actions'
 
 // Infraestrutura do projeto
@@ -74,7 +74,7 @@ import { formatCurrency, formatDate } from '@/lib/utils'     // Formatadores de 
 type FineWithRelations = {
   id: string                              // UUID da multa (PK no banco)
   customer_id: string                     // FK para a tabela customers
-  motorcycle_id: string                   // FK para a tabela motorcycles
+  vehicle_id: string                   // FK para a tabela vehicles
   description: string                     // Descrição textual da infração
   amount: number                          // Valor da multa em R$
   infraction_date: string                 // Data da infração (formato YYYY-MM-DD)
@@ -85,7 +85,7 @@ type FineWithRelations = {
   observations?: string | null           // Observações livres: AIT, recurso, local etc.
   created_at: string                      // Timestamp de criação do registro
   customers: { name: string; phone: string } | null          // Dados do cliente via join
-  motorcycles: { license_plate: string; model: string; make: string } | null  // Dados da moto via join
+  vehicles: { license_plate: string; model: string; make: string } | null  // Dados da moto via join
 }
 
 /**
@@ -181,7 +181,7 @@ const INFRACTION_QUICKFILL_OPTIONS = [
  */
 const DEFAULT_FORM = {
   customer_id:     '',          // ID do cliente selecionado
-  motorcycle_id:   '',          // ID da moto selecionada
+  vehicle_id:   '',          // ID da moto selecionada
   description:     '',          // Texto da infração
   amount:          '',          // Valor como string (vira number antes de salvar)
   infraction_date: '',          // Data da infração (YYYY-MM-DD)
@@ -289,10 +289,10 @@ export default function MultasPage() {
   // ── DADOS: hooks compartilhados de @gomoto/data ─────────────────────────────
   const finesQuery = useFines()
   const customersQuery = useCustomers()
-  const motorcyclesQuery = useMotorcycles()
+  const vehiclesQuery = useVehicles()
   const activeContractsQuery = useActiveContracts()
 
-  /** Lista completa de multas com joins (customers + motorcycles) */
+  /** Lista completa de multas com joins (customers + vehicles) */
   const fines = useMemo<FineWithRelations[]>(
     () => (finesQuery.data ?? []) as unknown as FineWithRelations[],
     [finesQuery.data],
@@ -309,12 +309,12 @@ export default function MultasPage() {
   )
 
   /** Motos disponíveis para seleção no formulário */
-  const motorcycles = useMemo(
+  const vehicles = useMemo(
     () =>
-      (motorcyclesQuery.data ?? [])
+      (vehiclesQuery.data ?? [])
         .map((m) => ({ id: m.id, license_plate: m.license_plate, model: m.model, make: m.make }))
         .sort((a, b) => a.license_plate.localeCompare(b.license_plate)),
-    [motorcyclesQuery.data],
+    [vehiclesQuery.data],
   )
 
   /**
@@ -325,7 +325,7 @@ export default function MultasPage() {
     () =>
       (activeContractsQuery.data ?? []).map((c) => ({
         customer_id: c.customer_id,
-        motorcycle_id: c.motorcycle_id,
+        vehicle_id: c.vehicle_id,
       })),
     [activeContractsQuery.data],
   )
@@ -336,7 +336,7 @@ export default function MultasPage() {
   const loading =
     finesQuery.isLoading ||
     customersQuery.isLoading ||
-    motorcyclesQuery.isLoading ||
+    vehiclesQuery.isLoading ||
     activeContractsQuery.isLoading
 
   /** Mensagem de erro global — exibida no topo da página se não nula */
@@ -385,7 +385,7 @@ export default function MultasPage() {
   const [statusFilter, setStatusFilter] = useState('all')
 
   /** ID da moto selecionada no select de filtro. String vazia = todas as motos */
-  const [motorcycleFilter, setMotorcycleFilter] = useState('')
+  const [vehicleFilter, setVehicleFilter] = useState('')
 
   // ── ESTADOS: Accordion ──────────────────────────────────────────────────────
 
@@ -448,7 +448,7 @@ export default function MultasPage() {
     setEditingId(row.id)
     setForm({
       customer_id:     row.customer_id,
-      motorcycle_id:   row.motorcycle_id,
+      vehicle_id:   row.vehicle_id,
       description:     row.description,
       amount:          String(row.amount),
       infraction_date: row.infraction_date,
@@ -488,7 +488,7 @@ export default function MultasPage() {
     // Monta o payload: converte amount de string para float e trata campos opcionais
     const payload = {
       customer_id:     form.customer_id,
-      motorcycle_id:   form.motorcycle_id,
+      vehicle_id:   form.vehicle_id,
       description:     form.description,
       amount:          parseFloat(form.amount),
       infraction_date: form.infraction_date,
@@ -629,11 +629,11 @@ export default function MultasPage() {
    *   2. Filtra por busca textual (descrição ou nome do cliente)
    *   3. Filtra por aba de status ativa
    *   4. Filtra por moto selecionada
-   *   5. Agrupa em um Map keyed pelo motorcycle_id
+   *   5. Agrupa em um Map keyed pelo vehicle_id
    *   6. Ordena os itens de cada grupo por gravidade (overdue → due_soon → pending → paid)
    *   7. Ordena os grupos pelo pior status interno (motos com maior urgência primeiro)
    *
-   * Recalculado apenas quando fines, search, statusFilter ou motorcycleFilter mudam.
+   * Recalculado apenas quando fines, search, statusFilter ou vehicleFilter mudam.
    */
   const groupedFines = useMemo(() => {
     // Enriquece todas as multas com o status calculado
@@ -654,8 +654,8 @@ export default function MultasPage() {
     }
 
     // Filtro por moto específica — string vazia desativa o filtro
-    if (motorcycleFilter) {
-      filtered = filtered.filter(f => f.motorcycle_id === motorcycleFilter)
+    if (vehicleFilter) {
+      filtered = filtered.filter(f => f.vehicle_id === vehicleFilter)
     }
 
     // Ordem numérica de gravidade para ordenação: menor = maior urgência
@@ -663,20 +663,20 @@ export default function MultasPage() {
 
     // Agrupa as multas filtradas por moto usando Map para preservar ordem de inserção
     const map = new Map<string, {
-      motorcycle_id: string
-      moto: FineWithRelations['motorcycles']
+      vehicle_id: string
+      moto: FineWithRelations['vehicles']
       items: FineWithStatus[]
     }>()
 
     filtered.forEach(fine => {
-      if (!map.has(fine.motorcycle_id)) {
-        map.set(fine.motorcycle_id, {
-          motorcycle_id: fine.motorcycle_id,
-          moto: fine.motorcycles,
+      if (!map.has(fine.vehicle_id)) {
+        map.set(fine.vehicle_id, {
+          vehicle_id: fine.vehicle_id,
+          moto: fine.vehicles,
           items: [],
         })
       }
-      map.get(fine.motorcycle_id)!.items.push(fine)
+      map.get(fine.vehicle_id)!.items.push(fine)
     })
 
     const groups = Array.from(map.values())
@@ -692,7 +692,7 @@ export default function MultasPage() {
     })
 
     return groups
-  }, [fines, search, statusFilter, motorcycleFilter])
+  }, [fines, search, statusFilter, vehicleFilter])
 
   // ─── OPÇÕES DOS SELECTS (memoizadas) ───────────────────────────────────────
 
@@ -710,10 +710,10 @@ export default function MultasPage() {
    * Opções do select de moto no formulário.
    * Exibe placa + marca + modelo para fácil identificação.
    */
-  const motorcycleOptions = useMemo(() => [
+  const vehicleOptions = useMemo(() => [
     { value: '', label: 'Selecione uma moto' },
-    ...motorcycles.map(m => ({ value: m.id, label: `${m.license_plate} — ${m.make} ${m.model}` })),
-  ], [motorcycles])
+    ...vehicles.map(m => ({ value: m.id, label: `${m.license_plate} — ${m.make} ${m.model}` })),
+  ], [vehicles])
 
   /**
    * Definição das abas de filtro de status.
@@ -841,12 +841,12 @@ export default function MultasPage() {
           <div className="flex items-center gap-2 flex-wrap">
             {/* Select de filtro por moto específica */}
             <select
-              value={motorcycleFilter}
-              onChange={e => setMotorcycleFilter(e.target.value)}
+              value={vehicleFilter}
+              onChange={e => setVehicleFilter(e.target.value)}
               className="h-10 rounded-lg border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
             >
               <option value="">Todas as motos</option>
-              {motorcycles.map(m => (
+              {vehicles.map(m => (
                 <option key={m.id} value={m.id} className="bg-[#202020]">
                   {m.license_plate} — {m.make} {m.model}
                 </option>
@@ -892,10 +892,10 @@ export default function MultasPage() {
         ) : (
           // Lista de grupos (um por moto)
           <div className="space-y-2">
-            {groupedFines.map(({ motorcycle_id, moto, items }) => {
+            {groupedFines.map(({ vehicle_id, moto, items }) => {
               // Determina visibilidade do grupo e do histórico via os Sets de estado
-              const isExpanded  = !collapsedGroups.has(motorcycle_id)
-              const showHistory = historyGroups.has(motorcycle_id)
+              const isExpanded  = !collapsedGroups.has(vehicle_id)
+              const showHistory = historyGroups.has(vehicle_id)
 
               // Separa itens pendentes (qualquer status não-pago) dos pagos (histórico)
               const pendingItems = items.filter(i => i._status !== 'paid')
@@ -915,11 +915,11 @@ export default function MultasPage() {
                   : STATUS_DOT.ok
 
               return (
-                <div key={motorcycle_id} className="overflow-hidden rounded-xl bg-[#202020]">
+                <div key={vehicle_id} className="overflow-hidden rounded-xl bg-[#202020]">
 
                   {/* ── Cabeçalho do accordion (clicável) ───────────────── */}
                   <button
-                    onClick={() => toggleGroup(motorcycle_id)}
+                    onClick={() => toggleGroup(vehicle_id)}
                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#323232] transition-colors text-left"
                   >
                     {/* Seta: rotaciona -90° quando colapsado */}
@@ -1064,7 +1064,7 @@ export default function MultasPage() {
                         <div className={pendingItems.length > 0 ? 'border-t border-[#323232]' : ''}>
                           {/* Toggle do histórico — texto e seta compactos */}
                           <button
-                            onClick={() => toggleHistory(motorcycle_id)}
+                            onClick={() => toggleHistory(vehicle_id)}
                             className="w-full flex items-center gap-2 px-4 py-2 text-[12px] text-[#616161] hover:text-[#9e9e9e] transition-colors"
                           >
                             <ChevronDown className={`w-3 h-3 transition-transform duration-150 ${showHistory ? '' : '-rotate-90'}`} />
@@ -1157,22 +1157,22 @@ export default function MultasPage() {
                   ...form,
                   customer_id:   selectedCustomerId,
                   // Mantém a moto atual se o cliente não tiver contrato ativo
-                  motorcycle_id: contract?.motorcycle_id ?? form.motorcycle_id,
+                  vehicle_id: contract?.vehicle_id ?? form.vehicle_id,
                 })
               }}
               required
             />
             <Select
               label="Moto"
-              options={motorcycleOptions}
-              value={form.motorcycle_id}
+              options={vehicleOptions}
+              value={form.vehicle_id}
               onChange={e => {
-                const selectedMotorcycleId = e.target.value
+                const selectedVehicleId = e.target.value
                 // Busca contrato ativo da moto para auto-preencher o cliente
-                const contract = contracts.find(c => c.motorcycle_id === selectedMotorcycleId)
+                const contract = contracts.find(c => c.vehicle_id === selectedVehicleId)
                 setForm({
                   ...form,
-                  motorcycle_id: selectedMotorcycleId,
+                  vehicle_id: selectedVehicleId,
                   // Mantém o cliente atual se a moto não tiver contrato ativo
                   customer_id:   contract?.customer_id ?? form.customer_id,
                 })

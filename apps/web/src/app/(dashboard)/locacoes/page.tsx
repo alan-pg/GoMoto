@@ -13,7 +13,7 @@ import { formatCurrency, formatDate } from '@/lib/utils'
 import {
   useRentals,
   useCustomers,
-  useMotorcycles,
+  useVehicles,
   useQueueEntries,
   useBillings,
 } from '@gomoto/data'
@@ -39,7 +39,7 @@ import {
 type Tab = 'active' | 'closed' | 'queue'
 
 type CreateForm = {
-  motorcycle_id:  string
+  vehicle_id:  string
   customer_id:    string
   contract_type:  'rental' | 'rent_to_own'
   cycle:          'weekly' | 'monthly'
@@ -77,7 +77,7 @@ const CYCLE_LABEL = {
 }
 
 const DEFAULT_FORM: CreateForm = {
-  motorcycle_id: '',
+  vehicle_id: '',
   customer_id:   '',
   contract_type: 'rental',
   cycle:         'monthly',
@@ -147,7 +147,7 @@ function TerminateModal({
         {/* Info da locação */}
         <div className="rounded-lg bg-[#202020] p-3 text-[13px]">
           <p className="font-semibold text-[#f5f5f5]">
-            {rental.motorcycle?.license_plate} — {rental.motorcycle?.make} {rental.motorcycle?.model}
+            {rental.vehicle?.license_plate} — {rental.vehicle?.make} {rental.vehicle?.model}
           </p>
           <p className="text-[#9e9e9e]">{rental.customer?.name}</p>
         </div>
@@ -252,7 +252,7 @@ function RenewModal({
       <div className="flex flex-col gap-5">
         <div className="rounded-lg bg-[#202020] p-3 text-[13px]">
           <p className="font-semibold text-[#f5f5f5]">
-            {rental.motorcycle?.license_plate} — {rental.motorcycle?.make} {rental.motorcycle?.model}
+            {rental.vehicle?.license_plate} — {rental.vehicle?.make} {rental.vehicle?.model}
           </p>
           <p className="text-[#9e9e9e]">
             Fim atual: {rental.end_date ? formatDate(rental.end_date) : '—'}
@@ -325,7 +325,7 @@ function OneTimeChargeModal({
       <div className="flex flex-col gap-4">
         <div className="rounded-lg bg-[#202020] p-3 text-[13px]">
           <p className="font-semibold text-[#f5f5f5]">
-            {rental.motorcycle?.license_plate} — {rental.customer?.name}
+            {rental.vehicle?.license_plate} — {rental.customer?.name}
           </p>
         </div>
 
@@ -472,7 +472,7 @@ export default function LocacoesPage() {
   // Data
   const rentalsQuery   = useRentals()
   const customersQuery = useCustomers()
-  const motoQuery      = useMotorcycles()
+  const motoQuery      = useVehicles()
   const queueQuery     = useQueueEntries()
 
   const rentals   = rentalsQuery.data   ?? []
@@ -544,7 +544,7 @@ export default function LocacoesPage() {
     setCreating(true)
     setCreateError('')
     const result = await createRental({
-      motorcycle_id: form.motorcycle_id,
+      vehicle_id: form.vehicle_id,
       customer_id:   form.customer_id,
       contract_type: form.contract_type,
       cycle:         form.cycle,
@@ -578,7 +578,7 @@ export default function LocacoesPage() {
   }
 
   const isFormReady = Boolean(
-    form.motorcycle_id &&
+    form.vehicle_id &&
     form.customer_id &&
     form.start_date &&
     form.end_date &&
@@ -664,9 +664,9 @@ export default function LocacoesPage() {
                       {r.customer?.name ?? '—'}
                     </td>
                     <td className="px-4 font-mono text-[#BAFF1A]">
-                      {r.motorcycle?.license_plate ?? '—'}
+                      {r.vehicle?.license_plate ?? '—'}
                       <span className="ml-1 font-sans text-[#9e9e9e]">
-                        {r.motorcycle?.make} {r.motorcycle?.model}
+                        {r.vehicle?.make} {r.vehicle?.model}
                       </span>
                     </td>
                     <td className="px-4 text-[#c7c7c7]">
@@ -802,8 +802,8 @@ export default function LocacoesPage() {
                 />
                 <Select
                   label="Moto"
-                  value={form.motorcycle_id}
-                  onChange={e => setField('motorcycle_id', e.target.value)}
+                  value={form.vehicle_id}
+                  onChange={e => setField('vehicle_id', e.target.value)}
                   options={[
                     { value: '', label: 'Selecione uma moto…' },
                     ...motos.map(m => ({
@@ -900,7 +900,7 @@ export default function LocacoesPage() {
               <div className="rounded-lg bg-[#202020] p-4 text-[13px]">
                 <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
                   <Row label="Cliente"    value={customers.find(c => c.id === form.customer_id)?.name ?? '—'} />
-                  <Row label="Moto"       value={motos.find(m => m.id === form.motorcycle_id)?.license_plate ?? '—'} />
+                  <Row label="Moto"       value={motos.find(m => m.id === form.vehicle_id)?.license_plate ?? '—'} />
                   <Row label="Tipo"       value={CONTRACT_TYPE_LABEL[form.contract_type]} />
                   <Row label="Ciclo"      value={CYCLE_LABEL[form.cycle]} />
                   <Row label="Vencimento" value={`Dia ${form.due_day}`} />

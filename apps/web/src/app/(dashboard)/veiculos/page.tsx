@@ -1,5 +1,5 @@
 /**
- * @file src/app/(dashboard)/motos/page.tsx
+ * @file src/app/(dashboard)/veiculos/page.tsx
  * @description Página de gestão de frota do sistema GoMoto.
  * 
  * @summary
@@ -53,11 +53,11 @@ import { Modal } from '@/components/ui/Modal'
 
 // Importação de hooks compartilhados e contexto Supabase (multi-tenant) do @gomoto/data
 import {
-  useMotorcycles,
+  useVehicles,
   useActiveContracts,
-  useCreateMotorcycle,
-  useUpdateMotorcycle,
-  useDeleteMotorcycle,
+  useCreateVehicle,
+  useUpdateVehicle,
+  useDeleteVehicle,
   useSupabaseContext,
   useRequiredTenantId,
   useMaintenancePlans,
@@ -68,14 +68,14 @@ import {
 import { formatCurrency } from '@/lib/utils'
 
 // Importação de definições de tipos TypeScript globais
-import type { Motorcycle, MotorcycleStatus, Contract, Customer, MaintenancePlanItem } from '@gomoto/core'
+import type { Vehicle, VehicleStatus, Contract, Customer, MaintenancePlanItem } from '@gomoto/core'
 import { parseCRLVText, crlvSuccessRate } from '@gomoto/core'
 
 /**
  * Importação dinâmica do mapa Leaflet sem SSR.
  * O "porquê": Leaflet depende do objeto `window` do browser, que não existe no servidor.
  */
-const DynamicMotorcycleMap = dynamic(() => import('@/components/MotorcycleMap'), {
+const DynamicVehicleMap = dynamic(() => import('@/components/VehicleMap'), {
   ssr: false,
   loading: () => (
     <div className="w-full h-full flex items-center justify-center bg-[#181818]">
@@ -273,19 +273,19 @@ function detectOwnerType(doc: string | null | undefined): 'cpf' | 'cnpj' | null 
 }
 
 /**
- * @function motorcycleToForm
+ * @function vehicleToForm
  * @description Converte um objeto Moto (formato do banco) para o formato esperado pelo formulário (Strings).
  * O "porquê": Essencial para popular os campos durante a edição de um registro existente,
  * adaptando os tipos de dados (ex: number para string) para os inputs HTML.
  */
 /**
- * @function describeMotorcycleError
+ * @function describeVehicleError
  * @description Traduz erros do Supabase em mensagens claras para o usuário.
  * O Supabase joga `PostgrestError` cru ({ code, message, details, hint }),
  * que não é instance de Error e cujo `.message` em inglês raramente ajuda
  * o operador. Mapeamos os códigos mais comuns no fluxo de cadastro de moto.
  */
-function describeMotorcycleError(err: unknown): string {
+function describeVehicleError(err: unknown): string {
   if (!err || typeof err !== 'object') {
     return typeof err === 'string' ? err : 'Erro desconhecido.'
   }
@@ -317,70 +317,70 @@ function describeMotorcycleError(err: unknown): string {
   return e.message ?? 'Erro desconhecido.'
 }
 
-function motorcycleToForm(motorcycle: Motorcycle): typeof defaultFormState {
+function vehicleToForm(vehicle: Vehicle): typeof defaultFormState {
   return {
-    licensePlate: motorcycle.license_plate,
-    model: motorcycle.model,
-    make: motorcycle.make,
-    yearManufacture: motorcycle.year_manufacture,
-    yearModel: motorcycle.year_model ?? '',
-    color: motorcycle.color,
-    renavam: motorcycle.renavam,
-    chassis: motorcycle.chassis,
-    fuel: motorcycle.fuel ?? 'GASOLINA',
-    engineCapacity: motorcycle.engine_capacity ?? '',
-    previousOwnerName: motorcycle.previous_owner ?? '',
-    previousOwnerDocument: motorcycle.previous_owner_cpf ?? '',
-    purchaseDate: motorcycle.purchase_date ?? '',
-    fipeValue: motorcycle.fipe_value ? String(motorcycle.fipe_value) : '',
-    currentKm: '', // KM atual não vem do objeto moto base (geralmente vem de logs de manutenção)
-    maintenanceUpToDate: motorcycle.maintenance_up_to_date !== false ? 'true' : 'false',
-    status: motorcycle.status,
-    observations: motorcycle.observations ?? '',
+    licensePlate: vehicle.license_plate,
+    model: vehicle.model,
+    make: vehicle.make,
+    yearManufacture: vehicle.year_manufacture,
+    yearModel: vehicle.year_model ?? '',
+    color: vehicle.color,
+    renavam: vehicle.renavam,
+    chassis: vehicle.chassis,
+    fuel: vehicle.fuel ?? 'GASOLINA',
+    engineCapacity: vehicle.engine_capacity ?? '',
+    previousOwnerName: vehicle.previous_owner ?? '',
+    previousOwnerDocument: vehicle.previous_owner_cpf ?? '',
+    purchaseDate: vehicle.purchase_date ?? '',
+    fipeValue: vehicle.fipe_value ? String(vehicle.fipe_value) : '',
+    currentKm: '',
+    maintenanceUpToDate: vehicle.maintenance_up_to_date !== false ? 'true' : 'false',
+    status: vehicle.status,
+    observations: vehicle.observations ?? '',
     // PRD 0002
-    acquisitionType: (motorcycle.acquisition_type ?? 'used') as typeof defaultFormState.acquisitionType,
-    acquisitionAmount: motorcycle.acquisition_amount ? String(motorcycle.acquisition_amount) : '',
-    registeredOwnerName: motorcycle.registered_owner_name ?? '',
-    registeredOwnerDocument: motorcycle.registered_owner_document ?? '',
-    registeredOwnerType: (motorcycle.registered_owner_type ?? 'cnpj') as typeof defaultFormState.registeredOwnerType,
-    registrationState: motorcycle.registration_state ?? '',
-    ownershipTransferred: motorcycle.ownership_transferred ? ('true' as const) : ('false' as const),
-    ownershipTransferDate: motorcycle.ownership_transfer_date ?? '',
+    acquisitionType: (vehicle.acquisition_type ?? 'used') as typeof defaultFormState.acquisitionType,
+    acquisitionAmount: vehicle.acquisition_amount ? String(vehicle.acquisition_amount) : '',
+    registeredOwnerName: vehicle.registered_owner_name ?? '',
+    registeredOwnerDocument: vehicle.registered_owner_document ?? '',
+    registeredOwnerType: (vehicle.registered_owner_type ?? 'cnpj') as typeof defaultFormState.registeredOwnerType,
+    registrationState: vehicle.registration_state ?? '',
+    ownershipTransferred: vehicle.ownership_transferred ? ('true' as const) : ('false' as const),
+    ownershipTransferDate: vehicle.ownership_transfer_date ?? '',
     crvNumber: '',
     crvExerciseYear: '',
   }
 }
 
 /**
- * @component MotorcyclesPage
+ * @component VehiclesPage
  * @description Gerencia toda a lógica e renderização da tela de frota.
  */
-export default function MotorcyclesPage() {
+export default function VehiclesPage() {
   /*
    * GERENCIAMENTO DE ESTADOS (React State):
    * Leitura via hooks de @gomoto/data (TanStack Query gerencia cache + invalidação).
    */
   const supabase = useSupabaseContext()
   const getTenantId = useRequiredTenantId()
-  const motorcyclesQuery = useMotorcycles()
+  const vehiclesQuery = useVehicles()
   const contractsQuery = useActiveContracts()
-  const createMotorcycleMutation = useCreateMotorcycle()
-  const updateMotorcycleMutation = useUpdateMotorcycle()
-  const deleteMotorcycleMutation = useDeleteMotorcycle()
+  const createVehicleMutation = useCreateVehicle()
+  const updateVehicleMutation = useUpdateVehicle()
+  const deleteVehicleMutation = useDeleteVehicle()
   // PRD 0003 F2.3 — planos de manutenção para o Passo 3 do wizard.
   const maintenancePlansQuery = useMaintenancePlans()
   const maintenancePlans = (maintenancePlansQuery.data ?? []).filter((p) => !p.archived_at)
 
-  const motorcycles = (motorcyclesQuery.data ?? []) as Motorcycle[]
+  const vehicles = (vehiclesQuery.data ?? []) as Vehicle[]
   const contracts = (contractsQuery.data ?? []) as ContractWithCustomer[]
-  const loading = motorcyclesQuery.isLoading
-  const fetchError = motorcyclesQuery.error
+  const loading = vehiclesQuery.isLoading
+  const fetchError = vehiclesQuery.error
     ? 'Não foi possível carregar a frota. Verifique a conexão e tente novamente.'
     : null
   const saving =
-    createMotorcycleMutation.isPending ||
-    updateMotorcycleMutation.isPending ||
-    deleteMotorcycleMutation.isPending
+    createVehicleMutation.isPending ||
+    updateVehicleMutation.isPending ||
+    deleteVehicleMutation.isPending
   // Filtro padrão 'active' oculta Vendido e Desativado (RF-003)
   const [filter, setFilter] = useState('active')
   // Texto digitado no campo de busca para filtragem dinâmica.
@@ -392,9 +392,9 @@ export default function MotorcyclesPage() {
   // Objeto contendo os dados atuais digitados no formulário do modal.
   const [form, setForm] = useState(defaultFormState)
   // Objeto da moto selecionada para visualização detalhada no modal de leitura.
-  const [motorcycleDetails, setMotorcycleDetails] = useState<Motorcycle | null>(null)
+  const [vehicleDetails, setVehicleDetails] = useState<Vehicle | null>(null)
   // Objeto da moto marcada para exclusão definitiva.
-  const [deletingMotorcycle, setDeletingMotorcycle] = useState<Motorcycle | null>(null)
+  const [deletingVehicle, setDeletingVehicle] = useState<Vehicle | null>(null)
   // Passo atual do Wizard de cadastro (PRD 0002):
   //   1 = Identificação técnica
   //   2 = Documentação e aquisição (CRV + obrigações anuais)
@@ -405,7 +405,7 @@ export default function MotorcyclesPage() {
   // Mapa de valores (KM ou Data) informados no Passo 3 do cadastro.
   const [bootstrapItems, setBootstrapItems] = useState<Record<string, string>>({})
   // PRD 0003 F2.3 — plano de manutenção selecionado no Passo 3.
-  // Pré-selecionado no openNewMotorcycle quando há plano default.
+  // Pré-selecionado no openNewVehicle quando há plano default.
   const [selectedPlanId, setSelectedPlanId] = useState<string>('')
   // Carrega os itens do plano selecionado (consumido pelo Passo 3 e pelo submit).
   const selectedPlanQuery = useMaintenancePlan(selectedPlanId || undefined)
@@ -432,16 +432,16 @@ export default function MotorcyclesPage() {
 
   /**
    * @const contractByMotoId
-   * @description Dicionário de lookup: motorcycle_id → contrato ativo com cliente.
+   * @description Dicionário de lookup: vehicle_id → contrato ativo com cliente.
    *
    * Por que useMemo + objeto (Map) em vez de Array.find() no render:
    * - Array.find() dentro de um map() = O(N²) — cada linha da tabela percorre todos os contratos
    * - Objeto como hash map = O(1) por lookup — independente do tamanho da frota
    * - useMemo garante que o objeto só é recriado quando `contracts` muda de fato
    */
-  const contractByMotoId = useMemo(
+  const contractByVehicleId = useMemo(
     () => contracts.reduce<Record<string, ContractWithCustomer>>(
-      (acc, c) => { acc[c.motorcycle_id] = c; return acc },
+      (acc, c) => { acc[c.vehicle_id] = c; return acc },
       {}
     ),
     [contracts]
@@ -449,19 +449,19 @@ export default function MotorcyclesPage() {
 
   // PRD 0003 F2 — contagem de motos sem plano de manutenção atribuído.
   // Usado pelo banner discreto no topo da página e pelo badge "Sem plano" na linha.
-  const motorcyclesWithoutPlanCount = useMemo(
-    () => motorcycles.filter((m) => !m.maintenance_plan_id).length,
-    [motorcycles]
+  const vehiclesWithoutPlanCount = useMemo(
+    () => vehicles.filter((m) => !m.maintenance_plan_id).length,
+    [vehicles]
   )
 
   /**
-   * @const filteredMotorcycles
+   * @const filteredVehicles
    * @description Filtra a lista de motos em tempo real com base no status e busca.
-   * O "porquê" de ser um useMemo: recalcula apenas quando motorcycles, filter ou search mudam,
+   * O "porquê" de ser um useMemo: recalcula apenas quando vehicles, filter ou search mudam,
    * evitando reprocessar toda a lista a cada render causado por outros estados (ex: modal aberto).
    */
-  const filteredMotorcycles = useMemo(
-    () => motorcycles.filter((m) => {
+  const filteredVehicles = useMemo(
+    () => vehicles.filter((m) => {
       let passesFilter: boolean
       if (filter === 'all') {
         passesFilter = true
@@ -475,14 +475,14 @@ export default function MotorcyclesPage() {
       )
       return passesFilter && passesSearch
     }),
-    [motorcycles, filter, search]
+    [vehicles, filter, search]
   )
 
   /**
-   * @function openNewMotorcycle
+   * @function openNewVehicle
    * @description Prepara o estado para abrir o modal de criação de um novo veículo.
    */
-  function openNewMotorcycle() {
+  function openNewVehicle() {
     setEditingId(null)           // Modo: Criação
     setForm(defaultFormState)    // Limpa os campos
     setBootstrapItems({})        // Limpa manutenções
@@ -513,12 +513,12 @@ export default function MotorcyclesPage() {
   }
 
   /**
-   * @function openEditMotorcycle
+   * @function openEditVehicle
    * @description Prepara o estado para abrir o modal de edição de um veículo existente.
    */
-  function openEditMotorcycle(motorcycle: Motorcycle) {
-    setEditingId(motorcycle.id)                  // Modo: Edição
-    setForm(motorcycleToForm(motorcycle))        // Popula com dados atuais
+  function openEditVehicle(vehicle: Vehicle) {
+    setEditingId(vehicle.id)                  // Modo: Edição
+    setForm(vehicleToForm(vehicle))        // Popula com dados atuais
     setModalOpen(true)                           // Abre o modal
   }
 
@@ -621,7 +621,7 @@ export default function MotorcyclesPage() {
       ? parseFloat(form.acquisitionAmount.replace(/\./g, '').replace(',', '.'))
       : null
 
-    const motorcycleData = {
+    const vehicleData = {
       license_plate: form.licensePlate.toUpperCase(),
       model: form.model,
       make: form.make.toUpperCase(),
@@ -637,7 +637,7 @@ export default function MotorcyclesPage() {
       purchase_date: form.purchaseDate || undefined,
       fipe_value: isNaN(parsedFipeValue as number) ? undefined : parsedFipeValue ?? undefined,
       maintenance_up_to_date: form.maintenanceUpToDate === 'true',
-      status: form.status as MotorcycleStatus,
+      status: form.status as VehicleStatus,
       observations: form.observations || undefined,
       // PRD 0002 — aquisição e identidade documental
       acquisition_type: form.acquisitionType,
@@ -668,16 +668,16 @@ export default function MotorcyclesPage() {
          * EDIÇÃO: não inclui km_current — currentKm é zerado ao abrir o modal de edição,
          * então salvar km_current: 0 causaria regressão de quilometragem.
          */
-        await updateMotorcycleMutation.mutateAsync({ id: editingId, payload: motorcycleData })
+        await updateVehicleMutation.mutateAsync({ id: editingId, payload: vehicleData })
       } else {
-        const newMoto = await createMotorcycleMutation.mutateAsync({
-          ...motorcycleData,
+        const newMoto = await createVehicleMutation.mutateAsync({
+          ...vehicleData,
           km_current: form.currentKm ? parseInt(form.currentKm, 10) : 0,
         })
         newMotoId = newMoto.id
       }
     } catch (err) {
-      setSubmitError(describeMotorcycleError(err))
+      setSubmitError(describeVehicleError(err))
       return // mantém o modal aberto para o usuário corrigir
     }
 
@@ -722,7 +722,7 @@ export default function MotorcyclesPage() {
     if (hasCrvData) {
       const { error: crvError } = await supabase.from('vehicle_documents').insert({
         tenant_id: tenantId,
-        motorcycle_id: newMotoId,
+        vehicle_id: newMotoId,
         type: 'crv',
         exercise_year: form.crvExerciseYear ? parseInt(form.crvExerciseYear, 10) : null,
         document_number: form.crvNumber || null,
@@ -759,7 +759,7 @@ export default function MotorcyclesPage() {
         : 0
       obligationRows.push({
         tenant_id: tenantId,
-        motorcycle_id: newMotoId,
+        vehicle_id: newMotoId,
         type: entry.type,
         reference_year: refYear,
         amount: isNaN(parsedAmount) ? 0 : parsedAmount,
@@ -788,7 +788,7 @@ export default function MotorcyclesPage() {
         const nextDueKm = lastKm + item.interval_km
         maintenanceRecords.push({
           tenant_id: tenantId,
-          motorcycle_id: newMotoId,
+          vehicle_id: newMotoId,
           type: 'preventive',
           description: item.name,
           predicted_km: nextDueKm,
@@ -807,7 +807,7 @@ export default function MotorcyclesPage() {
         const nextDueDateStr = nextDueDate.toISOString().split('T')[0]
         maintenanceRecords.push({
           tenant_id: tenantId,
-          motorcycle_id: newMotoId,
+          vehicle_id: newMotoId,
           type: 'inspection',
           description: item.name,
           scheduled_date: nextDueDateStr,
@@ -835,11 +835,11 @@ export default function MotorcyclesPage() {
    * @description Executa a remoção definitiva da moto via hook compartilhado.
    */
   async function confirmDeletion() {
-    if (!deletingMotorcycle) return
+    if (!deletingVehicle) return
     try {
-      await deleteMotorcycleMutation.mutateAsync(deletingMotorcycle.id)
+      await deleteVehicleMutation.mutateAsync(deletingVehicle.id)
     } finally {
-      setDeletingMotorcycle(null)
+      setDeletingVehicle(null)
     }
   }
 
@@ -847,10 +847,10 @@ export default function MotorcyclesPage() {
   return (
     <div className='min-h-screen bg-[#121212]'>
       <div className='sticky top-0 z-10 bg-[#121212] border-b border-[#323232] px-6 h-20 flex items-center gap-4'>
-        <h1 className='text-[28px] font-bold text-[#f5f5f5]'>Motocicletas</h1>
-        <span className='text-[13px] font-normal text-[#9e9e9e]'>{motorcycles.length} motos na frota</span>
+        <h1 className='text-[28px] font-bold text-[#f5f5f5]'>Veículos</h1>
+        <span className='text-[13px] font-normal text-[#9e9e9e]'>{vehicles.length} motos na frota</span>
         <div className='ml-auto flex gap-3'>
-          <Button onClick={openNewMotorcycle}><Plus className='w-4 h-4' />Nova Moto</Button>
+          <Button onClick={openNewVehicle}><Plus className='w-4 h-4' />Novo Veículo</Button>
         </div>
       </div>
 
@@ -862,7 +862,7 @@ export default function MotorcyclesPage() {
             <AlertCircle className="w-4 h-4 text-[#ff9c9a] flex-shrink-0" />
             <p className="text-[13px] text-[#ff9c9a]">{fetchError}</p>
             {/* Botão de nova tentativa para o usuário não precisar recarregar a página */}
-            <button onClick={() => motorcyclesQuery.refetch()} className="ml-auto text-[12px] text-[#BAFF1A] hover:underline font-medium">
+            <button onClick={() => vehiclesQuery.refetch()} className="ml-auto text-[12px] text-[#BAFF1A] hover:underline font-medium">
               Tentar novamente
             </button>
           </div>
@@ -871,12 +871,12 @@ export default function MotorcyclesPage() {
         {/* BANNER — motos sem plano de manutenção atribuído (PRD 0003 F2).
             Aparece só quando há pelo menos uma moto com maintenance_plan_id NULL.
             CTA leva para /planos-manutencao. */}
-        {!loading && motorcyclesWithoutPlanCount > 0 && (
+        {!loading && vehiclesWithoutPlanCount > 0 && (
           <div className="flex items-center gap-3 px-4 py-3 bg-[#2d2300] border border-[#ffd166] rounded-xl">
             <AlertCircle className="w-4 h-4 text-[#ffd166] flex-shrink-0" />
             <p className="text-[13px] text-[#ffd166] flex-1">
-              <strong>{motorcyclesWithoutPlanCount}</strong>{' '}
-              {motorcyclesWithoutPlanCount === 1 ? 'moto está sem plano' : 'motos estão sem plano'} de manutenção atribuído — as previsões usam o legado até você atribuir.
+              <strong>{vehiclesWithoutPlanCount}</strong>{' '}
+              {vehiclesWithoutPlanCount === 1 ? 'veículo está sem plano' : 'veículos estão sem plano'} de manutenção atribuído — as previsões usam o legado até você atribuir.
             </p>
             <Link
               href="/planos-manutencao"
@@ -923,13 +923,13 @@ export default function MotorcyclesPage() {
               </div>
             </div>
           ) : (
-            <DynamicMotorcycleMap
-              items={motorcycles.map((m) => ({
-                motorcycle: m,
-                contract: contractByMotoId[m.id],
+            <DynamicVehicleMap
+              items={vehicles.map((m) => ({
+                vehicle: m,
+                contract: contractByVehicleId[m.id],
               }))}
               selectedMotoId={selectedMotoId}
-              visibleMotoIds={filteredMotorcycles.map((m) => m.id)}
+              visibleMotoIds={filteredVehicles.map((m) => m.id)}
             />
           )}
         </div>
@@ -940,10 +940,10 @@ export default function MotorcyclesPage() {
             {filterOptions.map((opt) => {
               const isActive = filter === opt.value
               const count = opt.value === 'all'
-                ? motorcycles.length
+                ? vehicles.length
                 : opt.value === 'active'
-                  ? motorcycles.filter((m) => ACTIVE_STATUSES.includes(m.status)).length
-                  : motorcycles.filter((m) => m.status === opt.value).length
+                  ? vehicles.filter((m) => ACTIVE_STATUSES.includes(m.status)).length
+                  : vehicles.filter((m) => m.status === opt.value).length
               return (
                 <button
                   key={opt.value}
@@ -976,7 +976,7 @@ export default function MotorcyclesPage() {
               <tr>
                 <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e] w-10" />
                 <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Placa</th>
-                <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Motocicleta</th>
+                <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Veículo</th>
                 <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Cliente</th>
                 <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Valor/Semana</th>
                 <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Status</th>
@@ -986,11 +986,11 @@ export default function MotorcyclesPage() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={7}><div className='flex items-center justify-center py-16'><div className='w-6 h-6 border-2 border-[#BAFF1A] border-t-transparent rounded-full animate-spin' /></div></td></tr>
-              ) : filteredMotorcycles.length === 0 ? (
+              ) : filteredVehicles.length === 0 ? (
                 <tr><td colSpan={7}><div className='flex flex-col items-center justify-center py-16 gap-3 text-[#9e9e9e]'><div className='w-12 h-12 bg-[#323232] rounded-full flex items-center justify-center'><Bike className='w-6 h-6 text-[#9e9e9e]' /></div><p className='text-[13px] text-[#9e9e9e]'>Nenhum veículo encontrado.</p><button onClick={() => { setFilter('active'); setSearch('') }} className='text-[13px] text-[#BAFF1A] hover:underline'>Limpar filtros</button></div></td></tr>
               ) : (
-                filteredMotorcycles.map((moto) => {
-                  const contract = contractByMotoId[moto.id]
+                filteredVehicles.map((moto) => {
+                  const contract = contractByVehicleId[moto.id]
                   const customer = contract?.customer
                   const weeklyValue = contract?.monthly_amount ? formatCurrency(contract.monthly_amount) : null
                   return (
@@ -1022,7 +1022,7 @@ export default function MotorcyclesPage() {
                       <td className="px-4">{customer ? (<div className="flex items-center gap-1.5"><User className="w-4 h-4 text-[#a880ff] flex-shrink-0" /><p className="font-medium text-[#f5f5f5] truncate">{customer.name}</p></div>) : (<p className="text-[#9e9e9e]">Sem locatário</p>)}</td>
                       <td className="px-4">{weeklyValue ? (<span className='text-[#BAFF1A] font-medium'>{weeklyValue}</span>) : (<span className='text-[#9e9e9e]'>—</span>)}</td>
                       <td className="px-4"><StatusBadge status={moto.status} /></td>
-                      <td className="px-4 text-right"><div className="flex items-center justify-end gap-1"><Link href={`/motos/${moto.id}`} onClick={(e) => e.stopPropagation()} className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-[#323232] text-[#9e9e9e] hover:bg-[#474747] hover:text-[#f5f5f5] transition-colors" title="Ver detalhes"><Eye className="h-4 w-4" /></Link><Button variant="secondary" size="sm" className="h-8 w-8 p-0" title="Editar" onClick={(e) => { e.stopPropagation(); openEditMotorcycle(moto) }}><Edit2 className="h-4 w-4" /></Button><Button variant="danger" size="sm" className="h-8 w-8 p-0" title="Excluir" onClick={(e) => { e.stopPropagation(); setDeletingMotorcycle(moto) }}><Trash2 className="h-4 w-4" /></Button></div></td>
+                      <td className="px-4 text-right"><div className="flex items-center justify-end gap-1"><Link href={`/veiculos/${moto.id}`} onClick={(e) => e.stopPropagation()} className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-[#323232] text-[#9e9e9e] hover:bg-[#474747] hover:text-[#f5f5f5] transition-colors" title="Ver detalhes"><Eye className="h-4 w-4" /></Link><Button variant="secondary" size="sm" className="h-8 w-8 p-0" title="Editar" onClick={(e) => { e.stopPropagation(); openEditVehicle(moto) }}><Edit2 className="h-4 w-4" /></Button><Button variant="danger" size="sm" className="h-8 w-8 p-0" title="Excluir" onClick={(e) => { e.stopPropagation(); setDeletingVehicle(moto) }}><Trash2 className="h-4 w-4" /></Button></div></td>
                     </tr>
                   )
                 })
@@ -1042,12 +1042,12 @@ export default function MotorcyclesPage() {
         onClose={closeModal}
         title={
           editingId
-            ? 'Editar Dados da Moto'
+            ? 'Editar Dados do Veículo'
             : step === 1
-              ? 'Cadastrar Moto — Passo 1: Identificação'
+              ? 'Cadastrar Veículo — Passo 1: Identificação'
               : step === 2
-                ? 'Cadastrar Moto — Passo 2: Documentação e aquisição'
-                : 'Cadastrar Moto — Passo 3: Configurar Revisões'
+                ? 'Cadastrar Veículo — Passo 2: Documentação e aquisição'
+                : 'Cadastrar Veículo — Passo 3: Configurar Revisões'
         }
         size="lg"
       >
@@ -1570,19 +1570,19 @@ export default function MotorcyclesPage() {
         * MODAL: CONFIRMAÇÃO DE EXCLUSÃO
         * Medida de segurança para evitar exclusão acidental.
         */}
-      <Modal open={!!deletingMotorcycle} onClose={() => setDeletingMotorcycle(null)} title="Confirmar Exclusão Permanente" size="sm">
+      <Modal open={!!deletingVehicle} onClose={() => setDeletingVehicle(null)} title="Confirmar Exclusão Permanente" size="sm">
         <div className="space-y-6">
           <div className="p-4 bg-[#7c1c1c] border border-[#ff9c9a] rounded-xl">
             <p className="text-[#9e9e9e] text-[13px] leading-relaxed text-center">
-              Você está prestes a remover a moto <br />
-              <strong className="text-[#f5f5f5] text-base font-bold">{deletingMotorcycle?.make} {deletingMotorcycle?.model} — Placa {deletingMotorcycle?.license_plate}</strong>
+              Você está prestes a remover o veículo <br />
+              <strong className="text-[#f5f5f5] text-base font-bold">{deletingVehicle?.make} {deletingVehicle?.model} — Placa {deletingVehicle?.license_plate}</strong>
               <br /><br />
               Esta operação <span className="text-[#ff9c9a] font-bold underline">não pode ser desfeita</span> e todos os históricos vinculados serão perdidos.
             </p>
           </div>
           
           <div className="flex gap-3">
-            <Button variant="ghost" onClick={() => setDeletingMotorcycle(null)} className="flex-1">
+            <Button variant="ghost" onClick={() => setDeletingVehicle(null)} className="flex-1">
               CANCELAR
             </Button>
             <Button variant="danger" onClick={confirmDeletion} className="flex-1" loading={saving}>
@@ -1597,10 +1597,10 @@ export default function MotorcyclesPage() {
         * MODAL: VISUALIZAÇÃO DETALHADA (FICHA TÉCNICA)
         * Exibe todas as informações de forma organizada e apenas para leitura.
         */}
-      {motorcycleDetails && (
+      {vehicleDetails && (
         <Modal
-          open={!!motorcycleDetails}
-          onClose={() => setMotorcycleDetails(null)}
+          open={!!vehicleDetails}
+          onClose={() => setVehicleDetails(null)}
           title="Ficha Técnica do Veículo"
           size="lg"
         >
@@ -1609,20 +1609,20 @@ export default function MotorcyclesPage() {
             <div className="flex items-start justify-between gap-6 pb-6 border-b border-[#323232]">
               <div>
                 <h3 className="text-[28px] font-bold text-[#f5f5f5]">
-                  {motorcycleDetails.make} {motorcycleDetails.model}
+                  {vehicleDetails.make} {vehicleDetails.model}
                 </h3>
                 <div className="flex items-center gap-3 mt-2">
                   <span className="text-[13px] font-bold text-[#616161] bg-[#323232] px-2 py-0.5 rounded">
-                    {motorcycleDetails.year_manufacture}{motorcycleDetails.year_model ? `/${motorcycleDetails.year_model}` : ''}
+                    {vehicleDetails.year_manufacture}{vehicleDetails.year_model ? `/${vehicleDetails.year_model}` : ''}
                   </span>
-                  <span className="text-[13px] font-bold text-[#616161] bg-[#323232] px-2 py-0.5 rounded">{motorcycleDetails.color}</span>
+                  <span className="text-[13px] font-bold text-[#616161] bg-[#323232] px-2 py-0.5 rounded">{vehicleDetails.color}</span>
                 </div>
               </div>
               <div className="flex flex-col items-end gap-3">
-                <StatusBadge status={motorcycleDetails.status} />
+                <StatusBadge status={vehicleDetails.status} />
                 
-                {motorcycleDetails.status === 'rented' && (() => {
-                  const contract = contracts.find(c => c.motorcycle_id === motorcycleDetails.id && c.status === 'active')
+                {vehicleDetails.status === 'rented' && (() => {
+                  const contract = contracts.find(c => c.vehicle_id === vehicleDetails.id && c.status === 'active')
                   if (!contract) return null;
                   const customerName = contract.customer?.name || 'Cliente desconhecido'
                   const weeklyValue = contract.monthly_amount ? formatCurrency(contract.monthly_amount) : 'N/A'
@@ -1638,7 +1638,7 @@ export default function MotorcyclesPage() {
                 })()}
 
                 {/* Repetição do selo de manutenção para ênfase */}
-                {motorcycleDetails.maintenance_up_to_date ? (
+                {vehicleDetails.maintenance_up_to_date ? (
                   <span className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#0e2f13] border border-[#28b438] text-[#229731] text-[12px] font-medium">
                     <CheckCircle className="w-3.5 h-3.5" />
                     Manutenção em Dia
@@ -1657,43 +1657,43 @@ export default function MotorcyclesPage() {
               <section className="space-y-4">
                 <h5 className="text-[14px] font-bold text-[#BAFF1A] mb-4">Dados de Registro</h5>
                 <div className="space-y-4">
-                  <DetailRow label="Placa do Veículo" value={motorcycleDetails.license_plate} mono />
-                  <DetailRow label="Código RENAVAM" value={motorcycleDetails.renavam} mono />
-                  <DetailRow label="Número do Chassi" value={motorcycleDetails.chassis} mono />
+                  <DetailRow label="Placa do Veículo" value={vehicleDetails.license_plate} mono />
+                  <DetailRow label="Código RENAVAM" value={vehicleDetails.renavam} mono />
+                  <DetailRow label="Número do Chassi" value={vehicleDetails.chassis} mono />
                 </div>
               </section>
 
               <section className="space-y-4">
                 <h5 className="text-[14px] font-bold text-[#BAFF1A] mb-4">Especificações do Motor</h5>
                 <div className="space-y-4">
-                  <DetailRow label="Tipo de Combustível" value={motorcycleDetails.fuel} />
-                  <DetailRow label="Potência / Cilindrada" value={motorcycleDetails.engine_capacity} />
-                  <DetailRow label="Identificador de Frota" value={`ID-#${motorcycleDetails.id}`} />
+                  <DetailRow label="Tipo de Combustível" value={vehicleDetails.fuel} />
+                  <DetailRow label="Potência / Cilindrada" value={vehicleDetails.engine_capacity} />
+                  <DetailRow label="Identificador de Frota" value={`ID-#${vehicleDetails.id}`} />
                 </div>
               </section>
             </div>
 
             {/* SEÇÃO: HISTÓRICO DE PROPRIEDADE (Renderização Condicional) */}
-            {(motorcycleDetails.previous_owner || motorcycleDetails.purchase_date || motorcycleDetails.fipe_value) && (
+            {(vehicleDetails.previous_owner || vehicleDetails.purchase_date || vehicleDetails.fipe_value) && (
               <div className="bg-[#282828] rounded-xl p-6 border border-[#323232]">
                 <h5 className="text-[14px] font-bold text-[#BAFF1A] mb-6">Informações de Aquisição GoMoto</h5>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-12">
-                  {motorcycleDetails.previous_owner && (
-                    <DetailRow label="Vendedor / Dono Anterior" value={motorcycleDetails.previous_owner} fullWidth />
+                  {vehicleDetails.previous_owner && (
+                    <DetailRow label="Vendedor / Dono Anterior" value={vehicleDetails.previous_owner} fullWidth />
                   )}
-                  {motorcycleDetails.previous_owner_cpf && (
-                    <DetailRow label="CPF do Vendedor" value={motorcycleDetails.previous_owner_cpf} mono />
+                  {vehicleDetails.previous_owner_cpf && (
+                    <DetailRow label="CPF do Vendedor" value={vehicleDetails.previous_owner_cpf} mono />
                   )}
-                  {motorcycleDetails.purchase_date && (
+                  {vehicleDetails.purchase_date && (
                     <DetailRow
                       label="Data da Transferência"
-                      value={new Date(motorcycleDetails.purchase_date + 'T12:00:00').toLocaleDateString('pt-BR', { dateStyle: 'long' })}
+                      value={new Date(vehicleDetails.purchase_date + 'T12:00:00').toLocaleDateString('pt-BR', { dateStyle: 'long' })}
                     />
                   )}
-                  {motorcycleDetails.fipe_value && (
+                  {vehicleDetails.fipe_value && (
                     <DetailRow
                       label="Avaliação FIPE na Compra"
-                      value={formatCurrency(motorcycleDetails.fipe_value)}
+                      value={formatCurrency(vehicleDetails.fipe_value)}
                       highlight
                     />
                   )}
@@ -1702,12 +1702,12 @@ export default function MotorcyclesPage() {
             )}
 
             {/* SEÇÃO: OBSERVAÇÕES E NOTAS DE VISTORIA */}
-            {motorcycleDetails.observations && (
+            {vehicleDetails.observations && (
               <div className="space-y-3">
                 <h5 className="text-[14px] font-bold text-[#BAFF1A]">Notas do Veículo & Vistoria</h5>
                 <div className="bg-[#282828] rounded-xl p-5 border border-[#323232]">
                   <p className="text-[13px] text-[#9e9e9e] leading-relaxed italic">
-                    "{motorcycleDetails.observations}"
+                    "{vehicleDetails.observations}"
                   </p>
                 </div>
               </div>
@@ -1717,15 +1717,15 @@ export default function MotorcyclesPage() {
             <div className="flex justify-end gap-4 pt-6 border-t border-[#323232]">
               <Button
                 variant="ghost"
-                onClick={() => setMotorcycleDetails(null)}
+                onClick={() => setVehicleDetails(null)}
                 className="px-8"
               >
                 FECHAR
               </Button>
               <Button
                 onClick={() => {
-                  setMotorcycleDetails(null)
-                  openEditMotorcycle(motorcycleDetails)
+                  setVehicleDetails(null)
+                  openEditVehicle(vehicleDetails)
                 }}
                 className="px-8"
               >

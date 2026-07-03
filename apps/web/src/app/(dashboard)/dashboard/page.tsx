@@ -11,7 +11,7 @@ interface RecentContract {
   monthly_amount: number
   end_date: string | null
   customers: { name: string } | null
-  motorcycles: { model: string; make: string; license_plate: string } | null
+  vehicles: { model: string; make: string; license_plate: string } | null
 }
 
 interface OverdueBilling {
@@ -25,7 +25,7 @@ interface UpcomingMaintenance {
   id: string
   scheduled_date: string
   type: string
-  motorcycles: { model: string; make: string; license_plate: string } | null
+  vehicles: { model: string; make: string; license_plate: string } | null
 }
 
 interface QueueEntry {
@@ -35,7 +35,7 @@ interface QueueEntry {
   customers: { name: string } | null
 }
 
-interface IdleMotorcycle {
+interface IdleVehicle {
   model: string
   make: string
   license_plate: string
@@ -61,18 +61,18 @@ const MAINTENANCE_TYPE_COLORS = {
 async function getDashboardData() {
   const supabase = await createClient()
 
-  const { count: availableMotorcycles } = await supabase
-    .from('motorcycles')
+  const { count: availableVehicles } = await supabase
+    .from('vehicles')
     .select('*', { count: 'exact', head: true })
     .eq('status', 'available')
 
-  const { count: rentedMotorcycles } = await supabase
-    .from('motorcycles')
+  const { count: rentedVehicles } = await supabase
+    .from('vehicles')
     .select('*', { count: 'exact', head: true })
     .eq('status', 'rented')
 
-  const { count: maintenanceMotorcycles } = await supabase
-    .from('motorcycles')
+  const { count: maintenanceVehicles } = await supabase
+    .from('vehicles')
     .select('*', { count: 'exact', head: true })
     .eq('status', 'maintenance')
 
@@ -112,7 +112,7 @@ async function getDashboardData() {
 
   const { data: recentContractsData } = await supabase
     .from('rentals')
-    .select('id, monthly_amount, end_date, customers(name), motorcycles(model, make, license_plate)')
+    .select('id, monthly_amount, end_date, customers(name), vehicles(model, make, license_plate)')
     .eq('status', 'active')
     .order('created_at', { ascending: false })
     .limit(5)
@@ -136,7 +136,7 @@ async function getDashboardData() {
 
   const { data: upcomingMaintenancesData } = await supabase
     .from('maintenances')
-    .select('id, scheduled_date, type, motorcycles(model, make, license_plate)')
+    .select('id, scheduled_date, type, vehicles(model, make, license_plate)')
     .eq('completed', false)
     .gte('scheduled_date', today)
     .order('scheduled_date', { ascending: true })
@@ -149,13 +149,13 @@ async function getDashboardData() {
     .limit(5)
 
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
-  const { data: idleMotorcyclesData } = await supabase
-    .from('motorcycles')
+  const { data: idleVehiclesData } = await supabase
+    .from('vehicles')
     .select('model, make, license_plate')
     .eq('status', 'available')
     .lte('updated_at', sevenDaysAgo)
     .limit(3)
-  const idleMotorcycles: IdleMotorcycle[] = (idleMotorcyclesData || []) as IdleMotorcycle[]
+  const idleVehicles: IdleVehicle[] = (idleVehiclesData || []) as IdleVehicle[]
 
   const { data: topCustomersData } = await supabase
     .from('billings')
@@ -252,9 +252,9 @@ async function getDashboardData() {
   ]
 
   return {
-    availableMotorcycles: availableMotorcycles ?? 0,
-    rentedMotorcycles: rentedMotorcycles ?? 0,
-    maintenanceMotorcycles: maintenanceMotorcycles ?? 0,
+    availableVehicles: availableVehicles ?? 0,
+    rentedVehicles: rentedVehicles ?? 0,
+    maintenanceVehicles: maintenanceVehicles ?? 0,
     overduePaymentsCount,
     defaultRate,
     monthlyChartData,
@@ -265,7 +265,7 @@ async function getDashboardData() {
     overduePaymentsList: (overduePaymentsData ?? []) as unknown as OverdueBilling[],
     multipleOverdueCustomers,
     upcomingMaintenances: (upcomingMaintenancesData ?? []) as unknown as UpcomingMaintenance[],
-    idleMotorcycles,
+    idleVehicles,
     topCustomers,
     queueEntries: (queueEntriesData ?? []) as unknown as QueueEntry[],
   }
@@ -282,9 +282,9 @@ export default async function DashboardPage() {
       />
 
       <div className="space-y-4 p-6">
-        {(data.idleMotorcycles.length > 0 || data.multipleOverdueCustomers.length > 0) && (
+        {(data.idleVehicles.length > 0 || data.multipleOverdueCustomers.length > 0) && (
           <div className="flex flex-wrap gap-2">
-            {data.idleMotorcycles.map((moto) => (
+            {data.idleVehicles.map((moto) => (
               <div
                 key={moto.license_plate}
                 className="flex items-center gap-2 rounded-full border border-[#e65e24] bg-[#3a180f] px-3 py-2"
@@ -312,8 +312,8 @@ export default async function DashboardPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <StatCard
             title="Motos Disponíveis"
-            value={data.availableMotorcycles}
-            subtitle={data.rentedMotorcycles + ' alugadas · ' + data.maintenanceMotorcycles + ' manutenção'}
+            value={data.availableVehicles}
+            subtitle={data.rentedVehicles + ' alugadas · ' + data.maintenanceVehicles + ' manutenção'}
             icon={Bike}
           />
           <StatCard
@@ -364,7 +364,7 @@ export default async function DashboardPage() {
                   </p>
                   <div className="mt-1 flex items-center justify-between gap-2">
                     <p className="text-[12px] text-[#9e9e9e] truncate">
-                      {contract.motorcycles?.license_plate ?? '-'}
+                      {contract.vehicles?.license_plate ?? '-'}
                     </p>
                     <p className="text-[12px] text-[#9e9e9e]">
                       {formatCurrency(contract.monthly_amount)}
@@ -470,7 +470,7 @@ export default async function DashboardPage() {
                     className={`px-4 py-2.5 hover:bg-[#323232] transition-colors${index < items.length - 1 ? ' border-b border-[#323232]' : ''}`}
                   >
                     <p className="text-[12px] font-medium text-[#f5f5f5] truncate">
-                      {maintenance.motorcycles?.license_plate ?? '-'}
+                      {maintenance.vehicles?.license_plate ?? '-'}
                     </p>
                     <div className="mt-1 flex items-center justify-between gap-2">
                       <p

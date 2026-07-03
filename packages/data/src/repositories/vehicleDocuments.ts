@@ -3,12 +3,12 @@ import type { VehicleDocument } from '@gomoto/core'
 
 export async function listVehicleDocuments(
   client: SupabaseClient,
-  motorcycleId: string,
+  vehicleId: string,
 ): Promise<VehicleDocument[]> {
   const { data, error } = await client
     .from('vehicle_documents')
     .select('*')
-    .eq('motorcycle_id', motorcycleId)
+    .eq('vehicle_id', vehicleId)
     .order('issued_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
   if (error) throw error

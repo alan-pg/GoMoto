@@ -106,7 +106,7 @@ export function RegisterMaintenanceModal({ visible, onClose, customerId, mainten
     try {
       await create.mutateAsync({
         customer_id: customerId,
-        motorcycle_id: maintenance.motorcycle_id,
+        vehicle_id: maintenance.vehicle_id,
         maintenance_id: maintenance.id,
         actual_km: kmNum,
         cost: costNum,

@@ -9,7 +9,7 @@ import {
 import { formatCurrency, formatDate } from '@/lib/utils'
 import {
   useMaintenances,
-  useMotorcycles,
+  useVehicles,
   useMaintenancePlans,
   useSupabaseContext,
 } from '@gomoto/data'
@@ -18,7 +18,7 @@ import {
   createMaintenance,
   updateMaintenance,
   deleteMaintenance,
-  updateMotorcycleKm,
+  updateVehicleKm,
 } from './actions'
 import type { Maintenance, MaintenanceStatus } from '@gomoto/core'
 import {
@@ -71,11 +71,11 @@ type ContractInfo = {
 /**
  * @type MaintenanceWithMoto
  * @description Tipo que estende a entidade `Maintenance` base, adicionando os dados relacionados da motocicleta e o status dinâmico calculado no front-end.
- * Por que existe: A API do Supabase retorna a manutenção fazendo um "join" com a tabela `motorcycles`. O front-end também injeta propriedades extras (`_status`) para facilitar renderização.
+ * Por que existe: A API do Supabase retorna a manutenção fazendo um "join" com a tabela `vehicles`. O front-end também injeta propriedades extras (`_status`) para facilitar renderização.
  * Onde é usado: Na listagem de manutenções, agrupamento por moto e passagem de propriedades para os modais e componentes filhos.
  */
 type MaintenanceWithMoto = Maintenance & {
-  motorcycle: {
+  vehicle: {
     id: string
     license_plate: string
     model: string
@@ -87,12 +87,12 @@ type MaintenanceWithMoto = Maintenance & {
 }
 
 /**
- * @type MotorcycleOption
+ * @type VehicleOption
  * @description Representa os dados essenciais de uma motocicleta retornados do banco para popular as opções de seleção (Dropdowns/Selects).
  * Por que existe: Para não carregar dados desnecessários das motos quando só precisamos de placa, modelo e quilometragem para a interface de escolhas.
- * Onde é usado: Nos estados `motorcycles`, opções do formulário de criação/edição e no filtro de motocicletas.
+ * Onde é usado: Nos estados `vehicles`, opções do formulário de criação/edição e no filtro de veículos.
  */
-type MotorcycleOption = {
+type VehicleOption = {
   id: string
   license_plate: string
   model: string
@@ -107,7 +107,7 @@ type MotorcycleOption = {
  * Onde é usado: No estado `formData` para controlar as inputs controladas do React (controlled components).
  */
 type MaintenanceFormData = {
-  motorcycle_id: string
+  vehicle_id: string
   type: 'preventive' | 'corrective' | 'inspection'
   description: string
   // `mode` define se o form é agendamento puro ou registro retroativo de
@@ -142,7 +142,7 @@ async function uploadMaintenanceFile(file: File, prefix: string): Promise<string
  * Impacto se alterado: Modifica os campos padrões ao abrir o modal de "Nova Manutenção". Por exemplo, o tipo default começa como "corrective" e oficina como "Oficina do Careca".
  */
 const INITIAL_FORM: MaintenanceFormData = {
-  motorcycle_id: '',
+  vehicle_id: '',
   type: 'corrective',
   description: '',
   mode: 'scheduled',
@@ -200,11 +200,11 @@ function fmtKm(km: number): string {
  * @description Calcula a diferença em quilômetros entre a KM prevista da manutenção e a KM atual da moto.
  * @param {MaintenanceWithMoto} m - Objeto de manutenção populado com os dados da motocicleta.
  * @returns {number | null} Valor numérico da diferença (negativo indica que a manutenção está vencida). Retorna null se não houver previsão em KM.
- * @example diffKm({ predicted_km: 15000, motorcycles: { km_current: 16000 } }) // retorna -1000
+ * @example diffKm({ predicted_km: 15000, vehicles: { km_current: 16000 } }) // retorna -1000
  */
 function diffKm(m: MaintenanceWithMoto): number | null {
   if (m.predicted_km === null || m.predicted_km === undefined) return null
-  return m.predicted_km - (m.motorcycle?.km_current ?? 0)
+  return m.predicted_km - (m.vehicle?.km_current ?? 0)
 }
 
 /**
@@ -236,7 +236,7 @@ function calcularStatus(m: MaintenanceWithMoto): MaintenanceStatus {
     completed: m.completed,
     predicted_km: m.predicted_km,
     scheduled_date: m.scheduled_date,
-    current_km: m.motorcycle?.km_current ?? 0,
+    current_km: m.vehicle?.km_current ?? 0,
     interval_km: suggested?.interval_km,
     interval_days: suggested?.interval_days,
   })
@@ -317,19 +317,19 @@ export default function MaintenancePage() {
   const supabase = useSupabaseContext()
   const queryClient = useQueryClient()
   const maintenancesQuery = useMaintenances()
-  const motorcyclesQuery = useMotorcycles()
+  const vehiclesQuery = useVehicles()
   const plansQuery = useMaintenancePlans()
   const maintenances = (maintenancesQuery.data ?? []) as MaintenanceWithMoto[]
-  const motorcycles = (motorcyclesQuery.data ?? []) as MotorcycleOption[]
+  const vehicles = (vehiclesQuery.data ?? []) as VehicleOption[]
   const plans = plansQuery.data ?? []
-  const loading = maintenancesQuery.isLoading || motorcyclesQuery.isLoading
+  const loading = maintenancesQuery.isLoading || vehiclesQuery.isLoading
 
   const invalidateMaintenances = useCallback(
     () => queryClient.invalidateQueries({ queryKey: ['maintenances'] }),
     [queryClient],
   )
-  const invalidateMotorcycles = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: ['motorcycles'] }),
+  const invalidateVehicles = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['vehicles'] }),
     [queryClient],
   )
 
@@ -346,7 +346,7 @@ export default function MaintenancePage() {
   // statusFilter começa em 'overdue' (operador chega na tela e vê o que precisa
   // resolver hoje). Pode ser limpo via card "Todas".
   const [statusFilter, setStatusFilter] = useState<'all' | MaintenanceStatus>('overdue')
-  const [motorcycleFilter, setMotorcycleFilter] = useState('')
+  const [vehicleFilter, setVehicleFilter] = useState('')
   const [planFilter, setPlanFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
   const [periodFilter, setPeriodFilter] = useState<'all' | 'thisMonth' | 'next30days'>('all')
@@ -378,7 +378,7 @@ export default function MaintenancePage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   
   // [kmForm, setKmForm]: Representa o mini-estado para o modal embutido de atualização ágil da KM atual de uma moto.
-  const [kmForm, setKmForm] = useState({ motorcycle_id: '', km_current: '' })
+  const [kmForm, setKmForm] = useState({ vehicle_id: '', km_current: '' })
 
   // ── ESTADOS: Dados do Formulário CRUD Genérico ────────────────────────────
   
@@ -444,8 +444,8 @@ export default function MaintenancePage() {
     return withStatus
       .filter((m) => {
         if (statusFilter !== 'all' && m._status !== statusFilter) return false
-        if (motorcycleFilter && m.motorcycle_id !== motorcycleFilter) return false
-        if (planFilter && m.motorcycle?.maintenance_plan_id !== planFilter) return false
+        if (vehicleFilter && m.vehicle_id !== vehicleFilter) return false
+        if (planFilter && m.vehicle?.maintenance_plan_id !== planFilter) return false
         if (typeFilter !== 'all' && m.type !== typeFilter) return false
         if (executorFilter !== 'all') {
           const exec = m.completed ? m.effective_executor : null
@@ -462,9 +462,9 @@ export default function MaintenancePage() {
           // via KM_POR_DIA) ou scheduled_date diretamente.
           const dueDate = m.scheduled_date
             ? new Date(m.scheduled_date + 'T12:00:00')
-            : m.predicted_km != null && m.motorcycle
+            : m.predicted_km != null && m.vehicle
               ? (() => {
-                  const kmLeft = m.predicted_km - m.motorcycle.km_current
+                  const kmLeft = m.predicted_km - m.vehicle.km_current
                   const daysLeft = kmLeft / KM_POR_DIA
                   const d = new Date(today)
                   d.setDate(d.getDate() + Math.round(daysLeft))
@@ -480,12 +480,12 @@ export default function MaintenancePage() {
         }
         if (searchQuery) {
           const q = searchQuery.toLowerCase()
-          if (![m.description, m.motorcycle?.license_plate, m.motorcycle?.model, m.motorcycle?.make]
+          if (![m.description, m.vehicle?.license_plate, m.vehicle?.model, m.vehicle?.make]
             .some((v) => v?.toLowerCase().includes(q))) return false
         }
         return true
       })
-  }, [withStatus, statusFilter, motorcycleFilter, planFilter, typeFilter, periodFilter, executorFilter, searchQuery])
+  }, [withStatus, statusFilter, vehicleFilter, planFilter, typeFilter, periodFilter, executorFilter, searchQuery])
 
   /**
    * Lista achatada ordenada por urgência: vencidas primeiro (pior atraso no
@@ -530,14 +530,14 @@ export default function MaintenancePage() {
     }
   }, [withStatus])
 
-  const motorcycleSelectOptions = useMemo(() => [
+  const vehicleSelectOptions = useMemo(() => [
     { value: '', label: 'Selecione a moto...' },
-    ...motorcycles.map((m) => ({ value: m.id, label: `${m.license_plate} — ${m.make} ${m.model}` })),
-  ], [motorcycles])
+    ...vehicles.map((m) => ({ value: m.id, label: `${m.license_plate} — ${m.make} ${m.model}` })),
+  ], [vehicles])
 
   const hasActiveFilters =
     statusFilter !== 'all'
-    || !!motorcycleFilter
+    || !!vehicleFilter
     || !!planFilter
     || typeFilter !== 'all'
     || periodFilter !== 'all'
@@ -594,7 +594,7 @@ export default function MaintenancePage() {
    * Efeitos colaterais: Post de query e recarga com a lista repaginada pelo backend.
    */
   const handleSave = useCallback(async () => {
-    if (!formData.motorcycle_id || !formData.description) {
+    if (!formData.vehicle_id || !formData.description) {
       alert('Por favor, preencha a moto e a descrição.')
       return
     }
@@ -620,7 +620,7 @@ export default function MaintenancePage() {
     // limpar valores prévios (ex.: operador desfez uma marcação de concluído).
     const payload = isExecuted
       ? {
-          motorcycle_id: formData.motorcycle_id,
+          vehicle_id: formData.vehicle_id,
           type: formData.type,
           description: formData.description,
           completed: true,
@@ -635,7 +635,7 @@ export default function MaintenancePage() {
           invoice_photo_url: invoiceUrl,
         }
       : {
-          motorcycle_id: formData.motorcycle_id,
+          vehicle_id: formData.vehicle_id,
           type: formData.type,
           description: formData.description,
           scheduled_date: formData.scheduled_date || null,
@@ -683,7 +683,7 @@ export default function MaintenancePage() {
   const handleOpenComplete = useCallback(async (maintenance: MaintenanceWithMoto) => {
     setCompletingMaintenance(maintenance)
     setCompletionStep(1)
-    setCompletionKm(maintenance.motorcycle?.km_current?.toString() ?? '')
+    setCompletionKm(maintenance.vehicle?.km_current?.toString() ?? '')
     setCompletionWorkshop(maintenance.workshop || 'Oficina do Careca')
     setCompletionObservations(maintenance.observations || '')
     setCompletionDate(new Date().toISOString().split('T')[0])
@@ -695,7 +695,7 @@ export default function MaintenancePage() {
     const { data: contractData } = await supabase
       .from('rentals')
       .select('contract_type, next_billing_date, customers(name)')
-      .eq('motorcycle_id', maintenance.motorcycle_id)
+      .eq('vehicle_id', maintenance.vehicle_id)
       .eq('status', 'active')
       .maybeSingle()
 
@@ -714,8 +714,8 @@ export default function MaintenancePage() {
     // Busca irmãos (outros serviços parados) na MESMA moto.
     const { data: siblingsData } = await supabase
       .from('maintenances')
-      .select('*, motorcycles(license_plate, model, make, km_current)')
-      .eq('motorcycle_id', maintenance.motorcycle_id)
+      .select('*, vehicles(license_plate, model, make, km_current)')
+      .eq('vehicle_id', maintenance.vehicle_id)
       .eq('completed', false)
       .neq('id', maintenance.id)
 
@@ -796,7 +796,7 @@ export default function MaintenancePage() {
         })
         if (!projection) continue
         const next: Record<string, unknown> = {
-          motorcycle_id: item.motorcycle_id,
+          vehicle_id: item.vehicle_id,
           type: item.type,
           description: item.description,
           completed: false,
@@ -807,19 +807,19 @@ export default function MaintenancePage() {
       }
 
       // Auto-corretor do Hodômetro da base das motocicletas baseado no que informaram. Nunca aceita medição que "diminui a KM", pois não faz sentido lógico e seria erro de form.
-      const currentKm = completingMaintenance.motorcycle?.km_current ?? 0
+      const currentKm = completingMaintenance.vehicle?.km_current ?? 0
       if (actualKm > currentKm) {
-        const res = await updateMotorcycleKm(completingMaintenance.motorcycle_id, actualKm)
+        const res = await updateVehicleKm(completingMaintenance.vehicle_id, actualKm)
         if (res.error) { alert(`Erro ao atualizar KM da moto: ${res.error}`); return }
       }
 
       closeCompleteModal()
-      await Promise.all([invalidateMaintenances(), invalidateMotorcycles()])
+      await Promise.all([invalidateMaintenances(), invalidateVehicles()])
     } catch {
     } finally {
       setCompleting(false)
     }
-  }, [completingMaintenance, completionKm, completionDate, completionWorkshop, completionObservations, completionExtraIds, completionFinancials, completionExtras, closeCompleteModal, invalidateMaintenances, invalidateMotorcycles])
+  }, [completingMaintenance, completionKm, completionDate, completionWorkshop, completionObservations, completionExtraIds, completionFinancials, completionExtras, closeCompleteModal, invalidateMaintenances, invalidateVehicles])
 
   /**
    * @function handleOpenEdit
@@ -829,7 +829,7 @@ export default function MaintenancePage() {
   const handleOpenEdit = useCallback((m: MaintenanceWithMoto) => {
     setEditingMaintenance(m)
     setFormData({
-      motorcycle_id: m.motorcycle_id,
+      vehicle_id: m.vehicle_id,
       type: m.type,
       description: m.description,
       mode: m.completed ? 'executed' : 'scheduled',
@@ -863,13 +863,13 @@ export default function MaintenancePage() {
    * @description Handler avulso utilitário focado só para o "Modal KM", ele poupa tempo de acessar os menus principais caso só falte alinhar o contador da moto.
    */
   const handleUpdateKm = useCallback(async () => {
-    if (!kmForm.motorcycle_id || !kmForm.km_current) return
-    const res = await updateMotorcycleKm(kmForm.motorcycle_id, parseInt(kmForm.km_current, 10))
+    if (!kmForm.vehicle_id || !kmForm.km_current) return
+    const res = await updateVehicleKm(kmForm.vehicle_id, parseInt(kmForm.km_current, 10))
     if (res.error) { alert(`Erro ao atualizar KM: ${res.error}`); return }
     setIsKmModalOpen(false)
-    setKmForm({ motorcycle_id: '', km_current: '' })
-    await Promise.all([invalidateMaintenances(), invalidateMotorcycles()])
-  }, [kmForm, invalidateMaintenances, invalidateMotorcycles])
+    setKmForm({ vehicle_id: '', km_current: '' })
+    await Promise.all([invalidateMaintenances(), invalidateVehicles()])
+  }, [kmForm, invalidateMaintenances, invalidateVehicles])
 
   // ─── RENDER ────────────────────────────────────────────────────────────────
 
@@ -882,7 +882,7 @@ export default function MaintenancePage() {
         subtitle="Controle inteligente por km e data"
         actions={
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => { setKmForm({ motorcycle_id: '', km_current: '' }); setIsKmModalOpen(true) }}>
+            <Button variant="secondary" onClick={() => { setKmForm({ vehicle_id: '', km_current: '' }); setIsKmModalOpen(true) }}>
               <Gauge className="w-4 h-4" />
               Atualizar KM
             </Button>
@@ -955,12 +955,12 @@ export default function MaintenancePage() {
           </div>
 
           <select
-            value={motorcycleFilter}
-            onChange={(e) => setMotorcycleFilter(e.target.value)}
+            value={vehicleFilter}
+            onChange={(e) => setVehicleFilter(e.target.value)}
             className="h-10 rounded-full border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
           >
             <option value="">Todas as motos</option>
-            {motorcycles.map((m) => (
+            {vehicles.map((m) => (
               <option key={m.id} value={m.id} className="bg-[#202020]">
                 {m.license_plate} — {m.make} {m.model}
               </option>
@@ -1015,7 +1015,7 @@ export default function MaintenancePage() {
             <button
               onClick={() => {
                 setStatusFilter('all')
-                setMotorcycleFilter('')
+                setVehicleFilter('')
                 setPlanFilter('')
                 setTypeFilter('all')
                 setPeriodFilter('all')
@@ -1066,7 +1066,7 @@ export default function MaintenancePage() {
               <tbody>
                 {sortedFlat.map((item) => {
                   const isCompleted = item._status === 'completed'
-                  const moto = item.motorcycle
+                  const moto = item.vehicle
                   const onRowClick = () => {
                     if (isCompleted) {
                       setViewingMaintenance(item)
@@ -1211,9 +1211,9 @@ export default function MaintenancePage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Select
               label="Motocicleta *"
-              value={formData.motorcycle_id}
-              onChange={(e) => setFormData({ ...formData, motorcycle_id: e.target.value })}
-              options={motorcycleSelectOptions}
+              value={formData.vehicle_id}
+              onChange={(e) => setFormData({ ...formData, vehicle_id: e.target.value })}
+              options={vehicleSelectOptions}
             />
             <div>
               <label className="mb-1.5 block text-[13px] font-medium text-[#9e9e9e]">Tipo</label>
@@ -1366,8 +1366,8 @@ export default function MaintenancePage() {
               <div className="space-y-1">
                 <p className="text-[12px] text-[#9e9e9e]">Motocicleta</p>
                 <p className="text-[13px] text-[#f5f5f5]">
-                  {viewingMaintenance.motorcycle
-                    ? `${viewingMaintenance.motorcycle.license_plate} — ${viewingMaintenance.motorcycle.make} ${viewingMaintenance.motorcycle.model}`
+                  {viewingMaintenance.vehicle
+                    ? `${viewingMaintenance.vehicle.license_plate} — ${viewingMaintenance.vehicle.make} ${viewingMaintenance.vehicle.model}`
                     : '—'}
                 </p>
               </div>
@@ -1510,15 +1510,15 @@ export default function MaintenancePage() {
             <div className="rounded-xl bg-[#121212] px-4 py-3 space-y-1">
               <p className="text-[13px] font-medium text-[#f5f5f5]">{completingMaintenance.description}</p>
               <p className="text-[13px] text-[#9e9e9e]">
-                {completingMaintenance.motorcycle
-                  ? `${completingMaintenance.motorcycle.license_plate} — ${completingMaintenance.motorcycle.make} ${completingMaintenance.motorcycle.model}`
+                {completingMaintenance.vehicle
+                  ? `${completingMaintenance.vehicle.license_plate} — ${completingMaintenance.vehicle.make} ${completingMaintenance.vehicle.model}`
                   : '—'}
               </p>
               {completingMaintenance.predicted_km != null && (
                 <p className="text-[13px] text-[#e65e24]">KM previsto: {fmtKm(completingMaintenance.predicted_km)}</p>
               )}
-              {completingMaintenance.motorcycle?.km_current != null && (
-                <p className="text-[13px] text-[#9e9e9e]">KM atual: {fmtKm(completingMaintenance.motorcycle.km_current)}</p>
+              {completingMaintenance.vehicle?.km_current != null && (
+                <p className="text-[13px] text-[#9e9e9e]">KM atual: {fmtKm(completingMaintenance.vehorcycle.km_current)}</p>
               )}
               {completingMaintenance.scheduled_date && (
                 <p className="text-[13px] text-[#e65e24]">Data prevista: {formatDate(completingMaintenance.scheduled_date + 'T12:00:00')}</p>
@@ -1912,17 +1912,17 @@ export default function MaintenancePage() {
         <div className="space-y-4">
           <Select
             label="Moto *"
-            value={kmForm.motorcycle_id}
+            value={kmForm.vehicle_id}
             onChange={(e) => {
-              const moto = motorcycles.find((m) => m.id === e.target.value)
-              setKmForm({ motorcycle_id: e.target.value, km_current: moto?.km_current?.toString() ?? '' })
+              const moto = vehicles.find((m) => m.id === e.target.value)
+              setKmForm({ vehicle_id: e.target.value, km_current: moto?.km_current?.toString() ?? '' })
             }}
-            options={motorcycleSelectOptions}
+            options={vehicleSelectOptions}
           />
-          {kmForm.motorcycle_id && (
+          {kmForm.vehicle_id && (
             <p className="text-[13px] text-[#9e9e9e]">
               KM atual: <span className="text-[#f5f5f5] font-medium">
-                {fmtKm(motorcycles.find((m) => m.id === kmForm.motorcycle_id)?.km_current ?? 0)}
+                {fmtKm(vehicles.find((m) => m.id === kmForm.vehicle_id)?.km_current ?? 0)}
               </span>
             </p>
           )}
@@ -1935,7 +1935,7 @@ export default function MaintenancePage() {
           />
           <div className="flex justify-end gap-3 border-t border-[#323232] pt-4">
             <Button variant="secondary" onClick={() => setIsKmModalOpen(false)}>Cancelar</Button>
-            <Button variant="primary" onClick={handleUpdateKm} disabled={!kmForm.motorcycle_id || !kmForm.km_current}>
+            <Button variant="primary" onClick={handleUpdateKm} disabled={!kmForm.vehicle_id || !kmForm.km_current}>
               <Gauge className="w-4 h-4" />
               Atualizar
             </Button>

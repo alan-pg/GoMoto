@@ -4,7 +4,7 @@ import type { Contract } from '@gomoto/core'
 export async function listContracts(client: SupabaseClient): Promise<Contract[]> {
   const { data, error } = await client
     .from('rentals')
-    .select('*, customer:customers(*), motorcycle:motorcycles(*)')
+    .select('*, customer:customers(*), vehicle:vehicles(*)')
     .order('created_at', { ascending: false })
   if (error) throw error
   return (data ?? []) as Contract[]
@@ -13,7 +13,7 @@ export async function listContracts(client: SupabaseClient): Promise<Contract[]>
 export async function listActiveContracts(client: SupabaseClient): Promise<Contract[]> {
   const { data, error } = await client
     .from('rentals')
-    .select('*, customer:customers(*), motorcycle:motorcycles(*)')
+    .select('*, customer:customers(*), vehicle:vehicles(*)')
     .eq('status', 'active')
     .order('created_at', { ascending: false })
   if (error) throw error
@@ -23,7 +23,7 @@ export async function listActiveContracts(client: SupabaseClient): Promise<Contr
 export async function getContract(client: SupabaseClient, id: string): Promise<Contract> {
   const { data, error } = await client
     .from('rentals')
-    .select('*, customer:customers(*), motorcycle:motorcycles(*)')
+    .select('*, customer:customers(*), vehicle:vehicles(*)')
     .eq('id', id)
     .single()
   if (error) throw error
@@ -32,7 +32,7 @@ export async function getContract(client: SupabaseClient, id: string): Promise<C
 
 export async function createContract(
   client: SupabaseClient,
-  payload: Omit<Contract, 'id' | 'created_at' | 'updated_at' | 'customer' | 'motorcycle'>,
+  payload: Omit<Contract, 'id' | 'created_at' | 'updated_at' | 'customer' | 'vehicle'>,
 ): Promise<Contract> {
   const { data, error } = await client.from('rentals').insert(payload).select().single()
   if (error) throw error
@@ -42,7 +42,7 @@ export async function createContract(
 export async function updateContract(
   client: SupabaseClient,
   id: string,
-  payload: Partial<Omit<Contract, 'id' | 'created_at' | 'updated_at' | 'customer' | 'motorcycle'>>,
+  payload: Partial<Omit<Contract, 'id' | 'created_at' | 'updated_at' | 'customer' | 'vehicle'>>,
 ): Promise<Contract> {
   const { data, error } = await client
     .from('rentals')

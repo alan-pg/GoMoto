@@ -14,14 +14,14 @@ import {
   useCustomers,
   useMaintenanceRecords,
   useMaintenances,
-  useMotorcycles,
+  useVehicles,
 } from '@gomoto/data'
 import {
   calculateMaintenanceStatus,
   type Maintenance,
   type MaintenanceRecord,
   type MaintenanceStatus,
-  type Motorcycle,
+  type Vehicle,
 } from '@gomoto/core'
 import { useAuth } from '../../src/contexts/auth'
 import { RegisterMaintenanceModal } from '../../src/components/RegisterMaintenanceModal'
@@ -55,12 +55,12 @@ const TYPE_LABEL: Record<string, string> = {
 
 type MaintenanceWithStatus = Maintenance & { _status: MaintenanceStatus }
 
-function deriveStatus(m: Maintenance, motorcycle: Motorcycle | undefined): MaintenanceStatus {
+function deriveStatus(m: Maintenance, vehicle: Vehicle | undefined): MaintenanceStatus {
   return calculateMaintenanceStatus({
     completed: m.completed,
     predicted_km: m.predicted_km,
     scheduled_date: m.scheduled_date,
-    current_km: motorcycle?.km_current ?? 0,
+    current_km: vehicle?.km_current ?? 0,
   })
 }
 
@@ -78,22 +78,22 @@ function formatDate(date: string | null): string {
 export default function ManutencoesTab() {
   const { activeTenantId } = useAuth()
   const maintenancesQuery = useMaintenances()
-  const motorcyclesQuery = useMotorcycles()
+  const vehiclesQuery = useVehicles()
   const recordsQuery = useMaintenanceRecords()
   const customersQuery = useCustomers()
 
   const [selected, setSelected] = useState<Maintenance | null>(null)
 
   const loading =
-    maintenancesQuery.isLoading || motorcyclesQuery.isLoading || customersQuery.isLoading
+    maintenancesQuery.isLoading || vehiclesQuery.isLoading || customersQuery.isLoading
   const refreshing = maintenancesQuery.isFetching && !maintenancesQuery.isLoading
-  const error = maintenancesQuery.error ?? motorcyclesQuery.error ?? recordsQuery.error
+  const error = maintenancesQuery.error ?? vehiclesQuery.error ?? recordsQuery.error
 
-  const motorcyclesById = useMemo(() => {
-    const map = new Map<string, Motorcycle>()
-    for (const m of motorcyclesQuery.data ?? []) map.set(m.id, m)
+  const vehiclesById = useMemo(() => {
+    const map = new Map<string, Vehicle>()
+    for (const m of vehiclesQuery.data ?? []) map.set(m.id, m)
     return map
-  }, [motorcyclesQuery.data])
+  }, [vehiclesQuery.data])
 
   // Cliente tem 1 customer por tenant — pega o da locadora ativa.
   const customerId = useMemo(() => {
@@ -114,7 +114,7 @@ export default function ManutencoesTab() {
   const { upcoming, history } = useMemo(() => {
     const items = (maintenancesQuery.data ?? []).map((m) => ({
       ...m,
-      _status: deriveStatus(m, motorcyclesById.get(m.motorcycle_id)),
+      _status: deriveStatus(m, vehiclesById.get(m.vehicle_id)),
     }))
     const upcoming = items
       .filter((m) => m._status !== 'completed')
@@ -130,14 +130,14 @@ export default function ManutencoesTab() {
       .sort((a, b) => (b.completed_date ?? '').localeCompare(a.completed_date ?? ''))
       .slice(0, 10)
     return { upcoming, history }
-  }, [maintenancesQuery.data, motorcyclesById])
+  }, [maintenancesQuery.data, vehiclesById])
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <StatusBar style="light" />
       <View style={styles.header}>
         <Text style={styles.title}>Manutenções</Text>
-        <Text style={styles.subtitle}>Próximas e histórico da sua moto</Text>
+        <Text style={styles.subtitle}>Próximas e histórico do seu veículo</Text>
       </View>
       <ScrollView
         style={styles.body}
@@ -148,7 +148,7 @@ export default function ManutencoesTab() {
             refreshing={refreshing}
             onRefresh={() => {
               maintenancesQuery.refetch()
-              motorcyclesQuery.refetch()
+              vehiclesQuery.refetch()
               recordsQuery.refetch()
             }}
           />
@@ -166,13 +166,13 @@ export default function ManutencoesTab() {
           <>
             <Section title={`Próximas (${upcoming.length})`}>
               {upcoming.length === 0 ? (
-                <EmptyCard text="Nenhuma manutenção pendente — sua moto está em dia." />
+                <EmptyCard text="Nenhuma manutenção pendente — seu veículo está em dia." />
               ) : (
                 upcoming.map((m) => (
                   <MaintenanceCard
                     key={m.id}
                     item={m}
-                    motorcycle={motorcyclesById.get(m.motorcycle_id)}
+                    vehicle={vehiclesById.get(m.vehicle_id)}
                     pendingRecord={pendingByMaintenanceId.get(m.id)}
                     canRegister={!!customerId}
                     onRegister={() => setSelected(m)}
@@ -189,7 +189,7 @@ export default function ManutencoesTab() {
                   <MaintenanceCard
                     key={m.id}
                     item={m}
-                    motorcycle={motorcyclesById.get(m.motorcycle_id)}
+                    vehicle={vehiclesById.get(m.vehicle_id)}
                   />
                 ))
               )}
@@ -228,13 +228,13 @@ function EmptyCard({ text }: { text: string }) {
 
 function MaintenanceCard({
   item,
-  motorcycle,
+  vehicle,
   pendingRecord,
   canRegister,
   onRegister,
 }: {
   item: MaintenanceWithStatus
-  motorcycle?: Motorcycle
+  vehicle?: Vehicle
   pendingRecord?: MaintenanceRecord
   canRegister?: boolean
   onRegister?: () => void
@@ -253,7 +253,7 @@ function MaintenanceCard({
         </View>
       </View>
       <Text style={styles.cardMeta}>
-        {motorcycle ? `${motorcycle.license_plate} — ${motorcycle.make} ${motorcycle.model}` : 'Moto não identificada'}
+        {vehicle ? `${vehicle.license_plate} — ${vehicle.make} ${vehicle.model}` : 'Veículo não identificado'}
       </Text>
       <View style={styles.cardFields}>
         {item._status === 'completed' ? (

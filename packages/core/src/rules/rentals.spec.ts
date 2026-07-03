@@ -255,7 +255,7 @@ describe('getEarlyTerminationImpact', () => {
 
 describe('RentalSchema', () => {
   const validRental = {
-    motorcycle_id:  '550e8400-e29b-41d4-a716-446655440000',
+    vehicle_id:  '550e8400-e29b-41d4-a716-446655440000',
     customer_id:    '550e8400-e29b-41d4-a716-446655440001',
     contract_type:  'rental',
     cycle:          'monthly',

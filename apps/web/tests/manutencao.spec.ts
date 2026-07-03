@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { TEST_TAG, createTestMotorcycle, deleteTestMotorcycle, getModal, waitForPageLoad } from './helpers'
+import { TEST_TAG, createTestVehicle, deleteTestVehicle, getModal, waitForPageLoad } from './helpers'
 
 const DESCRIPTION = `${TEST_TAG} Troca de corrente — teste`
 const EDITED_DESCRIPTION = `${TEST_TAG} Troca de corrente — teste — EDITADO`
@@ -9,12 +9,12 @@ let motoId = ''
 
 test.describe('Manutenção — CRUD', () => {
   test.beforeAll(async () => {
-    const moto = await createTestMotorcycle()
+    const moto = await createTestVehicle()
     motoId = moto.id
   })
 
   test.afterAll(async () => {
-    await deleteTestMotorcycle(motoId)
+    await deleteTestVehicle(motoId)
   })
 
   test('agendar, editar, concluir e excluir manutenção', async ({ page }) => {

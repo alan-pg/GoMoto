@@ -13,7 +13,7 @@ const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de data inv�
 // ---------------------------------------------------------------------------
 
 export const RentalSchema = z.object({
-  motorcycle_id:  z.string().uuid({ error: 'Veículo obrigatório' }),
+  vehicle_id:  z.string().uuid({ error: 'Veículo obrigatório' }),
   customer_id:    z.string().uuid({ error: 'Cliente obrigatório' }),
   contract_type:  z.enum(['rental', 'rent_to_own']).default('rental'),
   cycle:          z.enum(['weekly', 'monthly']),

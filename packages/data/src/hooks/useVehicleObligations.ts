@@ -11,12 +11,12 @@ import type { VehicleObligation } from '@gomoto/core'
 
 const KEY = 'vehicle_obligations'
 
-export function useVehicleObligations(motorcycleId: string | undefined) {
+export function useVehicleObligations(vehicleId: string | undefined) {
   const supabase = useSupabaseContext()
   return useQuery({
-    queryKey: [KEY, 'by-motorcycle', motorcycleId],
-    queryFn: () => listVehicleObligations(supabase, motorcycleId!),
-    enabled: !!motorcycleId,
+    queryKey: [KEY, 'by-vehicle', vehicleId],
+    queryFn: () => listVehicleObligations(supabase, vehicleId!),
+    enabled: !!vehicleId,
   })
 }
 
@@ -38,9 +38,9 @@ export function useCreateVehicleObligation() {
       payload: Omit<VehicleObligation, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>,
     ) => createVehicleObligation(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: (ob) => {
-      qc.invalidateQueries({ queryKey: [KEY, 'by-motorcycle', ob.motorcycle_id] })
-      qc.invalidateQueries({ queryKey: ['motorcycle_cost_summary'] })
-      qc.invalidateQueries({ queryKey: ['motorcycle_financial_events'] })
+      qc.invalidateQueries({ queryKey: [KEY, 'by-vehicle', ob.vehicle_id] })
+      qc.invalidateQueries({ queryKey: ['vehicle_cost_summary'] })
+      qc.invalidateQueries({ queryKey: ['vehicle_financial_events'] })
     },
   })
 }
@@ -57,10 +57,10 @@ export function useUpdateVehicleObligation() {
       payload: Partial<Omit<VehicleObligation, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>>
     }) => updateVehicleObligation(supabase, id, payload),
     onSuccess: (ob) => {
-      qc.invalidateQueries({ queryKey: [KEY, 'by-motorcycle', ob.motorcycle_id] })
+      qc.invalidateQueries({ queryKey: [KEY, 'by-vehicle', ob.vehicle_id] })
       qc.invalidateQueries({ queryKey: [KEY, ob.id] })
-      qc.invalidateQueries({ queryKey: ['motorcycle_cost_summary'] })
-      qc.invalidateQueries({ queryKey: ['motorcycle_financial_events'] })
+      qc.invalidateQueries({ queryKey: ['vehicle_cost_summary'] })
+      qc.invalidateQueries({ queryKey: ['vehicle_financial_events'] })
     },
   })
 }
@@ -72,8 +72,8 @@ export function useDeleteVehicleObligation() {
     mutationFn: (id: string) => deleteVehicleObligation(supabase, id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY] })
-      qc.invalidateQueries({ queryKey: ['motorcycle_cost_summary'] })
-      qc.invalidateQueries({ queryKey: ['motorcycle_financial_events'] })
+      qc.invalidateQueries({ queryKey: ['vehicle_cost_summary'] })
+      qc.invalidateQueries({ queryKey: ['vehicle_financial_events'] })
     },
   })
 }

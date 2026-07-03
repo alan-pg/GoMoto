@@ -36,27 +36,27 @@ export default async function VehicleDetailPage({
 
   const [motoResult, photosResult, historyResult, documentsResult, obligationsResult, maintenancesResult] =
     await Promise.all([
-      supabase.from('motorcycles').select('*').eq('id', id).single(),
-      supabase.from('vehicle_photos').select('*').eq('motorcycle_id', id),
+      supabase.from('vehicles').select('*').eq('id', id).single(),
+      supabase.from('vehicle_photos').select('*').eq('vehicle_id', id),
       supabase
         .from('vehicle_status_history')
         .select('*')
-        .eq('motorcycle_id', id)
+        .eq('vehicle_id', id)
         .order('created_at', { ascending: false }),
       supabase
         .from('vehicle_documents')
         .select('*')
-        .eq('motorcycle_id', id)
+        .eq('vehicle_id', id)
         .eq('is_current', true),
       supabase
         .from('vehicle_obligations')
         .select('*')
-        .eq('motorcycle_id', id)
+        .eq('vehicle_id', id)
         .order('due_date', { ascending: true }),
       supabase
         .from('maintenances')
         .select('*')
-        .eq('motorcycle_id', id)
+        .eq('vehicle_id', id)
         .order('created_at', { ascending: false })
         .limit(10),
     ])
@@ -105,8 +105,8 @@ export default async function VehicleDetailPage({
     <div className="min-h-screen bg-[#121212]">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-[#121212] border-b border-[#323232] px-6 h-16 flex items-center gap-4">
-        <Link href="/motos" className="text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors">
-          ← Motocicletas
+        <Link href="/veiculos" className="text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors">
+          ← Veículos
         </Link>
         <span className="text-[#474747]">/</span>
         <h1 className="text-[18px] font-bold text-[#f5f5f5]">
@@ -114,7 +114,7 @@ export default async function VehicleDetailPage({
         </h1>
         <div className="ml-auto flex items-center gap-3">
           <Link
-            href={`/motos/${id}/editar`}
+            href={`/veiculos/${id}/editar`}
             className="inline-flex items-center h-9 px-4 rounded-full bg-[#323232] text-[#f5f5f5] text-[13px] font-medium hover:bg-[#474747] transition-colors"
           >
             Editar dados
@@ -132,7 +132,7 @@ export default async function VehicleDetailPage({
           </span>
           {selectableStatuses.length > 0 && (
             <VehicleStatusActions
-              motorcycleId={id}
+              vehicleId={id}
               currentStatus={currentStatus}
               selectableStatuses={selectableStatuses}
             />
@@ -143,7 +143,7 @@ export default async function VehicleDetailPage({
         <section>
           <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Fotos</h2>
           <VehiclePhotoGallery
-            motorcycleId={id}
+            vehicleId={id}
             photoUrls={photoUrls}
           />
         </section>

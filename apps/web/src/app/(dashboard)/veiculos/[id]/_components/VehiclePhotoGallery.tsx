@@ -6,7 +6,7 @@ import { VEHICLE_PHOTO_SLOT_LABELS, type VehiclePhotoSlot } from '@gomoto/core'
 const SLOTS: VehiclePhotoSlot[] = ['principal', 'front', 'left_side', 'right_side', 'rear', 'dashboard']
 
 interface Props {
-  motorcycleId: string
+  vehicleId: string
   photoUrls: Partial<Record<VehiclePhotoSlot, string>>
 }
 

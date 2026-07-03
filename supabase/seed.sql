@@ -316,13 +316,13 @@ INSERT INTO settings (tenant_id, key, value) VALUES
 ('00000000-0000-0000-0000-000000000001', 'due_date_warning_days', '3');
 
 -- ============================================================
--- SEED: motorcycles (5 motos da frota)
+-- SEED: vehicles (5 motos da frota)
 --
 -- PRD 0002: além dos campos básicos, populamos identidade documental
 -- atual (registered_owner_*) e dados de aquisição (acquisition_*).
 -- Todas as motos estão registradas em nome da locadora (CNPJ fictício).
 -- ============================================================
-INSERT INTO motorcycles (
+INSERT INTO vehicles (
     id, tenant_id, license_plate, model, make, year_manufacture, year_model, color, renavam, chassis, fuel, engine_capacity, status, km_current,
     registered_owner_name, registered_owner_document, registered_owner_type, registration_state,
     ownership_transferred, acquisition_type, acquisition_amount
@@ -334,7 +334,7 @@ INSERT INTO motorcycles (
 ('55555555-5555-5555-5555-555555555555', '00000000-0000-0000-0000-000000000001', 'JKL3M45',  'Pop 110i',     'Honda',  '2022', '2022', 'Preta',    '99887766554', '9C2HA1010NR554433', 'Gasolina', '110cc', 'available',  8000, 'GoMoto Bonze Locadora LTDA', '12345678000190', 'cnpj', 'SP', true,  'consignment',   7600.00);
 
 -- Previous owner para a Biz 125 (transferência ainda pendente — registered_owner ainda é o vendedor).
-UPDATE motorcycles
+UPDATE vehicles
    SET previous_owner     = 'José Vendedor Antigo',
        previous_owner_cpf = '11122233344'
  WHERE id = '44444444-4444-4444-4444-444444444444';
@@ -342,7 +342,7 @@ UPDATE motorcycles
 -- PRD 0003 — amarra 4 das 5 motos do Bonze ao Plano Padrão. A Biz 125
 -- (44444444…) propositadamente fica sem plano para que o smoke da F2
 -- exiba o banner "Atribua um plano de manutenção" do PRD §10.3.
-UPDATE motorcycles
+UPDATE vehicles
    SET maintenance_plan_id = '10000000-0000-0000-0000-000000000001'
  WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
    AND id <> '44444444-4444-4444-4444-444444444444';
@@ -355,7 +355,7 @@ UPDATE motorcycles
 -- esse documento e raramente reemite. Para a moto 44 (não transferida),
 -- omitimos CRLV vigente em nome da empresa.
 -- ============================================================
-INSERT INTO vehicle_documents (id, tenant_id, motorcycle_id, type, exercise_year, document_number, issued_at, registered_owner_name, registered_owner_document, registered_owner_type, is_current, observations) VALUES
+INSERT INTO vehicle_documents (id, tenant_id, vehicle_id, type, exercise_year, document_number, issued_at, registered_owner_name, registered_owner_document, registered_owner_type, is_current, observations) VALUES
 ('d0000001-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'crlv', 2026, 'SP202611111111', '2026-02-10', 'GoMoto Bonze Locadora LTDA', '12345678000190', 'cnpj', true, 'CRLV-e baixado no app DETRAN-SP.'),
 ('d0000002-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', 'crlv', 2026, 'SP202622222222', '2026-03-05', 'GoMoto Bonze Locadora LTDA', '12345678000190', 'cnpj', true, NULL),
 ('d0000003-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '33333333-3333-3333-3333-333333333333', 'crlv', 2026, 'SP202633333333', '2026-01-22', 'GoMoto Bonze Locadora LTDA', '12345678000190', 'cnpj', true, NULL),
@@ -373,7 +373,7 @@ INSERT INTO vehicle_documents (id, tenant_id, motorcycle_id, type, exercise_year
 --   - moto 55: IPVA paid, licenciamento exempt (isenta por DETRAN nesse caso fictício).
 -- Inclui também 1 DPVAT 2026 paga para a moto 11 (exemplo extra-tipo).
 -- ============================================================
-INSERT INTO vehicle_obligations (id, tenant_id, motorcycle_id, type, reference_year, description, amount, due_date, status, paid_at, payment_method, payment_reference) VALUES
+INSERT INTO vehicle_obligations (id, tenant_id, vehicle_id, type, reference_year, description, amount, due_date, status, paid_at, payment_method, payment_reference) VALUES
 -- Moto 11
 ('b0000001-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'ipva',         2026, 'IPVA 2026 — cota única',         115.00, '2026-04-10', 'paid',    '2026-04-08', 'pix', 'TXN-IPVA-11'),
 ('b0000002-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'licensing',    2026, 'Licenciamento 2026',              98.91, '2026-09-30', 'pending', NULL,         NULL, NULL),
@@ -414,7 +414,7 @@ ON CONFLICT DO NOTHING;
 -- ============================================================
 -- SEED: rentals (2 locações ativas — Spec 0004)
 -- ============================================================
-INSERT INTO rentals (id, tenant_id, customer_id, motorcycle_id, contract_type, cycle, due_day, cycle_amount, use_pro_rata, start_date, end_date, status) VALUES
+INSERT INTO rentals (id, tenant_id, customer_id, vehicle_id, contract_type, cycle, due_day, cycle_amount, use_pro_rata, start_date, end_date, status) VALUES
 ('dddddddd-dddd-dddd-dddd-dddddddddddd', '00000000-0000-0000-0000-000000000001', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'rental',      'monthly', 10, 800.00, true, CURRENT_DATE - INTERVAL '2 months', CURRENT_DATE + INTERVAL '4 months', 'active'),
 ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '00000000-0000-0000-0000-000000000001', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'rent_to_own', 'monthly', 10, 900.00, true, CURRENT_DATE - INTERVAL '1 month',  CURRENT_DATE + INTERVAL '5 months', 'active');
 
@@ -446,7 +446,7 @@ INSERT INTO queue_entries (tenant_id, customer_id, position, notes) VALUES
 -- pra exercitar o snapshot de responsabilidade (PRD 0003 D4).
 -- ============================================================
 INSERT INTO maintenances (
-    tenant_id, motorcycle_id, type, description,
+    tenant_id, vehicle_id, type, description,
     predicted_km, scheduled_date,
     actual_km, completed_date, completed, cost,
     workshop, effective_executor, effective_customer_payer_pct
@@ -482,7 +482,7 @@ INSERT INTO maintenances (
 -- (Em produção, a migration 20260702100001 faz isso automaticamente
 --  antes do deploy. Aqui é necessário porque o seed roda depois das migrations.)
 -- ============================================================
-INSERT INTO vehicle_status_history (motorcycle_id, tenant_id, previous_status, new_status, changed_by, created_at)
+INSERT INTO vehicle_status_history (vehicle_id, tenant_id, previous_status, new_status, changed_by, created_at)
 SELECT id, tenant_id, NULL, status, NULL, created_at
-FROM motorcycles
+FROM vehicles
 ON CONFLICT DO NOTHING;

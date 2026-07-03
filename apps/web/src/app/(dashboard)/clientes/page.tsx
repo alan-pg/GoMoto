@@ -249,7 +249,7 @@ export default function ClientesPage() {
    * @function fetchCustomers
    * @description Busca clientes e contratos ativos em paralelo via Promise.all.
    * - Clientes: todos com in_queue = false, ordenados por nome.
-   * - Contratos: apenas os ativos, com join na tabela motorcycles (placa e modelo).
+   * - Contratos: apenas os ativos, com join na tabela vehicles (placa e modelo).
    * O mapa resultante de contratos permite O(1) lookup na renderização da tabela.
    */
   const fetchCustomers = async () => {
@@ -264,7 +264,7 @@ export default function ClientesPage() {
         .order('name', { ascending: true }),
       supabase
         .from('rentals')
-        .select('customer_id, motorcycles(license_plate, model)')
+        .select('customer_id, vehicles(license_plate, model)')
         .eq('status', 'active'),
     ])
 
@@ -279,9 +279,9 @@ export default function ClientesPage() {
       const map = new Map<string, ContractInfo>()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       contractsResult.data.forEach((contract: any) => {
-        const moto = Array.isArray(contract.motorcycles)
-          ? contract.motorcycles[0]
-          : contract.motorcycles
+        const moto = Array.isArray(contract.vehicles)
+          ? contract.vehicles[0]
+          : contract.vehicles
         if (moto) {
           map.set(contract.customer_id, {
             license_plate: moto.license_plate,

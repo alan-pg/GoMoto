@@ -13,7 +13,7 @@ import {
   useCustomers,
   useMaintenances,
   useMaintenanceRecordsByStatus,
-  useMotorcycles,
+  useVehicles,
   useReviewMaintenanceRecord,
   useUpdateMaintenance,
   useSupabaseContext,
@@ -22,7 +22,7 @@ import type {
   Customer,
   Maintenance,
   MaintenanceRecord,
-  Motorcycle,
+  Vehicle,
 } from '@gomoto/core'
 
 import { Header } from '@/components/layout/Header'
@@ -45,7 +45,7 @@ function fmtKm(km: number | null | undefined): string {
 export default function AprovacoesPage() {
   const recordsQuery = useMaintenanceRecordsByStatus('pending')
   const customersQuery = useCustomers()
-  const motorcyclesQuery = useMotorcycles()
+  const vehiclesQuery = useVehicles()
   const maintenancesQuery = useMaintenances()
   const supabase = useSupabaseContext()
 
@@ -61,11 +61,11 @@ export default function AprovacoesPage() {
     return m
   }, [customersQuery.data])
 
-  const motorcyclesById = useMemo(() => {
-    const m = new Map<string, Motorcycle>()
-    for (const x of motorcyclesQuery.data ?? []) m.set(x.id, x)
+  const vehiclesById = useMemo(() => {
+    const m = new Map<string, Vehicle>()
+    for (const x of vehiclesQuery.data ?? []) m.set(x.id, x)
     return m
-  }, [motorcyclesQuery.data])
+  }, [vehiclesQuery.data])
 
   const maintenancesById = useMemo(() => {
     const m = new Map<string, Maintenance>()
@@ -76,7 +76,7 @@ export default function AprovacoesPage() {
   const loading =
     recordsQuery.isLoading ||
     customersQuery.isLoading ||
-    motorcyclesQuery.isLoading ||
+    vehiclesQuery.isLoading ||
     maintenancesQuery.isLoading
 
   const records = recordsQuery.data ?? []
@@ -164,7 +164,7 @@ export default function AprovacoesPage() {
                 key={record.id}
                 record={record}
                 customer={customersById.get(record.customer_id)}
-                motorcycle={motorcyclesById.get(record.motorcycle_id)}
+                vehicle={vehiclesById.get(record.vehicle_id)}
                 maintenance={record.maintenance_id ? maintenancesById.get(record.maintenance_id) : undefined}
                 onApprove={() => setApproving(record)}
                 onReject={() => setRejecting(record)}
@@ -203,14 +203,14 @@ function EmptyState() {
 function RecordCard({
   record,
   customer,
-  motorcycle,
+  vehicle,
   maintenance,
   onApprove,
   onReject,
 }: {
   record: MaintenanceRecord
   customer?: Customer
-  motorcycle?: Motorcycle
+  vehicle?: Vehicle
   maintenance?: Maintenance
   onApprove: () => void
   onReject: () => void
@@ -227,7 +227,7 @@ function RecordCard({
             {' · '}
             {customer?.name ?? '—'}
             {' · '}
-            {motorcycle ? `${motorcycle.license_plate} ${motorcycle.make ?? ''} ${motorcycle.model ?? ''}` : 'Moto não identificada'}
+            {vehicle ? `${vehicle.license_plate} ${vehicle.make ?? ''} ${vehicle.model ?? ''}` : 'Moto não identificada'}
           </p>
         </div>
         <span className="bg-[#5e3a00] text-[#ffba49] text-[11px] font-medium px-2 py-1 rounded-full whitespace-nowrap">

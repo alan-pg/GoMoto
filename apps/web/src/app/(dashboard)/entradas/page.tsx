@@ -30,7 +30,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { Income } from '@gomoto/core';
 
 // Camada de dados compartilhada (@gomoto/data) + Server Actions (façade de auditoria)
-import { useIncomes, useMotorcycles, useSupabaseContext } from '@gomoto/data';
+import { useIncomes, useVehicles, useSupabaseContext } from '@gomoto/data';
 import { createIncome, updateIncome, deleteIncome } from './actions';
 
 // Utilitários
@@ -44,10 +44,10 @@ import { Modal } from '@/components/ui/Modal';
 // --- INTERFACES LOCAIS ---
 
 /**
- * @interface Motorcycle
+ * @interface Vehicle
  * @description Estrutura simplificada de motocicleta usada no autocomplete de placas e seleção.
  */
-interface Motorcycle {
+interface Vehicle {
   id: string;
   license_plate: string;
   model: string;
@@ -120,12 +120,12 @@ export default function EntradasPage() {
 
   // --- Camada de dados compartilhada ---
   const incomesQuery = useIncomes();
-  const motorcyclesQuery = useMotorcycles();
+  const vehiclesQuery = useVehicles();
 
   const allIncomes = useMemo(() => (incomesQuery.data ?? []) as Income[], [incomesQuery.data]);
-  const motorcycles = useMemo<Motorcycle[]>(
+  const vehicles = useMemo<Vehicle[]>(
     () =>
-      (motorcyclesQuery.data ?? [])
+      (vehiclesQuery.data ?? [])
         .map((m) => ({
           id: m.id,
           license_plate: m.license_plate,
@@ -133,10 +133,10 @@ export default function EntradasPage() {
           make: m.make,
         }))
         .sort((a, b) => a.license_plate.localeCompare(b.license_plate)),
-    [motorcyclesQuery.data],
+    [vehiclesQuery.data],
   );
 
-  const loading = incomesQuery.isLoading || motorcyclesQuery.isLoading;
+  const loading = incomesQuery.isLoading || vehiclesQuery.isLoading;
   const invalidateIncomes = useCallback(
     () => queryClient.invalidateQueries({ queryKey: ['incomes'] }),
     [queryClient],
@@ -161,7 +161,7 @@ export default function EntradasPage() {
    * @type {string}
    * @description Armazena o filtro de placa de motocicleta selecionado.
    */
-  const [motorcycleFilter, setMotorcycleFilter] = useState<string>('');
+  const [vehicleFilter, setVehicleFilter] = useState<string>('');
   /**
    * @type {string}
    * @description Armazena o mês e ano selecionados para filtrar as entradas.
@@ -221,14 +221,14 @@ export default function EntradasPage() {
   // --- OPÇÕES DO SELECT DE MOTOCICLETA ---
 
   /**
-   * @constant motorcycleSelectOptions
+   * @constant vehicleSelectOptions
    * @description Opções formatadas para o componente Select de placa de motocicleta,
    *              incluindo placa, marca e modelo para fácil identificação.
    */
-  const motorcycleSelectOptions = useMemo(() => [
+  const vehicleSelectOptions = useMemo(() => [
     { value: '', label: 'Selecione uma moto...' },
-    ...motorcycles.map(m => ({ value: m.license_plate, label: `${m.license_plate} — ${m.make} ${m.model}` })),
-  ], [motorcycles]);
+    ...vehicles.map(m => ({ value: m.license_plate, label: `${m.license_plate} — ${m.make} ${m.model}` })),
+  ], [vehicles]);
 
   // --- BUSCA AUTOMÁTICA DE LOCATÁRIO ---
 
@@ -242,14 +242,14 @@ export default function EntradasPage() {
   const lookupLessee = useCallback(async (plate: string, date: string): Promise<void> => {
     if (!plate || !date) return;
 
-    const selectedMotorcycle = motorcycles.find(m => m.license_plate === plate);
-    if (!selectedMotorcycle) return;
+    const selectedVehicle = vehicles.find(m => m.license_plate === plate);
+    if (!selectedVehicle) return;
 
     try {
       const { data, error } = await supabase
         .from('rentals')
         .select('customers(name)')
-        .eq('motorcycle_id', selectedMotorcycle.id)
+        .eq('vehicle_id', selectedVehicle.id)
         .lte('start_date', date)
         .or(`end_date.is.null,end_date.gte.${date}`)
         .order('start_date', { ascending: false })
@@ -267,7 +267,7 @@ export default function EntradasPage() {
       }
     } catch {
     }
-  }, [motorcycles, supabase]);
+  }, [vehicles, supabase]);
 
   // --- CÁLCULOS E FILTRAGEM ---
 
@@ -284,10 +284,10 @@ export default function EntradasPage() {
         income.reference?.toLowerCase().includes(lowerQuery)
       );
       const matchesReference = !referenceFilter || income.reference === referenceFilter;
-      const matchesMotorcycle = !motorcycleFilter || income.vehicle === motorcycleFilter;
-      return matchesSearch && matchesReference && matchesMotorcycle;
+      const matchesVehicle = !vehicleFilter || income.vehicle === vehicleFilter;
+      return matchesSearch && matchesReference && matchesVehicle;
     });
-  }, [incomes, searchQuery, referenceFilter, motorcycleFilter]);
+  }, [incomes, searchQuery, referenceFilter, vehicleFilter]);
 
   // --- ACCORDION ---
 
@@ -579,12 +579,12 @@ export default function EntradasPage() {
           {/* Filtros secundários */}
           <div className="flex items-center gap-2 flex-wrap">
             <select
-              value={motorcycleFilter}
-              onChange={(e) => setMotorcycleFilter(e.target.value)}
+              value={vehicleFilter}
+              onChange={(e) => setVehicleFilter(e.target.value)}
               className="h-10 rounded-lg border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
             >
               <option value="">Todas as motos</option>
-              {motorcycles.map((m) => (
+              {vehicles.map((m) => (
                 <option key={m.id} value={m.license_plate} className="bg-[#202020]">
                   {m.license_plate} — {m.make} {m.model}
                 </option>
@@ -789,7 +789,7 @@ export default function EntradasPage() {
               setFormData(prev => ({ ...prev, vehicle: plate }));
               if (plate && formData.date) await lookupLessee(plate, formData.date);
             }}
-            options={motorcycleSelectOptions}
+            options={vehicleSelectOptions}
             error={formErrors.vehicle}
           />
 

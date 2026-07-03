@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import {
-  MotorcycleSchema,
+  VehicleSchema,
   VehicleStatusTransitionSchema,
   type VehicleStatus,
   type VehiclePhotoSlot,
@@ -34,7 +34,7 @@ export async function createVehicle(
     return { ok: false, error: { code: 'FORBIDDEN', message: 'Tenant não resolvido' } }
   }
 
-  const parsed = MotorcycleSchema.safeParse(input)
+  const parsed = VehicleSchema.safeParse(input)
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0]
     return {
@@ -47,8 +47,8 @@ export async function createVehicle(
     }
   }
 
-  const { data: moto, error: insertError } = await supabase
-    .from('motorcycles')
+  const { data: vehicle, error: insertError } = await supabase
+    .from('vehicles')
     .insert({ ...parsed.data, tenant_id: tenantId })
     .select()
     .single()
@@ -65,7 +65,7 @@ export async function createVehicle(
 
   try {
     await recordStatusTransition(supabase, {
-      motorcycleId:   moto.id,
+      vehicleId:      vehicle.id,
       tenantId,
       previousStatus: null,
       newStatus:      moto.status as VehicleStatus,
@@ -73,7 +73,7 @@ export async function createVehicle(
     })
   } catch {
     // Falha no histórico não deve bloquear o cadastro já criado — logar e continuar
-    console.error('[createVehicle] recordStatusTransition failed for', moto.id)
+    console.error('[createVehicle] recordStatusTransition failed for', vehicle.id)
   }
 
   const failedSlots: VehiclePhotoSlot[] = []
@@ -83,31 +83,31 @@ export async function createVehicle(
         .filter(([, url]) => !!url)
         .map(async ([slot, url]) => {
           const { error } = await supabase.from('vehicle_photos').upsert({
-            motorcycle_id: moto.id,
-            tenant_id:     tenantId,
+            vehicle_id: vehicle.id,
+            tenant_id:  tenantId,
             slot,
             url,
-          }, { onConflict: 'motorcycle_id,slot' })
+          }, { onConflict: 'vehicle_id,slot' })
           if (error) {
-            console.error('[createVehicle] photo upsert failed', { motorcycleId: moto.id, slot })
+            console.error('[createVehicle] photo upsert failed', { vehicleId: vehicle.id, slot })
             failedSlots.push(slot)
           }
         }),
     )
   }
 
-  await logAction({ action: 'create', table: 'motorcycles', recordId: moto.id, newData: moto })
-  revalidatePath('/motos')
-  revalidatePath(`/motos/${moto.id}`)
+  await logAction({ action: 'create', table: 'vehicles', recordId: vehicle.id, newData: vehicle })
+  revalidatePath('/veiculos')
+  revalidatePath(`/veiculos/${vehicle.id}`)
 
   return {
     ok: true,
-    data: { id: moto.id, ...(failedSlots.length > 0 ? { failedSlots } : {}) },
+    data: { id: vehicle.id, ...(failedSlots.length > 0 ? { failedSlots } : {}) },
   }
 }
 
 export async function updateVehicle(
-  motorcycleId: string,
+  vehicleId: string,
   input: unknown,
   photos?: Partial<Record<VehiclePhotoSlot, string | null>>,
 ): Promise<ActionResult<{ id: string; failedSlots?: VehiclePhotoSlot[] }>> {
@@ -121,16 +121,16 @@ export async function updateVehicle(
   }
 
   const { data: current, error: fetchError } = await supabase
-    .from('motorcycles')
+    .from('vehicles')
     .select('id, status, km_entry')
-    .eq('id', motorcycleId)
+    .eq('id', vehicleId)
     .single()
 
   if (fetchError || !current) {
     return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Veículo não encontrado', field: 'id' } }
   }
 
-  const parsed = MotorcycleSchema.partial().safeParse(input)
+  const parsed = VehicleSchema.partial().safeParse(input)
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0]
     return {
@@ -154,10 +154,10 @@ export async function updateVehicle(
   const previousStatus = current.status as VehicleStatus
   const newStatus = updateData.status as VehicleStatus | undefined
 
-  const { data: updatedMoto, error: updateError } = await supabase
-    .from('motorcycles')
+  const { data: updatedVehicle, error: updateError } = await supabase
+    .from('vehicles')
     .update(updateData)
-    .eq('id', motorcycleId)
+    .eq('id', vehicleId)
     .select()
     .single()
 
@@ -167,7 +167,7 @@ export async function updateVehicle(
 
   if (newStatus && newStatus !== previousStatus) {
     await recordStatusTransition(supabase, {
-      motorcycleId,
+      vehicleId,
       tenantId,
       previousStatus,
       newStatus,
@@ -184,7 +184,7 @@ export async function updateVehicle(
           const { data: existing } = await supabase
             .from('vehicle_photos')
             .select('url')
-            .eq('motorcycle_id', motorcycleId)
+            .eq('vehicle_id', vehicleId)
             .eq('slot', slot)
             .maybeSingle()
 
@@ -194,17 +194,17 @@ export async function updateVehicle(
           await supabase
             .from('vehicle_photos')
             .delete()
-            .eq('motorcycle_id', motorcycleId)
+            .eq('vehicle_id', vehicleId)
             .eq('slot', slot)
         } else if (url) {
           const { error } = await supabase.from('vehicle_photos').upsert({
-            motorcycle_id: motorcycleId,
-            tenant_id:     tenantId,
+            vehicle_id: vehicleId,
+            tenant_id:  tenantId,
             slot,
             url,
-          }, { onConflict: 'motorcycle_id,slot' })
+          }, { onConflict: 'vehicle_id,slot' })
           if (error) {
-            console.error('[updateVehicle] photo upsert failed', { motorcycleId, slot })
+            console.error('[updateVehicle] photo upsert failed', { vehicleId, slot })
             failedSlots.push(slot)
           }
         }
@@ -214,22 +214,22 @@ export async function updateVehicle(
 
   await logAction({
     action: 'update',
-    table: 'motorcycles',
-    recordId: motorcycleId,
+    table: 'vehicles',
+    recordId: vehicleId,
     oldData: current,
-    newData: updatedMoto,
+    newData: updatedVehicle,
   })
-  revalidatePath('/motos')
-  revalidatePath(`/motos/${motorcycleId}`)
+  revalidatePath('/veiculos')
+  revalidatePath(`/veiculos/${vehicleId}`)
 
   return {
     ok: true,
-    data: { id: motorcycleId, ...(failedSlots.length > 0 ? { failedSlots } : {}) },
+    data: { id: vehicleId, ...(failedSlots.length > 0 ? { failedSlots } : {}) },
   }
 }
 
 export async function changeVehicleStatus(
-  motorcycleId: string,
+  vehicleId: string,
   input: unknown,
 ): Promise<ActionResult<{ id: string }>> {
   const { supabase, user, tenantId } = await getAuthenticatedContext()
@@ -256,17 +256,17 @@ export async function changeVehicleStatus(
     }
   }
 
-  const { data: moto, error: fetchError } = await supabase
-    .from('motorcycles')
+  const { data: vehicle, error: fetchError } = await supabase
+    .from('vehicles')
     .select('id, status')
-    .eq('id', motorcycleId)
+    .eq('id', vehicleId)
     .single()
 
-  if (fetchError || !moto) {
+  if (fetchError || !vehicle) {
     return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Veículo não encontrado', field: 'id' } }
   }
 
-  const currentStatus = moto.status as VehicleStatus
+  const currentStatus = vehicle.status as VehicleStatus
 
   if (!canChangeStatus(currentStatus, newStatus)) {
     return {
@@ -279,16 +279,16 @@ export async function changeVehicleStatus(
   }
 
   const { error: updateError } = await supabase
-    .from('motorcycles')
+    .from('vehicles')
     .update({ status: newStatus })
-    .eq('id', motorcycleId)
+    .eq('id', vehicleId)
 
   if (updateError) {
     return { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Erro ao atualizar status' } }
   }
 
   await recordStatusTransition(supabase, {
-    motorcycleId,
+    vehicleId,
     tenantId,
     previousStatus: currentStatus,
     newStatus,
@@ -297,20 +297,20 @@ export async function changeVehicleStatus(
 
   await logAction({
     action: 'update',
-    table: 'motorcycles',
-    recordId: motorcycleId,
+    table: 'vehicles',
+    recordId: vehicleId,
     oldData: { status: currentStatus },
     newData: { status: newStatus },
   })
 
-  revalidatePath('/motos')
-  revalidatePath(`/motos/${motorcycleId}`)
+  revalidatePath('/veiculos')
+  revalidatePath(`/veiculos/${vehicleId}`)
 
-  return { ok: true, data: { id: motorcycleId } }
+  return { ok: true, data: { id: vehicleId } }
 }
 
 export async function deleteVehiclePhoto(
-  motorcycleId: string,
+  vehicleId: string,
   slot: VehiclePhotoSlot,
 ): Promise<ActionResult<void>> {
   const { supabase, user } = await getAuthenticatedContext()
@@ -322,7 +322,7 @@ export async function deleteVehiclePhoto(
   const { data: photo } = await supabase
     .from('vehicle_photos')
     .select('url')
-    .eq('motorcycle_id', motorcycleId)
+    .eq('vehicle_id', vehicleId)
     .eq('slot', slot)
     .maybeSingle()
 
@@ -333,17 +333,17 @@ export async function deleteVehiclePhoto(
   const { error } = await supabase
     .from('vehicle_photos')
     .delete()
-    .eq('motorcycle_id', motorcycleId)
+    .eq('vehicle_id', vehicleId)
     .eq('slot', slot)
 
   if (error) {
     return { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Erro ao remover foto' } }
   }
 
-  await logAction({ action: 'delete', table: 'vehicle_photos', recordId: motorcycleId })
+  await logAction({ action: 'delete', table: 'vehicle_photos', recordId: vehicleId })
 
-  revalidatePath(`/motos/${motorcycleId}`)
-  revalidatePath('/motos')
+  revalidatePath(`/veiculos/${vehicleId}`)
+  revalidatePath('/veiculos')
 
   return { ok: true, data: undefined }
 }

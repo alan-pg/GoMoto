@@ -296,9 +296,9 @@ export async function createMaintenancePlanItem(rawData: unknown) {
   // por moto usando KM 0 como referência (predicted_km = interval_km) e/ou
   // data atual + interval_days. O operador reagenda manualmente na flat list
   // de /manutencao quando souber a última realizada — daí o aviso explícito
-  // na observation. Dedup por (motorcycle_id, description, completed=false)
+  // na observation. Dedup por (vehicle_id, description, completed=false)
   // garante idempotência se a action for chamada duas vezes.
-  const propagated = await propagateNewItemToMotorcycles(supabase, tenantId, {
+  const propagated = await propagateNewItemToVehicles(supabase, tenantId, {
     plan_id: parsed.data.plan_id,
     name: parsed.data.name,
     interval_km: parsed.data.interval_km ?? null,
@@ -317,13 +317,13 @@ type PropagateInput = {
   interval_days: number | null
 }
 
-async function propagateNewItemToMotorcycles(
+async function propagateNewItemToVehicles(
   supabase: Awaited<ReturnType<typeof createServerClient>>,
   tenantId: string,
   item: PropagateInput,
 ): Promise<number> {
   const { data: motos } = await supabase
-    .from('motorcycles')
+    .from('vehicles')
     .select('id')
     .eq('tenant_id', tenantId)
     .eq('maintenance_plan_id', item.plan_id)
@@ -337,12 +337,12 @@ async function propagateNewItemToMotorcycles(
   // mesma propagação).
   const { data: existing } = await supabase
     .from('maintenances')
-    .select('motorcycle_id')
-    .in('motorcycle_id', motoIds)
+    .select('vehicle_id')
+    .in('vehicle_id', motoIds)
     .eq('description', item.name)
     .eq('completed', false)
 
-  const skip = new Set((existing ?? []).map((m) => m.motorcycle_id))
+  const skip = new Set((existing ?? []).map((m) => m.vehicle_id))
   const targets = motoIds.filter((id) => !skip.has(id))
   if (targets.length === 0) return 0
 
@@ -355,7 +355,7 @@ async function propagateNewItemToMotorcycles(
 
   const rows = targets.map((motoId) => ({
     tenant_id: tenantId,
-    motorcycle_id: motoId,
+    vehicle_id: motoId,
     type: 'preventive' as const,
     description: item.name,
     predicted_km: item.interval_km ?? null,

@@ -4,20 +4,20 @@ import type { Maintenance } from '@gomoto/core'
 export async function listMaintenances(client: SupabaseClient): Promise<Maintenance[]> {
   const { data, error } = await client
     .from('maintenances')
-    .select('*, motorcycle:motorcycles(*)')
+    .select('*, vehicle:vehicles(*)')
     .order('created_at', { ascending: false })
   if (error) throw error
   return (data ?? []) as Maintenance[]
 }
 
-export async function listMaintenancesByMotorcycle(
+export async function listMaintenancesByVehicle(
   client: SupabaseClient,
-  motorcycleId: string,
+  vehicleId: string,
 ): Promise<Maintenance[]> {
   const { data, error } = await client
     .from('maintenances')
     .select('*')
-    .eq('motorcycle_id', motorcycleId)
+    .eq('vehicle_id', vehicleId)
     .order('created_at', { ascending: false })
   if (error) throw error
   return (data ?? []) as Maintenance[]
@@ -25,7 +25,7 @@ export async function listMaintenancesByMotorcycle(
 
 export async function createMaintenance(
   client: SupabaseClient,
-  payload: Omit<Maintenance, 'id' | 'created_at' | 'updated_at' | 'motorcycle'>,
+  payload: Omit<Maintenance, 'id' | 'created_at' | 'updated_at' | 'vehicle'>,
 ): Promise<Maintenance> {
   const { data, error } = await client.from('maintenances').insert(payload).select().single()
   if (error) throw error
@@ -35,7 +35,7 @@ export async function createMaintenance(
 export async function updateMaintenance(
   client: SupabaseClient,
   id: string,
-  payload: Partial<Omit<Maintenance, 'id' | 'created_at' | 'updated_at' | 'motorcycle'>>,
+  payload: Partial<Omit<Maintenance, 'id' | 'created_at' | 'updated_at' | 'vehicle'>>,
 ): Promise<Maintenance> {
   const { data, error } = await client
     .from('maintenances')

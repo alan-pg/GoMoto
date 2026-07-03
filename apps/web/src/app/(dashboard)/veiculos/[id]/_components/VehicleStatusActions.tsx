@@ -6,7 +6,7 @@ import { VEHICLE_STATUS_LABELS, type VehicleStatus } from '@gomoto/core'
 import { changeVehicleStatus } from '../../actions'
 
 interface Props {
-  motorcycleId: string
+  vehicleId: string
   currentStatus: VehicleStatus
   selectableStatuses: VehicleStatus[]
 }
@@ -28,7 +28,7 @@ const CONFIRM_MESSAGES: Partial<Record<VehicleStatus, string>> = {
   inactive: 'Tem certeza que deseja Desativar este veículo? Ele não aparecerá mais nos filtros padrão.',
 }
 
-export default function VehicleStatusActions({ motorcycleId, currentStatus, selectableStatuses }: Props) {
+export default function VehicleStatusActions({ vehicleId, currentStatus, selectableStatuses }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [confirmStatus, setConfirmStatus] = useState<VehicleStatus | null>(null)
@@ -47,8 +47,8 @@ export default function VehicleStatusActions({ motorcycleId, currentStatus, sele
     setError(null)
     setConfirmStatus(null)
     startTransition(async () => {
-      const result = await changeVehicleStatus(motorcycleId, {
-        motorcycle_id: motorcycleId,
+      const result = await changeVehicleStatus(vehicleId, {
+        vehicle_id: vehicleId,
         new_status: status,
       })
       if (result.ok) {

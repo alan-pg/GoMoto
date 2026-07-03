@@ -396,12 +396,12 @@ export function BillingsScreen() {
     const map = new Map<string, RentalGroup>()
 
     for (const b of billings) {
-      const rentalObj = b.rentals as { id: string; motorcycle?: { license_plate?: string; model?: string; make?: string } } | null
+      const rentalObj = b.rentals as { id: string; vehicles?: { license_plate?: string; model?: string; make?: string } } | null
       const leaseId     = rentalObj?.id ?? 'unknown'
-      const motorcycle  = rentalObj?.motorcycle
-      const plate       = motorcycle?.license_plate ?? '—'
-      const model       = motorcycle?.model ?? '—'
-      const make        = motorcycle?.make ?? ''
+      const vehicle     = rentalObj?.vehicles
+      const plate       = vehicle?.license_plate ?? '—'
+      const model       = vehicle?.model ?? '—'
+      const make        = vehicle?.make ?? ''
 
       if (!map.has(leaseId)) {
         map.set(leaseId, { leaseId, licensePlate: plate, model, make, billings: [] })

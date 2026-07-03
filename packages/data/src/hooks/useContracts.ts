@@ -28,7 +28,7 @@ export function useCreateContract() {
     mutationFn: (
       payload: Omit<
         Contract,
-        'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'customer' | 'motorcycle'
+        'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'customer' | 'vehicle'
       >,
     ) => createContract(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
@@ -45,7 +45,7 @@ export function useUpdateContract() {
     }: {
       id: string
       payload: Partial<
-        Omit<Contract, 'id' | 'created_at' | 'updated_at' | 'customer' | 'motorcycle'>
+        Omit<Contract, 'id' | 'created_at' | 'updated_at' | 'customer' | 'vehicle'>
       >
     }) => updateContract(supabase, id, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),

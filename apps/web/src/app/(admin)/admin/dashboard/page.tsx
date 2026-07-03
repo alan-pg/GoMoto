@@ -16,7 +16,7 @@ type TenantRow = {
 type TenantRollup = TenantRow & {
   customers: number
   contracts_active: number
-  motorcycles: number
+  vehicles: number
 }
 
 async function loadDashboard() {
@@ -26,14 +26,14 @@ async function loadDashboard() {
   // platform_admin_bypass_* deixa esses counts cruzarem o universo todo.
   // Cinco queries paralelas porque PostgREST não suporta GROUP BY agregado
   // direto; em 100+ tenants, migrar para uma view materializada.
-  const [tenantsRes, customersRes, contractsRes, motorcyclesRes] = await Promise.all([
+  const [tenantsRes, customersRes, contractsRes, vehiclesRes] = await Promise.all([
     supabase
       .from('tenants')
       .select('id, name, slug, suspended_at')
       .order('name', { ascending: true }),
     supabase.from('customers').select('tenant_id'),
     supabase.from('rentals').select('tenant_id').eq('status', 'active'),
-    supabase.from('motorcycles').select('tenant_id'),
+    supabase.from('vehicles').select('tenant_id'),
   ])
 
   const tenants = (tenantsRes.data ?? []) as TenantRow[]
@@ -47,13 +47,13 @@ async function loadDashboard() {
 
   const customersByTenant = tally(customersRes.data)
   const contractsByTenant = tally(contractsRes.data)
-  const motorcyclesByTenant = tally(motorcyclesRes.data)
+  const vehiclesByTenant = tally(vehiclesRes.data)
 
   const rollups: TenantRollup[] = tenants.map((t) => ({
     ...t,
     customers: customersByTenant.get(t.id) ?? 0,
     contracts_active: contractsByTenant.get(t.id) ?? 0,
-    motorcycles: motorcyclesByTenant.get(t.id) ?? 0,
+    vehicles: vehiclesByTenant.get(t.id) ?? 0,
   }))
 
   const kpis = {
@@ -61,7 +61,7 @@ async function loadDashboard() {
     tenants_suspended: tenants.filter((t) => !!t.suspended_at).length,
     customers_total: customersRes.data?.length ?? 0,
     contracts_active: contractsRes.data?.length ?? 0,
-    motorcycles_total: motorcyclesRes.data?.length ?? 0,
+    vehicles_total: vehiclesRes.data?.length ?? 0,
   }
 
   return { rollups, kpis }
@@ -99,7 +99,7 @@ export default async function AdminDashboardPage() {
         <KpiCard
           icon={<Bike className="w-5 h-5 text-[#BAFF1A]" />}
           label="Motos cadastradas"
-          value={kpis.motorcycles_total}
+          value={kpis.vehicles_total}
         />
       </section>
 
@@ -144,7 +144,7 @@ export default async function AdminDashboardPage() {
                       {row.contracts_active}
                     </td>
                     <td className="px-4 py-3 text-right text-[#f5f5f5] text-[14px]">
-                      {row.motorcycles}
+                      {row.vehicles}
                     </td>
                   </tr>
                 ))

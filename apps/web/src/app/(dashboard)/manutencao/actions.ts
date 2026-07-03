@@ -40,7 +40,7 @@ async function getAuthenticatedUser() {
 const UUID_LOOSE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const MaintenanceSchema = z.object({
-  motorcycle_id: z.string().regex(UUID_LOOSE),
+  vehicle_id: z.string().regex(UUID_LOOSE),
   type: z.enum(['preventive', 'corrective', 'inspection']),
   description: z.string().max(300).optional().nullable(),
   predicted_km: z.number().int().min(0).optional().nullable(),
@@ -119,24 +119,24 @@ export async function deleteMaintenance(id: string) {
   return { success: true }
 }
 
-export async function updateMotorcycleKm(motorcycleId: string, kmCurrent: number) {
+export async function updateVehicleKm(vehicleId: string, kmCurrent: number) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
 
   if (!Number.isInteger(kmCurrent) || kmCurrent < 0) return { error: 'Quilometragem inválida' }
 
-  const { data: before } = await supabase.from('motorcycles').select('km_current').eq('id', motorcycleId).single()
+  const { data: before } = await supabase.from('vehicles').select('km_current').eq('id', vehicleId).single()
 
   const { data, error } = await supabase
-    .from('motorcycles')
+    .from('vehicles')
     .update({ km_current: kmCurrent })
-    .eq('id', motorcycleId)
+    .eq('id', vehicleId)
     .select()
     .single()
 
   if (error) return { error: 'Erro ao atualizar quilometragem' }
 
-  await logAction({ action: 'update', table: 'motorcycles', recordId: motorcycleId, oldData: before, newData: { km_current: kmCurrent } })
+  await logAction({ action: 'update', table: 'vehicles', recordId: vehicleId, oldData: before, newData: { km_current: kmCurrent } })
   revalidatePath('/manutencao')
   return { data }
 }

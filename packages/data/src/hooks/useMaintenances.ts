@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSupabaseContext, useRequiredTenantId } from '../context'
 import {
   listMaintenances,
-  listMaintenancesByMotorcycle,
+  listMaintenancesByVehicle,
   createMaintenance,
   updateMaintenance,
   deleteMaintenance,
@@ -16,12 +16,12 @@ export function useMaintenances() {
   return useQuery({ queryKey: [KEY], queryFn: () => listMaintenances(supabase) })
 }
 
-export function useMaintenancesByMotorcycle(motorcycleId: string) {
+export function useMaintenancesByVehicle(vehicleId: string) {
   const supabase = useSupabaseContext()
   return useQuery({
-    queryKey: [KEY, 'motorcycle', motorcycleId],
-    queryFn: () => listMaintenancesByMotorcycle(supabase, motorcycleId),
-    enabled: !!motorcycleId,
+    queryKey: [KEY, 'vehicle', vehicleId],
+    queryFn: () => listMaintenancesByVehicle(supabase, vehicleId),
+    enabled: !!vehicleId,
   })
 }
 
@@ -31,7 +31,7 @@ export function useCreateMaintenance() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (
-      payload: Omit<Maintenance, 'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'motorcycle'>,
+      payload: Omit<Maintenance, 'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'vehicle'>,
     ) => createMaintenance(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   })
@@ -46,7 +46,7 @@ export function useUpdateMaintenance() {
       payload,
     }: {
       id: string
-      payload: Partial<Omit<Maintenance, 'id' | 'created_at' | 'updated_at' | 'motorcycle'>>
+      payload: Partial<Omit<Maintenance, 'id' | 'created_at' | 'updated_at' | 'vehicle'>>
     }) => updateMaintenance(supabase, id, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   })

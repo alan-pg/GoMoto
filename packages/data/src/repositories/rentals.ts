@@ -11,7 +11,7 @@ export async function listRentals(
 ): Promise<Rental[]> {
   let q = client
     .from('rentals')
-    .select('*, customer:customers(*), motorcycle:motorcycles(*)')
+    .select('*, customer:customers(*), vehicle:vehicles(*)')
     .order('created_at', { ascending: false })
 
   if (filter?.status) {
@@ -30,7 +30,7 @@ export async function listActiveRentals(client: SupabaseClient): Promise<Rental[
 export async function getRental(client: SupabaseClient, id: string): Promise<Rental> {
   const { data, error } = await client
     .from('rentals')
-    .select('*, customer:customers(*), motorcycle:motorcycles(*)')
+    .select('*, customer:customers(*), vehicle:vehicles(*)')
     .eq('id', id)
     .single()
   if (error) throw error
@@ -39,7 +39,7 @@ export async function getRental(client: SupabaseClient, id: string): Promise<Ren
 
 export async function createRentalRecord(
   client: SupabaseClient,
-  payload: Omit<Rental, 'id' | 'created_at' | 'updated_at' | 'customer' | 'motorcycle'>,
+  payload: Omit<Rental, 'id' | 'created_at' | 'updated_at' | 'customer' | 'vehicle'>,
 ): Promise<Rental> {
   const { data, error } = await client.from('rentals').insert(payload).select().single()
   if (error) throw error
@@ -49,7 +49,7 @@ export async function createRentalRecord(
 export async function updateRentalRecord(
   client: SupabaseClient,
   id: string,
-  payload: Partial<Omit<Rental, 'id' | 'created_at' | 'updated_at' | 'customer' | 'motorcycle'>>,
+  payload: Partial<Omit<Rental, 'id' | 'created_at' | 'updated_at' | 'customer' | 'vehicle'>>,
 ): Promise<Rental> {
   const { data, error } = await client
     .from('rentals')

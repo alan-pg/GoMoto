@@ -4,13 +4,13 @@ import { getModal, waitForPageLoad } from './helpers'
 const PLATE = `T${Date.now().toString().slice(-4)}E2E`.slice(0, 7).toUpperCase()
 const EDITED_MODEL = 'Fan 160 EDITADO'
 
-test.describe('Motocicletas — CRUD', () => {
-  test('criar via wizard, editar e excluir moto', async ({ page }) => {
-    await page.goto('/motos')
+test.describe('Veículos — CRUD', () => {
+  test('criar via wizard, editar e excluir veículo', async ({ page }) => {
+    await page.goto('/veiculos')
     await waitForPageLoad(page)
 
     // ── CREATE — Passo 1 ──────────────────────────────────────────────────────
-    await page.getByRole('button', { name: /nova moto/i }).click()
+    await page.getByRole('button', { name: /novo veículo/i }).click()
 
     const modal = getModal(page)
     await expect(modal).toBeVisible({ timeout: 10_000 })
@@ -39,8 +39,8 @@ test.describe('Motocicletas — CRUD', () => {
     await expect(page.getByText(PLATE)).toBeVisible({ timeout: 10_000 })
 
     // ── EDIT ──────────────────────────────────────────────────────────────────
-    const motoRow = page.locator('tr', { hasText: PLATE }).first()
-    await motoRow.getByTitle('Editar').click()
+    const vehicleRow = page.locator('tr', { hasText: PLATE }).first()
+    await vehicleRow.getByTitle('Editar').click()
 
     await expect(modal).toBeVisible()
 

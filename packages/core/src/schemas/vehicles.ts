@@ -29,7 +29,7 @@ const imeiSchema = z
   .optional()
   .nullable()
 
-export const MotorcycleSchema = z.object({
+export const VehicleSchema = z.object({
   license_plate:             z.string().trim().min(1, 'Placa é obrigatória').max(10),
   renavam:                   z.string().trim().min(1, 'RENAVAM é obrigatório').max(20),
   make:                      z.string().trim().min(1, 'Marca é obrigatória').max(100),
@@ -73,20 +73,20 @@ export const MotorcycleSchema = z.object({
 )
 
 export const VehicleStatusTransitionSchema = z.object({
-  motorcycle_id: z.string().uuid(),
-  new_status:    VehicleStatusEnum,
+  vehicle_id: z.string().uuid(),
+  new_status: VehicleStatusEnum,
 })
 
 export const VehiclePhotoUpsertSchema = z.object({
-  motorcycle_id: z.string().uuid(),
-  slot:          VehiclePhotoSlotEnum,
-  url:           z.string().url(),
+  vehicle_id: z.string().uuid(),
+  slot:       VehiclePhotoSlotEnum,
+  url:        z.string().url(),
 })
 
 export interface VehicleStatusHistoryEntry {
   id:              string
   tenant_id:       string
-  motorcycle_id:   string
+  vehicle_id:      string
   previous_status: VehicleStatus | null
   new_status:      VehicleStatus
   changed_by:      string | null
@@ -94,13 +94,13 @@ export interface VehicleStatusHistoryEntry {
 }
 
 export interface VehiclePhoto {
-  id:            string
-  tenant_id:     string
-  motorcycle_id: string
-  slot:          VehiclePhotoSlot
-  url:           string
-  created_at:    string
-  updated_at:    string
+  id:         string
+  tenant_id:  string
+  vehicle_id: string
+  slot:       VehiclePhotoSlot
+  url:        string
+  created_at: string
+  updated_at: string
 }
 
 export const VEHICLE_STATUS_LABELS: Record<VehicleStatus, string> = {

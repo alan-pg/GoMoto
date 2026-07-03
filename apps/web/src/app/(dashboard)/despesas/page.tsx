@@ -57,7 +57,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 
 // Camada de dados compartilhada (@gomoto/data) + Server Actions (façade de auditoria)
-import { useExpenses, useMotorcycles, useSupabaseContext } from '@gomoto/data'
+import { useExpenses, useVehicles, useSupabaseContext } from '@gomoto/data'
 import { createExpense, updateExpense, deleteExpense } from './actions'
 
 // Infraestrutura do projeto
@@ -66,7 +66,7 @@ import { Button }                    from '@/components/ui/Button'           // 
 import { Input, Select, Textarea }   from '@/components/ui/Input'            // Campos de formulário
 import { Modal }                     from '@/components/ui/Modal'            // Modal com backdrop
 import { formatCurrency, formatDate } from '@/lib/utils'                     // Formatadores de moeda e data
-import type { Expense, Motorcycle }  from '@gomoto/core'                          // Tipo da tabela `expenses`
+import type { Expense, Vehicle }  from '@gomoto/core'                          // Tipo da tabela `expenses`
 
 // ─── TIPOS ────────────────────────────────────────────────────────────────────
 
@@ -87,7 +87,7 @@ type ExpenseFormData = {
   observations: string   // Campo livre opcional (NF, comprovante, etc.)
   invoiceFile: File | null
   attachmentFile: File | null
-  motorcycle_id: string
+  vehicle_id: string
 }
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
@@ -134,7 +134,7 @@ const DEFAULT_FORM: ExpenseFormData = {
   observations: '',
   invoiceFile: null,
   attachmentFile: null,
-  motorcycle_id: '',
+  vehicle_id: '',
 }
 
 /**
@@ -217,7 +217,7 @@ export default function ExpensesPage() {
 
   // ── DADOS: hooks compartilhados de @gomoto/data ─────────────────────────────
   const expensesQuery = useExpenses()
-  const motorcyclesQuery = useMotorcycles()
+  const vehiclesQuery = useVehicles()
 
   /**
    * Lista completa de despesas carregadas do banco (via hook).
@@ -231,7 +231,7 @@ export default function ExpensesPage() {
   // ── ESTADOS: Controle de UI ─────────────────────────────────────────────────
 
   /** Indica se o fetch inicial está em andamento. Enquanto true, exibe spinner. */
-  const loading = expensesQuery.isLoading || motorcyclesQuery.isLoading
+  const loading = expensesQuery.isLoading || vehiclesQuery.isLoading
 
   const invalidateExpenses = () => queryClient.invalidateQueries({ queryKey: ['expenses'] })
 
@@ -271,12 +271,12 @@ export default function ExpensesPage() {
   const [existingInvoiceUrl, setExistingInvoiceUrl] = useState<string | null>(null)
   const [existingAttachmentUrl, setExistingAttachmentUrl] = useState<string | null>(null)
   const [noInvoiceWarning, setNoInvoiceWarning] = useState(false)
-  const motorcycles = useMemo<Motorcycle[]>(
+  const vehicles = useMemo<Vehicle[]>(
     () =>
-      ((motorcyclesQuery.data ?? []) as Motorcycle[])
+      ((vehiclesQuery.data ?? []) as Vehicle[])
         .slice()
         .sort((a, b) => a.license_plate.localeCompare(b.license_plate)),
-    [motorcyclesQuery.data],
+    [vehiclesQuery.data],
   )
 
   // ── ESTADOS: Filtros ────────────────────────────────────────────────────────
@@ -370,7 +370,7 @@ export default function ExpensesPage() {
         observations: expense.observations ?? '',
         invoiceFile: null,
         attachmentFile: null,
-        motorcycle_id: expense.motorcycle_id ?? '',
+        vehicle_id: expense.vehicle_id ?? '',
       })
     } else {
       // Modo criação: limpa tudo
@@ -459,7 +459,7 @@ export default function ExpensesPage() {
       observations: form.observations || null,     // string vazia → null no banco
       invoice_url: invoiceUrl,
       attachment_url: attachmentUrl,
-      motorcycle_id: form.motorcycle_id || null,
+      vehicle_id: form.vehicle_id || null,
     }
 
     const result = editing
@@ -635,13 +635,13 @@ export default function ExpensesPage() {
     ]
   }, [filteredExpenses])
 
-  const motorcycleOptions = useMemo(() => [
+  const vehicleOptions = useMemo(() => [
     { value: '', label: 'Empresa (despesa geral)' },
-    ...motorcycles.map(m => ({
+    ...vehicles.map(m => ({
       value: m.id,
       label: `${m.license_plate} — ${m.model}`,
     })),
-  ], [motorcycles])
+  ], [vehicles])
 
   // ─── RENDER ────────────────────────────────────────────────────────────────
 
@@ -838,7 +838,7 @@ export default function ExpensesPage() {
                           <tbody>
                             {items.map(item => {
                               /* Calcula a moto vinculada uma única vez por linha (evita 3x find) */
-                              const moto = motorcycles.find(m => m.id === item.motorcycle_id)
+                              const moto = vehicles.find(m => m.id === item.vehicle_id)
                               return (
                               <tr key={item.id} className="h-9 border-b border-[#323232] transition-colors hover:bg-[#323232]">
 
@@ -976,9 +976,9 @@ export default function ExpensesPage() {
 
           <Select
             label="Vínculo"
-            value={form.motorcycle_id}
-            onChange={e => setForm({ ...form, motorcycle_id: e.target.value })}
-            options={motorcycleOptions}
+            value={form.vehicle_id}
+            onChange={e => setForm({ ...form, vehicle_id: e.target.value })}
+            options={vehicleOptions}
           />
 
           {/* Observações: campo opcional — NF, comprovante, detalhes extras */}

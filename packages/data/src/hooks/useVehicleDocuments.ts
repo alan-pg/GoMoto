@@ -11,12 +11,12 @@ import type { VehicleDocument } from '@gomoto/core'
 
 const KEY = 'vehicle_documents'
 
-export function useVehicleDocuments(motorcycleId: string | undefined) {
+export function useVehicleDocuments(vehicleId: string | undefined) {
   const supabase = useSupabaseContext()
   return useQuery({
-    queryKey: [KEY, 'by-motorcycle', motorcycleId],
-    queryFn: () => listVehicleDocuments(supabase, motorcycleId!),
-    enabled: !!motorcycleId,
+    queryKey: [KEY, 'by-vehicle', vehicleId],
+    queryFn: () => listVehicleDocuments(supabase, vehicleId!),
+    enabled: !!vehicleId,
   })
 }
 
@@ -38,7 +38,7 @@ export function useCreateVehicleDocument() {
       payload: Omit<VehicleDocument, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>,
     ) => createVehicleDocument(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: (doc) => {
-      qc.invalidateQueries({ queryKey: [KEY, 'by-motorcycle', doc.motorcycle_id] })
+      qc.invalidateQueries({ queryKey: [KEY, 'by-vehicle', doc.vehicle_id] })
     },
   })
 }
@@ -55,7 +55,7 @@ export function useUpdateVehicleDocument() {
       payload: Partial<Omit<VehicleDocument, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>>
     }) => updateVehicleDocument(supabase, id, payload),
     onSuccess: (doc) => {
-      qc.invalidateQueries({ queryKey: [KEY, 'by-motorcycle', doc.motorcycle_id] })
+      qc.invalidateQueries({ queryKey: [KEY, 'by-vehicle', doc.vehicle_id] })
       qc.invalidateQueries({ queryKey: [KEY, doc.id] })
     },
   })

@@ -3,12 +3,12 @@ import type { VehicleObligation } from '@gomoto/core'
 
 export async function listVehicleObligations(
   client: SupabaseClient,
-  motorcycleId: string,
+  vehicleId: string,
 ): Promise<VehicleObligation[]> {
   const { data, error } = await client
     .from('vehicle_obligations')
     .select('*')
-    .eq('motorcycle_id', motorcycleId)
+    .eq('vehicle_id', vehicleId)
     .order('due_date', { ascending: false })
   if (error) throw error
   return (data ?? []) as VehicleObligation[]

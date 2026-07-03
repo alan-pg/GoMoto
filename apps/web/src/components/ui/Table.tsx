@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
  * @interface Column
  * @description Define a estrutura de uma coluna da tabela.
  * 
- * @template T - O tipo do objeto de dados que a linha representa (ex: `User`, `Motorcycle`).
+ * @template T - O tipo do objeto de dados que a linha representa (ex: `User`, `Vehicle`).
  */
 interface Column<T> {
   /** Identificador único da coluna, geralmente o nome da propriedade no objeto de dados. */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { MotorcycleSchema } from './vehicles'
+import { VehicleSchema } from './vehicles'
 
 const base = {
   license_plate: 'ABC1D23',
@@ -8,9 +8,9 @@ const base = {
   model: 'CG 160',
 }
 
-describe('MotorcycleSchema — IMEI', () => {
+describe('VehicleSchema — IMEI', () => {
   it('rejeita IMEI com 5 dígitos', () => {
-    const result = MotorcycleSchema.safeParse({
+    const result = VehicleSchema.safeParse({
       ...base,
       has_tracker: true,
       tracker_brand: 'Rastrear',
@@ -25,7 +25,7 @@ describe('MotorcycleSchema — IMEI', () => {
   })
 
   it('aceita IMEI com 15 dígitos', () => {
-    const result = MotorcycleSchema.safeParse({
+    const result = VehicleSchema.safeParse({
       ...base,
       has_tracker: true,
       tracker_brand: 'Rastrear',
@@ -36,7 +36,7 @@ describe('MotorcycleSchema — IMEI', () => {
   })
 
   it('exige marca/modelo/IMEI quando has_tracker=true', () => {
-    const result = MotorcycleSchema.safeParse({
+    const result = VehicleSchema.safeParse({
       ...base,
       has_tracker: true,
     })
@@ -48,7 +48,7 @@ describe('MotorcycleSchema — IMEI', () => {
   })
 
   it('exige valor/vencimento quando has_insurance=true', () => {
-    const result = MotorcycleSchema.safeParse({
+    const result = VehicleSchema.safeParse({
       ...base,
       has_insurance: true,
     })
@@ -60,33 +60,33 @@ describe('MotorcycleSchema — IMEI', () => {
   })
 })
 
-describe('MotorcycleSchema — campos obrigatórios', () => {
+describe('VehicleSchema — campos obrigatórios', () => {
   it('rejeita sem license_plate', () => {
     const { license_plate: _, ...rest } = base
-    const result = MotorcycleSchema.safeParse(rest)
+    const result = VehicleSchema.safeParse(rest)
     expect(result.success).toBe(false)
   })
 
   it('rejeita sem renavam', () => {
     const { renavam: _, ...rest } = base
-    const result = MotorcycleSchema.safeParse(rest)
+    const result = VehicleSchema.safeParse(rest)
     expect(result.success).toBe(false)
   })
 
   it('rejeita sem make', () => {
     const { make: _, ...rest } = base
-    const result = MotorcycleSchema.safeParse(rest)
+    const result = VehicleSchema.safeParse(rest)
     expect(result.success).toBe(false)
   })
 
   it('rejeita sem model', () => {
     const { model: _, ...rest } = base
-    const result = MotorcycleSchema.safeParse(rest)
+    const result = VehicleSchema.safeParse(rest)
     expect(result.success).toBe(false)
   })
 
   it('aceita sem campos opcionais', () => {
-    const result = MotorcycleSchema.safeParse(base)
+    const result = VehicleSchema.safeParse(base)
     expect(result.success).toBe(true)
   })
 })

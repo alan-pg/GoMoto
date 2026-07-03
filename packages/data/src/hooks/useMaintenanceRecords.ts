@@ -26,7 +26,7 @@ export function useMaintenanceRecordsByStatus(status: MaintenanceRecordStatus) {
 
 export type CreateMaintenanceRecordInput = {
   customer_id: string
-  motorcycle_id: string
+  vehicle_id: string
   maintenance_id: string | null
   actual_km: number
   cost: number | null
@@ -63,7 +63,7 @@ export function useCreateMaintenanceRecord() {
       return createMaintenanceRecord(supabase, {
         tenant_id: getTenantId(),
         customer_id: input.customer_id,
-        motorcycle_id: input.motorcycle_id,
+        vehicle_id: input.vehicle_id,
         maintenance_id: input.maintenance_id,
         actual_km: input.actual_km,
         cost: input.cost,

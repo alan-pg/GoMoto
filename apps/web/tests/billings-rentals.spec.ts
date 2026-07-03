@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test'
 import {
   TEST_TAG,
-  createTestMotorcycle,
-  deleteTestMotorcycle,
+  createTestVehicle,
+  deleteTestVehicle,
   createTestCustomer,
   deleteTestCustomer,
   createTestContract,
@@ -14,23 +14,23 @@ import {
 // Setup
 // ---------------------------------------------------------------------------
 
-let motorcycleId = ''
+let vehicleId = ''
 let customerId   = ''
 let contractId   = ''
 
 test.describe('Cobranças — filtros e novo campo original_amount', () => {
   test.beforeAll(async () => {
-    const moto     = await createTestMotorcycle()
-    motorcycleId   = moto.id
+    const moto     = await createTestVehicle()
+    vehicleId   = moto.id
     const customer = await createTestCustomer()
     customerId     = customer.id
-    const contract = await createTestContract(motorcycleId)
+    const contract = await createTestContract(vehicleId)
     contractId     = contract.contractId
   })
 
   test.afterAll(async () => {
     await deleteTestContract(contractId, customerId)
-    await deleteTestMotorcycle(motorcycleId)
+    await deleteTestVehicle(vehicleId)
   })
 
   // RF-024 — Filtro de status

@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test'
 import {
   TEST_TAG,
-  createTestMotorcycle,
-  deleteTestMotorcycle,
+  createTestVehicle,
+  deleteTestVehicle,
   createTestContract,
   deleteTestContract,
   cleanupTestIncomesByLessee,
@@ -21,7 +21,7 @@ let contractCustomerId = ''
 
 test.describe('Entradas — CRUD', () => {
   test.beforeAll(async () => {
-    const moto = await createTestMotorcycle()
+    const moto = await createTestVehicle()
     motoId = moto.id
     motoPlate = moto.license_plate
     // Cria contrato ativo para que lookupLessee encontre o locatário automaticamente
@@ -32,7 +32,7 @@ test.describe('Entradas — CRUD', () => {
 
   test.afterAll(async () => {
     await deleteTestContract(contractId, contractCustomerId)
-    await deleteTestMotorcycle(motoId)
+    await deleteTestVehicle(motoId)
     // Limpa entradas órfãs caso o teste tenha falhado antes do step DELETE
     await cleanupTestIncomesByLessee(`${TEST_TAG}%`)
   })

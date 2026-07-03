@@ -4,7 +4,7 @@ import type { Fine } from '@gomoto/core'
 export async function listFines(client: SupabaseClient): Promise<Fine[]> {
   const { data, error } = await client
     .from('fines')
-    .select('*, customers(name, phone), motorcycles(license_plate, model, make)')
+    .select('*, customers(name, phone), vehicles(license_plate, model, make)')
     .order('created_at', { ascending: false })
   if (error) throw error
   return (data ?? []) as Fine[]
@@ -12,7 +12,7 @@ export async function listFines(client: SupabaseClient): Promise<Fine[]> {
 
 export async function createFine(
   client: SupabaseClient,
-  payload: Omit<Fine, 'id' | 'created_at' | 'updated_at' | 'customers' | 'motorcycles'>,
+  payload: Omit<Fine, 'id' | 'created_at' | 'updated_at' | 'customers' | 'vehicles'>,
 ): Promise<Fine> {
   const { data, error } = await client.from('fines').insert(payload).select().single()
   if (error) throw error
@@ -22,7 +22,7 @@ export async function createFine(
 export async function updateFine(
   client: SupabaseClient,
   id: string,
-  payload: Partial<Omit<Fine, 'id' | 'created_at' | 'updated_at' | 'customers' | 'motorcycles'>>,
+  payload: Partial<Omit<Fine, 'id' | 'created_at' | 'updated_at' | 'customers' | 'vehicles'>>,
 ): Promise<Fine> {
   const { data, error } = await client.from('fines').update(payload).eq('id', id).select().single()
   if (error) throw error

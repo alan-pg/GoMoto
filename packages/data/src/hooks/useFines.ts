@@ -18,7 +18,7 @@ export function useCreateFine() {
     mutationFn: (
       payload: Omit<
         Fine,
-        'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'customers' | 'motorcycles'
+        'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'customers' | 'vehicles'
       >,
     ) => createFine(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
@@ -35,7 +35,7 @@ export function useUpdateFine() {
     }: {
       id: string
       payload: Partial<
-        Omit<Fine, 'id' | 'created_at' | 'updated_at' | 'customers' | 'motorcycles'>
+        Omit<Fine, 'id' | 'created_at' | 'updated_at' | 'customers' | 'vehicles'>
       >
     }) => updateFine(supabase, id, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),

@@ -4,7 +4,7 @@ import type { Expense } from '@gomoto/core'
 export async function listExpenses(client: SupabaseClient): Promise<Expense[]> {
   const { data, error } = await client
     .from('expenses')
-    .select('*, motorcycle:motorcycles(id, license_plate, model, make)')
+    .select('*, vehicle:vehicles(id, license_plate, model, make)')
     .order('date', { ascending: false })
   if (error) throw error
   return (data ?? []) as Expense[]
@@ -12,7 +12,7 @@ export async function listExpenses(client: SupabaseClient): Promise<Expense[]> {
 
 export async function createExpense(
   client: SupabaseClient,
-  payload: Omit<Expense, 'id' | 'created_at' | 'motorcycle'>,
+  payload: Omit<Expense, 'id' | 'created_at' | 'vehicle'>,
 ): Promise<Expense> {
   const { data, error } = await client.from('expenses').insert(payload).select().single()
   if (error) throw error
@@ -22,7 +22,7 @@ export async function createExpense(
 export async function updateExpense(
   client: SupabaseClient,
   id: string,
-  payload: Partial<Omit<Expense, 'id' | 'created_at' | 'motorcycle'>>,
+  payload: Partial<Omit<Expense, 'id' | 'created_at' | 'vehicle'>>,
 ): Promise<Expense> {
   const { data, error } = await client
     .from('expenses')

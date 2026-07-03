@@ -40,14 +40,14 @@ const OWNER_TYPE_OPTIONS = [
 ]
 
 interface Props {
-  motorcycleId: string
+  vehicleId: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   moto: Record<string, any>
   initialPhotoUrls: Partial<Record<VehiclePhotoSlot, string>>
   currentStatus: VehicleStatus
 }
 
-export default function VehicleEditForm({ motorcycleId, moto, initialPhotoUrls, currentStatus }: Props) {
+export default function VehicleEditForm({ vehicleId, moto, initialPhotoUrls, currentStatus }: Props) {
   const router = useRouter()
   const supabase = useSupabaseContext()
   const getTenantId = useRequiredTenantId()
@@ -109,7 +109,7 @@ export default function VehicleEditForm({ motorcycleId, moto, initialPhotoUrls, 
 
     const tenantId = getTenantId()
     const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
-    const path = `${tenantId}/${motorcycleId}/${slot}/${Date.now()}.${ext}`
+    const path = `${tenantId}/${vehicleId}/${slot}/${Date.now()}.${ext}`
 
     setUploadingSlot(slot)
     try {
@@ -125,7 +125,7 @@ export default function VehicleEditForm({ motorcycleId, moto, initialPhotoUrls, 
       setPhotoUrls((prev) => ({ ...prev, [slot]: URL.createObjectURL(file) }))
       // Salvar no banco via action
       const result = await updateVehicle(
-        motorcycleId,
+        vehicleId,
         { license_plate: moto.license_plate }, // payload mínimo para não triggar validação completa
         { [slot]: path },
       )
@@ -138,7 +138,7 @@ export default function VehicleEditForm({ motorcycleId, moto, initialPhotoUrls, 
   }
 
   async function handleDeletePhoto(slot: VehiclePhotoSlot) {
-    const result = await deleteVehiclePhoto(motorcycleId, slot)
+    const result = await deleteVehiclePhoto(vehicleId, slot)
     if (result.ok) {
       setPhotoUrls((prev) => {
         const next = { ...prev }
@@ -194,9 +194,9 @@ export default function VehicleEditForm({ motorcycleId, moto, initialPhotoUrls, 
     }
 
     startTransition(async () => {
-      const result = await updateVehicle(motorcycleId, payload)
+      const result = await updateVehicle(vehicleId, payload)
       if (result.ok) {
-        router.push(`/motos/${motorcycleId}`)
+        router.push(`/veiculos/${vehicleId}`)
       } else {
         setError(result.error.message)
       }
@@ -210,7 +210,7 @@ export default function VehicleEditForm({ motorcycleId, moto, initialPhotoUrls, 
   return (
     <div className="min-h-screen bg-[#121212]">
       <div className="sticky top-0 z-10 bg-[#121212] border-b border-[#323232] px-6 h-16 flex items-center gap-4">
-        <Link href={`/motos/${motorcycleId}`} className="text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors">
+        <Link href={`/veiculos/${vehicleId}`} className="text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors">
           ← {moto.make} {moto.model}
         </Link>
         <span className="text-[#474747]">/</span>
@@ -525,7 +525,7 @@ export default function VehicleEditForm({ motorcycleId, moto, initialPhotoUrls, 
 
         <div className="flex gap-4 justify-end pt-4 border-t border-[#323232]">
           <Link
-            href={`/motos/${motorcycleId}`}
+            href={`/veiculos/${vehicleId}`}
             className="inline-flex items-center h-9 px-4 rounded-full bg-[#323232] text-[#f5f5f5] text-[13px] font-medium hover:bg-[#474747] transition-colors"
           >
             Cancelar
