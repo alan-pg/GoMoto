@@ -209,33 +209,54 @@ export interface CustomerRentalHistory {
 /**
  * @interface Customer
  * @description Entidade que representa um cliente ou locatário no sistema.
+ * Suporta pessoa física (CPF) e pessoa jurídica (CNPJ).
  */
 export interface Customer {
   id: string;
   tenant_id: string;
   user_id?: string | null;
+  person_type: 'individual' | 'company';
   name: string;
-  cpf: string;
-  rg?: string;
-  state?: string;
-  phone: string;
-  email?: string;
-  address?: string;
-  zip_code?: string;
-  emergency_contact?: string;
-  drivers_license: string;
-  drivers_license_validity?: string;
-  drivers_license_category?: string;
-  birth_date?: string;
-  payment_status?: string;
-  drivers_license_photo_url?: string;
-  document_photo_url?: string;
-  observations?: string;
+  // Pessoa física
+  cpf?: string | null;
+  rg?: string | null;
+  birth_date?: string | null;
+  drivers_license?: string | null;
+  drivers_license_validity?: string | null;
+  drivers_license_category?: string | null;
+  drivers_license_photo_url?: string | null;
+  // Pessoa jurídica
+  cnpj?: string | null;
+  company_name?: string | null;
+  trade_name?: string | null;
+  // Contato
+  phone?: string | null;
+  phone2?: string | null;
+  email?: string | null;
+  emergency_contact?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  // Endereço estruturado (novos campos)
+  street?: string | null;
+  street_number?: string | null;
+  complement?: string | null;
+  neighborhood?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip_code?: string | null;
+  // Endereço legado (campo livre — mantido para compat)
+  address?: string | null;
+  // Documentos
+  residency_proof_url?: string | null;
+  document_photo_url?: string | null;
+  // Gestão
+  payment_status?: string | null;
+  observations?: string | null;
   documents?: Document[];
   in_queue: boolean;
   active?: boolean;
-  departure_date?: string;
-  departure_reason?: string;
+  departure_date?: string | null;
+  departure_reason?: string | null;
   rental_history?: CustomerRentalHistory[];
   created_at: string;
   updated_at: string;

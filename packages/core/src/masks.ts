@@ -163,3 +163,34 @@ export function formatCurrencyInput(raw: string): string {
     maximumFractionDigits: 2,
   }).format(num)
 }
+
+// ── Phone — live mask ─────────────────────────────────────────────────────────
+// Mobile (11 digits): (XX) XXXXX-XXXX
+// Landline (10 digits): (XX) XXXX-XXXX
+// Progressive as user types.
+
+export function applyPhoneMask(raw: string): string {
+  const d = raw.replace(/\D/g, '').slice(0, 11)
+  if (d.length === 0) return ''
+  if (d.length <= 2) return `(${d}`
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
+}
+
+export function stripPhone(masked: string): string {
+  return masked.replace(/\D/g, '')
+}
+
+// ── ZIP code — live mask ──────────────────────────────────────────────────────
+// Pattern: XXXXX-XXX (8 digits)
+
+export function applyZipMask(raw: string): string {
+  const d = raw.replace(/\D/g, '').slice(0, 8)
+  if (d.length <= 5) return d
+  return `${d.slice(0, 5)}-${d.slice(5)}`
+}
+
+export function stripZip(masked: string): string {
+  return masked.replace(/\D/g, '')
+}

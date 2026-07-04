@@ -53,20 +53,43 @@ export const VehicleObligationSchema = z.object({
   observations: z.string().trim().max(2000).optional().nullable(),
 })
 
+const cnpjDigitsString = z
+  .string()
+  .transform((s) => s.replace(/\D/g, ''))
+  .refine((d) => d.length === 14, { message: 'CNPJ inválido: precisa ter 14 dígitos' })
+
 export const CustomerSchema = z.object({
+  person_type: z.enum(['individual', 'company']).default('individual'),
   name: z.string().trim().min(1).max(200),
-  cpf: cpfDigitsString,
-  rg: z.string().trim().max(20).optional().nullable(),
-  state: z.string().trim().max(2).optional().nullable(),
-  phone: z.string().trim().max(20).optional().nullable(),
-  email: z.string().email().max(200).optional().nullable(),
-  address: z.string().trim().max(1000).optional().nullable(),
-  zip_code: z.string().trim().max(10).optional().nullable(),
-  emergency_contact: z.string().trim().max(300).optional().nullable(),
-  drivers_license: z.string().trim().max(20).optional().nullable(),
+  // Pessoa física
+  cpf: cpfDigitsString.optional().nullable(),
+  rg: z.string().trim().max(9).optional().nullable(),
+  birth_date: dateString.optional().nullable(),
+  drivers_license: z.string().trim().max(11).optional().nullable(),
   drivers_license_validity: dateString.optional().nullable(),
   drivers_license_category: z.string().trim().max(10).optional().nullable(),
-  birth_date: dateString.optional().nullable(),
+  // Pessoa jurídica
+  cnpj: cnpjDigitsString.optional().nullable(),
+  company_name: z.string().trim().max(200).optional().nullable(),
+  trade_name: z.string().trim().max(200).optional().nullable(),
+  // Contato
+  phone: z.string().trim().max(20).optional().nullable(),
+  phone2: z.string().trim().max(20).optional().nullable(),
+  email: z.string().email().max(200).optional().nullable(),
+  emergency_contact: z.string().trim().max(300).optional().nullable(),
+  emergency_contact_name: z.string().trim().max(200).optional().nullable(),
+  emergency_contact_phone: z.string().trim().max(20).optional().nullable(),
+  // Endereço estruturado
+  street: z.string().trim().max(300).optional().nullable(),
+  street_number: z.string().trim().max(20).optional().nullable(),
+  complement: z.string().trim().max(100).optional().nullable(),
+  neighborhood: z.string().trim().max(100).optional().nullable(),
+  city: z.string().trim().max(100).optional().nullable(),
+  state: z.string().trim().max(2).optional().nullable(),
+  zip_code: z.string().trim().max(10).optional().nullable(),
+  // Legado
+  address: z.string().trim().max(1000).optional().nullable(),
+  // Gestão
   payment_status: z.string().trim().max(50).optional().nullable(),
   observations: z.string().trim().max(2000).optional().nullable(),
   in_queue: z.boolean().optional(),
