@@ -8,6 +8,10 @@ import {
   ACQUISITION_TYPE_LABELS,
   type VehiclePhotoSlot,
   type VehicleStatus,
+  applyPlateMask,
+  formatRenavam,
+  formatDocument,
+  formatIMEI,
 } from '@gomoto/core'
 import { getSelectableStatuses } from '@gomoto/core'
 import { formatCurrency } from '@/lib/utils'
@@ -110,7 +114,7 @@ export default async function VehicleDetailPage({
         </Link>
         <span className="text-[#474747]">/</span>
         <h1 className="text-[18px] font-bold text-[#f5f5f5]">
-          {moto.make} {moto.model} · {moto.license_plate}
+          {moto.make} {moto.model} · {applyPlateMask(moto.license_plate)}
         </h1>
         <div className="ml-auto flex items-center gap-3">
           <Link
@@ -155,8 +159,8 @@ export default async function VehicleDetailPage({
             <table className="w-full text-[13px]">
               <tbody>
                 {[
-                  ['Placa', moto.license_plate],
-                  ['RENAVAM', moto.renavam],
+                  ['Placa', moto.license_plate ? applyPlateMask(moto.license_plate) : null],
+                  ['RENAVAM', moto.renavam ? formatRenavam(moto.renavam) : null],
                   ['Chassi', moto.chassis],
                   ['Marca', moto.make],
                   ['Modelo', moto.model],
@@ -190,7 +194,7 @@ export default async function VehicleDetailPage({
                   ['Valor pago', moto.acquisition_amount ? formatCurrency(moto.acquisition_amount) : '—'],
                   ['Valor FIPE', moto.fipe_value ? formatCurrency(moto.fipe_value) : '—'],
                   ['Dono anterior', moto.previous_owner],
-                  ['CPF/CNPJ anterior', moto.previous_owner_cpf],
+                  ['CPF/CNPJ anterior', moto.previous_owner_cpf ? formatDocument(moto.previous_owner_cpf) : null],
                 ].map(([label, value]) => (
                   <tr key={label as string} className="border-b border-[#323232] last:border-0">
                     <td className="h-9 px-4 text-[#9e9e9e] w-48">{label}</td>
@@ -210,7 +214,7 @@ export default async function VehicleDetailPage({
               <tbody>
                 {[
                   ['Proprietário registrado', moto.registered_owner_name],
-                  ['Documento', moto.registered_owner_document],
+                  ['Documento', moto.registered_owner_document ? formatDocument(moto.registered_owner_document) : null],
                   ['Tipo', moto.registered_owner_type?.toUpperCase()],
                   ['UF', moto.registration_state],
                   ['Transferência', moto.ownership_transferred ? 'Concluída' : 'Pendente'],
@@ -236,7 +240,7 @@ export default async function VehicleDetailPage({
                   {[
                     ['Marca', moto.tracker_brand],
                     ['Modelo', moto.tracker_model],
-                    ['IMEI', moto.tracker_imei],
+                    ['IMEI', moto.tracker_imei ? formatIMEI(moto.tracker_imei) : null],
                   ].map(([label, value]) => (
                     <tr key={label as string} className="border-b border-[#323232] last:border-0">
                       <td className="h-9 px-4 text-[#9e9e9e] w-48">{label}</td>

@@ -20,6 +20,12 @@ import {
   type MaintenancePlanItem,
   parseCRLVText,
   crlvSuccessRate,
+  applyPlateMask, stripPlate,
+  applyRenavamMask, stripRenavam,
+  applyCpfMask, applyCnpjMask,
+  stripDocument,
+  stripIMEI,
+  applyCurrencyMask, formatCurrencyInput,
 } from '@gomoto/core'
 import {
   useSupabaseContext,
@@ -164,9 +170,11 @@ function planItemHint(item: MaintenancePlanItem): string {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildInitialForm(d?: Record<string, any>) {
+  const ownerType = (d?.registered_owner_type ?? 'cnpj') as 'cpf' | 'cnpj'
+  const ownerDoc  = d?.registered_owner_document ?? ''
   return {
-    license_plate:             d?.license_plate ?? '',
-    renavam:                   d?.renavam ?? '',
+    license_plate:             d?.license_plate ? applyPlateMask(d.license_plate) : '',
+    renavam:                   d?.renavam ? applyRenavamMask(d.renavam) : '',
     make:                      d?.make ?? '',
     model:                     d?.model ?? '',
     year_manufacture:          d?.year_manufacture ?? '',
@@ -174,19 +182,23 @@ function buildInitialForm(d?: Record<string, any>) {
     color:                     d?.color ?? '',
     fuel:                      d?.fuel ?? 'GASOLINA',
     chassis:                   d?.chassis ?? '',
-    engine_capacity:           d?.engine_capacity ?? '',
+    engine_capacity:           d?.engine_capacity ? String(d.engine_capacity).replace(/\D/g, '') : '',
     km_entry:                  '',
     observations:              d?.observations ?? '',
     status:                    (d?.status && d.status !== 'rented' ? d.status : 'available') as string,
     acquisition_type:          d?.acquisition_type ?? 'used',
     purchase_date:             d?.purchase_date ?? '',
-    acquisition_amount:        d?.acquisition_amount != null ? String(d.acquisition_amount) : '',
-    fipe_value:                d?.fipe_value != null ? String(d.fipe_value) : '',
+    acquisition_amount:        d?.acquisition_amount != null ? formatCurrencyInput(String(d.acquisition_amount)) : '',
+    fipe_value:                d?.fipe_value != null ? formatCurrencyInput(String(d.fipe_value)) : '',
     previous_owner:            d?.previous_owner ?? '',
-    previous_owner_cpf:        d?.previous_owner_cpf ?? '',
+    previous_owner_cpf:        d?.previous_owner_cpf
+      ? (stripDocument(d.previous_owner_cpf).length <= 11 ? applyCpfMask(d.previous_owner_cpf) : applyCnpjMask(d.previous_owner_cpf))
+      : '',
     registered_owner_name:     d?.registered_owner_name ?? '',
-    registered_owner_document: d?.registered_owner_document ?? '',
-    registered_owner_type:     (d?.registered_owner_type ?? 'cnpj') as 'cpf' | 'cnpj',
+    registered_owner_document: ownerDoc
+      ? (ownerType === 'cpf' ? applyCpfMask(ownerDoc) : applyCnpjMask(ownerDoc))
+      : '',
+    registered_owner_type:     ownerType,
     registration_state:        d?.registration_state ?? '',
     ownership_transferred:     d?.ownership_transferred ? 'true' : 'false',
     ownership_transfer_date:   d?.ownership_transfer_date ?? '',
@@ -195,9 +207,9 @@ function buildInitialForm(d?: Record<string, any>) {
     has_tracker:               d?.has_tracker ? 'true' : 'false',
     tracker_brand:             d?.tracker_brand ?? '',
     tracker_model:             d?.tracker_model ?? '',
-    tracker_imei:              d?.tracker_imei ?? '',
+    tracker_imei:              d?.tracker_imei ? String(d.tracker_imei).replace(/\D/g, '').slice(0, 15) : '',
     has_insurance:             d?.has_insurance ? 'true' : 'false',
-    insurance_monthly_amount:  d?.insurance_monthly_amount != null ? String(d.insurance_monthly_amount) : '',
+    insurance_monthly_amount:  d?.insurance_monthly_amount != null ? formatCurrencyInput(String(d.insurance_monthly_amount)) : '',
     insurance_expiry_date:     d?.insurance_expiry_date ?? '',
   }
 }
@@ -242,7 +254,11 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
   const [obligations, setObligations] = useState<Record<ObligationType, ObligationEntry>>(() => {
     function fromInit(key: ObligationType, defaultStatus: ObligationStatus): ObligationEntry {
       const init = initialObligations?.[key]
-      if (init) return { amount: init.amount, dueDate: init.dueDate, status: (init.status as ObligationStatus) || defaultStatus }
+      if (init) return {
+        amount: init.amount ? formatCurrencyInput(String(init.amount)) : '',
+        dueDate: init.dueDate,
+        status: (init.status as ObligationStatus) || defaultStatus,
+      }
       return { amount: '', dueDate: '', status: defaultStatus }
     }
     return {
@@ -317,24 +333,27 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
       }
       const fields = parseCRLVText(rawText)
       const stats = crlvSuccessRate(fields)
+      const importedOwnerType = detectOwnerType(fields.cpfCnpj)
       setForm((prev) => ({
         ...prev,
-        license_plate:             fields.placa          ?? prev.license_plate,
-        renavam:                   fields.renavam         ?? prev.renavam,
+        license_plate:             fields.placa != null ? applyPlateMask(fields.placa) : prev.license_plate,
+        renavam:                   fields.renavam != null ? applyRenavamMask(fields.renavam) : prev.renavam,
         make:                      fields.marca           ?? prev.make,
         model:                     [fields.modelo, fields.versao].filter(Boolean).join(' ') || prev.model,
         year_manufacture:          fields.anoFabricacao   ?? prev.year_manufacture,
         year_model:                fields.anoModelo       ?? prev.year_model,
         color:                     fields.cor             ?? prev.color,
-        chassis:                   fields.chassi          ?? prev.chassis,
-        engine_capacity:           fields.cilindrada      ?? prev.engine_capacity,
+        chassis:                   fields.chassi ? fields.chassi.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 17) : prev.chassis,
+        engine_capacity:           fields.cilindrada ? fields.cilindrada.replace(/\D/g, '') : prev.engine_capacity,
         fuel:                      mapCombustivelToFuel(fields.combustivel) ?? prev.fuel,
         registered_owner_name:     fields.proprietario    ?? prev.registered_owner_name,
-        registered_owner_document: fields.cpfCnpj         ?? prev.registered_owner_document,
-        registered_owner_type:     detectOwnerType(fields.cpfCnpj),
+        registered_owner_document: fields.cpfCnpj != null
+          ? (importedOwnerType === 'cpf' ? applyCpfMask(fields.cpfCnpj) : applyCnpjMask(fields.cpfCnpj))
+          : prev.registered_owner_document,
+        registered_owner_type:     fields.cpfCnpj != null ? importedOwnerType : prev.registered_owner_type,
         registration_state:        fields.uf              ?? prev.registration_state,
-        crv_number:                fields.numeroCrv       ?? prev.crv_number,
-        crv_exercise_year:         fields.exercicio       ?? prev.crv_exercise_year,
+        crv_number:                fields.numeroCrv ? fields.numeroCrv.replace(/\D/g, '') : (prev.crv_number),
+        crv_exercise_year:         fields.exercicio ? fields.exercicio.replace(/\D/g, '').slice(0, 4) : prev.crv_exercise_year,
       }))
       setCrvFile(file)
       setCrlvMsg({ kind: 'success', found: stats.found, total: stats.total, fileName: file.name })
@@ -399,17 +418,21 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
   // ─── Submit ───────────────────────────────────────────────────────────────
 
   function buildPayload() {
-    const num = (v: string) => { const n = parseFloat(v.replace(/\./g, '').replace(',', '.')); return isNaN(n) ? null : n }
+    // Currency fields: strip thousand separators before parsing
+    const num = (v: string) => {
+      const n = parseFloat(v.replace(/\./g, '').replace(',', '.'))
+      return isNaN(n) ? null : n
+    }
     return {
-      license_plate:             form.license_plate.toUpperCase().trim(),
-      renavam:                   form.renavam.trim(),
+      license_plate:             stripPlate(form.license_plate),
+      renavam:                   stripRenavam(form.renavam),
       make:                      form.make.toUpperCase().trim(),
       model:                     form.model.trim(),
       year_manufacture:          form.year_manufacture || null,
       year_model:                form.year_model || null,
       color:                     form.color.toUpperCase() || null,
       fuel:                      form.fuel || null,
-      chassis:                   form.chassis.toUpperCase() || null,
+      chassis:                   form.chassis || null,
       engine_capacity:           form.engine_capacity || null,
       observations:              form.observations || null,
       status:                    isRented ? currentStatus : form.status,
@@ -418,9 +441,9 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
       acquisition_amount:        num(form.acquisition_amount),
       fipe_value:                num(form.fipe_value),
       previous_owner:            form.acquisition_type !== 'zero_km' ? (form.previous_owner || null) : null,
-      previous_owner_cpf:        form.acquisition_type !== 'zero_km' ? (form.previous_owner_cpf || null) : null,
+      previous_owner_cpf:        form.acquisition_type !== 'zero_km' ? (stripDocument(form.previous_owner_cpf) || null) : null,
       registered_owner_name:     form.registered_owner_name || null,
-      registered_owner_document: form.registered_owner_document || null,
+      registered_owner_document: stripDocument(form.registered_owner_document) || null,
       registered_owner_type:     form.registered_owner_document ? form.registered_owner_type : null,
       registration_state:        form.registration_state || null,
       ownership_transferred:     form.ownership_transferred === 'true',
@@ -428,7 +451,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
       has_tracker:               form.has_tracker === 'true',
       tracker_brand:             form.has_tracker === 'true' ? (form.tracker_brand || null) : null,
       tracker_model:             form.has_tracker === 'true' ? (form.tracker_model || null) : null,
-      tracker_imei:              form.has_tracker === 'true' ? (form.tracker_imei || null) : null,
+      tracker_imei:              form.has_tracker === 'true' ? (stripIMEI(form.tracker_imei) || null) : null,
       has_insurance:             form.has_insurance === 'true',
       insurance_monthly_amount:  form.has_insurance === 'true' ? num(form.insurance_monthly_amount) : null,
       insurance_expiry_date:     form.has_insurance === 'true' ? (form.insurance_expiry_date || null) : null,
@@ -710,10 +733,25 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Placa *" error={fieldErrors.license_plate}>
-                  <input className={fieldErrors.license_plate ? inputErrCls : inputCls} placeholder="ABC1D23" value={form.license_plate} onChange={(e) => set('license_plate', e.target.value)} required />
+                  <input
+                    className={fieldErrors.license_plate ? inputErrCls : inputCls}
+                    placeholder="ABC1D23"
+                    value={form.license_plate}
+                    maxLength={8}
+                    onChange={(e) => set('license_plate', applyPlateMask(e.target.value))}
+                    required
+                  />
                 </Field>
                 <Field label="RENAVAM *" error={fieldErrors.renavam}>
-                  <input className={fieldErrors.renavam ? inputErrCls : inputCls} placeholder="11 dígitos" value={form.renavam} onChange={(e) => set('renavam', e.target.value)} required />
+                  <input
+                    className={fieldErrors.renavam ? inputErrCls : inputCls}
+                    placeholder="11 dígitos"
+                    value={form.renavam}
+                    maxLength={11}
+                    inputMode="numeric"
+                    onChange={(e) => set('renavam', applyRenavamMask(e.target.value))}
+                    required
+                  />
                 </Field>
               </div>
 
@@ -728,10 +766,24 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
 
               <div className="grid grid-cols-4 gap-4">
                 <Field label="Ano fabricação">
-                  <input className={inputCls} placeholder="2024" value={form.year_manufacture} onChange={(e) => set('year_manufacture', e.target.value)} />
+                  <input
+                    className={inputCls}
+                    placeholder="2024"
+                    value={form.year_manufacture}
+                    maxLength={4}
+                    inputMode="numeric"
+                    onChange={(e) => set('year_manufacture', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  />
                 </Field>
                 <Field label="Ano modelo">
-                  <input className={inputCls} placeholder="2025" value={form.year_model} onChange={(e) => set('year_model', e.target.value)} />
+                  <input
+                    className={inputCls}
+                    placeholder="2025"
+                    value={form.year_model}
+                    maxLength={4}
+                    inputMode="numeric"
+                    onChange={(e) => set('year_model', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  />
                 </Field>
                 <Field label="Cor">
                   <input className={inputCls} placeholder="PRETA" value={form.color} onChange={(e) => set('color', e.target.value)} />
@@ -745,14 +797,32 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
 
               <div className={`grid gap-4 ${!isEditMode ? 'grid-cols-3' : 'grid-cols-2'}`}>
                 <Field label="Chassi">
-                  <input className={inputCls} placeholder="Código do chassi" value={form.chassis} onChange={(e) => set('chassis', e.target.value)} />
+                  <input
+                    className={inputCls}
+                    placeholder="1HGBH41JXMN109186"
+                    value={form.chassis}
+                    maxLength={17}
+                    onChange={(e) => set('chassis', e.target.value.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 17))}
+                  />
                 </Field>
-                <Field label="Cilindrada">
-                  <input className={inputCls} placeholder="162cc" value={form.engine_capacity} onChange={(e) => set('engine_capacity', e.target.value)} />
+                <Field label="Cilindrada (cc)">
+                  <input
+                    className={inputCls}
+                    placeholder="162"
+                    value={form.engine_capacity}
+                    inputMode="numeric"
+                    onChange={(e) => set('engine_capacity', e.target.value.replace(/\D/g, ''))}
+                  />
                 </Field>
                 {!isEditMode && (
                   <Field label="KM de entrada" error={fieldErrors.km_entry}>
-                    <input className={fieldErrors.km_entry ? inputErrCls : inputCls} type="number" min={0} placeholder="KM no painel" value={form.km_entry} onChange={(e) => set('km_entry', e.target.value)} />
+                    <input
+                      className={fieldErrors.km_entry ? inputErrCls : inputCls}
+                      placeholder="KM no painel"
+                      value={form.km_entry}
+                      inputMode="numeric"
+                      onChange={(e) => set('km_entry', e.target.value.replace(/\D/g, ''))}
+                    />
                   </Field>
                 )}
               </div>
@@ -776,25 +846,69 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                 </Field>
                 <div className="grid grid-cols-[90px_1fr] gap-2">
                   <Field label="Tipo doc.">
-                    <select className={inputCls} value={form.registered_owner_type} onChange={(e) => set('registered_owner_type', e.target.value as 'cpf' | 'cnpj')}>
+                    <select
+                      className={inputCls}
+                      value={form.registered_owner_type}
+                      onChange={(e) => {
+                        const t = e.target.value as 'cpf' | 'cnpj'
+                        const digits = stripDocument(form.registered_owner_document)
+                        setForm((prev) => ({
+                          ...prev,
+                          registered_owner_type:     t,
+                          registered_owner_document: digits
+                            ? (t === 'cpf' ? applyCpfMask(digits) : applyCnpjMask(digits))
+                            : '',
+                        }))
+                      }}
+                    >
                       {OWNER_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   </Field>
                   <Field label="CPF / CNPJ">
-                    <input className={inputCls} placeholder="Documento" value={form.registered_owner_document} onChange={(e) => set('registered_owner_document', e.target.value)} />
+                    <input
+                      className={inputCls}
+                      placeholder={form.registered_owner_type === 'cpf' ? '000.000.000-00' : '00.000.000/0001-00'}
+                      value={form.registered_owner_document}
+                      maxLength={form.registered_owner_type === 'cpf' ? 14 : 18}
+                      inputMode="numeric"
+                      onChange={(e) => set('registered_owner_document',
+                        form.registered_owner_type === 'cpf'
+                          ? applyCpfMask(e.target.value)
+                          : applyCnpjMask(e.target.value)
+                      )}
+                    />
                   </Field>
                 </div>
               </div>
 
               <div className="grid grid-cols-4 gap-4">
                 <Field label="UF">
-                  <input className={inputCls} maxLength={2} placeholder="SP" value={form.registration_state} onChange={(e) => set('registration_state', e.target.value.toUpperCase())} />
+                  <input
+                    className={inputCls}
+                    maxLength={2}
+                    placeholder="SP"
+                    value={form.registration_state}
+                    onChange={(e) => set('registration_state', e.target.value.replace(/[^A-Z]/gi, '').toUpperCase())}
+                  />
                 </Field>
                 <Field label="Número do CRV">
-                  <input className={inputCls} placeholder="1234567890" value={form.crv_number} onChange={(e) => set('crv_number', e.target.value)} />
+                  <input
+                    className={inputCls}
+                    placeholder="1234567890"
+                    value={form.crv_number}
+                    inputMode="numeric"
+                    onChange={(e) => set('crv_number', e.target.value.replace(/\D/g, ''))}
+                  />
                 </Field>
                 <Field label="Ano-exercício">
-                  <input className={inputCls} placeholder="2025" value={form.crv_exercise_year} onChange={(e) => set('crv_exercise_year', e.target.value)} />
+                  <input
+                    className={inputCls}
+                    placeholder="2025"
+                    value={form.crv_exercise_year}
+                    maxLength={4}
+                    inputMode="numeric"
+                    onChange={(e) => set('crv_exercise_year', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  />
                 </Field>
                 <Field label="Transferência">
                   <select className={inputCls} value={form.ownership_transferred} onChange={(e) => set('ownership_transferred', e.target.value)}>
@@ -823,7 +937,13 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                   <div key={row.key} className="grid grid-cols-[80px_1fr_1fr_130px] gap-3 items-end bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl px-4 py-3">
                     <span className="text-[13px] font-bold text-[#f5f5f5] pb-2.5">{row.label}</span>
                     <Field label="Valor (R$)">
-                      <input className={inputCls} placeholder="0,00" value={obligations[row.key].amount} onChange={(e) => setObligation(row.key, { amount: e.target.value })} />
+                      <input
+                        className={inputCls}
+                        placeholder="0,00"
+                        value={obligations[row.key].amount}
+                        inputMode="decimal"
+                        onChange={(e) => setObligation(row.key, { amount: applyCurrencyMask(e.target.value) })}
+                      />
                     </Field>
                     <Field label="Vencimento">
                       <input type="date" className={inputCls} value={obligations[row.key].dueDate} onChange={(e) => setObligation(row.key, { dueDate: e.target.value })} />
@@ -917,10 +1037,22 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Valor pago (R$)">
-                  <input className={inputCls} placeholder="0,00" value={form.acquisition_amount} onChange={(e) => set('acquisition_amount', e.target.value)} />
+                  <input
+                    className={inputCls}
+                    placeholder="0,00"
+                    value={form.acquisition_amount}
+                    inputMode="decimal"
+                    onChange={(e) => set('acquisition_amount', applyCurrencyMask(e.target.value))}
+                  />
                 </Field>
                 <Field label="Valor FIPE (R$)">
-                  <input className={inputCls} placeholder="0,00" value={form.fipe_value} onChange={(e) => set('fipe_value', e.target.value)} />
+                  <input
+                    className={inputCls}
+                    placeholder="0,00"
+                    value={form.fipe_value}
+                    inputMode="decimal"
+                    onChange={(e) => set('fipe_value', applyCurrencyMask(e.target.value))}
+                  />
                 </Field>
               </div>
               {form.acquisition_type !== 'zero_km' && (
@@ -929,7 +1061,17 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                     <input className={inputCls} placeholder="Nome conforme documento" value={form.previous_owner} onChange={(e) => set('previous_owner', e.target.value)} />
                   </Field>
                   <Field label="CPF / CNPJ do vendedor">
-                    <input className={inputCls} placeholder="000.000.000-00" value={form.previous_owner_cpf} onChange={(e) => set('previous_owner_cpf', e.target.value)} />
+                    <input
+                      className={inputCls}
+                      placeholder="000.000.000-00"
+                      value={form.previous_owner_cpf}
+                      maxLength={18}
+                      inputMode="numeric"
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, '').slice(0, 14)
+                        set('previous_owner_cpf', digits.length <= 11 ? applyCpfMask(digits) : applyCnpjMask(digits))
+                      }}
+                    />
                   </Field>
                 </div>
               )}
@@ -966,7 +1108,8 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                       maxLength={15}
                       placeholder="123456789012345"
                       value={form.tracker_imei}
-                      onChange={(e) => set('tracker_imei', e.target.value.replace(/\D/g, ''))}
+                      inputMode="numeric"
+                      onChange={(e) => set('tracker_imei', e.target.value.replace(/\D/g, '').slice(0, 15))}
                     />
                   </Field>
                 </div>
@@ -993,7 +1136,13 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
               {form.has_insurance === 'true' && (
                 <div className="grid grid-cols-2 gap-4 max-w-sm">
                   <Field label="Valor mensal (R$) *">
-                    <input className={inputCls} placeholder="0,00" value={form.insurance_monthly_amount} onChange={(e) => set('insurance_monthly_amount', e.target.value)} />
+                    <input
+                      className={inputCls}
+                      placeholder="0,00"
+                      value={form.insurance_monthly_amount}
+                      inputMode="decimal"
+                      onChange={(e) => set('insurance_monthly_amount', applyCurrencyMask(e.target.value))}
+                    />
                   </Field>
                   <Field label="Vencimento *">
                     <input type="date" className={inputCls} value={form.insurance_expiry_date} onChange={(e) => set('insurance_expiry_date', e.target.value)} />
