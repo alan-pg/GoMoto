@@ -8,7 +8,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   `img-src 'self' data: blob: ${supabaseHttpOrigin} https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://unpkg.com`,
-  `connect-src 'self' ${supabaseHttpOrigin} ${supabaseWsOrigin}`,
+  `connect-src 'self' ${supabaseHttpOrigin} ${supabaseWsOrigin} https://viacep.com.br`,
   "frame-ancestors 'none'",
 ].join('; ')
 
