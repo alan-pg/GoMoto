@@ -60,7 +60,7 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
             </form>
           </div>
         </aside>
-        <main className="flex-1 min-h-screen overflow-auto">{children}</main>
+        <main className="flex-1 h-screen overflow-y-auto">{children}</main>
       </div>
     </Providers>
   )

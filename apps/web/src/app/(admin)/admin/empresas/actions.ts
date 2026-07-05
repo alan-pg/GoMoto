@@ -121,6 +121,7 @@ export async function createTenant(rawData: unknown) {
     .single()
 
   revalidatePath('/admin/empresas')
+  revalidatePath(`/admin/empresas/${newTenantId}`)
   return { data: tenantRow }
 }
 
@@ -175,6 +176,7 @@ export async function updateTenant(id: string, rawData: unknown) {
   })
 
   revalidatePath('/admin/empresas')
+  revalidatePath(`/admin/empresas/${id}`)
   return { data }
 }
 
@@ -205,6 +207,7 @@ export async function suspendTenant(id: string, rawData: unknown) {
   })
 
   revalidatePath('/admin/empresas')
+  revalidatePath(`/admin/empresas/${id}`)
   return { success: true }
 }
 
@@ -230,6 +233,7 @@ export async function reactivateTenant(id: string) {
   await logPlatformAction(ctx.supabase, ctx.userId, 'tenant.reactivate', 'tenant', id, {})
 
   revalidatePath('/admin/empresas')
+  revalidatePath(`/admin/empresas/${id}`)
   return { success: true }
 }
 
@@ -272,4 +276,44 @@ export async function regenerateOwnerLink(tenantId: string) {
   await logPlatformAction(ctx.supabase, ctx.userId, 'regenerate_owner_link', 'tenant', tenantId, {})
 
   return { link: linkData.properties?.action_link ?? null }
+}
+
+export async function changeOwnerPassword(tenantId: string, newPassword: string) {
+  let ctx
+  try {
+    ctx = await requirePlatformAdmin()
+  } catch {
+    return { error: 'Acesso negado' }
+  }
+
+  if (!newPassword || newPassword.length < 8) {
+    return { error: 'A senha precisa ter no mínimo 8 caracteres' }
+  }
+
+  const serviceUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceUrl || !serviceKey) return { error: 'Configuração do servidor incompleta' }
+
+  const { data: member, error: memberErr } = await ctx.supabase
+    .from('tenant_members')
+    .select('user_id')
+    .eq('tenant_id', tenantId)
+    .eq('role', 'owner')
+    .limit(1)
+    .maybeSingle()
+
+  if (memberErr || !member) return { error: 'Owner do tenant não encontrado' }
+
+  const supabaseAdmin = createAdminClient(serviceUrl, serviceKey, { auth: { persistSession: false } })
+
+  const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(
+    member.user_id,
+    { password: newPassword },
+  )
+
+  if (updateErr) return { error: `Falha ao alterar senha: ${updateErr.message}` }
+
+  await logPlatformAction(ctx.supabase, ctx.userId, 'owner.change_password', 'tenant', tenantId, {})
+
+  return { success: true }
 }
