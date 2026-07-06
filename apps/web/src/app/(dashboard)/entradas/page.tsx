@@ -24,6 +24,7 @@ import { useState, useMemo, useCallback } from 'react';
 
 // Libs externas
 import { Plus, Edit2, Trash2, TrendingUp, Calendar, DollarSign, Search, ChevronDown } from 'lucide-react';
+import { PageTitle } from '@/components/layout/PageTitle';
 import { useQueryClient } from '@tanstack/react-query';
 
 // Tipos
@@ -501,21 +502,17 @@ export default function EntradasPage() {
     }
   }, [currentIncome, handleCloseDeleteModal, invalidateIncomes]);
 
-  // --- RENDERIZAÇÃO ---
-
   return (
     <div className="flex flex-col min-h-full bg-[#121212]">
-      {/* Sticky toolbar */}
-      <div className="sticky top-0 z-10 bg-[#121212] border-b border-[#323232] px-6 h-20 flex items-center gap-4">
-        <h1 className="text-[28px] font-bold text-[#f5f5f5]">Entradas</h1>
-        <div className="ml-auto flex items-center gap-2">
+      <PageTitle
+        title="Entradas"
+        actions={
           <Button variant="primary" onClick={() => handleOpenModal()}>
             <Plus className="w-5 h-5" />
             Nova Entrada
           </Button>
-        </div>
-      </div>
-
+        }
+      />
       <div className="p-6 space-y-5">
         {/* KPI cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">

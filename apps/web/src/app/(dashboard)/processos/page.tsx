@@ -7,7 +7,7 @@
 
 import { useState, useMemo } from 'react'
 import { Plus, Edit2, Trash2, ChevronDown, ChevronUp, BookOpen, Search } from 'lucide-react'
-import { Header } from '@/components/layout/Header'
+import { PageTitle } from '@/components/layout/PageTitle'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -131,7 +131,7 @@ export default function ProcessesPage() {
 
   return (
     <div className="flex flex-col min-h-full">
-      <Header
+      <PageTitle
         title="Processos da Empresa"
         subtitle={`${processes.length} processos cadastrados`}
         actions={
@@ -141,7 +141,6 @@ export default function ProcessesPage() {
           </Button>
         }
       />
-
       <div className="p-6 space-y-4">
         {/* Filtros e Busca */}
         <div className="flex items-center gap-3 flex-wrap">

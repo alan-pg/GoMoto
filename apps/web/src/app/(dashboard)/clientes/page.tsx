@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { Plus, Edit2, Trash2, Eye, Users, UserMinus, Search, MessageCircle, AlertCircle } from 'lucide-react'
+import { PageTitle } from '@/components/layout/PageTitle'
 
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -91,13 +92,10 @@ export default function ClientesPage() {
   const fetchErr = customersQuery.error ? 'Não foi possível carregar os clientes.' : null
 
   return (
-    <div className="min-h-screen bg-[#121212]">
-
-      {/* Header */}
-      <div className="sticky top-0 z-10 bg-[#121212] border-b border-[#323232] px-6 h-20 flex items-center gap-4">
-        <h1 className="text-[28px] font-bold text-[#f5f5f5]">Clientes</h1>
-        <span className="text-[13px] font-normal text-[#9e9e9e]">{allCustomers.length} cadastrados</span>
-        <div className="ml-auto">
+    <div className="flex flex-col bg-[#121212]">
+      <PageTitle
+        title="Clientes"
+        actions={
           <Link
             href="/clientes/novo"
             className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e818] transition-colors"
@@ -105,12 +103,56 @@ export default function ClientesPage() {
             <Plus className="w-4 h-4" />
             Novo Cliente
           </Link>
+        }
+      />
+
+      {/* Barra de filtros — sticky abaixo do PageTitle */}
+      <div className="sticky top-[60px] z-[9] bg-[#121212] border-b border-[#323232] px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap border-b border-[#616161]">
+          {tabs.map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => setStatusFilter(tab.value)}
+              className={`px-3 py-2 text-[13px] font-medium transition-all border-b-2 ${
+                statusFilter === tab.value
+                  ? 'border-[#BAFF1A] text-[#f5f5f5]'
+                  : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
+              }`}
+            >
+              {tab.label}
+              <span className="ml-1.5 text-[#616161]">({tab.count})</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={stateFilter}
+            onChange={(e) => setStateFilter(e.target.value)}
+            className="h-10 rounded-full border border-[#474747] bg-[#323232] px-4 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
+          >
+            <option value="">Todos os estados</option>
+            {STATE_OPTIONS.map((uf) => (
+              <option key={uf} value={uf} className="bg-[#202020]">{uf}</option>
+            ))}
+          </select>
+
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#616161]" />
+            <input
+              type="text"
+              placeholder="Buscar nome, CPF ou telefone…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="h-10 rounded-full border border-[#474747] bg-[#323232] pl-9 pr-4 text-[13px] text-[#f5f5f5] placeholder:text-[#616161] focus:border-[#BAFF1A] focus:outline-none w-52"
+            />
+          </div>
         </div>
       </div>
 
-      <div className="px-6 py-4 space-y-4">
+      {/* Conteúdo scrollável: KPIs + erro + tabela */}
+      <div className="p-6 space-y-4">
 
-        {/* KPI cards */}
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-[#202020] rounded-2xl border border-[#474747] px-6 py-4 flex items-center justify-between">
             <div>
@@ -142,53 +184,6 @@ export default function ClientesPage() {
           </div>
         )}
 
-        {/* Filtros */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap border-b border-[#616161]">
-            {tabs.map((tab) => (
-              <button
-                key={tab.value}
-                onClick={() => setStatusFilter(tab.value)}
-                className={`px-3 py-2 text-[13px] font-medium transition-all border-b-2 ${
-                  statusFilter === tab.value
-                    ? 'border-[#BAFF1A] text-[#f5f5f5]'
-                    : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
-                }`}
-              >
-                {tab.label}
-                <span className="ml-1.5 text-[#616161]">({tab.count})</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <select
-              value={stateFilter}
-              onChange={(e) => setStateFilter(e.target.value)}
-              className="h-10 rounded-full border border-[#474747] bg-[#323232] px-4 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
-            >
-              <option value="">Todos os estados</option>
-              {STATE_OPTIONS.map((uf) => (
-                <option key={uf} value={uf} className="bg-[#202020]">{uf}</option>
-              ))}
-            </select>
-
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#616161]" />
-              <input
-                type="text"
-                placeholder="Buscar nome, CPF ou telefone…"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="h-10 rounded-full border border-[#474747] bg-[#323232] pl-9 pr-4 text-[13px] text-[#f5f5f5] placeholder:text-[#616161] focus:border-[#BAFF1A] focus:outline-none w-52"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Tabela */}
-      <div className="px-6 pb-10">
         <div className="overflow-hidden rounded-xl bg-[#202020]">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[13px] text-[#f5f5f5]">

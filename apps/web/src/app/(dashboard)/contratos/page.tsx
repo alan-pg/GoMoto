@@ -18,7 +18,7 @@ import {
 } from './actions'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'
-import { Header } from '@/components/layout/Header'
+import { PageTitle } from '@/components/layout/PageTitle'
 import { Modal } from '@/components/ui/Modal'
 import type { Contract, Customer, Vehicle } from '@gomoto/core'
 import {
@@ -549,18 +549,16 @@ export default function ContratosPage() {
 
   return (
     <div className="flex flex-col min-h-full bg-[#121212]">
-      <Header
+      <PageTitle
         title="Contratos"
         actions={
-          <div className="flex items-center gap-2">
-            {toastEl}
-            <Button variant="secondary" size="sm" className="gap-2" onClick={() => setTemplatesModal(true)}>
-              <Settings2 className="w-4 h-4" />
-              Modelos .docx
-            </Button>
-          </div>
+          <Button variant="secondary" size="sm" className="gap-2" onClick={() => setTemplatesModal(true)}>
+            <Settings2 className="w-4 h-4" />
+            Modelos .docx
+          </Button>
         }
       />
+      {toastEl && <div className="px-6 pt-4">{toastEl}</div>}
 
       <div className="p-6 space-y-5">
 

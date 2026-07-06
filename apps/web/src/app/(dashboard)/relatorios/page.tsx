@@ -30,7 +30,7 @@ import {
   AlertTriangle,
   AlertCircle,
 } from 'lucide-react'
-import { Header } from '@/components/layout/Header'
+import { PageTitle } from '@/components/layout/PageTitle'
 import { Button } from '@/components/ui/Button'
 import { Card, StatCard } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -163,9 +163,7 @@ export default function ReportsPage() {
 
   return (
     <div className="flex flex-col min-h-full">
-      {/* Cabeçalho da página */}
-      <Header title="Relatórios" subtitle="Análises e exportações do sistema" />
-
+      <PageTitle title="Relatórios" subtitle="Análises e exportações do sistema" />
       <div className="p-6 space-y-6">
         {/* SEÇÃO: Resumo do Mês Atual */}
         <div>

@@ -32,7 +32,7 @@ import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
-import { Header } from '@/components/layout/Header'
+import { PageTitle } from '@/components/layout/PageTitle'
 
 // ─── TIPOS ──────────────────────────────────────────────────────────────────
 
@@ -871,13 +871,9 @@ export default function MaintenancePage() {
     await Promise.all([invalidateMaintenances(), invalidateVehicles()])
   }, [kmForm, invalidateMaintenances, invalidateVehicles])
 
-  // ─── RENDER ────────────────────────────────────────────────────────────────
-
   return (
     <div className="flex flex-col min-h-full bg-[#121212]">
-      {/* ── CABEÇALHO GLOBAL ───────────────────────────────────────────────
-          Renderiza título principal da rota do app e botões fixos de ação. */}
-      <Header
+      <PageTitle
         title="Manutenção"
         subtitle="Controle inteligente por km e data"
         actions={
@@ -893,7 +889,6 @@ export default function MaintenancePage() {
           </div>
         }
       />
-
       <div className="p-6 space-y-5">
 
         {/* ── KPI CARDS CLICÁVEIS (TABS DE STATUS) ─────────────────────────────

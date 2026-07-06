@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   Plus, X, AlertTriangle, RotateCcw, Zap, Clock, ChevronRight,
 } from 'lucide-react'
-import { Header } from '@/components/layout/Header'
+import { PageTitle } from '@/components/layout/PageTitle'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
@@ -592,51 +592,49 @@ export default function LocacoesPage() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <Header
-        title="Locações"
-        subtitle="Gestão de locações ativas e fila de espera"
-      />
+    <div className="flex flex-col">
+      <PageTitle title="Locações" subtitle="Gestão de locações ativas e fila de espera" />
 
-      <div className="flex flex-1 flex-col gap-4 p-6">
-        {/* Tabs + Action */}
-        <div className="flex items-center justify-between">
-          <div className="flex gap-1 rounded-lg bg-[#1e1e1e] p-1">
-            {(
-              [
-                { id: 'active' as Tab,  label: `Ativas (${activeRentals.length})` },
-                { id: 'closed' as Tab,  label: `Encerradas (${closedRentals.length})` },
-                { id: 'queue'  as Tab,  label: `Fila (${queue.length})` },
-              ] as const
-            ).map(t => (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className={`rounded-md px-4 py-1.5 text-[13px] font-medium transition-colors ${
-                  tab === t.id
-                    ? 'bg-[#BAFF1A] text-[#121212]'
-                    : 'text-[#9e9e9e] hover:text-[#f5f5f5]'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex gap-2">
-            {tab === 'queue' && (
-              <Button variant="secondary" onClick={() => setShowAddQueue(true)}>
-                <Plus size={14} /> Adicionar à Fila
-              </Button>
-            )}
-            {tab !== 'queue' && (
-              <Button onClick={openCreate}>
-                <Plus size={14} /> Nova Locação
-              </Button>
-            )}
-          </div>
+      {/* Tabs + botão de ação — sticky abaixo do PageTitle */}
+      <div className="sticky top-[60px] z-[9] bg-[#121212] border-b border-[#323232] px-6 py-3 flex items-center justify-between">
+        <div className="flex gap-1 rounded-lg bg-[#1e1e1e] p-1">
+          {(
+            [
+              { id: 'active' as Tab,  label: `Ativas (${activeRentals.length})` },
+              { id: 'closed' as Tab,  label: `Encerradas (${closedRentals.length})` },
+              { id: 'queue'  as Tab,  label: `Fila (${queue.length})` },
+            ] as const
+          ).map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`rounded-md px-4 py-1.5 text-[13px] font-medium transition-colors ${
+                tab === t.id
+                  ? 'bg-[#BAFF1A] text-[#121212]'
+                  : 'text-[#9e9e9e] hover:text-[#f5f5f5]'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
+        <div className="flex gap-2">
+          {tab === 'queue' && (
+            <Button variant="secondary" onClick={() => setShowAddQueue(true)}>
+              <Plus size={14} /> Adicionar à Fila
+            </Button>
+          )}
+          {tab !== 'queue' && (
+            <Button onClick={openCreate}>
+              <Plus size={14} /> Nova Locação
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Conteúdo scrollável */}
+      <div className="flex flex-col gap-4 p-6">
         {/* ── Ativas / Encerradas ── */}
         {tab !== 'queue' && (
           <div className="overflow-hidden rounded-lg border border-[#323232] bg-[#1a1a1a]">

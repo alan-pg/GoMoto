@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 
-import { Sidebar } from '@/components/layout/Sidebar'
+import { LayoutShell } from '@/components/layout/LayoutShell'
+import { SidebarProvider } from '@/components/layout/SidebarContext'
 import { Providers } from '@/providers/Providers'
 import { createClient } from '@/lib/supabase/server'
 import { getPlatformRole } from '@/lib/auth/platform'
@@ -46,17 +47,16 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
     return <TenantSuspendedPage tenantName={tenant.name} />
   }
 
-  const userName = user?.user_metadata?.full_name ?? user?.user_metadata?.name ?? undefined
+  const userName  = user?.user_metadata?.full_name ?? user?.user_metadata?.name ?? undefined
   const userEmail = user?.email ?? undefined
 
   return (
     <Providers>
-      <div className="flex min-h-screen bg-[#121212]">
-        <Sidebar userName={userName} userEmail={userEmail} />
-        <main className="flex-1 pl-[85px] min-h-screen">
+      <SidebarProvider>
+        <LayoutShell userName={userName} userEmail={userEmail}>
           {children}
-        </main>
-      </div>
+        </LayoutShell>
+      </SidebarProvider>
     </Providers>
   )
 }

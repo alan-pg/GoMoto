@@ -22,7 +22,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useFines, useVehicles } from '@gomoto/data'
 import { markFineAsPaid, deleteFine } from './actions'
 
-import { Header }             from '@/components/layout/Header'
+import { PageTitle } from '@/components/layout/PageTitle'
 import { Button }             from '@/components/ui/Button'
 import { Input }              from '@/components/ui/Input'
 import { Modal }              from '@/components/ui/Modal'
@@ -298,9 +298,7 @@ export default function MultasPage() {
 
   return (
     <div className="flex flex-col min-h-full bg-[#121212]">
-
-      {/* Header */}
-      <Header
+      <PageTitle
         title="Multas"
         subtitle="Controle de infrações de trânsito"
         actions={
@@ -313,7 +311,6 @@ export default function MultasPage() {
           </Link>
         }
       />
-
       <div className="p-6 space-y-5">
 
         {/* Erro global */}

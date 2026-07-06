@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { useQueryClient } from '@tanstack/react-query'
+import { PageTitle } from '@/components/layout/PageTitle'
 import {
   Wrench, Plus, Star, Archive, Edit2, Eye,
   MoreVertical, ArchiveRestore, Search,
@@ -63,13 +64,10 @@ export default function MaintenancePlansPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#121212]">
-
-      {/* Header */}
-      <div className="sticky top-0 z-10 bg-[#121212] border-b border-[#323232] px-6 h-20 flex items-center gap-4">
-        <h1 className="text-[28px] font-bold text-[#f5f5f5]">Planos de Manutenção</h1>
-        <span className="text-[13px] font-normal text-[#9e9e9e]">{plans.length} plano(s)</span>
-        <div className="ml-auto">
+    <div className="flex flex-col bg-[#121212]">
+      <PageTitle
+        title="Planos de Manutenção"
+        actions={
           <Link
             href="/planos-manutencao/novo"
             className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e818] transition-colors"
@@ -77,46 +75,46 @@ export default function MaintenancePlansPage() {
             <Plus className="w-4 h-4" />
             Novo plano
           </Link>
+        }
+      />
+
+      {/* Barra de filtros — sticky abaixo do PageTitle */}
+      <div className="sticky top-[60px] z-[9] bg-[#121212] border-b border-[#323232] px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap border-b border-[#616161]">
+          {FILTERS.map((opt) => {
+            const isActive = filter === opt.value
+            return (
+              <button
+                key={opt.value}
+                onClick={() => setFilter(opt.value)}
+                className={`px-3 py-2 text-[13px] font-medium transition-all border-b-2 ${
+                  isActive
+                    ? 'border-[#BAFF1A] text-[#f5f5f5]'
+                    : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
+                }`}
+              >
+                {opt.label}
+                <span className="ml-1.5 text-[#616161]">
+                  ({counts[opt.value as keyof typeof counts]})
+                </span>
+              </button>
+            )
+          })}
+        </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#616161]" />
+          <input
+            type="text"
+            placeholder="Buscar por nome ou descrição..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-10 pl-10 pr-4 rounded-full bg-[#323232] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all w-72"
+          />
         </div>
       </div>
 
-      <div className="px-6 py-4 space-y-4">
-        {/* Filtros + busca */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap border-b border-[#616161]">
-            {FILTERS.map((opt) => {
-              const isActive = filter === opt.value
-              return (
-                <button
-                  key={opt.value}
-                  onClick={() => setFilter(opt.value)}
-                  className={`px-3 py-2 text-[13px] font-medium transition-all border-b-2 ${
-                    isActive
-                      ? 'border-[#BAFF1A] text-[#f5f5f5]'
-                      : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
-                  }`}
-                >
-                  {opt.label}
-                  <span className="ml-1.5 text-[#616161]">
-                    ({counts[opt.value as keyof typeof counts]})
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#616161]" />
-            <input
-              type="text"
-              placeholder="Buscar por nome ou descrição..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-10 pl-10 pr-4 rounded-full bg-[#323232] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all w-72"
-            />
-          </div>
-        </div>
-
-        {/* Tabela */}
+      {/* Conteúdo scrollável */}
+      <div className="p-6">
         <div className="overflow-hidden rounded-xl bg-[#202020]">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[13px] text-[#f5f5f5]">

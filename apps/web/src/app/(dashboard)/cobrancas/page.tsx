@@ -21,7 +21,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Plus, Edit2, Trash2, CheckCircle, AlertTriangle, Search, MessageCircle, CheckCircle2, DollarSign, QrCode, Copy, X } from 'lucide-react'
-import { Header } from '@/components/layout/Header'
+import { PageTitle } from '@/components/layout/PageTitle'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
@@ -452,8 +452,7 @@ export default function CobrancasPage() {
 
   return (
     <div className="flex flex-col min-h-full">
-      {/* Cabeçalho superior com título e ação global */}
-      <Header
+      <PageTitle
         title="Cobranças"
         subtitle="Controle de recebimentos em tempo real"
         actions={
@@ -463,7 +462,6 @@ export default function CobrancasPage() {
           </Button>
         }
       />
-
       <div className="p-6 space-y-4">
 
         {/* Status da integração MP */}

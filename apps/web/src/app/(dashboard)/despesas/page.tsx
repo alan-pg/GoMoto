@@ -61,7 +61,7 @@ import { useExpenses, useVehicles, useSupabaseContext } from '@gomoto/data'
 import { createExpense, updateExpense, deleteExpense } from './actions'
 
 // Infraestrutura do projeto
-import { Header }                    from '@/components/layout/Header'       // Header padrão do sistema
+import { PageTitle } from '@/components/layout/PageTitle'
 import { Button }                    from '@/components/ui/Button'           // Botão do design system
 import { Input, Select, Textarea }   from '@/components/ui/Input'            // Campos de formulário
 import { Modal }                     from '@/components/ui/Modal'            // Modal com backdrop
@@ -643,16 +643,9 @@ export default function ExpensesPage() {
     })),
   ], [vehicles])
 
-  // ─── RENDER ────────────────────────────────────────────────────────────────
-
   return (
     <div className="flex flex-col min-h-full bg-[#121212]">
-
-      {/* ── Header ─────────────────────────────────────────────────────────
-          Componente compartilhado com todas as telas do sistema.
-          O botão "Nova Despesa" fica alinhado à direita via prop `actions`.
-      ────────────────────────────────────────────────────────────────────── */}
-      <Header
+      <PageTitle
         title="Despesas"
         subtitle="Gerencie as saídas financeiras da sua frota"
         actions={
@@ -662,8 +655,6 @@ export default function ExpensesPage() {
           </Button>
         }
       />
-
-      {/* ── Área de conteúdo ─────────────────────────────────────────────── */}
       <div className="p-6 space-y-5">
 
         {/* ── KPI CARDS ────────────────────────────────────────────────────

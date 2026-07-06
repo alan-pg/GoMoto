@@ -25,7 +25,7 @@ import type {
   Vehicle,
 } from '@gomoto/core'
 
-import { Header } from '@/components/layout/Header'
+import { PageTitle } from '@/components/layout/PageTitle'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -146,7 +146,7 @@ export default function AprovacoesPage() {
 
   return (
     <div>
-      <Header
+      <PageTitle
         title="Aprovações de manutenção"
         subtitle="Registros que os clientes enviaram pelo app aguardando sua revisão"
       />

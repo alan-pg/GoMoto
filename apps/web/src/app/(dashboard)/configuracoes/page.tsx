@@ -18,7 +18,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { Building2, Lock, User, Save, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, CreditCard, Link2, Link2Off } from 'lucide-react'
-import { Header } from '@/components/layout/Header'
+import { PageTitle } from '@/components/layout/PageTitle'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
@@ -350,12 +350,7 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col min-h-full">
-      {/* Cabeçalho padrão da página */}
-      <Header
-        title="Configurações"
-        subtitle="Gerencie as informações da empresa e detalhes da sua conta"
-      />
-
+      <PageTitle title="Configurações" subtitle="Gerencie as informações da empresa e detalhes da sua conta" />
       <div className="p-6 space-y-8 max-w-5xl">
 
         {/* SEÇÃO 1: Dados da Empresa */}
