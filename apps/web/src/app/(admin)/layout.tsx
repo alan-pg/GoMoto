@@ -33,8 +33,8 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
 
   return (
     <Providers>
-      <div className="flex min-h-screen bg-[#0d0d0d]">
-          <aside className="w-[240px] border-r border-[#323232] bg-[#121212] p-4 flex flex-col shrink-0">
+      <div className="flex h-screen bg-[#0d0d0d]">
+          <aside className="w-[240px] border-r border-[#323232] bg-[#121212] p-4 flex flex-col shrink-0 overflow-y-auto">
             <div className="flex items-center gap-2 mb-6">
               <div className="w-9 h-9 rounded-lg bg-[#BAFF1A] flex items-center justify-center">
                 <ShieldCheck className="w-5 h-5 text-[#121212]" />
@@ -65,9 +65,9 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
             </div>
           </aside>
 
-          <div className="flex-1 flex flex-col min-h-screen">
+          <div className="flex-1 flex flex-col min-w-0">
             <Topbar userName={userName} userEmail={userEmail} />
-            <main className="flex-1 overflow-y-auto">{children}</main>
+            <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
           </div>
         </div>
     </Providers>

@@ -104,9 +104,9 @@ export function EmpresasListClient({
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-[#121212]">
+    <div className="flex flex-col bg-[#121212]">
 
-      {/* Header */}
+      {/* Header — sticky no topo do contêiner de scroll */}
       <div className="sticky top-0 z-10 bg-[#121212] border-b border-[#323232] px-6 h-20 flex items-center gap-4">
         <Building2 className="w-6 h-6 text-[#BAFF1A] shrink-0" />
         <h1 className="text-[28px] font-bold text-[#f5f5f5]">Empresas</h1>
@@ -122,6 +122,38 @@ export function EmpresasListClient({
         </div>
       </div>
 
+      {/* Barra de filtros — sticky abaixo do header (80px) */}
+      <div className="sticky top-[80px] z-[9] bg-[#121212] border-b border-[#323232] px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap border-b border-[#616161]">
+          {tabs.map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => setStatusFilter(tab.value)}
+              className={`px-3 py-2 text-[13px] font-medium transition-all border-b-2 ${
+                statusFilter === tab.value
+                  ? 'border-[#BAFF1A] text-[#f5f5f5]'
+                  : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
+              }`}
+            >
+              {tab.label}
+              <span className="ml-1.5 text-[#616161]">({tab.count})</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#616161]" />
+          <input
+            type="text"
+            placeholder="Buscar nome, slug, cidade…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-10 rounded-full border border-[#474747] bg-[#323232] pl-9 pr-4 text-[13px] text-[#f5f5f5] placeholder:text-[#616161] focus:border-[#BAFF1A] focus:outline-none w-60"
+          />
+        </div>
+      </div>
+
+      {/* Conteúdo scrollável */}
       <div className="px-6 py-4 space-y-4">
 
         {/* Erro de carregamento */}
@@ -165,37 +197,6 @@ export function EmpresasListClient({
             <div className="rounded-full bg-[#7c1c1c] p-3">
               <Pause className="h-6 w-6 text-[#ff9c9a]" />
             </div>
-          </div>
-        </div>
-
-        {/* Filtros */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap border-b border-[#616161]">
-            {tabs.map((tab) => (
-              <button
-                key={tab.value}
-                onClick={() => setStatusFilter(tab.value)}
-                className={`px-3 py-2 text-[13px] font-medium transition-all border-b-2 ${
-                  statusFilter === tab.value
-                    ? 'border-[#BAFF1A] text-[#f5f5f5]'
-                    : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
-                }`}
-              >
-                {tab.label}
-                <span className="ml-1.5 text-[#616161]">({tab.count})</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#616161]" />
-            <input
-              type="text"
-              placeholder="Buscar nome, slug, cidade…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-10 rounded-full border border-[#474747] bg-[#323232] pl-9 pr-4 text-[13px] text-[#f5f5f5] placeholder:text-[#616161] focus:border-[#BAFF1A] focus:outline-none w-60"
-            />
           </div>
         </div>
 

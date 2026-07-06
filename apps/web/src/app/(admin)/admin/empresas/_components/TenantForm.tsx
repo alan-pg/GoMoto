@@ -282,7 +282,7 @@ export function TenantForm({ mode, initialData, tenantId }: Props) {
       <div className="flex max-w-5xl mx-auto">
 
         {/* Nav lateral */}
-        <nav className="w-48 shrink-0 py-6 pl-6 pr-4 sticky top-16 self-start h-[calc(100vh-4rem)] overflow-y-auto">
+        <nav className="w-48 shrink-0 py-6 pl-6 pr-4 sticky top-16 self-start h-[calc(100vh-6.5rem)] overflow-y-auto">
           <ul className="space-y-1">
             {navItems.map((item) => (
               <li key={item.id}>
