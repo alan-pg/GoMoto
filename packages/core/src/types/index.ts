@@ -32,11 +32,6 @@ export interface Document {
  */
 export type ChargeStatus = 'pending' | 'paid' | 'overdue' | 'cancelled' | 'prejudice' | 'loss';
 
-/**
- * @type ContractStatus
- * @description Define a situação jurídica e operacional de um contrato de locação.
- */
-export type ContractStatus = 'active' | 'closed' | 'cancelled' | 'broken';
 
 /**
  * @interface Vehicle
@@ -260,29 +255,6 @@ export interface Customer {
   rental_history?: CustomerRentalHistory[];
   created_at: string;
   updated_at: string;
-}
-
-/**
- * @interface Contract
- * @description Representa o vínculo jurídico entre um cliente e um veículo.
- * @deprecated Substituído por Rental na Spec 0004. Mantido para compatibilidade com código legado.
- */
-export interface Contract {
-  id: string;
-  tenant_id: string;
-  customer_id: string;
-  vehicle_id: string;
-  start_date: string;
-  end_date?: string;
-  monthly_amount: number;
-  status: ContractStatus;
-  pdf_url?: string;
-  contract_type?: 'rental' | 'loyalty';
-  observations?: string;
-  created_at: string;
-  updated_at: string;
-  customer?: Customer;
-  vehicle?: Vehicle;
 }
 
 /**

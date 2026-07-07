@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AlertCircle } from 'lucide-react'
 
-import { useCustomers, useVehicles, useActiveContracts } from '@gomoto/data'
+import { useCustomers, useVehicles, useRentals } from '@gomoto/data'
 import { formatCurrency } from '@/lib/utils'
 import { createFine, updateFine } from '../actions'
 
@@ -122,9 +122,9 @@ export function FineForm({ fineId, initialData }: FineFormProps) {
   const [isPending, startTransition] = useTransition()
 
   // ── Dados
-  const customersQuery       = useCustomers()
-  const vehiclesQuery        = useVehicles()
-  const activeContractsQuery = useActiveContracts()
+  const customersQuery = useCustomers()
+  const vehiclesQuery  = useVehicles()
+  const rentalsQuery   = useRentals()
 
   const customers = useMemo(
     () => (customersQuery.data ?? [])
@@ -138,11 +138,10 @@ export function FineForm({ fineId, initialData }: FineFormProps) {
     [vehiclesQuery.data],
   )
   const contracts = useMemo(
-    () => (activeContractsQuery.data ?? []).map((c) => ({
-      customer_id: c.customer_id,
-      vehicle_id:  c.vehicle_id,
-    })),
-    [activeContractsQuery.data],
+    () => (rentalsQuery.data ?? [])
+      .filter((r) => r.status === 'active')
+      .map((r) => ({ customer_id: r.customer_id, vehicle_id: r.vehicle_id })),
+    [rentalsQuery.data],
   )
 
   // ── Estado do formulário

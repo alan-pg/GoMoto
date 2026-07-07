@@ -344,14 +344,14 @@ export default async function DashboardPage() {
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           <div className="bg-[#202020] rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-[#323232] flex items-center justify-between">
-              <h3 className="text-[14px] font-semibold text-[#f5f5f5]">Contratos Ativos</h3>
-              <a href="/contratos" className="text-[12px] text-[#BAFF1A] font-bold">
+              <h3 className="text-[14px] font-semibold text-[#f5f5f5]">Locações Ativas</h3>
+              <a href="/locacoes" className="text-[12px] text-[#BAFF1A] font-bold">
                 Ver todos
               </a>
             </div>
             {data.recentContracts.length === 0 ? (
                 <div className="px-4 py-6 text-center text-[12px] text-[#9e9e9e]">
-                Nenhum contrato ativo.
+                Nenhuma locação ativa.
               </div>
             ) : (
               data.recentContracts.slice(0, 4).map((contract, index, items) => (

@@ -18,7 +18,7 @@
 import 'leaflet/dist/leaflet.css'
 
 import { useEffect, useRef, useState } from 'react'
-import type { Vehicle, Contract, Customer } from '@gomoto/core'
+import type { Vehicle, Rental, Customer } from '@gomoto/core'
 import { formatCurrency } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ import { formatCurrency } from '@/lib/utils'
  */
 interface VehicleMapItem {
   vehicle: Vehicle
-  contract?: Contract & { customer?: Customer }
+  rental?: Rental & { customer?: Customer }
 }
 
 /**
@@ -211,7 +211,7 @@ export default function VehicleMap({
 
       // ── CRIAÇÃO DOS MARCADORES ──────────────────────────────────────────
       items.forEach((item) => {
-        const { vehicle, contract } = item
+        const { vehicle, rental } = item
         const color = getMarkerColor(vehicle.status)
 
         /**
@@ -249,8 +249,8 @@ export default function VehicleMap({
         })
 
         // Valor semanal derivado do contrato: monthly_amount / 4 semanas
-        const weeklyValue = contract?.monthly_amount
-          ? formatCurrency(contract.monthly_amount / 4)
+        const weeklyValue = rental?.monthly_amount
+          ? formatCurrency(rental.monthly_amount / 4)
           : '—'
 
         /**
@@ -270,9 +270,9 @@ export default function VehicleMap({
             <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
               <tr><td style="color:#6b7280; padding:3px 0; font-weight:600;">Placa</td><td style="font-weight:700; font-family:monospace; text-align:right;">${vehicle.license_plate}</td></tr>
               <tr><td style="color:#6b7280; padding:3px 0; font-weight:600;">Ano</td><td style="text-align:right;">${vehicle.year_manufacture}${vehicle.year_model ? `/${vehicle.year_model}` : ''}</td></tr>
-              <tr><td style="color:#6b7280; padding:3px 0; font-weight:600;">Cliente</td><td style="text-align:right;">${contract?.customer?.name ?? '—'}</td></tr>
+              <tr><td style="color:#6b7280; padding:3px 0; font-weight:600;">Cliente</td><td style="text-align:right;">${rental?.customer?.name ?? '—'}</td></tr>
               <tr><td style="color:#6b7280; padding:3px 0; font-weight:600;">Valor/Semana</td><td style="color:#16a34a; font-weight:700; text-align:right;">${weeklyValue}</td></tr>
-              <tr><td style="color:#6b7280; padding:3px 0; font-weight:600; vertical-align:top;">Endereço</td><td style="text-align:right; max-width:130px;">${contract?.customer?.address ?? '—'}</td></tr>
+              <tr><td style="color:#6b7280; padding:3px 0; font-weight:600; vertical-align:top;">Endereço</td><td style="text-align:right; max-width:130px;">${rental?.customer?.address ?? '—'}</td></tr>
             </table>
             <p style="font-size:10px; color:#ef4444; margin-top:8px; padding-top:8px; border-top:1px solid #e5e7eb; text-align:center; font-weight:600;">⚠️ Posição simulada — rastreador GPS não vinculado</p>
           </div>

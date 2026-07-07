@@ -1,6 +1,5 @@
 export * from './useVehicles'
 export * from './useCustomers'
-export * from './useContracts'
 export * from './useContractTemplates'
 export * from './useRentals'
 export * from './useBillings'

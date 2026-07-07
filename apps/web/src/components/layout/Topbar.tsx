@@ -8,6 +8,7 @@ import { Fragment, useState } from 'react'
 const SEGMENT_LABELS: Record<string, string> = {
   dashboard:           'Dashboard',
   locacoes:            'Locações',
+  contratos:           'Contratos',
   manutencao:          'Manutenção',
   aprovacoes:          'Aprovações',
   'planos-manutencao': 'Planos de Manutenção',
@@ -17,7 +18,6 @@ const SEGMENT_LABELS: Record<string, string> = {
   cobrancas:           'Cobranças',
   veiculos:            'Veículos',
   clientes:            'Clientes',
-  contratos:           'Contratos',
   relatorios:          'Relatórios',
   processos:           'Processos',
   configuracoes:       'Configurações',

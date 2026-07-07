@@ -6,7 +6,7 @@
  */
 
 import type { ChargeStatus } from '../types/index'
-import { parseIsoDate } from './contracts'
+import { parseIsoDate } from './rentals'
 
 export interface ChargeSummary {
   status: ChargeStatus

@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CONTRACT_MINIMUM_DURATION,
+  RENTAL_MINIMUM_DURATION,
   CONTRACT_TERMINATION_FINE_BRL,
   addMonths,
   addYears,
-  calculateExpectedEndDate,
-  calculateMinimumEndDate,
-  getContractValidityLevel,
-  isTerminationWithinMinimum,
   parseIsoDate,
-} from './contracts'
+  calculateMinimumEndDate,
+  calculateExpectedEndDate,
+  getRentalValidityLevel,
+  isTerminationWithinMinimum,
+} from './rentals'
 
 describe('addMonths / addYears', () => {
   it('soma meses preservando o dia', () => {
@@ -30,10 +30,10 @@ describe('parseIsoDate', () => {
   })
 })
 
-describe('CONTRACT_MINIMUM_DURATION', () => {
+describe('RENTAL_MINIMUM_DURATION', () => {
   it('expõe constantes alinhadas com o produto', () => {
-    expect(CONTRACT_MINIMUM_DURATION.rental.months).toBe(3)
-    expect(CONTRACT_MINIMUM_DURATION.loyalty.years).toBe(2)
+    expect(RENTAL_MINIMUM_DURATION.rental.months).toBe(3)
+    expect(RENTAL_MINIMUM_DURATION.rent_to_own.years).toBe(2)
     expect(CONTRACT_TERMINATION_FINE_BRL).toBe(1000)
   })
 })
@@ -43,22 +43,22 @@ describe('calculateMinimumEndDate', () => {
     expect(calculateMinimumEndDate('2026-01-15', 'rental')).toEqual(new Date('2026-04-15T00:00:00'))
   })
 
-  it('loyalty → start + 2 anos', () => {
-    expect(calculateMinimumEndDate('2026-01-15', 'loyalty')).toEqual(new Date('2028-01-15T00:00:00'))
+  it('rent_to_own → start + 2 anos', () => {
+    expect(calculateMinimumEndDate('2026-01-15', 'rent_to_own')).toEqual(new Date('2028-01-15T00:00:00'))
   })
 
-  it('default é rental quando contract_type não é informado', () => {
+  it('default é rental quando tipo não é informado', () => {
     expect(calculateMinimumEndDate('2026-01-15')).toEqual(new Date('2026-04-15T00:00:00'))
   })
 })
 
 describe('calculateExpectedEndDate', () => {
-  it('loyalty ignora end_date manual e usa start + 2 anos', () => {
+  it('rent_to_own ignora end_date manual e usa start + 2 anos', () => {
     expect(calculateExpectedEndDate({
       status: 'active',
       start_date: '2026-01-15',
       end_date: '2027-12-31',
-      contract_type: 'loyalty',
+      contract_type: 'rent_to_own',
     })).toEqual(new Date('2028-01-15T00:00:00'))
   })
 
@@ -80,25 +80,25 @@ describe('calculateExpectedEndDate', () => {
   })
 })
 
-describe('getContractValidityLevel', () => {
-  it('retorna null quando o contrato não está ativo', () => {
-    expect(getContractValidityLevel({
+describe('getRentalValidityLevel', () => {
+  it('retorna null quando a locação não está ativa', () => {
+    expect(getRentalValidityLevel({
       status: 'closed',
       start_date: '2026-01-15',
       end_date: '2026-12-31',
     })).toBeNull()
   })
 
-  it('red quando hoje passou da end_date do contrato', () => {
-    expect(getContractValidityLevel({
+  it('red quando hoje passou da end_date', () => {
+    expect(getRentalValidityLevel({
       status: 'active',
       start_date: '2025-01-15',
       end_date: '2026-01-01',
     }, new Date('2026-06-10T12:00:00'))).toBe('red')
   })
 
-  it('orange quando hoje ainda está dentro da vigência mínima (rental)', () => {
-    expect(getContractValidityLevel({
+  it('orange quando dentro da vigência mínima (rental)', () => {
+    expect(getRentalValidityLevel({
       status: 'active',
       start_date: '2026-05-01',
       contract_type: 'rental',
@@ -106,7 +106,7 @@ describe('getContractValidityLevel', () => {
   })
 
   it('green após cumprir a vigência mínima (rental)', () => {
-    expect(getContractValidityLevel({
+    expect(getRentalValidityLevel({
       status: 'active',
       start_date: '2026-01-01',
       end_date: '2026-12-31',
@@ -114,11 +114,11 @@ describe('getContractValidityLevel', () => {
     }, new Date('2026-06-10T12:00:00'))).toBe('green')
   })
 
-  it('orange em contrato loyalty antes dos 2 anos', () => {
-    expect(getContractValidityLevel({
+  it('orange em rent_to_own antes dos 2 anos', () => {
+    expect(getRentalValidityLevel({
       status: 'active',
       start_date: '2025-01-15',
-      contract_type: 'loyalty',
+      contract_type: 'rent_to_own',
     }, new Date('2026-06-10T12:00:00'))).toBe('orange')
   })
 })
