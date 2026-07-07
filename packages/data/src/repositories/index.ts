@@ -1,6 +1,7 @@
 export * from './vehicles'
 export * from './customers'
 export * from './contracts'
+export * from './contractTemplates'
 export * from './rentals'
 export * from './billings'
 export * from './queue'

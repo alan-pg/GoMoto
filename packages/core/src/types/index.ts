@@ -546,6 +546,21 @@ export interface Fine {
 }
 
 /**
+ * @interface ContractTemplate
+ * @description Template de contrato editado no Tiptap. O campo `content` armazena
+ * o documento ProseMirror em JSON; variáveis são marcadas como `{{chave}}` no texto.
+ */
+export interface ContractTemplate {
+  id: string
+  tenant_id: string
+  name: string
+  description: string | null
+  content: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+/**
  * @interface QueueEntry
  * @description Entrada na fila de espera de clientes por um veículo disponível.
  */

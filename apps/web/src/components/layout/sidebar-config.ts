@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Bike, Users, FileText, DollarSign,
   TrendingUp, TrendingDown, AlertTriangle, Wrench,
   Clock, BarChart2, HelpCircle, Settings,
-  ClipboardCheck, ClipboardList,
+  ClipboardCheck, ClipboardList, ScrollText,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -38,7 +38,15 @@ export const DASHBOARD_NAV: NavSection[] = [
     label: 'Operações',
     items: [
       { kind: 'leaf', href: '/locacoes',  label: 'Locações',  icon: Clock },
-      { kind: 'leaf', href: '/contratos', label: 'Contratos', icon: FileText },
+      {
+        kind: 'branch',
+        label: 'Contratos',
+        icon: FileText,
+        children: [
+          { kind: 'leaf', href: '/contratos',         label: 'Contratos',        icon: FileText },
+          { kind: 'leaf', href: '/contratos/modelos', label: 'Modelos',          icon: ScrollText },
+        ],
+      },
       { kind: 'leaf', href: '/clientes',  label: 'Clientes',  icon: Users },
     ],
   },

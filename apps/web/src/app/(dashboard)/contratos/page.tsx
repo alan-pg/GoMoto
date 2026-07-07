@@ -1,20 +1,18 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import Link from 'next/link'
 import {
-  Upload, Eye, Search, FileEdit, FileDown,
-  CheckCircle, Trash2, User, Bike, FileText,
-  Settings2, AlertTriangle, XCircle, ChevronLeft,
-  Building2, UserRound, Clock, CalendarDays,
+  Eye, Search, FileText, Settings2,
+  CheckCircle, XCircle, ChevronLeft,
+  User, Bike, AlertTriangle, Building2, UserRound,
+  CalendarDays, Clock,
 } from 'lucide-react'
-import { useContracts, useSupabaseContext } from '@gomoto/data'
+import { useContracts } from '@gomoto/data'
 import {
-  updateContract,
   terminateContractByCustomer,
   terminateContractByCompany,
-  upsertContractTemplate,
-  removeContractTemplate,
 } from './actions'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'
@@ -28,117 +26,31 @@ import {
   getContractValidityLevel,
 } from '@gomoto/core'
 
-// ---------------------------------------------------------------------------
-// Tipos
-// ---------------------------------------------------------------------------
+// ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface ContractRow extends Omit<Contract, 'customer' | 'vehicle'> {
   customer: Pick<Customer, 'id' | 'name' | 'phone' | 'cpf' | 'rg' | 'state' | 'drivers_license' | 'drivers_license_category' | 'address' | 'zip_code'> | null
   vehicle: Pick<Vehicle, 'id' | 'model' | 'make' | 'license_plate' | 'km_current' | 'year_manufacture' | 'year_model' | 'renavam' | 'chassis' | 'color' | 'fuel'> | null
 }
 
-interface ContractTemplate {
-  id?: string
-  slug: string
-  name: string
-  description: string
-  file_url: string | null
-  updated_at: string | null
-}
-
 type TerminateStep = 'choice' | 'client' | 'company'
-
-// ---------------------------------------------------------------------------
-// Constantes
-// ---------------------------------------------------------------------------
-
-const DEFAULT_TEMPLATES: ContractTemplate[] = [
-  { slug: 'rental', name: 'Contrato de Locação', description: 'Padrão semanal sem fidelidade', file_url: null, updated_at: null },
-  { slug: 'loyalty', name: 'Com Fidelidade', description: 'Com permanência mínima', file_url: null, updated_at: null },
-]
-
-const SUPPORTED_VARIABLES = [
-  // — Identificação do cliente (ordem do contrato) —
-  { tag: '{{nome_cliente}}',    desc: 'Nome completo' },
-  { tag: '{{rg_cliente}}',     desc: 'RG + órgão (ex: 12488178 DETRAN RJ)' },
-  { tag: '{{cpf_cliente}}',    desc: 'CPF' },
-  { tag: '{{cnh_cliente}}',    desc: 'Número da habilitação' },
-  { tag: '{{categoria_cnh}}',  desc: 'Categoria CNH (ex: AB)' },
-  { tag: '{{endereco_cliente}}', desc: 'Endereço completo' },
-  { tag: '{{cep_cliente}}',    desc: 'CEP' },
-  // — Dados da motocicleta —
-  { tag: '{{marca_moto}}',          desc: 'Marca (ex: HONDA)' },
-  { tag: '{{modelo_moto}}',         desc: 'Marca + Modelo (ex: HONDA CG 160 START)' },
-  { tag: '{{ano_fabricacao_moto}}', desc: 'Ano de fabricação (ex: 2024)' },
-  { tag: '{{ano_modelo_moto}}',     desc: 'Ano do modelo (ex: 2025)' },
-  { tag: '{{ano_fab_mod_moto}}',    desc: 'Fabricação/Modelo combinado (ex: 2024/2025)' },
-  { tag: '{{renavam_moto}}',        desc: 'RENAVAM' },
-  { tag: '{{placa_moto}}',          desc: 'Placa' },
-  { tag: '{{chassi_moto}}',         desc: 'Chassi' },
-  { tag: '{{cor_moto}}',            desc: 'Cor' },
-  { tag: '{{combustivel_moto}}',    desc: 'Combustível' },
-  { tag: '{{km_inicial}}',          desc: 'KM no início do contrato' },
-  // — Condições financeiras e datas —
-  { tag: '{{valor_semanal}}',  desc: 'Valor semanal (ex: 350,00)' },
-  { tag: '{{data_inicio}}',    desc: 'Data início por extenso' },
-  { tag: '{{data_hoje}}',      desc: 'Data atual por extenso' },
-]
-
 type StatusFilter = 'all' | 'active' | 'closed' | 'cancelled' | 'broken'
 
 const FILTERS: { key: StatusFilter; label: string }[] = [
-  { key: 'all', label: 'Todos' },
-  { key: 'active', label: 'Ativos' },
-  { key: 'closed', label: 'Encerrados' },
+  { key: 'all',       label: 'Todos' },
+  { key: 'active',    label: 'Ativos' },
+  { key: 'closed',    label: 'Encerrados' },
   { key: 'cancelled', label: 'Cancelados' },
-  { key: 'broken', label: 'Rescindidos' },
+  { key: 'broken',    label: 'Rescindidos' },
 ]
 
 const FINE_AMOUNT = CONTRACT_TERMINATION_FINE_BRL
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmt(dateStr: string | null | undefined) {
   if (!dateStr) return '—'
   return new Date(dateStr + 'T00:00:00').toLocaleDateString('pt-BR')
-}
-
-function fmtLong(dateStr: string | null | undefined) {
-  if (!dateStr) return '—'
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('pt-BR', {
-    day: 'numeric', month: 'long', year: 'numeric',
-  })
-}
-
-function numberToWords(value: number): string {
-  const int = Math.floor(value)
-  const UNITS = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove',
-    'dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove']
-  const TENS = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa']
-  const HUNDREDS = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos',
-    'seiscentos', 'setecentos', 'oitocentos', 'novecentos']
-
-  function below1000(n: number): string {
-    if (n === 0) return ''
-    if (n < 20) return UNITS[n]
-    if (n < 100) {
-      const u = n % 10
-      return u === 0 ? TENS[Math.floor(n / 10)] : `${TENS[Math.floor(n / 10)]} e ${UNITS[u]}`
-    }
-    const h = Math.floor(n / 100)
-    const rest = n % 100
-    const hWord = n === 100 ? 'cem' : HUNDREDS[h]
-    return rest === 0 ? hWord : `${hWord} e ${below1000(rest)}`
-  }
-
-  if (int === 0) return 'zero reais'
-  if (int < 1000) return `${below1000(int)} reais`
-  const thousands = Math.floor(int / 1000)
-  const rest = int % 1000
-  const kWord = thousands === 1 ? 'mil' : `${below1000(thousands)} mil`
-  return rest === 0 ? `${kWord} reais` : `${kWord} e ${below1000(rest)} reais`
 }
 
 function fmtBRL(value: number | null | undefined) {
@@ -191,107 +103,16 @@ function expectedEndDate(contract: ContractRow): string {
   return fmt(end.toISOString().split('T')[0])
 }
 
-/**
- * Gera o blob `.docx` preenchido a partir do template no Storage e dos dados do contrato.
- * Extraída para ser reutilizada tanto pelo download direto quanto pelo fluxo "imprimir PDF"
- * (que renderiza o mesmo blob via docx-preview antes de abrir o print dialog). Mantém o
- * fix de tags `{{...}}` quebradas em runs XML que o Word costuma introduzir.
- */
-async function buildContractDocxBlob(
-  templateUrl: string,
-  contract: ContractRow,
-): Promise<Blob> {
-  const res = await fetch(templateUrl)
-  if (!res.ok) throw new Error(`Falha ao buscar template: ${res.status} ${res.statusText}`)
-  const arrayBuffer = await res.arrayBuffer()
-  const PizZip = (await import('pizzip')).default
-  const Docxtemplater = (await import('docxtemplater')).default
-  const zip = new PizZip(arrayBuffer)
-
-  const xmlFiles = Object.keys(zip.files).filter(
-    n => /^word\/(document|header\d*|footer\d*)\.xml$/.test(n),
-  )
-  for (const fname of xmlFiles) {
-    let xml = (zip.files[fname] as { asText: () => string }).asText()
-    let prev = ''
-    while (prev !== xml) {
-      prev = xml
-      const boundary = '(<\\/w:t><\\/w:r>(?:<w:bookmarkStart[^>]*\\/>)*(?:<w:bookmarkEnd[^>]*\\/>)*<w:r>(?:<w:rPr>[\\s\\S]*?<\\/w:rPr>)?<w:t(?:[^>]*)>)'
-      xml = xml.replace(new RegExp(`\\{${boundary}\\{`, 'g'), '{{$1')
-      xml = xml.replace(new RegExp(`\\}${boundary}\\}`, 'g'), '}}$1')
-    }
-    zip.file(fname, xml)
-  }
-
-  const doc = new Docxtemplater(zip, {
-    paragraphLoop: true,
-    linebreaks: true,
-    nullGetter: () => '',
-    delimiters: { start: '{{', end: '}}' },
-  })
-  const c = contract.customer
-  const m = contract.vehicle
-  const ano_fabricacao = m?.year_manufacture?.trim() ?? ''
-  const ano_modelo = m?.year_model?.trim() ?? ano_fabricacao
-  const rg_cliente = [c?.rg, c?.state ? `DETRAN ${c.state}` : ''].filter(Boolean).join(' ')
-  doc.render({
-    data_hoje: new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' }),
-    data_inicio: fmtLong(contract.start_date),
-    nome_cliente: c?.name ?? '',
-    cpf_cliente: c?.cpf ?? '',
-    rg_cliente,
-    cnh_cliente: c?.drivers_license ?? '',
-    categoria_cnh: c?.drivers_license_category ?? '',
-    endereco_cliente: c?.address ?? '',
-    cep_cliente: c?.zip_code ?? '',
-    placa_moto: m?.license_plate ?? '',
-    marca_moto: m?.make ?? '',
-    modelo_moto: m ? `${m.make} ${m.model}` : '',
-    ano_fabricacao_moto: ano_fabricacao,
-    ano_modelo_moto: ano_modelo,
-    ano_fab_mod_moto: ano_modelo ? `${ano_fabricacao}/${ano_modelo}` : ano_fabricacao,
-    renavam_moto: m?.renavam ?? '',
-    chassi_moto: m?.chassis ?? '',
-    cor_moto: m?.color ?? '',
-    combustivel_moto: m?.fuel ?? '',
-    km_inicial: String(m?.km_current ?? ''),
-    valor_semanal: (() => {
-      const v = contract.monthly_amount ?? 0
-      const num = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2 }).format(v)
-      return `${num} (${numberToWords(v)})`
-    })(),
-  })
-  return doc.getZip().generate({
-    type: 'blob',
-    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  })
-}
-
-// ---------------------------------------------------------------------------
-// Componente
-// ---------------------------------------------------------------------------
+// ─── Componente ───────────────────────────────────────────────────────────────
 
 export default function ContratosPage() {
-  const supabase = useSupabaseContext()
   const queryClient = useQueryClient()
   const { data: contractsData = [], isLoading: loading } = useContracts()
   const contracts = contractsData as unknown as ContractRow[]
-  const [templates, setTemplates] = useState<ContractTemplate[]>(DEFAULT_TEMPLATES)
+
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [search, setSearch] = useState('')
 
-  const [uploadingContract, setUploadingContract] = useState<string | null>(null)
-  const [activeContractId, setActiveContractId] = useState<string | null>(null)
-  const contractFileRef = useRef<HTMLInputElement>(null)
-
-  const [uploading, setUploading] = useState<string | null>(null)
-  const [activeSlug, setActiveSlug] = useState<string | null>(null)
-  const templateFileRef = useRef<HTMLInputElement>(null)
-
-  const [downloading, setDownloading] = useState<string | null>(null)
-  const [templatesModal, setTemplatesModal] = useState(false)
-
-  // Modal de detalhes
   const [selectedContract, setSelectedContract] = useState<ContractRow | null>(null)
   const [terminateStep, setTerminateStep] = useState<TerminateStep | null>(null)
   const [terminateReason, setTerminateReason] = useState('')
@@ -303,24 +124,6 @@ export default function ContratosPage() {
     setToast({ type, msg })
     setTimeout(() => setToast(null), 3500)
   }, [])
-
-  // ---------------------------------------------------------------------------
-  // Fetch templates (one-off direct read; mutations go via Server Actions)
-  // ---------------------------------------------------------------------------
-
-  const fetchTemplates = useCallback(async () => {
-    const { data } = await supabase.from('contract_templates').select('*')
-    if (data?.length) {
-      setTemplates(prev => prev.map(t => {
-        const db = data.find((d: { slug: string }) => d.slug === t.slug)
-        return db ? { ...t, ...db } : t
-      }))
-    }
-  }, [supabase])
-
-  useEffect(() => {
-    fetchTemplates()
-  }, [fetchTemplates])
 
   const invalidateContracts = useCallback(
     () => queryClient.invalidateQueries({ queryKey: ['contracts'] }),
@@ -335,230 +138,74 @@ export default function ContratosPage() {
       rows = rows.filter(c =>
         c.customer?.name?.toLowerCase().includes(q) ||
         c.vehicle?.license_plate?.toLowerCase().includes(q) ||
-        c.vehicle?.model?.toLowerCase().includes(q)
+        c.vehicle?.model?.toLowerCase().includes(q),
       )
     }
     return rows
   }, [contracts, filter, search])
 
-  // ---------------------------------------------------------------------------
-  // Upload contrato assinado
-  // ---------------------------------------------------------------------------
+  // ─── Encerrar ────────────────────────────────────────────────────────────
 
-  const handleContractFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !activeContractId) return
-    setUploadingContract(activeContractId)
-    try {
-      const ext = file.name.split('.').pop() ?? 'pdf'
-      const path = `signed/${activeContractId}.${ext}`
-      const { error: upErr } = await supabase.storage.from('contract-templates').upload(path, file, { upsert: true })
-      if (upErr) throw upErr
-      const { data: urlData } = supabase.storage.from('contract-templates').getPublicUrl(path)
-      const res = await updateContract(activeContractId, { pdf_url: urlData.publicUrl })
-      if (res.error) throw new Error(res.error)
-      showToast('success', 'Contrato assinado enviado!')
-      setSelectedContract(prev => prev?.id === activeContractId ? { ...prev, pdf_url: urlData.publicUrl } : prev)
-      invalidateContracts()
-    } catch { showToast('error', 'Falha no upload do contrato') }
-    finally {
-      setUploadingContract(null); setActiveContractId(null)
-      if (contractFileRef.current) contractFileRef.current.value = ''
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Upload template
-  // ---------------------------------------------------------------------------
-
-  const handleTemplateFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !activeSlug) return
-    if (!file.name.endsWith('.docx')) { showToast('error', 'Apenas .docx são permitidos'); return }
-    setUploading(activeSlug)
-    try {
-      const path = `models/${activeSlug}_template.docx`
-      const { error: upErr } = await supabase.storage.from('contract-templates').upload(path, file, { upsert: true })
-      if (upErr) throw upErr
-      const { data: urlData } = supabase.storage.from('contract-templates').getPublicUrl(path)
-      const tpl = templates.find(t => t.slug === activeSlug)
-      const res = await upsertContractTemplate({
-        slug: activeSlug,
-        name: tpl?.name ?? activeSlug,
-        description: tpl?.description ?? null,
-        file_url: urlData.publicUrl,
-      })
-      if (res.error) throw new Error(res.error)
-      showToast('success', 'Modelo atualizado!')
-      fetchTemplates()
-    } catch { showToast('error', 'Falha no upload do modelo') }
-    finally {
-      setUploading(null); setActiveSlug(null)
-      if (templateFileRef.current) templateFileRef.current.value = ''
-    }
-  }
-
-  const handleRemoveTemplate = async (slug: string) => {
-    if (!confirm('Remover este modelo?')) return
-    const res = await removeContractTemplate(slug)
-    if (res.error) { showToast('error', res.error); return }
-    showToast('success', 'Modelo removido')
-    fetchTemplates()
-  }
-
-  // ---------------------------------------------------------------------------
-  // Download contrato preenchido
-  // ---------------------------------------------------------------------------
-
-  const handleDownloadFilled = useCallback(async (contract: ContractRow, templateSlug: string) => {
-    const template = templates.find(t => t.slug === templateSlug)
-    if (!template?.file_url) { showToast('error', 'Configure um modelo .docx primeiro'); return }
-    setDownloading(contract.id + templateSlug)
-    try {
-      const blob = await buildContractDocxBlob(template.file_url, contract)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `contrato_${(contract.customer?.name ?? 'cliente').replace(/\s+/g, '_')}_${templateSlug}.docx`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch (err) {
-      console.error('[download contrato]', err)
-      const msg = err instanceof Error ? err.message : String(err)
-      showToast('error', msg.slice(0, 80) || 'Erro ao gerar contrato preenchido')
-    }
-    finally { setDownloading(null) }
-  }, [templates, showToast])
-
-  /**
-   * Gera o mesmo DOCX preenchido e abre o print dialog do browser sobre uma
-   * pré-visualização renderizada via docx-preview num iframe oculto. O usuário
-   * escolhe "Salvar como PDF" no destino do print para obter o arquivo final.
-   * Evita libs de conversão DOCX→PDF (jspdf/html2canvas têm problemas de page break);
-   * o motor de impressão do browser respeita @page e margens nativamente.
-   */
-  const handleGeneratePdf = useCallback(async (contract: ContractRow, templateSlug: string) => {
-    const template = templates.find(t => t.slug === templateSlug)
-    if (!template?.file_url) { showToast('error', 'Configure um modelo .docx primeiro'); return }
-    const loadingKey = contract.id + templateSlug + ':pdf'
-    setDownloading(loadingKey)
-    try {
-      const blob = await buildContractDocxBlob(template.file_url, contract)
-      const { renderAsync } = await import('docx-preview')
-
-      const iframe = document.createElement('iframe')
-      iframe.style.position = 'fixed'
-      iframe.style.right = '0'
-      iframe.style.bottom = '0'
-      iframe.style.width = '0'
-      iframe.style.height = '0'
-      iframe.style.border = '0'
-      document.body.appendChild(iframe)
-
-      const iframeDoc = iframe.contentDocument
-      if (!iframeDoc) throw new Error('Falha ao preparar área de impressão')
-      iframeDoc.open()
-      iframeDoc.write('<!DOCTYPE html><html><head><title>Contrato</title></head><body><div id="docx-container"></div></body></html>')
-      iframeDoc.close()
-
-      const container = iframeDoc.getElementById('docx-container')
-      if (!container) throw new Error('Container de impressão não encontrado')
-      await renderAsync(blob, container, undefined, {
-        className: 'docx',
-        inWrapper: false,
-      })
-
-      await new Promise(r => setTimeout(r, 200))
-
-      const win = iframe.contentWindow
-      if (!win) throw new Error('Janela de impressão não encontrada')
-      const cleanup = () => {
-        try { document.body.removeChild(iframe) } catch { /* já removido */ }
-      }
-      win.addEventListener('afterprint', cleanup, { once: true })
-      setTimeout(cleanup, 60_000)
-      win.focus()
-      win.print()
-    } catch (err) {
-      console.error('[gerar PDF contrato]', err)
-      const msg = err instanceof Error ? err.message : String(err)
-      showToast('error', msg.slice(0, 80) || 'Erro ao gerar PDF')
-    }
-    finally { setDownloading(null) }
-  }, [templates, showToast])
-
-  // ---------------------------------------------------------------------------
-  // Encerrar contrato
-  // ---------------------------------------------------------------------------
-
-  const handleTerminateClient = async () => {
+  async function handleTerminateClient() {
     if (!selectedContract) return
     setTerminating(true)
     try {
       const res = await terminateContractByCustomer(selectedContract.id)
       if (res.error) throw new Error(res.error)
       showToast('success', `Contrato encerrado. Multa de ${fmtBRL(FINE_AMOUNT)} gerada.`)
-      setSelectedContract(null)
-      setTerminateStep(null)
+      closeDetailModal()
       invalidateContracts()
     } catch { showToast('error', 'Erro ao encerrar contrato') }
     finally { setTerminating(false) }
   }
 
-  const handleTerminateCompany = async () => {
+  async function handleTerminateCompany() {
     if (!selectedContract || terminateReason.trim().length < 50) return
     setTerminating(true)
     try {
       const res = await terminateContractByCompany(selectedContract.id, terminateReason)
       if (res.error) throw new Error(res.error)
       showToast('success', 'Contrato encerrado pela empresa.')
-      setSelectedContract(null)
-      setTerminateStep(null)
-      setTerminateReason('')
+      closeDetailModal()
       invalidateContracts()
     } catch { showToast('error', 'Erro ao encerrar contrato') }
     finally { setTerminating(false) }
   }
 
-  const closeDetailModal = () => {
+  function closeDetailModal() {
     setSelectedContract(null)
     setTerminateStep(null)
     setTerminateReason('')
   }
 
-  // ---------------------------------------------------------------------------
-  // Render helpers
-  // ---------------------------------------------------------------------------
-
-  const configuredTemplates = templates.filter(t => t.file_url)
-
-  const toastEl = toast ? (
-    <div className={`px-4 py-1.5 rounded-full text-[13px] font-medium flex items-center gap-2 animate-in fade-in slide-in-from-right-4 duration-300 ${
-      toast.type === 'error' ? 'bg-[#7c1c1c] text-[#ff9c9a]' : 'bg-[#0e2f13] text-[#229731]'
-    }`}>
-      {toast.type === 'error' ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-      {toast.msg}
-    </div>
-  ) : null
+  // ─── Render ──────────────────────────────────────────────────────────────
 
   const vigencia = selectedContract ? getVigencia(selectedContract) : null
-
-  // ---------------------------------------------------------------------------
-  // JSX
-  // ---------------------------------------------------------------------------
 
   return (
     <div className="flex flex-col min-h-full bg-[#121212]">
       <PageTitle
         title="Contratos"
         actions={
-          <Button variant="secondary" size="sm" className="gap-2" onClick={() => setTemplatesModal(true)}>
-            <Settings2 className="w-4 h-4" />
-            Modelos .docx
-          </Button>
+          <Link href="/contratos/modelos">
+            <Button variant="secondary" size="sm" className="gap-2">
+              <Settings2 className="w-4 h-4" />
+              Modelos
+            </Button>
+          </Link>
         }
       />
-      {toastEl && <div className="px-6 pt-4">{toastEl}</div>}
+
+      {toast && (
+        <div className="px-6 pt-4">
+          <div className={`px-4 py-1.5 rounded-full text-[13px] font-medium flex items-center gap-2 animate-in fade-in slide-in-from-right-4 duration-300 w-fit ${
+            toast.type === 'error' ? 'bg-[#7c1c1c] text-[#ff9c9a]' : 'bg-[#0e2f13] text-[#229731]'
+          }`}>
+            {toast.type === 'error' ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+            {toast.msg}
+          </div>
+        </div>
+      )}
 
       <div className="p-6 space-y-5">
 
@@ -566,16 +213,25 @@ export default function ContratosPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-6">
             {FILTERS.map(f => (
-              <button key={f.key} onClick={() => setFilter(f.key)}
+              <button
+                key={f.key}
+                onClick={() => setFilter(f.key)}
                 className={`text-[13px] pb-1 transition-colors duration-150 ${
-                  filter === f.key ? 'border-b-2 border-[#BAFF1A] text-[#BAFF1A]' : 'text-[#9e9e9e] hover:text-[#f5f5f5]'
+                  filter === f.key
+                    ? 'border-b-2 border-[#BAFF1A] text-[#BAFF1A]'
+                    : 'text-[#9e9e9e] hover:text-[#f5f5f5]'
                 }`}
-              >{f.label}</button>
+              >
+                {f.label}
+              </button>
             ))}
           </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#616161]" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cliente ou placa..."
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Cliente ou placa..."
               className="h-9 pl-9 pr-4 bg-[#202020] border border-[#474747] rounded-full text-[13px] text-[#f5f5f5] placeholder:text-[#616161] focus:border-[#BAFF1A] focus:ring-1 focus:ring-[#BAFF1A] outline-none w-56"
             />
           </div>
@@ -598,30 +254,47 @@ export default function ContratosPage() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={7}><div className="flex items-center justify-center py-16"><div className="w-6 h-6 border-2 border-[#BAFF1A] border-t-transparent rounded-full animate-spin" /></div></td></tr>
-                ) : filtered.length === 0 ? (
-                  <tr><td colSpan={7}>
-                    <div className="flex flex-col items-center justify-center py-16 gap-3">
-                      <div className="w-12 h-12 bg-[#323232] rounded-full flex items-center justify-center">
-                        <FileText className="w-6 h-6 text-[#9e9e9e]" />
+                  <tr>
+                    <td colSpan={7}>
+                      <div className="flex items-center justify-center py-16">
+                        <div className="w-6 h-6 border-2 border-[#BAFF1A] border-t-transparent rounded-full animate-spin" />
                       </div>
-                      <p className="text-[13px] text-[#9e9e9e]">Nenhum contrato encontrado.</p>
-                      {(filter !== 'all' || search) && (
-                        <button onClick={() => { setFilter('all'); setSearch('') }} className="text-[13px] text-[#BAFF1A] hover:underline">Limpar filtros</button>
-                      )}
-                    </div>
-                  </td></tr>
+                    </td>
+                  </tr>
+                ) : filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={7}>
+                      <div className="flex flex-col items-center justify-center py-16 gap-3">
+                        <div className="w-12 h-12 bg-[#323232] rounded-full flex items-center justify-center">
+                          <FileText className="w-6 h-6 text-[#9e9e9e]" />
+                        </div>
+                        <p className="text-[13px] text-[#9e9e9e]">Nenhum contrato encontrado.</p>
+                        {(filter !== 'all' || search) && (
+                          <button
+                            onClick={() => { setFilter('all'); setSearch('') }}
+                            className="text-[13px] text-[#BAFF1A] hover:underline"
+                          >
+                            Limpar filtros
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
                 ) : (
                   filtered.map(contract => {
                     const v = getVigencia(contract)
                     return (
-                      <tr key={contract.id}
+                      <tr
+                        key={contract.id}
                         onClick={() => { setSelectedContract(contract); setTerminateStep(null) }}
                         className="h-9 text-[13px] border-b border-[#323232] transition-colors hover:bg-[#323232] cursor-pointer"
                       >
                         <td className="px-4">
                           {contract.customer
-                            ? <div className="flex items-center gap-2"><User className="w-4 h-4 text-[#a880ff] flex-shrink-0" /><span className="font-medium text-[#f5f5f5] truncate max-w-[160px]">{contract.customer.name}</span></div>
+                            ? <div className="flex items-center gap-2">
+                                <User className="w-4 h-4 text-[#a880ff] flex-shrink-0" />
+                                <span className="font-medium text-[#f5f5f5] truncate max-w-[160px]">{contract.customer.name}</span>
+                              </div>
                             : <span className="text-[#9e9e9e]">—</span>}
                         </td>
                         <td className="px-4">
@@ -644,7 +317,9 @@ export default function ContratosPage() {
                           <span className="text-[#616161] mx-1">→</span>
                           <span className="text-[#c7c7c7]">{expectedEndDate(contract)}</span>
                         </td>
-                        <td className="px-4"><span className="text-[#BAFF1A] font-medium">{fmtBRL(contract.monthly_amount)}</span></td>
+                        <td className="px-4">
+                          <span className="text-[#BAFF1A] font-medium">{fmtBRL(contract.monthly_amount)}</span>
+                        </td>
                         <td className="px-4">
                           <div className="flex items-center gap-1.5">
                             {v && (
@@ -657,8 +332,13 @@ export default function ContratosPage() {
                         </td>
                         <td className="px-4" onClick={e => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
-                            <Button variant="secondary" size="sm" className="h-8 w-8 p-0" title="Ver detalhes"
-                              onClick={() => { setSelectedContract(contract); setTerminateStep(null) }}>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="h-8 w-8 p-0"
+                              title="Ver detalhes"
+                              onClick={() => { setSelectedContract(contract); setTerminateStep(null) }}
+                            >
                               <Eye className="h-4 w-4" />
                             </Button>
                           </div>
@@ -673,12 +353,10 @@ export default function ContratosPage() {
         </div>
       </div>
 
-      {/* ── MODAL: DETALHES DO CONTRATO ─────────────────────────── */}
+      {/* ── MODAL: DETALHES DO CONTRATO ──────────────────────────── */}
       <Modal open={!!selectedContract && !terminateStep} onClose={closeDetailModal} size="md">
         {selectedContract && (
           <div className="space-y-5">
-
-            {/* Cabeçalho do contrato */}
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <User className="w-5 h-5 text-[#a880ff]" />
@@ -694,7 +372,6 @@ export default function ContratosPage() {
               )}
             </div>
 
-            {/* Tipo */}
             <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] font-medium ${
               selectedContract.contract_type === 'loyalty'
                 ? 'bg-[#2d0363] text-[#a880ff]'
@@ -706,7 +383,6 @@ export default function ContratosPage() {
                 : 'Contrato de Locação Tradicional'}
             </div>
 
-            {/* Datas + Valor */}
             <div className="grid grid-cols-3 gap-3">
               <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-3">
                 <div className="flex items-center gap-1.5 mb-1">
@@ -731,7 +407,6 @@ export default function ContratosPage() {
               </div>
             </div>
 
-            {/* Vigência */}
             {vigencia ? (
               <div className={`flex items-start gap-3 rounded-xl p-4 border ${
                 vigencia.level === 'red'
@@ -755,11 +430,10 @@ export default function ContratosPage() {
             ) : (
               <div className="flex items-center gap-2 text-[#9e9e9e] text-[13px]">
                 <StatusBadge status={selectedContract.status} />
-                <span>{selectedContract.observations && `— ${selectedContract.observations}`}</span>
+                {selectedContract.observations && <span>— {selectedContract.observations}</span>}
               </div>
             )}
 
-            {/* Regras do tipo de contrato */}
             <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-4 space-y-2">
               <p className="text-[12px] font-medium text-[#9e9e9e] uppercase tracking-wide">Regras deste contrato</p>
               {selectedContract.contract_type === 'loyalty' ? (
@@ -777,73 +451,9 @@ export default function ContratosPage() {
               )}
             </div>
 
-            {/* Documento do contrato */}
-            <div className="border-t border-[#2a2a2a] pt-4 space-y-3">
-              <p className="text-[12px] font-medium text-[#9e9e9e] uppercase tracking-wide">Documento do Contrato</p>
-              {configuredTemplates.length > 0 ? (
-                <div className="flex gap-2 flex-wrap">
-                  {configuredTemplates.map(tpl => (
-                    <div key={tpl.slug} className="flex gap-1.5">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="gap-1.5"
-                        loading={downloading === selectedContract.id + tpl.slug}
-                        onClick={() => handleDownloadFilled(selectedContract, tpl.slug)}
-                      >
-                        <FileDown className="w-4 h-4" />
-                        Gerar {tpl.name}
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="gap-1.5"
-                        loading={downloading === selectedContract.id + tpl.slug + ':pdf'}
-                        onClick={() => handleGeneratePdf(selectedContract, tpl.slug)}
-                      >
-                        <FileText className="w-4 h-4" />
-                        PDF
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[12px] text-[#616161]">Configure um modelo .docx em "Modelos .docx" para gerar contratos.</p>
-              )}
-              <div className="flex gap-2 flex-wrap">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="gap-1.5"
-                  loading={uploadingContract === selectedContract.id}
-                  onClick={() => { setActiveContractId(selectedContract.id); contractFileRef.current?.click() }}
-                >
-                  <Upload className="w-4 h-4" />
-                  {selectedContract.pdf_url ? 'Substituir Assinado' : 'Enviar Assinado'}
-                </Button>
-                {selectedContract.pdf_url && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={() => window.open(`${selectedContract.pdf_url}?t=${Date.now()}`, '_blank')}
-                  >
-                    <Eye className="w-4 h-4" />
-                    Ver Contrato Assinado
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {/* Botão de encerrar — só se ativo */}
             {selectedContract.status === 'active' && (
               <div className="pt-1 border-t border-[#2a2a2a]">
-                <Button
-                  variant="danger"
-                  size="md"
-                  className="w-full"
-                  onClick={() => setTerminateStep('choice')}
-                >
+                <Button variant="danger" size="md" className="w-full" onClick={() => setTerminateStep('choice')}>
                   <XCircle className="w-4 h-4" />
                   Encerrar Contrato
                 </Button>
@@ -917,7 +527,6 @@ export default function ContratosPage() {
               </p>
             </div>
           </div>
-
           <div className="flex gap-3 pt-1">
             <Button variant="secondary" size="md" className="flex-1" onClick={() => setTerminateStep('choice')}>
               <ChevronLeft className="w-4 h-4" />
@@ -951,14 +560,11 @@ export default function ContratosPage() {
             />
             <div className="flex justify-between mt-1.5">
               <span className="text-[12px] text-[#9e9e9e]">Sem multa para o cliente</span>
-              <span className={`text-[12px] font-medium ${
-                terminateReason.trim().length >= 50 ? 'text-[#229731]' : 'text-[#9e9e9e]'
-              }`}>
+              <span className={`text-[12px] font-medium ${terminateReason.trim().length >= 50 ? 'text-[#229731]' : 'text-[#9e9e9e]'}`}>
                 {terminateReason.trim().length}/50
               </span>
             </div>
           </div>
-
           <div className="flex gap-3">
             <Button variant="secondary" size="md" className="flex-1" onClick={() => setTerminateStep('choice')}>
               <ChevronLeft className="w-4 h-4" />
@@ -977,49 +583,6 @@ export default function ContratosPage() {
           </div>
         </div>
       </Modal>
-
-      {/* ── MODAL: MODELOS .DOCX ─────────────────────────────────── */}
-      <Modal open={templatesModal} onClose={() => setTemplatesModal(false)} title="Modelos de Contrato" size="md">
-        <div className="space-y-4">
-          {templates.map(tpl => (
-            <div key={tpl.slug} className="bg-[#1a1a1a] border border-[#323232] rounded-xl px-4 py-3 flex items-center justify-between">
-              <div className="min-w-0 flex-1">
-                <p className="text-[14px] text-[#f5f5f5] font-medium">{tpl.name}</p>
-                <p className="text-[12px] text-[#9e9e9e] mt-0.5">{tpl.description}</p>
-                {tpl.file_url
-                  ? <p className="text-[12px] text-[#229731] flex items-center gap-1 mt-1"><CheckCircle className="w-3 h-3" />Arquivo configurado</p>
-                  : <p className="text-[12px] text-[#616161] mt-1">Aguardando arquivo</p>}
-              </div>
-              <div className="flex items-center gap-1.5 ml-4 shrink-0">
-                {tpl.file_url ? (
-                  <>
-                    <Button variant="secondary" size="sm" className="h-8 w-8 p-0" title="Visualizar" onClick={() => window.open(tpl.file_url!, '_blank')}><Eye className="h-4 w-4" /></Button>
-                    <Button variant="secondary" size="sm" className="h-8 w-8 p-0" title="Substituir" loading={uploading === tpl.slug} onClick={() => { setActiveSlug(tpl.slug); templateFileRef.current?.click() }}><FileEdit className="h-4 w-4" /></Button>
-                    <Button variant="danger" size="sm" className="h-8 w-8 p-0" title="Remover" onClick={() => handleRemoveTemplate(tpl.slug)}><Trash2 className="h-4 w-4" /></Button>
-                  </>
-                ) : (
-                  <Button variant="secondary" size="sm" className="gap-1.5" loading={uploading === tpl.slug} onClick={() => { setActiveSlug(tpl.slug); templateFileRef.current?.click() }}>
-                    <Upload className="h-4 w-4" />Enviar
-                  </Button>
-                )}
-              </div>
-            </div>
-          ))}
-          <div className="border-t border-[#323232] pt-4">
-            <p className="text-[12px] text-[#9e9e9e] mb-3 font-medium">Variáveis disponíveis nos modelos</p>
-            <div className="flex flex-wrap gap-1.5">
-              {SUPPORTED_VARIABLES.map(v => (
-                <code key={v.tag} className="text-[11px] text-[#BAFF1A] font-mono bg-[#121212] border border-[#2a2a2a] rounded px-2 py-1">
-                  {v.tag}
-                </code>
-              ))}
-            </div>
-          </div>
-        </div>
-      </Modal>
-
-      <input ref={templateFileRef} type="file" accept=".docx" className="hidden" onChange={handleTemplateFileChange} />
-      <input ref={contractFileRef} type="file" accept=".pdf,.docx,.doc" className="hidden" onChange={handleContractFileChange} />
     </div>
   )
 }
