@@ -13,15 +13,17 @@ const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de data inv�
 // ---------------------------------------------------------------------------
 
 export const RentalSchema = z.object({
-  vehicle_id:  z.string().uuid({ error: 'Veículo obrigatório' }),
-  customer_id:    z.string().uuid({ error: 'Cliente obrigatório' }),
-  contract_type:  z.enum(['rental', 'rent_to_own']).default('rental'),
-  cycle:          z.enum(['weekly', 'monthly']),
-  due_day:        z.number().int().min(1).max(28),
-  cycle_amount:   z.number().positive({ error: 'Valor do ciclo deve ser positivo' }),
-  start_date:     dateString,
-  end_date:       dateString,
-  use_pro_rata:   z.boolean().default(true),
+  vehicle_id:       z.string().uuid({ error: 'Veículo obrigatório' }),
+  customer_id:      z.string().uuid({ error: 'Cliente obrigatório' }),
+  contract_type:    z.enum(['rental', 'rent_to_own']).default('rental'),
+  cycle:            z.enum(['weekly', 'monthly']),
+  due_day:          z.number().int().min(1).max(28),
+  cycle_amount:     z.number().positive({ error: 'Valor do ciclo deve ser positivo' }),
+  start_date:       dateString,
+  end_date:         dateString,
+  use_pro_rata:     z.boolean().default(true),
+  security_deposit: z.number().min(0).nullable().optional(),
+  observations:     z.string().max(2000).nullable().optional(),
 }).refine((d) => d.end_date > d.start_date, {
   message: 'Data de fim deve ser posterior à data de início',
   path: ['end_date'],

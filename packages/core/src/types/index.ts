@@ -464,6 +464,8 @@ export interface Rental {
   status: 'active' | 'closed' | 'transferred';
   pdf_url?: string | null;
   observations?: string | null;
+  security_deposit?: number | null;
+  security_deposit_returned_at?: string | null;
   created_at: string;
   updated_at: string;
   customer?: Customer;
