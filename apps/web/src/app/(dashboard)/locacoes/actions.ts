@@ -72,16 +72,17 @@ export async function createRental(
   })
 
   const { data: leaseId, error } = await supabase.rpc('create_rental_with_charges', {
-    p_tenant_id:     tenantId,
-    p_vehicle_id:    parsed.data.vehicle_id,
-    p_customer_id:   parsed.data.customer_id,
-    p_cycle:         parsed.data.cycle,
-    p_due_day:       parsed.data.due_day,
-    p_cycle_amount:  parsed.data.cycle_amount,
-    p_start_date:    parsed.data.start_date,
-    p_end_date:      parsed.data.end_date,
-    p_use_pro_rata:  parsed.data.use_pro_rata,
-    p_charges:       charges,
+    p_tenant_id:        tenantId,
+    p_vehicle_id:       parsed.data.vehicle_id,
+    p_customer_id:      parsed.data.customer_id,
+    p_cycle:            parsed.data.cycle,
+    p_due_day:          parsed.data.due_day,
+    p_cycle_amount:     parsed.data.cycle_amount,
+    p_start_date:       parsed.data.start_date,
+    p_end_date:         parsed.data.end_date,
+    p_use_pro_rata:     parsed.data.use_pro_rata,
+    p_charges:          charges,
+    p_security_deposit: parsed.data.security_deposit ?? null,
   })
 
   if (error) {
@@ -98,6 +99,67 @@ export async function createRental(
   revalidateRentalPaths()
   revalidatePath('/veiculos')
   return { ok: true, data: { lease_id: leaseId as string } }
+}
+
+// ---------------------------------------------------------------------------
+// updateRental — edição de campos não-financeiros de uma locação ativa
+// ---------------------------------------------------------------------------
+
+export async function updateRental(
+  leaseId: string,
+  data: Pick<CreateRental, 'observations' | 'security_deposit'> & { end_date?: string },
+): Promise<ActionResult<void>> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não encontrado' } }
+
+  const updates: Record<string, unknown> = {}
+  if (data.observations !== undefined) updates.observations     = data.observations
+  if (data.security_deposit !== undefined) updates.security_deposit = data.security_deposit
+  if (data.end_date !== undefined) updates.end_date             = data.end_date
+
+  const { error } = await supabase
+    .from('rentals')
+    .update(updates)
+    .eq('id', leaseId)
+    .eq('tenant_id', tenantId)
+
+  if (error) return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
+
+  await logAction({ action: 'update', table: 'rentals', recordId: leaseId })
+  revalidateRentalPaths()
+  revalidatePath(`/locacoes/${leaseId}`)
+  return { ok: true, data: undefined }
+}
+
+// ---------------------------------------------------------------------------
+// removeFromQueue — remover entrada da fila de espera
+// ---------------------------------------------------------------------------
+
+export async function removeFromQueue(
+  queueEntryId: string,
+): Promise<ActionResult<void>> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não encontrado' } }
+
+  const { error } = await supabase
+    .from('queue_entries')
+    .delete()
+    .eq('id', queueEntryId)
+    .eq('tenant_id', tenantId)
+
+  if (error) return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
+
+  await logAction({ action: 'delete', table: 'queue_entries', recordId: queueEntryId })
+  revalidatePath('/locacoes/fila')
+  return { ok: true, data: undefined }
 }
 
 // ---------------------------------------------------------------------------
