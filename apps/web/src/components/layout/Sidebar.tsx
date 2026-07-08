@@ -16,6 +16,11 @@ import {
 // Largura da sidebar colapsada — usada para posicionar fly-outs e tooltips
 const COLLAPSED_WIDTH = 64
 
+// Hrefs de todos os leaves — usados para resolver conflitos de isActive
+const ALL_LEAF_HREFS = DASHBOARD_NAV.flatMap(s =>
+  s.items.flatMap(i => i.kind === 'leaf' ? [i.href] : i.children.map(c => c.href)),
+)
+
 // ─── LeafItem ────────────────────────────────────────────────────────────────
 
 function LeafItem({
@@ -265,8 +270,14 @@ export function Sidebar() {
   const pendingQuery = useMaintenanceRecordsByStatus('pending')
   const pendingCount = pendingQuery.data?.length ?? 0
 
-  const isActive = (href: string) =>
-    pathname === href || pathname.startsWith(`${href}/`)
+  const isActive = (href: string) => {
+    if (pathname === href) return true
+    if (!pathname.startsWith(`${href}/`)) return false
+    // Não ativar se outro leaf registrado é um match mais específico
+    return !ALL_LEAF_HREFS.some(
+      other => other !== href && other.startsWith(href) && pathname.startsWith(other),
+    )
+  }
 
   const isBranchActive = (branch: NavBranch) =>
     branch.children.some(c => isActive(c.href))
