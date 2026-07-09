@@ -5,6 +5,7 @@ export async function listQueueEntries(client: SupabaseClient): Promise<QueueEnt
   const { data, error } = await client
     .from('queue_entries')
     .select('*, customers(name, phone, drivers_license, drivers_license_validity)')
+    .eq('status', 'waiting')
     .order('position', { ascending: true })
   if (error) throw error
   return (data ?? []) as QueueEntry[]

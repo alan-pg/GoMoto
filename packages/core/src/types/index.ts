@@ -477,6 +477,8 @@ export type ErrorCode =
   | 'VALIDATION_ERROR'
   | 'UNAUTHORIZED'
   | 'FORBIDDEN'
+  | 'NOT_FOUND'
+  | 'DUPLICATE_ENTRY'
   | 'VEHICLE_ALREADY_RENTED'
   | 'VEHICLE_LOCKED'
   | 'RENTAL_NOT_ACTIVE'
@@ -543,7 +545,9 @@ export interface QueueEntry {
   tenant_id: string;
   customer_id: string;
   position: number;
+  status: 'waiting' | 'converted' | 'cancelled';
   notes: string | null;
+  converted_at: string | null;
   created_at: string;
   updated_at: string;
   customers?: {
