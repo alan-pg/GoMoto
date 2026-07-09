@@ -10,6 +10,16 @@ export async function listVehicles(client: SupabaseClient): Promise<Vehicle[]> {
   return (data ?? []) as Vehicle[]
 }
 
+export async function listAvailableVehicles(client: SupabaseClient): Promise<Vehicle[]> {
+  const { data, error } = await client
+    .from('vehicles')
+    .select('*')
+    .eq('status', 'available')
+    .order('license_plate', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as Vehicle[]
+}
+
 export async function getVehicle(client: SupabaseClient, id: string): Promise<Vehicle> {
   const { data, error } = await client.from('vehicles').select('*').eq('id', id).single()
   if (error) throw error

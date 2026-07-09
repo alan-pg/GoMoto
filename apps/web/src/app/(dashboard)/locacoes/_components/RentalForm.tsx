@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 
-import { useCustomers, useVehicles } from '@gomoto/data'
+import { useCustomers, useAvailableVehicles } from '@gomoto/data'
 import { generateCycleCharges } from '@gomoto/core'
 import type { CycleCharge, Rental } from '@gomoto/core'
 import { formatCurrency, formatDate } from '@/lib/utils'
@@ -16,6 +16,7 @@ import { createRental, updateRental } from '../actions'
 interface RentalFormProps {
   rentalId?: string
   initialData?: Partial<Rental>
+  defaultCustomerId?: string
 }
 
 type FormState = {
@@ -82,10 +83,10 @@ function computePeriod(start: string, end: string, cycle: 'monthly' | 'weekly'):
   return String(Math.max(1, Math.floor(days / 7)))
 }
 
-function buildInitialForm(d?: Partial<Rental>): FormState {
+function buildInitialForm(d?: Partial<Rental>, defaultCustomerId?: string): FormState {
   return {
     vehicle_id:       d?.vehicle_id ?? '',
-    customer_id:      d?.customer_id ?? '',
+    customer_id:      d?.customer_id ?? defaultCustomerId ?? '',
     contract_type:    d?.contract_type ?? 'rental',
     cycle:            d?.cycle ?? 'monthly',
     due_day:          String(d?.due_day ?? 10),
@@ -136,24 +137,24 @@ function ChargePreview({ charges }: { charges: CycleCharge[] }) {
 
 // ─── RentalForm ───────────────────────────────────────────────────────────────
 
-export function RentalForm({ rentalId, initialData }: RentalFormProps) {
+export function RentalForm({ rentalId, initialData, defaultCustomerId }: RentalFormProps) {
   const isEditMode = !!rentalId
   const router     = useRouter()
   const [isPending, startTransition] = useTransition()
 
   const customersQuery = useCustomers()
-  const vehiclesQuery  = useVehicles()
+  const vehiclesQuery  = useAvailableVehicles()
 
   const customers = useMemo(
     () => (customersQuery.data ?? []).filter(c => c.active).sort((a,b) => a.name.localeCompare(b.name)),
     [customersQuery.data],
   )
   const vehicles = useMemo(
-    () => (vehiclesQuery.data ?? []).sort((a,b) => a.license_plate.localeCompare(b.license_plate)),
+    () => (vehiclesQuery.data ?? []).sort((a, b) => a.license_plate.localeCompare(b.license_plate)),
     [vehiclesQuery.data],
   )
 
-  const [form, setForm] = useState<FormState>(() => buildInitialForm(initialData))
+  const [form, setForm] = useState<FormState>(() => buildInitialForm(initialData, defaultCustomerId))
   const [step, setStep] = useState<'form' | 'preview'>('form')
   const [globalError, setGlobalError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormState, string>>>({})
