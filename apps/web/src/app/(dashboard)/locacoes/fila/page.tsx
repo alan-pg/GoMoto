@@ -2,15 +2,16 @@
 
 import { useState, useMemo, useTransition } from 'react'
 import Link from 'next/link'
-import { Plus, Clock, X, ArrowRight, Users } from 'lucide-react'
+import { Plus, Clock, X, ArrowRight, Users, ChevronUp, ChevronDown } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { useQueueEntries, useCustomers } from '@gomoto/data'
+import type { QueueEntry } from '@gomoto/core'
 import { PageTitle } from '@/components/layout/PageTitle'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { formatDate } from '@/lib/utils'
-import { addToQueue, removeFromQueue } from '../actions'
+import { addToQueue, removeFromQueue, moveInQueue } from '../actions'
 
 // ─── FilaPage ─────────────────────────────────────────────────────────────────
 
@@ -20,19 +21,27 @@ export default function FilaPage() {
   const queueQuery     = useQueueEntries()
   const customersQuery = useCustomers()
 
-  const queue     = useMemo(() => queueQuery.data     ?? [], [queueQuery.data])
-  const customers = useMemo(
-    () => (customersQuery.data ?? []).filter(c => c.active).sort((a,b) => a.name.localeCompare(b.name)),
-    [customersQuery.data],
+  const queue = useMemo(() => queueQuery.data ?? [], [queueQuery.data])
+
+  const inQueueIds = useMemo(() => new Set(queue.map(q => q.customer_id)), [queue])
+
+  const availableCustomers = useMemo(
+    () =>
+      (customersQuery.data ?? [])
+        .filter(c => c.active && !inQueueIds.has(c.id))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [customersQuery.data, inQueueIds],
   )
 
-  const [showAdd,   setShowAdd]   = useState(false)
-  const [removing,  setRemoving]  = useState<string | null>(null)
+  const [showAdd,    setShowAdd]   = useState(false)
+  const [removing,   setRemoving]  = useState<string | null>(null)
   const [customerId, setCustomerId] = useState('')
-  const [error, setError] = useState('')
+  const [error,      setError]     = useState('')
+  const [movingId,   setMovingId]  = useState<string | null>(null)
 
   const [isPendingAdd,    startAdd]    = useTransition()
   const [isPendingRemove, startRemove] = useTransition()
+  const [isPendingMove,   startMove]   = useTransition()
 
   function daysInQueue(createdAt: string) {
     const start = new Date(createdAt)
@@ -58,6 +67,41 @@ export default function FilaPage() {
       if (!result.ok) { setError(result.error.message); return }
       qc.invalidateQueries({ queryKey: ['queue_entries'] })
       setRemoving(null)
+    })
+  }
+
+  async function handleMove(id: string, direction: 'up' | 'down') {
+    setError('')
+
+    const snapshot = qc.getQueryData<QueueEntry[]>(['queue_entries']) ?? []
+    const idx      = snapshot.findIndex(q => q.id === id)
+    const swapIdx  = direction === 'up' ? idx - 1 : idx + 1
+
+    if (idx === -1 || swapIdx < 0 || swapIdx >= snapshot.length) return
+
+    // Aplica swap otimista no cache antes de chamar o servidor
+    const optimistic = snapshot
+      .map((q, i) => {
+        if (i === idx)     return { ...q, position: snapshot[swapIdx].position }
+        if (i === swapIdx) return { ...q, position: snapshot[idx].position }
+        return q
+      })
+      .sort((a, b) => a.position - b.position)
+
+    setMovingId(id)
+    qc.setQueryData(['queue_entries'], optimistic)
+
+    startMove(async () => {
+      const result = await moveInQueue(id, direction)
+      if (!result.ok) {
+        qc.setQueryData(['queue_entries'], snapshot) // reverte
+        setError(result.error.message)
+        setMovingId(null)
+        return
+      }
+      qc.invalidateQueries({ queryKey: ['queue_entries'] })
+      // Mantém highlight por 500 ms após o servidor confirmar
+      setTimeout(() => setMovingId(null), 500)
     })
   }
 
@@ -125,11 +169,28 @@ export default function FilaPage() {
                 </tr>
               </thead>
               <tbody>
-                {queue.map(q => {
-                  const days = daysInQueue(q.created_at)
+                {queue.map((q, idx) => {
+                  const days      = daysInQueue(q.created_at)
+                  const isFirst   = idx === 0
+                  const isLast    = idx === queue.length - 1
+                  const isMoving  = movingId === q.id
+
                   return (
-                    <tr key={q.id} className="h-9 border-b border-[#1e1e1e] last:border-0 hover:bg-[#222222]">
-                      <td className="px-4 font-mono font-bold text-[#BAFF1A]">#{q.position}</td>
+                    <tr
+                      key={q.id}
+                      style={{ transition: 'background-color 300ms ease' }}
+                      className={`h-9 border-b border-[#1e1e1e] last:border-0 ${
+                        isMoving ? 'bg-[#BAFF1A18]' : 'hover:bg-[#222222]'
+                      }`}
+                    >
+                      <td className="px-4">
+                        <span
+                          style={{ transition: 'color 300ms ease, transform 300ms ease', display: 'inline-block' }}
+                          className={`font-mono font-bold ${isMoving ? 'text-[#BAFF1A] scale-110' : 'text-[#BAFF1A]'}`}
+                        >
+                          #{q.position}
+                        </span>
+                      </td>
                       <td className="px-4 font-medium text-[#f5f5f5]">{q.customers?.name ?? '—'}</td>
                       <td className="px-4 text-[#9e9e9e]">{q.customers?.phone ?? '—'}</td>
                       <td className="px-4 text-[#9e9e9e]">{formatDate(q.created_at)}</td>
@@ -140,14 +201,32 @@ export default function FilaPage() {
                       </td>
                       <td className="px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => handleMove(q.id, 'up')}
+                            disabled={isFirst || isPendingMove}
+                            title="Subir na fila"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[#9e9e9e] transition-colors hover:bg-[#323232] hover:text-[#f5f5f5] disabled:pointer-events-none disabled:opacity-30"
+                          >
+                            <ChevronUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleMove(q.id, 'down')}
+                            disabled={isLast || isPendingMove}
+                            title="Descer na fila"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[#9e9e9e] transition-colors hover:bg-[#323232] hover:text-[#f5f5f5] disabled:pointer-events-none disabled:opacity-30"
+                          >
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          </button>
+
                           <Link
-                            href={`/locacoes/nova?customer_id=${q.customers ? encodeURIComponent(q.customers.name ?? '') : ''}`}
+                            href={`/locacoes/nova?customer_id=${q.customer_id}`}
                             title="Iniciar locação para este cliente"
                             className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#BAFF1A22] px-2.5 text-[12px] font-medium text-[#BAFF1A] transition-colors hover:bg-[#BAFF1A33]"
                           >
                             <ArrowRight className="h-3.5 w-3.5" />
                             Nova locação
                           </Link>
+
                           <button
                             onClick={() => setRemoving(q.id)}
                             title="Remover da fila"
@@ -164,6 +243,8 @@ export default function FilaPage() {
             </table>
           </div>
         )}
+
+        {error && <p className="text-[13px] text-[#ff9c9a]">{error}</p>}
       </div>
 
       {/* Modal: Adicionar à Fila */}
@@ -177,14 +258,17 @@ export default function FilaPage() {
               onChange={e => setCustomerId(e.target.value)}
             >
               <option value="">Selecione um cliente…</option>
-              {customers.map(c => (
+              {availableCustomers.map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
+            {availableCustomers.length === 0 && (customersQuery.data ?? []).filter(c => c.active).length > 0 && (
+              <p className="mt-1.5 text-[12px] text-[#9e9e9e]">Todos os clientes ativos já estão na fila.</p>
+            )}
           </div>
           {error && <p className="text-[13px] text-[#ff9c9a]">{error}</p>}
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => { setShowAdd(false); setCustomerId('') }} disabled={isPendingAdd}>
+            <Button variant="secondary" onClick={() => { setShowAdd(false); setCustomerId(''); setError('') }} disabled={isPendingAdd}>
               Cancelar
             </Button>
             <Button onClick={handleAdd} disabled={isPendingAdd || !customerId}>
@@ -195,14 +279,14 @@ export default function FilaPage() {
       </Modal>
 
       {/* Modal: Confirmar Remoção */}
-      <Modal open={!!removing} onClose={() => setRemoving(null)} title="Remover da Fila" size="sm">
+      <Modal open={!!removing} onClose={() => { setRemoving(null); setError('') }} title="Remover da Fila" size="sm">
         <div className="space-y-4">
           <p className="text-[13px] text-[#9e9e9e]">
             Tem certeza que deseja remover este cliente da fila de espera?
           </p>
           {error && <p className="text-[13px] text-[#ff9c9a]">{error}</p>}
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setRemoving(null)} disabled={isPendingRemove}>
+            <Button variant="secondary" onClick={() => { setRemoving(null); setError('') }} disabled={isPendingRemove}>
               Cancelar
             </Button>
             <Button variant="danger" onClick={() => removing && handleRemove(removing)} disabled={isPendingRemove}>

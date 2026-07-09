@@ -15,6 +15,8 @@ import {
   canRegisterPayment,
   canApplyDiscount,
   isRentalTerminationWithinMinimum,
+  getMoveUpNote,
+  getMoveDownNote,
 } from '@gomoto/core'
 import type {
   ActionResult,
@@ -96,7 +98,16 @@ export async function createRental(
   }
 
   await logAction({ action: 'create', table: 'rentals', recordId: leaseId, newData: { charges_count: charges.length } })
+
+  // Remove da fila ao iniciar locação (best-effort: não falha a locação se não houver entrada)
+  await supabase
+    .from('queue_entries')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .eq('customer_id', parsed.data.customer_id)
+
   revalidateRentalPaths()
+  revalidatePath('/locacoes/fila')
   revalidatePath('/veiculos')
   return { ok: true, data: { lease_id: leaseId as string } }
 }
@@ -159,6 +170,7 @@ export async function removeFromQueue(
 
   await logAction({ action: 'delete', table: 'queue_entries', recordId: queueEntryId })
   revalidatePath('/locacoes/fila')
+  revalidatePath('/locacoes')
   return { ok: true, data: undefined }
 }
 
@@ -506,32 +518,75 @@ export async function addToQueue(
     return { ok: false, error: { code: 'FORBIDDEN', message: 'Fila de espera está desabilitada neste tenant.' } }
   }
 
-  const { data: lastEntry } = await supabase
+  // Impedir duplicata: cliente já aguardando
+  const { data: existing } = await supabase
     .from('queue_entries')
-    .select('position')
+    .select('id')
     .eq('tenant_id', tenantId)
-    .order('position', { ascending: false })
-    .limit(1)
+    .eq('customer_id', parsed.data.customer_id)
+    .eq('status', 'waiting')
     .maybeSingle()
 
-  const nextPosition = (lastEntry?.position ?? 0) + 1
+  if (existing) {
+    return { ok: false, error: { code: 'DUPLICATE_ENTRY', message: 'Este cliente já está na fila de espera.' } }
+  }
 
+  // Insere com posição atômica via RPC (evita race condition)
   const { data: entry, error } = await supabase
-    .from('queue_entries')
-    .insert({
-      tenant_id:   tenantId,
-      customer_id: parsed.data.customer_id,
-      position:    nextPosition,
-      status:      'waiting',
+    .rpc('add_to_queue', {
+      p_tenant_id:   tenantId,
+      p_customer_id: parsed.data.customer_id,
     })
-    .select()
     .single()
 
   if (error) return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
 
-  await logAction({ action: 'create', table: 'queue_entries', recordId: entry.id })
+  await logAction({ action: 'create', table: 'queue_entries', recordId: (entry as { id: string }).id })
+  revalidatePath('/locacoes/fila')
   revalidatePath('/locacoes')
-  return { ok: true, data: { queue_entry_id: entry.id } }
+  return { ok: true, data: { queue_entry_id: (entry as { id: string }).id } }
+}
+
+// ---------------------------------------------------------------------------
+// moveInQueue — reordenação de posição na fila de espera
+// ---------------------------------------------------------------------------
+
+export async function moveInQueue(
+  queueEntryId: string,
+  direction: 'up' | 'down',
+): Promise<ActionResult<void>> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não encontrado' } }
+
+  if (direction !== 'up' && direction !== 'down') {
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Direção inválida' } }
+  }
+
+  const noteUp   = getMoveUpNote('Reordenação da fila')
+  const noteDown = getMoveDownNote('Reordenação da fila')
+
+  const { error } = await supabase.rpc('swap_queue_positions', {
+    p_tenant_id:  tenantId,
+    p_entry_id:   queueEntryId,
+    p_direction:  direction,
+    p_note_up:    noteUp,
+    p_note_down:  noteDown,
+  })
+
+  if (error) {
+    if (error.message?.includes('QUEUE_ENTRY_NOT_FOUND')) {
+      return { ok: false, error: { code: 'NOT_FOUND', message: 'Entrada da fila não encontrada.' } }
+    }
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
+  }
+
+  await logAction({ action: 'update', table: 'queue_entries', recordId: queueEntryId })
+  revalidatePath('/locacoes/fila')
+  return { ok: true, data: undefined }
 }
 
 // ---------------------------------------------------------------------------
