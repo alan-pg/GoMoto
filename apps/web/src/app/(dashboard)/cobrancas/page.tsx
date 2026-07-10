@@ -20,18 +20,17 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, CheckCircle, AlertTriangle, Search, MessageCircle, CheckCircle2, DollarSign, QrCode, Copy, X } from 'lucide-react'
+import { Plus, Edit2, Trash2, CheckCircle, AlertTriangle, Search, MessageCircle, CheckCircle2, DollarSign, QrCode, Copy, X, Clock, TrendingDown } from 'lucide-react'
 import { PageTitle } from '@/components/layout/PageTitle'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'
-import { Card } from '@/components/ui/Card'
+import { Card, StatCard } from '@/components/ui/Card'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { useBillings, useCustomers, useActiveRentals, usePaymentConnection } from '@gomoto/data'
 import type { Billing, PixStatus } from '@gomoto/core'
 import {
-  calculateAverageTicket,
   calculateDaysOverdue,
   calculateDefaultRate,
   calculatePunctualityRate,
@@ -381,72 +380,37 @@ export default function CobrancasPage() {
     )
   }, [charges, activeTab, search])
 
-  /**
-   * @variable metrics
-   * @description Todos os cálculos financeiros derivados de `charges`.
-   * Agrupados em um único useMemo para evitar múltiplas varreduras do array por render.
-   */
   const metrics = useMemo(() => {
     const today = new Date()
     const in30Days = new Date(today)
     in30Days.setDate(today.getDate() + 30)
 
-    const paidCharges = charges.filter((c) => c.status === 'paid')
-    const totalPaid = paidCharges.reduce((sum, c) => sum + (c.original_amount ?? 0), 0)
-    const averageTicket = calculateAverageTicket(
-      charges.map((c) => ({ ...c, amount: c.original_amount ?? 0 })),
-    )
+    const overdueCharges = charges.filter((c) => c.status === 'overdue')
+    const totalOverdue = overdueCharges.reduce((sum, c) => sum + (c.original_amount ?? 0), 0)
+    const oldestOverdue = overdueCharges.sort(
+      (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
+    )[0]
+    const daysOverdue = oldestOverdue ? calculateDaysOverdue(oldestOverdue, today) : 0
 
-    const totalPending = charges.filter((c) => c.status === 'pending').reduce((sum, c) => sum + (c.original_amount ?? 0), 0)
-    const projection30Days = charges
-      .filter((c) => c.status === 'pending' && new Date(c.due_date + 'T00:00:00') <= in30Days)
+    const pendingCharges = charges.filter((c) => c.status === 'pending')
+    const totalPending = pendingCharges.reduce((sum, c) => sum + (c.original_amount ?? 0), 0)
+    const projection30Days = pendingCharges
+      .filter((c) => new Date(c.due_date + 'T00:00:00') <= in30Days)
       .reduce((sum, c) => sum + (c.original_amount ?? 0), 0)
 
-    const totalOverdue = charges.filter((c) => c.status === 'overdue').reduce((sum, c) => sum + (c.original_amount ?? 0), 0)
-    const sortedOverdue = charges
-      .filter((c) => c.status === 'overdue')
-      .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
-    const oldestCharge = sortedOverdue[0]
-    const daysOverdue = oldestCharge ? calculateDaysOverdue(oldestCharge, today) : 0
-
-    const defaultersCount = charges.filter((c) => c.status === 'overdue' || c.status === 'prejudice').length
     const defaultRate = calculateDefaultRate(charges)
     const punctualityRate = calculatePunctualityRate(charges)
 
-    const totalUnpaid = totalPending + totalOverdue
-    const averageTime = paidCharges.length > 0
-      ? paidCharges.reduce((sum, c) => {
-          const days = c.payment_date
-            ? Math.floor((new Date(c.payment_date).getTime() - new Date(c.due_date).getTime()) / 86400000)
-            : 0
-          return sum + days
-        }, 0) / paidCharges.length
-      : 0
-
-    const totalLoss = charges.filter((c) => c.status === 'prejudice').reduce((sum, c) => sum + (c.original_amount ?? 0), 0)
-    const lossByCustomer: Record<string, number> = {}
-    charges.filter((c) => c.status === 'prejudice').forEach((c) => {
-      const name = c.customers?.name ?? 'Desconhecido'
-      lossByCustomer[name] = (lossByCustomer[name] ?? 0) + (c.original_amount ?? 0)
-    })
-    const topLoss = Object.entries(lossByCustomer).sort((a, b) => b[1] - a[1])[0]
-
     return {
-      paidCharges,
-      totalPaid,
-      averageTicket,
-      totalPending,
-      projection30Days,
       totalOverdue,
-      oldestCharge,
+      overdueCount: overdueCharges.length,
+      oldestOverdue,
       daysOverdue,
-      defaultersCount,
+      totalPending,
+      pendingCount: pendingCharges.length,
+      projection30Days,
       defaultRate,
       punctualityRate,
-      totalUnpaid,
-      averageTime,
-      totalLoss,
-      topLoss,
     }
   }, [charges])
 
@@ -489,134 +453,32 @@ export default function CobrancasPage() {
           </div>
         )}
 
-        {/* Grid de Cards de Métricas */}
-        <div className="grid grid-cols-3 gap-4">
-
-          {/* Card 1: Total Recebido e Ticket Médio */}
-          <Card padding="none">
-            <div className="p-4 border-b border-[#323232]">
-              <p className="text-[14px] font-normal text-[#9e9e9e]">Total Recebido</p>
-              <p className="text-[28px] font-bold text-[#f5f5f5] mt-1">{formatCurrency(metrics.totalPaid)}</p>
-              <p className="text-[12px] text-[#9e9e9e] mt-0.5">{metrics.paidCharges.length} cobranças pagas</p>
-            </div>
-            <div className="px-4 py-3 flex items-center justify-between">
-              <span className="text-[12px] text-[#9e9e9e]">Ticket médio</span>
-              <span className="text-[12px] font-medium text-[#f5f5f5]">{formatCurrency(metrics.averageTicket)}</span>
-            </div>
-          </Card>
-
-          {/* Card 2: A Receber e Projeção 30 Dias */}
-          <Card padding="none">
-            <div className="p-4 border-b border-[#323232]">
-              <p className="text-[14px] font-normal text-[#9e9e9e]">A Receber</p>
-              <p className="text-[28px] font-bold text-[#f5f5f5] mt-1">{formatCurrency(metrics.totalPending)}</p>
-              <p className="text-[12px] text-[#9e9e9e] mt-0.5">{charges.filter((c) => c.status === 'pending').length} em aberto</p>
-            </div>
-            <div className="px-4 py-3 flex items-center justify-between">
-              <span className="text-[12px] text-[#9e9e9e]">Vencem em 30 dias</span>
-              <span className="text-[12px] font-medium text-[#e65e24]">{formatCurrency(metrics.projection30Days)}</span>
-            </div>
-          </Card>
-
-          {/* Card 3: Vencidas e Cobrança Mais Atrasada */}
-          <Card padding="none">
-            <div className="p-4 border-b border-[#323232]">
-              <p className="text-[14px] font-normal text-[#9e9e9e]">Vencidas</p>
-              <p className="text-[28px] font-bold text-[#f5f5f5] mt-1">{formatCurrency(metrics.totalOverdue)}</p>
-              <p className="text-[12px] text-[#9e9e9e] mt-0.5">{charges.filter((c) => c.status === 'overdue').length} cobranças</p>
-            </div>
-            <div className="px-4 py-3">
-              {metrics.oldestCharge ? (
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-[12px] text-[#9e9e9e] truncate max-w-[130px]" title={metrics.oldestCharge.customers?.name ?? ''}>
-                    {(metrics.oldestCharge.customers?.name ?? '—').split(' ')[0]}
-                  </span>
-                  <span className="text-[12px] font-medium text-[#ff9c9a] shrink-0">{metrics.daysOverdue}d atraso</span>
-                </div>
-              ) : (
-                <span className="text-[12px] text-[#229731]">Nenhuma em atraso</span>
-              )}
-            </div>
-          </Card>
-
-          {/* Card 4: Taxa de Inadimplência e Pontualidade */}
-          <Card padding="none">
-            <div className="p-4 border-b border-[#323232]">
-              <p className="text-[14px] font-normal text-[#9e9e9e]">Inadimplência</p>
-              <p className={`text-[28px] font-bold mt-1 ${metrics.defaultRate > 0 ? 'text-[#ff9c9a]' : 'text-[#229731]'}`}>
-                {metrics.defaultRate.toFixed(1)}%
-              </p>
-              <p className="text-[12px] text-[#9e9e9e] mt-0.5">
-                {metrics.defaultersCount} cobrança(s) vencida(s) ou perdida(s) de {charges.length}
-              </p>
-            </div>
-            <div className="px-4 py-3 flex items-center justify-between">
-              <div>
-                <p className="text-[12px] text-[#9e9e9e]">Pontualidade</p>
-                <p className="text-[12px] text-[#616161] mt-0.5">das {metrics.paidCharges.length} pagas</p>
-              </div>
-              <span className={`text-[13px] font-medium ${metrics.punctualityRate >= 80 ? 'text-[#229731]' : metrics.punctualityRate >= 50 ? 'text-[#e65e24]' : 'text-[#ff9c9a]'}`}>
-                {metrics.punctualityRate.toFixed(1)}%
-              </span>
-            </div>
-          </Card>
-
-          {/* Card 5: Valores Não Pagos e Tempo Médio de Recebimento */}
-          <Card padding="none">
-            <div className="p-4 border-b border-[#323232]">
-              <p className="text-[14px] font-normal text-[#9e9e9e]">Valores Não Pagos</p>
-              <p className={`text-[28px] font-bold mt-1 ${metrics.totalUnpaid > 0 ? 'text-[#e65e24]' : 'text-[#229731]'}`}>
-                {formatCurrency(metrics.totalUnpaid)}
-              </p>
-              <p className="text-[12px] text-[#9e9e9e] mt-0.5">Pendentes + vencidas</p>
-            </div>
-            <div className="px-4 py-3 flex items-center justify-between">
-              <span className="text-[12px] text-[#9e9e9e]">Tempo médio de receb.</span>
-              <span className="text-[12px] font-medium text-[#f5f5f5]">
-                {metrics.averageTime === 0 ? 'No prazo' : metrics.averageTime > 0 ? `${metrics.averageTime.toFixed(0)}d após venc.` : `${Math.abs(metrics.averageTime).toFixed(0)}d antecipado`}
-              </span>
-            </div>
-          </Card>
-
-          {/* Card 6: Prejuízos Contabilizados */}
-          <Card padding="none" className={metrics.totalLoss > 0 ? 'border-[#ff9c9a] bg-[#7c1c1c]' : ''}>
-            <div className={`p-4 border-b ${metrics.totalLoss > 0 ? 'border-[#ff9c9a]' : 'border-[#323232]'}`}>
-              <div className="flex items-center gap-2">
-                <p className="text-[14px] font-normal text-[#9e9e9e]">
-                  Prejuízos Contabilizados
-                </p>
-                {metrics.totalLoss > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[#7c1c1c] border border-[#ff9c9a] px-2 py-0.5 text-[12px] font-medium text-[#ff9c9a]">
-                    Atenção
-                  </span>
-                )}
-              </div>
-              <p className={`text-[28px] font-bold mt-1 ${metrics.totalLoss > 0 ? 'text-[#ff9c9a]' : 'text-[#229731]'}`}>
-                {formatCurrency(metrics.totalLoss)}
-              </p>
-              <p className={`text-[12px] mt-0.5 ${metrics.totalLoss > 0 ? 'text-[#ff9c9a]' : 'text-[#9e9e9e]'}`}>
-                {charges.filter((c) => c.status === 'prejudice').length === 0
-                  ? 'Nenhum prejuízo registrado'
-                  : `${charges.filter((c) => c.status === 'prejudice').length} cobrança(s) irrecuperável(is)`}
-              </p>
-            </div>
-            <div className="px-4 py-3">
-              {metrics.topLoss ? (
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-[12px] text-[#9e9e9e]">Maior prejuízo</p>
-                    <p className="text-[12px] font-medium text-[#f5f5f5] truncate max-w-[130px]" title={metrics.topLoss[0]}>
-                      {metrics.topLoss[0].split(' ')[0]}
-                    </p>
-                  </div>
-                  <span className="text-[13px] font-medium text-[#ff9c9a] shrink-0">{formatCurrency(metrics.topLoss[1])}</span>
-                </div>
-              ) : (
-                <span className="text-[12px] text-[#229731]">Nenhum prejuízo registrado</span>
-              )}
-            </div>
-          </Card>
-
+        {/* KPIs */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <StatCard
+            title="Vencidas"
+            value={formatCurrency(metrics.totalOverdue)}
+            subtitle={
+              metrics.overdueCount === 0
+                ? 'Nenhuma em atraso'
+                : metrics.oldestOverdue
+                ? `${metrics.overdueCount} cobranças · mais antiga: ${metrics.daysOverdue}d`
+                : `${metrics.overdueCount} cobranças em atraso`
+            }
+            icon={AlertTriangle}
+          />
+          <StatCard
+            title="Pendentes"
+            value={formatCurrency(metrics.totalPending)}
+            subtitle={`${metrics.pendingCount} cobranças · ${formatCurrency(metrics.projection30Days)} vencem em 30 dias`}
+            icon={Clock}
+          />
+          <StatCard
+            title="Inadimplência"
+            value={`${metrics.defaultRate.toFixed(1)}%`}
+            subtitle={`${metrics.punctualityRate.toFixed(1)}% de pontualidade`}
+            icon={TrendingDown}
+          />
         </div>
 
         {/* Barra de Filtros e Busca */}
