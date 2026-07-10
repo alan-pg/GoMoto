@@ -61,19 +61,28 @@ export async function deleteBilling(client: SupabaseClient, id: string): Promise
 
 export async function listBillingsForCustomer(
   client: SupabaseClient,
-  filter?: { status?: string },
 ): Promise<Billing[]> {
-  // Usa a policy RLS 'customer_read_own_billings' — só retorna cobranças do cliente autenticado
-  let q = client
+  // Usa a policy RLS 'customer_read_own_billings' — só retorna cobranças do cliente autenticado.
+  // Carrega apenas cobranças ativas (pending/overdue) — histórico é buscado separadamente sob demanda.
+  const { data, error } = await client
     .from('billings')
     .select('*, rentals(id, vehicles(license_plate, model, make))')
+    .in('status', ['pending', 'overdue'])
+    .order('due_date', { ascending: true })
+
+  if (error) throw error
+  return (data ?? []) as Billing[]
+}
+
+export async function listBillingsHistoryForCustomer(
+  client: SupabaseClient,
+): Promise<Billing[]> {
+  const { data, error } = await client
+    .from('billings')
+    .select('*, rentals(id, vehicles(license_plate, model, make))')
+    .in('status', ['paid', 'cancelled', 'prejudice'])
     .order('due_date', { ascending: false })
 
-  if (filter?.status && filter.status !== 'all') {
-    q = q.eq('status', filter.status)
-  }
-
-  const { data, error } = await q
   if (error) throw error
   return (data ?? []) as Billing[]
 }

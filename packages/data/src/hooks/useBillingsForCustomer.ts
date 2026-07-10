@@ -1,23 +1,37 @@
 import { useQuery } from '@tanstack/react-query'
 import { useSupabaseContext } from '../context'
-import { listBillingsForCustomer } from '../repositories/billings'
+import { listBillingsForCustomer, listBillingsHistoryForCustomer } from '../repositories/billings'
 import type { Billing } from '@gomoto/core'
 
 const KEY = 'billings-customer'
 
 /**
- * Hook mobile: retorna cobranças do cliente autenticado via RLS
- * 'customer_read_own_billings'. Não requer tenant_id — a policy usa auth.uid().
- *
- * Configurado com staleTime: 5min + refetchOnReconnect para suporte offline (RNF-003).
+ * Cobranças ativas do cliente autenticado (pending/overdue).
+ * Não carrega histórico — use useHistoryBillingsForCustomer para isso.
  */
-export function useBillingsForCustomer(filter?: { status?: string }) {
+export function useBillingsForCustomer() {
   const supabase = useSupabaseContext()
   return useQuery<Billing[]>({
-    queryKey: [KEY, filter],
-    queryFn: () => listBillingsForCustomer(supabase, filter),
+    queryKey: [KEY, 'active'],
+    queryFn: () => listBillingsForCustomer(supabase),
     staleTime: 5 * 60 * 1000,
     refetchOnReconnect: true,
+    refetchOnWindowFocus: false,
+  })
+}
+
+/**
+ * Histórico de cobranças pagas/canceladas. Lazy: só busca quando `enabled` for true.
+ * O cliente aciona explicitamente via "Ver histórico".
+ */
+export function useHistoryBillingsForCustomer(options: { enabled: boolean }) {
+  const supabase = useSupabaseContext()
+  return useQuery<Billing[]>({
+    queryKey: [KEY, 'history'],
+    queryFn: () => listBillingsHistoryForCustomer(supabase),
+    enabled: options.enabled,
+    staleTime: 10 * 60 * 1000,
+    refetchOnReconnect: false,
     refetchOnWindowFocus: false,
   })
 }
