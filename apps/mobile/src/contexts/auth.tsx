@@ -10,6 +10,8 @@ export type TenantOption = {
   id: string
   name: string
   suspended_at: string | null
+  contact_phone: string | null
+  contact_email: string | null
 }
 
 type AuthContextValue = {
@@ -35,7 +37,7 @@ async function fetchCustomerTenants(userId: string): Promise<TenantOption[]> {
   // próprio link garantem que essa query só devolve tenants em que esse user é cliente.
   const { data } = await supabase
     .from('customers')
-    .select('tenant_id, tenants:tenant_id ( id, name, suspended_at )')
+    .select('tenant_id, tenants:tenant_id ( id, name, suspended_at, contact_phone, contact_email )')
     .eq('user_id', userId)
 
   if (!data) return []
@@ -44,7 +46,13 @@ async function fetchCustomerTenants(userId: string): Promise<TenantOption[]> {
   for (const row of data) {
     const tenant = Array.isArray(row.tenants) ? row.tenants[0] : row.tenants
     if (tenant?.id && tenant?.name) {
-      map.set(tenant.id, { id: tenant.id, name: tenant.name, suspended_at: tenant.suspended_at ?? null })
+      map.set(tenant.id, {
+        id: tenant.id,
+        name: tenant.name,
+        suspended_at: tenant.suspended_at ?? null,
+        contact_phone: tenant.contact_phone ?? null,
+        contact_email: tenant.contact_email ?? null,
+      })
     }
   }
   return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))

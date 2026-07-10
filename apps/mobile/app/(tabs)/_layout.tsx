@@ -29,8 +29,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Contrato',
-          tabBarIcon: ({ focused }) => <TabIcon label="C" focused={focused} />,
+          title: 'Início',
+          tabBarIcon: ({ focused }) => <TabIcon label="⌂" focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -50,8 +50,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="suporte"
         options={{
-          title: 'Suporte',
-          tabBarIcon: ({ focused }) => <TabIcon label="?" focused={focused} />,
+          title: 'Conta',
+          tabBarIcon: ({ focused }) => <TabIcon label="☰" focused={focused} />,
         }}
       />
     </Tabs>

@@ -58,12 +58,15 @@ ON CONFLICT (user_id) DO NOTHING;
 -- Tenant 1 criado pela migration com nome 'GoMoto Bonze' — renomear.
 -- ============================================================
 UPDATE tenants
-   SET name = 'Empresa Teste 1', slug = 'empresa-teste-1'
+   SET name = 'Empresa Teste 1', slug = 'empresa-teste-1',
+       contact_phone = '11999990001', contact_email = 'contato@empresa1.com.br'
  WHERE id = '00000000-0000-0000-0000-000000000001';
 
-INSERT INTO tenants (id, name, slug) VALUES
-('00000000-0000-0000-0000-000000000002', 'Empresa Teste 2', 'empresa-teste-2')
-ON CONFLICT (id) DO NOTHING;
+INSERT INTO tenants (id, name, slug, contact_phone, contact_email) VALUES
+('00000000-0000-0000-0000-000000000002', 'Empresa Teste 2', 'empresa-teste-2', '11999990002', 'contato@empresa2.com.br')
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name, slug = EXCLUDED.slug,
+  contact_phone = EXCLUDED.contact_phone, contact_email = EXCLUDED.contact_email;
 
 -- ============================================================
 -- TENANT OWNERS
