@@ -30,7 +30,7 @@ export interface Document {
  * @type ChargeStatus
  * @description Determina o estado financeiro de uma cobrança gerada pelo sistema.
  */
-export type ChargeStatus = 'pending' | 'paid' | 'overdue' | 'cancelled' | 'prejudice' | 'loss';
+export type ChargeStatus = 'pending' | 'paid' | 'overdue' | 'cancelled' | 'prejudice';
 
 
 /**
@@ -417,13 +417,14 @@ export interface Billing {
   contract_id?: string | null;
   lease_id?: string | null;
   customer_id?: string | null;
+  fine_id?: string | null;
   description?: string | null;
   /** @deprecated Use original_amount. */
   amount?: number | null;
   original_amount?: number | null;
   discount_amount?: number | null;
   discount_reason?: string | null;
-  billing_type?: 'cycle' | 'one_time' | 'complementary' | null;
+  billing_type?: 'cycle' | 'one_time' | 'complementary' | 'fine' | null;
   due_date: string;
   status: ChargeStatus;
   /** @deprecated Use paid_at. */

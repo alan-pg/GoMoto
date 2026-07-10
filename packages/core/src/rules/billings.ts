@@ -91,13 +91,13 @@ export function calculateDaysOverdue(
 }
 
 /**
- * Taxa de inadimplência: (overdue + loss) / total * 100.
+ * Taxa de inadimplência: (overdue + prejudice) / total * 100.
  * Retorna 0 quando não há cobranças.
  */
 export function calculateDefaultRate(charges: Pick<ChargeSummary, 'status'>[]): number {
   if (charges.length === 0) return 0
   const defaulters = charges.filter(
-    (c) => c.status === 'overdue' || c.status === 'loss' || c.status === 'prejudice',
+    (c) => c.status === 'overdue' || c.status === 'prejudice',
   ).length
   return (defaulters / charges.length) * 100
 }

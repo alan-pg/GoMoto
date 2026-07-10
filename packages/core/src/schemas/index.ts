@@ -104,7 +104,7 @@ export const BillingSchema = z.object({
   description:     z.string().trim().min(1).max(300).optional().nullable(),
   original_amount: z.number().positive().max(9999999),
   discount_amount: z.number().min(0).max(9999999).optional().nullable(),
-  billing_type:    z.enum(['cycle', 'one_time', 'complementary']).optional(),
+  billing_type:    z.enum(['cycle', 'one_time', 'complementary', 'fine']).optional(),
   due_date:        dateString,
   status:          z.enum(['pending', 'paid', 'overdue', 'cancelled', 'prejudice']).optional(),
   paid_at:         dateString.optional().nullable(),

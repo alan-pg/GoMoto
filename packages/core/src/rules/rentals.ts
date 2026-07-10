@@ -22,7 +22,7 @@ export const RENTAL_MINIMUM_DURATION = {
 export type RentalType    = 'rental' | 'rent_to_own'
 export type RentalStatus  = 'active' | 'closed' | 'transferred'
 export type RentalCycle   = 'weekly' | 'monthly'
-export type BillingType   = 'cycle' | 'one_time' | 'complementary'
+export type BillingType   = 'cycle' | 'one_time' | 'complementary' | 'fine'
 export type PaymentMethod = 'pix' | 'cash' | 'credit_card' | 'debit_card' | 'bank_transfer'
 
 export type RentalValidityLevel = 'red' | 'orange' | 'green'
@@ -146,6 +146,7 @@ export interface CycleCharge {
   due_date:     string
   amount:       number
   billing_type: BillingType
+  description:  string
 }
 
 export interface CycleChargeInput {
@@ -162,6 +163,30 @@ export interface CycleChargeInput {
 // ---------------------------------------------------------------------------
 
 const DAY_MS = 86_400_000
+
+const MONTHS_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'] as const
+
+function fmtDay(d: Date): string {
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function makeCycleDescription(
+  cycle: RentalCycle,
+  periodStart: Date,
+  periodEnd: Date,
+  amount: number,
+  cycleAmount: number,
+): string {
+  const isProRata = Math.abs(amount - cycleAmount) > 0.01
+  if (cycle === 'weekly') {
+    const prefix = isProRata ? 'Aluguel proporcional' : 'Aluguel semanal'
+    return `${prefix} — ${fmtDay(periodStart)} a ${fmtDay(periodEnd)}`
+  }
+  const mon    = MONTHS_PT[periodEnd.getMonth()]!
+  const year   = periodEnd.getFullYear()
+  const prefix = isProRata ? 'Aluguel proporcional' : 'Aluguel mensal'
+  return `${prefix} — ${mon}/${year}`
+}
 
 function dateDiffDays(from: Date, to: Date): number {
   return Math.round((to.getTime() - from.getTime()) / DAY_MS)
@@ -256,24 +281,24 @@ export function generateCycleCharges(input: CycleChargeInput): CycleCharge[] {
   }
 
   if (dueDates.length === 0) {
-    if (input.use_pro_rata) {
-      const cycleDays = cycleLengthDays(input.cycle, first, input.due_day)
-      const days = dateDiffDays(start, end)
-      charges.push({
-        due_date:     formatIsoDate(first),
-        amount:       calculateProRataValue(input.cycle_amount, days, cycleDays),
-        billing_type: 'cycle',
-      })
-    } else {
-      charges.push({ due_date: formatIsoDate(first), amount: input.cycle_amount, billing_type: 'cycle' })
-    }
+    const cycleDays = cycleLengthDays(input.cycle, first, input.due_day)
+    const days      = dateDiffDays(start, end)
+    const amount    = input.use_pro_rata
+      ? calculateProRataValue(input.cycle_amount, days, cycleDays)
+      : input.cycle_amount
+    charges.push({
+      due_date:     formatIsoDate(first),
+      amount,
+      billing_type: 'cycle',
+      description:  makeCycleDescription(input.cycle, start, end, amount, input.cycle_amount),
+    })
     return charges
   }
 
   const lastDue = dueDates[dueDates.length - 1]!
 
   for (let i = 0; i < dueDates.length; i++) {
-    const due    = dueDates[i]!
+    const due     = dueDates[i]!
     const isFirst = i === 0
     const isLast  = i === dueDates.length - 1
 
@@ -298,7 +323,17 @@ export function generateCycleCharges(input: CycleChargeInput): CycleCharge[] {
       amount = input.cycle_amount
     }
 
-    charges.push({ due_date: formatIsoDate(due), amount, billing_type: 'cycle' })
+    // periodStart = start_date para o primeiro billing; due_date anterior para os demais
+    const periodStart = i === 0 ? start : dueDates[i - 1]!
+    // periodEnd = end_date da locação para o último billing pro-rata; due_date corrente para os demais
+    const periodEnd = (isLast && lastDue.getTime() < end.getTime()) ? end : due
+
+    charges.push({
+      due_date:     formatIsoDate(due),
+      amount,
+      billing_type: 'cycle',
+      description:  makeCycleDescription(input.cycle, periodStart, periodEnd, amount, input.cycle_amount),
+    })
   }
 
   return charges
