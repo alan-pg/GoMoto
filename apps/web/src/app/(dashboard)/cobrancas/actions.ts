@@ -59,27 +59,34 @@ export async function updateBilling(id: string, rawData: unknown) {
   return { data }
 }
 
-const VALID_PAYMENT_METHODS = ['PIX', 'Dinheiro', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência']
+const PAYMENT_METHOD_MAP: Record<string, 'pix' | 'cash' | 'credit_card' | 'debit_card' | 'bank_transfer'> = {
+  'PIX':               'pix',
+  'Dinheiro':          'cash',
+  'Cartão de Crédito': 'credit_card',
+  'Cartão de Débito':  'debit_card',
+  'Transferência':     'bank_transfer',
+}
 
 export async function markBillingAsPaid(id: string, paymentMethod: string) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
 
-  if (!VALID_PAYMENT_METHODS.includes(paymentMethod)) {
-    return { error: 'Método de pagamento inválido' }
-  }
+  const dbMethod = PAYMENT_METHOD_MAP[paymentMethod]
+  if (!dbMethod) return { error: 'Método de pagamento inválido' }
 
   const { data: before } = await supabase.from('billings').select().eq('id', id).single()
 
   const today = new Date().toISOString().split('T')[0]
-  const existingObs = before?.observations ?? ''
-  const observations = existingObs
-    ? `${existingObs} | Recebido via ${paymentMethod}`
-    : `Recebido via ${paymentMethod}`
 
   const { data, error } = await supabase
     .from('billings')
-    .update({ status: 'paid', payment_date: today, observations, confirmed_source: 'manual' })
+    .update({
+      status:           'paid',
+      paid_at:          today,
+      payment_method:   dbMethod,
+      confirmed_source: 'manual',
+      paid_by:          user.id,
+    })
     .eq('id', id)
     .select()
     .single()

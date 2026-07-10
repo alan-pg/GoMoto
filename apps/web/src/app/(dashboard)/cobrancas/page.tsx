@@ -282,7 +282,7 @@ export default function CobrancasPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
-    const payload = {
+    const basePayload = {
       customer_id:     form.customer_id,
       lease_id:        form.lease_id || null,
       description:     form.description,
@@ -291,8 +291,8 @@ export default function CobrancasPage() {
       observations:    form.notes || null,
     }
     const result = editingId
-      ? await updateBilling(editingId, payload)
-      : await createBilling(payload)
+      ? await updateBilling(editingId, basePayload)
+      : await createBilling({ ...basePayload, billing_type: 'one_time' })
 
     if ('error' in result) {
       alert('Erro ao salvar cobrança: ' + result.error)
@@ -595,9 +595,9 @@ export default function CobrancasPage() {
                 {formatCurrency(metrics.totalLoss)}
               </p>
               <p className={`text-[12px] mt-0.5 ${metrics.totalLoss > 0 ? 'text-[#ff9c9a]' : 'text-[#9e9e9e]'}`}>
-                {charges.filter((c) => c.status === 'loss').length === 0
+                {charges.filter((c) => c.status === 'prejudice').length === 0
                   ? 'Nenhum prejuízo registrado'
-                  : `${charges.filter((c) => c.status === 'loss').length} cobrança(s) irrecuperável(is)`}
+                  : `${charges.filter((c) => c.status === 'prejudice').length} cobrança(s) irrecuperável(is)`}
               </p>
             </div>
             <div className="px-4 py-3">

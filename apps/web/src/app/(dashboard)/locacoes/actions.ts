@@ -457,7 +457,7 @@ export async function createOneTimeCharge(
   // Verificar que a locação está ativa (RN-029)
   const { data: rental } = await supabase
     .from('rentals')
-    .select('status')
+    .select('status, customer_id')
     .eq('id', parsed.data.lease_id)
     .eq('tenant_id', tenantId)
     .single()
@@ -471,6 +471,7 @@ export async function createOneTimeCharge(
     .insert({
       tenant_id:       tenantId,
       lease_id:        parsed.data.lease_id,
+      customer_id:     rental.customer_id,
       description:     parsed.data.description,
       original_amount: parsed.data.amount,
       due_date:        parsed.data.due_date,
