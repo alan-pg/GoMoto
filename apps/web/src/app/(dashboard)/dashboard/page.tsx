@@ -119,9 +119,9 @@ async function getDashboardData() {
     supabase.from('vehicles').select('*', { count: 'exact', head: true }).eq('status', 'rented'),
     supabase.from('vehicles').select('*', { count: 'exact', head: true }).eq('status', 'maintenance'),
     supabase.from('customers').select('*', { count: 'exact', head: true }).eq('active', true),
-    supabase.from('billings').select('customer_id').eq('status', 'overdue'),
-    supabase.from('billings').select('original_amount, discount_amount, status').in('status', ['pending', 'overdue']),
-    supabase.from('billings').select('id, original_amount, due_date, customers(name)').eq('status', 'overdue').order('due_date', { ascending: true }).limit(5),
+    supabase.from('billings').select('customer_id').or(`status.eq.overdue,and(status.eq.pending,due_date.lt.${today})`),
+    supabase.from('billings').select('original_amount, discount_amount, status, due_date').in('status', ['pending', 'overdue']),
+    supabase.from('billings').select('id, original_amount, due_date, customers(name)').or(`status.eq.overdue,and(status.eq.pending,due_date.lt.${today})`).order('due_date', { ascending: true }).limit(5),
     supabase.from('billings').select('original_amount').eq('status', 'paid').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
     supabase.from('rentals').select('id, cycle_amount, end_date, customers(name), vehicles(model, make, license_plate)').eq('status', 'active').order('created_at', { ascending: false }).limit(5),
     supabase.from('maintenance_records').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
@@ -133,7 +133,7 @@ async function getDashboardData() {
     supabase.from('queue_entries').select('id, created_at, position, customers(name)').order('position', { ascending: true }).limit(5),
     supabase.from('incomes').select('amount, date').gte('date', sixMonthsAgo).lte('date', lastDayOfMonth),
     supabase.from('expenses').select('amount, date').gte('date', sixMonthsAgo).lte('date', lastDayOfMonth),
-    supabase.from('billings').select('status, original_amount').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
+    supabase.from('billings').select('status, original_amount, due_date').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
   ])
 
   // Fleet
@@ -150,7 +150,7 @@ async function getDashboardData() {
     return sum + Math.max(0, final)
   }, 0)
   const overdueTotal = allReceivable
-    .filter((row) => row.status === 'overdue')
+    .filter((row) => row.status === 'overdue' || (row.status === 'pending' && (row as { due_date: string }).due_date < today))
     .reduce((sum, row) => {
       const final = Number(row.original_amount) - Number(row.discount_amount ?? 0)
       return sum + Math.max(0, final)
@@ -234,9 +234,11 @@ async function getDashboardData() {
     overdue: { count: 0, total: 0 },
   }
   ;(billingsByStatusRes.data ?? []).forEach((row) => {
-    if (row.status in billingStatusMap) {
-      billingStatusMap[row.status].count++
-      billingStatusMap[row.status].total += Number(row.original_amount) || 0
+    const effectiveStatus =
+      row.status === 'pending' && (row as { due_date: string }).due_date < today ? 'overdue' : row.status
+    if (effectiveStatus in billingStatusMap) {
+      billingStatusMap[effectiveStatus].count++
+      billingStatusMap[effectiveStatus].total += Number(row.original_amount) || 0
     }
   })
   const billingChartData = [

@@ -27,7 +27,11 @@ export async function listBillings(
 
   const { data, error } = await q
   if (error) throw error
-  return (data ?? []) as Billing[]
+
+  const today = new Date().toISOString().split('T')[0]
+  return ((data ?? []) as Billing[]).map((b) =>
+    b.status === 'pending' && b.due_date < today ? { ...b, status: 'overdue' as const } : b,
+  )
 }
 
 export async function createBilling(
@@ -71,7 +75,11 @@ export async function listBillingsForCustomer(
     .order('due_date', { ascending: true })
 
   if (error) throw error
-  return (data ?? []) as Billing[]
+
+  const today = new Date().toISOString().split('T')[0]
+  return ((data ?? []) as Billing[]).map((b) =>
+    b.status === 'pending' && b.due_date < today ? { ...b, status: 'overdue' as const } : b,
+  )
 }
 
 export async function listBillingsHistoryForCustomer(
