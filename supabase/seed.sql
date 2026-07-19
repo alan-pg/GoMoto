@@ -203,7 +203,20 @@ INSERT INTO settings (tenant_id, key, value) VALUES
 ('00000000-0000-0000-0000-000000000002', 'company_email',         'contato@empresa2.teste.com'),
 ('00000000-0000-0000-0000-000000000002', 'company_address',       ''),
 ('00000000-0000-0000-0000-000000000002', 'email_notifications',   'true'),
-('00000000-0000-0000-0000-000000000002', 'due_date_warning_days', '3');
+('00000000-0000-0000-0000-000000000002', 'due_date_warning_days', '3'),
+-- Configurações financeiras — encargos padrão (Spec 0008 RF-001)
+('00000000-0000-0000-0000-000000000001', 'late_charge_defaults',
+  '{"late_fee_type":"fixed","late_fee_value":30,"daily_interest_rate":0.005,"grace_period_days":5}'),
+('00000000-0000-0000-0000-000000000002', 'late_charge_defaults',
+  '{"late_fee_type":"fixed","late_fee_value":30,"daily_interest_rate":0.005,"grace_period_days":5}'),
+-- Configurações financeiras — inadimplência (Spec 0008 RF-032)
+('00000000-0000-0000-0000-000000000001', 'delinquency_thresholds',
+  '{"delinquent_count":3,"delinquent_days":30,"blocked_count":5,"blocked_days":60,"auto_block":false}'),
+('00000000-0000-0000-0000-000000000002', 'delinquency_thresholds',
+  '{"delinquent_count":3,"delinquent_days":30,"blocked_count":5,"blocked_days":60,"auto_block":false}'),
+-- Configurações financeiras — crédito automático (Spec 0008 RF-025)
+('00000000-0000-0000-0000-000000000001', 'auto_apply_credit', '{"enabled":false}'),
+('00000000-0000-0000-0000-000000000002', 'auto_apply_credit', '{"enabled":false}');
 
 -- ============================================================
 -- VEHICLES — Empresa Teste 1 (10 veículos)

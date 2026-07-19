@@ -2,7 +2,7 @@
   "expo": {
     "name": "GoMoto Mobile",
     "slug": "gomotos",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "scheme": "gomoto",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
@@ -13,7 +13,7 @@
     },
     "android": {
       "package": "com.gomoto.mobile",
-      "versionCode": 5
+      "versionCode": 6
     },
     "web": {
       "bundler": "metro"

@@ -246,6 +246,7 @@ export interface Customer {
   document_photo_url?: string | null;
   // Gestão
   payment_status?: string | null;
+  delinquency_status?: 'current' | 'overdue' | 'blocked' | null;
   observations?: string | null;
   documents?: Document[];
   in_queue: boolean;
@@ -479,6 +480,7 @@ export type ErrorCode =
   | 'UNAUTHORIZED'
   | 'FORBIDDEN'
   | 'NOT_FOUND'
+  | 'CONFLICT'
   | 'DUPLICATE_ENTRY'
   | 'VEHICLE_ALREADY_RENTED'
   | 'VEHICLE_LOCKED'
@@ -487,6 +489,8 @@ export type ErrorCode =
   | 'BILLING_CANCELLED'
   | 'DISCOUNT_EXCEEDS_AMOUNT'
   | 'TERMINATION_FINE_APPLICABLE'
+  | 'NO_ACTIVE_RENTAL'
+  | 'INTERNAL'
   | 'INTERNAL_ERROR'
 
 export type ActionResult<T> =
@@ -558,3 +562,5 @@ export interface QueueEntry {
     drivers_license_validity: string | null;
   } | null;
 }
+
+export * from './financial'

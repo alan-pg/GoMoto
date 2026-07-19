@@ -1,5 +1,6 @@
 'use server'
 
+import { z } from 'zod'
 import { SignJWT } from 'jose'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
@@ -66,4 +67,85 @@ export async function disconnectPaymentAction() {
 
   revalidatePath('/configuracoes')
   return { ok: true }
+}
+
+// ============================================================
+// saveFinancialSettings — persiste configuração de encargos por atraso (RF-001)
+// ============================================================
+
+const LateChargeConfigSchema = z.object({
+  late_fee_type:       z.enum(['fixed', 'percentage']),
+  late_fee_value:      z.number().min(0),
+  daily_interest_rate: z.number().min(0).max(1),
+  grace_period_days:   z.number().int().min(0),
+})
+
+export async function saveFinancialSettings(input: unknown) {
+  const ctx = await getAuthenticatedTenant()
+  if ('error' in ctx) return { ok: false, error: { code: ctx.error, message: 'Não autorizado' } }
+
+  const parsed = LateChargeConfigSchema.safeParse(input)
+  if (!parsed.success) {
+    const first = parsed.error.issues[0]
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos' } }
+  }
+
+  const { error } = await ctx.supabase
+    .from('settings')
+    .upsert({ tenant_id: ctx.tenantId, key: 'late_charge_defaults', value: JSON.stringify(parsed.data) }, { onConflict: 'tenant_id,key' })
+
+  if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
+
+  revalidatePath('/configuracoes')
+  return { ok: true, data: undefined }
+}
+
+// ============================================================
+// saveDelinquencySettings — persiste thresholds de inadimplência (RF-033)
+// ============================================================
+
+const DelinquencySettingsSchema = z.object({
+  delinquent_count: z.number().int().min(1),
+  delinquent_days:  z.number().int().min(1),
+  blocked_count:    z.number().int().min(1),
+  blocked_days:     z.number().int().min(1),
+  auto_block:       z.boolean().default(false),
+})
+
+export async function saveDelinquencySettings(input: unknown) {
+  const ctx = await getAuthenticatedTenant()
+  if ('error' in ctx) return { ok: false, error: { code: ctx.error, message: 'Não autorizado' } }
+
+  const parsed = DelinquencySettingsSchema.safeParse(input)
+  if (!parsed.success) {
+    const first = parsed.error.issues[0]
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos' } }
+  }
+
+  const { error } = await ctx.supabase
+    .from('settings')
+    .upsert({ tenant_id: ctx.tenantId, key: 'delinquency_thresholds', value: JSON.stringify(parsed.data) }, { onConflict: 'tenant_id,key' })
+
+  if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
+
+  revalidatePath('/configuracoes')
+  return { ok: true, data: undefined }
+}
+
+// ============================================================
+// saveAutoApplyCreditSetting — habilita/desabilita aplicação automática de crédito
+// ============================================================
+
+export async function saveAutoApplyCreditSetting(enabled: boolean) {
+  const ctx = await getAuthenticatedTenant()
+  if ('error' in ctx) return { ok: false, error: { code: ctx.error, message: 'Não autorizado' } }
+
+  const { error } = await ctx.supabase
+    .from('settings')
+    .upsert({ tenant_id: ctx.tenantId, key: 'auto_apply_credit', value: JSON.stringify({ enabled }) }, { onConflict: 'tenant_id,key' })
+
+  if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
+
+  revalidatePath('/configuracoes')
+  return { ok: true, data: undefined }
 }

@@ -141,6 +141,12 @@ export default async function RentalDetailPage({
             </>
           )}
           <Link
+            href={`/locacoes/${id}/financeiro`}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#474747] px-3 text-[13px] text-[#9e9e9e] transition-colors hover:border-[#616161] hover:text-[#f5f5f5]"
+          >
+            Financeiro
+          </Link>
+          <Link
             href={`/locacoes/${id}/editar`}
             className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#323232] px-3 text-[13px] text-[#f5f5f5] transition-colors hover:bg-[#474747]"
           >

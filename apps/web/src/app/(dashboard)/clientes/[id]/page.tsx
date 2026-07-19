@@ -44,7 +44,7 @@ export default async function CustomerDetailPage({
   const tenantId = await getCurrentTenantId(supabase)
   if (!tenantId) notFound()
 
-  const [customerResult, rentalResult] = await Promise.all([
+  const [customerResult, rentalResult, creditsResult, delinquencyBlocksResult] = await Promise.all([
     supabase.from('customers').select('*').eq('id', id).single(),
     supabase
       .from('rentals')
@@ -52,6 +52,19 @@ export default async function CustomerDetailPage({
       .eq('customer_id', id)
       .eq('status', 'active')
       .maybeSingle(),
+    supabase
+      .from('customer_credits')
+      .select('id, amount, available_balance, origin, reason, created_at')
+      .eq('customer_id', id)
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('delinquency_blocks')
+      .select('action, reason, performed_by, created_at')
+      .eq('customer_id', id)
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
+      .limit(5),
   ])
 
   if (customerResult.error || !customerResult.data) notFound()
@@ -59,6 +72,19 @@ export default async function CustomerDetailPage({
   const customer = customerResult.data as Customer
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rental = rentalResult.data as (Rental & { vehicle?: { license_plate: string; make: string; model: string } | null }) | null
+  const credits = (creditsResult.data ?? []) as { id: string; amount: number; available_balance: number; origin: string; reason: string; created_at: string }[]
+  const delinquencyBlocks = (delinquencyBlocksResult.data ?? []) as { action: string; reason: string; performed_by: string; created_at: string }[]
+
+  const CREDIT_ORIGIN_LABELS: Record<string, string> = {
+    maintenance_refund: 'Estorno manutenção',
+    reversal:          'Estorno',
+    manual_adjustment: 'Ajuste manual',
+  }
+  const DELINQUENCY_ACTION_LABELS: Record<string, string> = {
+    block:   'Bloqueado',
+    unblock: 'Desbloqueado',
+  }
+  const isBlocked = customer.delinquency_status === 'blocked'
 
   const [cnhSignedUrl, residencySignedUrl] = await Promise.all([
     getSignedUrl(supabase, customer.drivers_license_photo_url),
@@ -342,6 +368,99 @@ export default async function CustomerDetailPage({
                 <tbody>
                   <Row label="Data de Saída" value={fmt(customer.departure_date)} />
                   <Row label="Motivo" value={customer.departure_reason} />
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* ── Inadimplência ────────────────────────────────────────────────── */}
+        <section>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-[14px] font-bold text-[#BAFF1A]">
+              Situação financeira
+              {isBlocked && (
+                <span className="ml-2 rounded-full bg-[#7c1c1c] px-2 py-0.5 text-[11px] font-semibold text-[#ff9c9a]">Bloqueado</span>
+              )}
+            </h2>
+          </div>
+          <div className="rounded-xl bg-[#202020] overflow-hidden">
+            <table className="w-full text-[13px]">
+              <tbody>
+                <tr className="border-b border-[#323232] last:border-0">
+                  <td className="h-9 w-48 px-4 text-[#9e9e9e]">Status</td>
+                  <td className="h-9 px-4 text-[#f5f5f5]">
+                    {isBlocked
+                      ? <span className="text-[#ff9c9a] font-medium">Bloqueado para novas locações</span>
+                      : <span className="text-[#229731]">Regular</span>}
+                  </td>
+                </tr>
+                <tr className="border-b border-[#323232] last:border-0">
+                  <td className="h-9 w-48 px-4 text-[#9e9e9e]">Créditos disponíveis</td>
+                  <td className="h-9 px-4 font-mono text-[#f5f5f5]">
+                    {formatCurrency(credits.reduce((s, c) => s + c.available_balance, 0))}
+                    <span className="ml-2 text-[12px] text-[#616161]">({credits.filter(c => c.available_balance > 0).length} ativos)</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {delinquencyBlocks.length > 0 && (
+            <div className="mt-3 overflow-hidden rounded-xl border border-[#323232]">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="border-b border-[#323232] bg-[#1a1a1a]">
+                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Ação</th>
+                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Data</th>
+                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Motivo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {delinquencyBlocks.map((b, i) => (
+                    <tr key={i} className="border-b border-[#1e1e1e] last:border-0">
+                      <td className={`h-9 px-4 font-medium ${b.action === 'block' ? 'text-[#ff9c9a]' : 'text-[#229731]'}`}>
+                        {DELINQUENCY_ACTION_LABELS[b.action] ?? b.action}
+                      </td>
+                      <td className="h-9 px-4 text-[#9e9e9e]">
+                        {new Date(b.created_at).toLocaleDateString('pt-BR')}
+                      </td>
+                      <td className="h-9 max-w-[240px] truncate px-4 text-[#9e9e9e]">{b.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* ── Créditos do cliente ───────────────────────────────────────────── */}
+        {credits.length > 0 && (
+          <section>
+            <h2 className="mb-3 text-[14px] font-bold text-[#BAFF1A]">
+              Créditos
+              <span className="ml-2 text-[12px] font-normal text-[#9e9e9e]">({credits.length})</span>
+            </h2>
+            <div className="overflow-hidden rounded-xl border border-[#323232]">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="border-b border-[#323232] bg-[#1a1a1a]">
+                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Origem</th>
+                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Data</th>
+                    <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Total</th>
+                    <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Saldo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {credits.map(c => (
+                    <tr key={c.id} className="border-b border-[#1e1e1e] last:border-0 hover:bg-[#222222]">
+                      <td className="h-9 px-4 text-[#c7c7c7]">{CREDIT_ORIGIN_LABELS[c.origin] ?? c.origin}</td>
+                      <td className="h-9 px-4 text-[#9e9e9e]">{new Date(c.created_at).toLocaleDateString('pt-BR')}</td>
+                      <td className="h-9 px-4 text-right font-mono text-[#f5f5f5]">{formatCurrency(c.amount)}</td>
+                      <td className={`h-9 px-4 text-right font-mono font-semibold ${c.available_balance > 0 ? 'text-[#BAFF1A]' : 'text-[#616161]'}`}>
+                        {formatCurrency(c.available_balance)}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

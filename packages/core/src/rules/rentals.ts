@@ -23,7 +23,7 @@ export type RentalType    = 'rental' | 'rent_to_own'
 export type RentalStatus  = 'active' | 'closed' | 'transferred'
 export type RentalCycle   = 'weekly' | 'monthly'
 export type BillingType   = 'cycle' | 'one_time' | 'complementary' | 'fine'
-export type PaymentMethod = 'pix' | 'cash' | 'credit_card' | 'debit_card' | 'bank_transfer'
+export type PaymentMethod = 'pix' | 'cash' | 'credit_card' | 'debit_card' | 'bank_transfer' | 'other'
 
 export type RentalValidityLevel = 'red' | 'orange' | 'green'
 
