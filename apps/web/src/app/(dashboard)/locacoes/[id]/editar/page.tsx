@@ -13,14 +13,30 @@ export default async function EditRentalPage({
   const tenantId  = await getCurrentTenantId(supabase)
   if (!tenantId) notFound()
 
-  const { data, error } = await supabase
-    .from('rentals')
-    .select('*, customer:customers(id,name), vehicle:vehicles(id,license_plate,make,model)')
-    .eq('id', id)
-    .eq('tenant_id', tenantId)
-    .single()
+  const [rentalResult, depositResult] = await Promise.all([
+    supabase
+      .from('rentals')
+      .select('*, customer:customers(id,name), vehicle:vehicles(id,license_plate,make,model)')
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .single(),
+    supabase
+      .from('deposits')
+      .select('amount')
+      .eq('rental_id', id)
+      .eq('tenant_id', tenantId)
+      .eq('status', 'received')
+      .maybeSingle(),
+  ])
 
-  if (error || !data) notFound()
+  if (rentalResult.error || !rentalResult.data) notFound()
 
-  return <RentalForm rentalId={id} initialData={data} />
+  const depositAmount = (depositResult.data as { amount: number } | null)?.amount ?? null
+
+  return (
+    <RentalForm
+      rentalId={id}
+      initialData={{ ...rentalResult.data, security_deposit: depositAmount }}
+    />
+  )
 }

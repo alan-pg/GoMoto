@@ -134,17 +134,58 @@ export async function updateRental(
   if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não encontrado' } }
 
   const updates: Record<string, unknown> = {}
-  if (data.observations !== undefined) updates.observations     = data.observations
-  if (data.security_deposit !== undefined) updates.security_deposit = data.security_deposit
-  if (data.end_date !== undefined) updates.end_date             = data.end_date
+  if (data.observations !== undefined) updates.observations = data.observations
+  if (data.end_date !== undefined) updates.end_date         = data.end_date
 
-  const { error } = await supabase
-    .from('rentals')
-    .update(updates)
-    .eq('id', leaseId)
-    .eq('tenant_id', tenantId)
+  if (Object.keys(updates).length > 0) {
+    const { error } = await supabase
+      .from('rentals')
+      .update(updates)
+      .eq('id', leaseId)
+      .eq('tenant_id', tenantId)
 
-  if (error) return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
+    if (error) return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
+  }
+
+  // Caução agora vive na tabela `deposits` (migration 20260719000010)
+  if (data.security_deposit != null && data.security_deposit > 0) {
+    const { data: rentalRow } = await supabase
+      .from('rentals')
+      .select('customer_id, start_date')
+      .eq('id', leaseId)
+      .eq('tenant_id', tenantId)
+      .single()
+
+    if (rentalRow) {
+      const { data: existingDeposit } = await supabase
+        .from('deposits')
+        .select('id, amount, balance')
+        .eq('rental_id', leaseId)
+        .eq('tenant_id', tenantId)
+        .eq('status', 'received')
+        .maybeSingle()
+
+      if (existingDeposit) {
+        const usedAmount = existingDeposit.amount - existingDeposit.balance
+        const newBalance = Math.max(0, data.security_deposit - usedAmount)
+        await supabase
+          .from('deposits')
+          .update({ amount: data.security_deposit, balance: newBalance })
+          .eq('id', existingDeposit.id)
+          .eq('tenant_id', tenantId)
+      } else {
+        await supabase.from('deposits').insert({
+          tenant_id:   tenantId,
+          rental_id:   leaseId,
+          customer_id: rentalRow.customer_id,
+          amount:      data.security_deposit,
+          balance:     data.security_deposit,
+          status:      'received',
+          received_at: rentalRow.start_date ?? new Date().toISOString().slice(0, 10),
+        })
+      }
+    }
+  }
 
   await logAction({ action: 'update', table: 'rentals', recordId: leaseId })
   revalidateRentalPaths()

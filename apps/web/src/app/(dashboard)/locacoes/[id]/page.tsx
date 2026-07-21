@@ -67,7 +67,7 @@ export default async function RentalDetailPage({
   const tenantId  = await getCurrentTenantId(supabase)
   if (!tenantId) notFound()
 
-  const [rentalResult, billingsResult] = await Promise.all([
+  const [rentalResult, billingsResult, depositResult] = await Promise.all([
     supabase
       .from('rentals')
       .select('*, customer:customers(id,name,phone,cpf), vehicle:vehicles(id,license_plate,make,model,year_manufacture,color)')
@@ -80,12 +80,19 @@ export default async function RentalDetailPage({
       .eq('lease_id', id)
       .eq('tenant_id', tenantId)
       .order('due_date', { ascending: true }),
+    supabase
+      .from('deposits')
+      .select('amount, balance, status, received_at')
+      .eq('rental_id', id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle(),
   ])
 
   if (rentalResult.error || !rentalResult.data) notFound()
 
   const rental   = rentalResult.data
   const billings = billingsResult.data ?? []
+  const deposit  = depositResult.data as { amount: number; balance: number; status: string; received_at: string } | null
   const statusCfg = STATUS_BADGE[rental.status] ?? STATUS_BADGE.closed
   const isActive  = rental.status === 'active'
 
@@ -189,11 +196,11 @@ export default async function RentalDetailPage({
           <div className="rounded-xl bg-[#202020] p-4">
             <p className="text-[12px] text-[#9e9e9e]">Caução</p>
             <p className="mt-1 text-xl font-bold text-[#f5f5f5]">
-              {rental.security_deposit != null ? formatCurrency(rental.security_deposit) : '—'}
+              {deposit != null ? formatCurrency(deposit.amount) : '—'}
             </p>
-            {rental.security_deposit_returned_at && (
+            {deposit && deposit.status !== 'received' && (
               <p className="mt-0.5 text-[12px] text-[#9e9e9e]">
-                Devolvida em {fmt(rental.security_deposit_returned_at)}
+                Saldo: {formatCurrency(deposit.balance)}
               </p>
             )}
           </div>
