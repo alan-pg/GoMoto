@@ -8,7 +8,8 @@ import { formatCurrency } from '@/lib/utils'
 
 function fmt(d: string | null | undefined) {
   if (!d) return '—'
-  return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR')
+  const date = d.includes('T') ? new Date(d) : new Date(d + 'T12:00:00')
+  return date.toLocaleDateString('pt-BR')
 }
 
 function calcBillingStatus(status: string, dueDate: string) {
@@ -32,7 +33,7 @@ type BillingRow = {
   billing_type: string | null
   source: string | null
   customer: { id: string; name: string } | null
-  vehicle: { id: string; license_plate: string } | null
+  rental: { vehicle: { id: string; license_plate: string } | null } | null
   lease_id: string | null
 }
 
@@ -42,6 +43,7 @@ const SOURCE_LABELS: Record<string, string> = {
   maintenance: 'Manutenção',
   expense:     'Despesa',
   manual:      'Manual',
+  deposit:     'Caução',
 }
 
 const STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
@@ -65,21 +67,24 @@ export default async function FinancialDashboardPage() {
   const monthEnd   = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-01`
 
   const [monthBillingsResult, overdueBillingsResult, vehiclesResult, delinquentResult] = await Promise.all([
-    // Cobranças do mês corrente
+    // Cobranças do mês corrente — caução fica de fora: é garantia/depósito,
+    // não receita operacional, e já tem exibição própria em /locacoes/[id].
     supabase
       .from('billings')
-      .select('id, status, original_amount, discount_amount, credit_applied, due_date, description, billing_type, source, lease_id, customer:customers(id,name), vehicle:vehicles(id,license_plate)')
+      .select('id, status, original_amount, discount_amount, credit_applied, due_date, description, billing_type, source, lease_id, customer:customers(id,name), rental:rentals(vehicle:vehicles(id,license_plate))')
       .eq('tenant_id', tenantId)
       .neq('status', 'cancelled')
+      .neq('billing_type', 'deposit')
       .gte('due_date', monthStart)
       .lt('due_date', monthEnd)
       .order('due_date', { ascending: true }),
-    // Cobranças vencidas (qualquer mês)
+    // Cobranças vencidas (qualquer mês) — mesma exclusão de caução
     supabase
       .from('billings')
-      .select('id, status, original_amount, discount_amount, credit_applied, due_date, description, billing_type, source, lease_id, customer:customers(id,name), vehicle:vehicles(id,license_plate)')
+      .select('id, status, original_amount, discount_amount, credit_applied, due_date, description, billing_type, source, lease_id, customer:customers(id,name), rental:rentals(vehicle:vehicles(id,license_plate))')
       .eq('tenant_id', tenantId)
       .eq('status', 'pending')
+      .neq('billing_type', 'deposit')
       .lt('due_date', monthStart)
       .order('due_date', { ascending: true })
       .limit(50),
@@ -190,7 +195,7 @@ export default async function FinancialDashboardPage() {
                             </Link>
                           ) : <span className="text-[#616161]">—</span>}
                         </td>
-                        <td className="h-9 px-4 font-mono text-[#9e9e9e]">{b.vehicle?.license_plate ?? '—'}</td>
+                        <td className="h-9 px-4 font-mono text-[#9e9e9e]">{b.rental?.vehicle?.license_plate ?? '—'}</td>
                         <td className="h-9 px-4 text-[#9e9e9e]">{SOURCE_LABELS[b.source ?? ''] ?? '—'}</td>
                         <td className="h-9 px-4 text-[#ff9c9a]">{fmt(b.due_date)}</td>
                         <td className="h-9 px-4 text-right font-mono font-semibold text-[#ff9c9a]">{formatCurrency(net)}</td>
@@ -247,7 +252,7 @@ export default async function FinancialDashboardPage() {
                             </Link>
                           )}
                         </td>
-                        <td className="h-9 px-4 font-mono text-[#9e9e9e]">{b.vehicle?.license_plate ?? '—'}</td>
+                        <td className="h-9 px-4 font-mono text-[#9e9e9e]">{b.rental?.vehicle?.license_plate ?? '—'}</td>
                         <td className="h-9 px-4 text-[#c7c7c7]">{fmt(b.due_date)}</td>
                         <td className="h-9 px-4 text-right font-mono text-[#f5f5f5]">{formatCurrency(b.original_amount)}</td>
                         <td className="h-9 px-4">

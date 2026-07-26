@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { effectiveBillingStatus } from '@/lib/billing-status'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import {
@@ -12,10 +13,14 @@ import {
   OneTimeChargeSchema,
   AddToQueueSchema,
   UploadClientDocumentSchema,
+  CreateRentalAdjustmentSchema,
+  RegenerateRentalScheduleSchema,
   generateCycleCharges,
   canRegisterPayment,
   canApplyDiscount,
   isRentalTerminationWithinMinimum,
+  calculateAdjustedBillingAmount,
+  computeScheduleRegenerationCutoff,
   getMoveUpNote,
   getMoveDownNote,
 } from '@gomoto/core'
@@ -80,17 +85,21 @@ export async function createRental(
   })
 
   const { data: leaseId, error } = await supabase.rpc('create_rental_with_charges', {
-    p_tenant_id:        tenantId,
-    p_vehicle_id:       parsed.data.vehicle_id,
-    p_customer_id:      parsed.data.customer_id,
-    p_cycle:            parsed.data.cycle,
-    p_due_day:          parsed.data.due_day,
-    p_cycle_amount:     parsed.data.cycle_amount,
-    p_start_date:       parsed.data.start_date,
-    p_end_date:         parsed.data.end_date,
-    p_use_pro_rata:     parsed.data.use_pro_rata,
-    p_charges:          charges,
-    p_security_deposit: parsed.data.security_deposit ?? null,
+    p_tenant_id:          tenantId,
+    p_vehicle_id:         parsed.data.vehicle_id,
+    p_customer_id:        parsed.data.customer_id,
+    p_cycle:              parsed.data.cycle,
+    p_due_day:            parsed.data.due_day,
+    p_cycle_amount:       parsed.data.cycle_amount,
+    p_start_date:         parsed.data.start_date,
+    p_end_date:           parsed.data.end_date,
+    p_use_pro_rata:       parsed.data.use_pro_rata,
+    p_charges:            charges,
+    p_security_deposit:     parsed.data.security_deposit ?? null,
+    p_late_charge_config:   parsed.data.late_charge_config ?? null,
+    p_deposit_paid:         parsed.data.deposit_paid,
+    p_deposit_payment_date: parsed.data.deposit_payment_date ?? null,
+    p_deposit_due_date:     parsed.data.deposit_due_date ?? null,
   })
 
   if (error) {
@@ -119,12 +128,14 @@ export async function createRental(
 }
 
 // ---------------------------------------------------------------------------
-// updateRental — edição de campos não-financeiros de uma locação ativa
+// updateRental — edita caução e observações de uma locação ativa. Tudo que
+// afeta cobranças (valor, ciclo, dia, datas) passa por adjustRental/
+// renewRental/terminateRental — não por aqui.
 // ---------------------------------------------------------------------------
 
 export async function updateRental(
   leaseId: string,
-  data: Pick<CreateRental, 'observations' | 'security_deposit'> & { end_date?: string },
+  data: Pick<CreateRental, 'observations' | 'security_deposit'>,
 ): Promise<ActionResult<void>> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -135,7 +146,6 @@ export async function updateRental(
 
   const updates: Record<string, unknown> = {}
   if (data.observations !== undefined) updates.observations = data.observations
-  if (data.end_date !== undefined) updates.end_date         = data.end_date
 
   if (Object.keys(updates).length > 0) {
     const { error } = await supabase
@@ -159,13 +169,32 @@ export async function updateRental(
     if (rentalRow) {
       const { data: existingDeposit } = await supabase
         .from('deposits')
-        .select('id, amount, balance')
+        .select('id, amount, balance, status, billing_id')
         .eq('rental_id', leaseId)
         .eq('tenant_id', tenantId)
-        .eq('status', 'received')
+        .in('status', ['pending', 'received'])
         .maybeSingle()
 
-      if (existingDeposit) {
+      if (existingDeposit?.status === 'pending') {
+        // Ainda não paga: muda o valor da cobrança pendente vinculada junto —
+        // a cobrança é a fonte de verdade até ser paga (registerPayment é
+        // quem libera o saldo, ver cobrancas/[id]/actions.ts).
+        await supabase
+          .from('deposits')
+          .update({ amount: data.security_deposit })
+          .eq('id', existingDeposit.id)
+          .eq('tenant_id', tenantId)
+
+        if (existingDeposit.billing_id) {
+          await supabase
+            .from('billings')
+            .update({ original_amount: data.security_deposit })
+            .eq('id', existingDeposit.billing_id)
+            .eq('tenant_id', tenantId)
+        }
+      } else if (existingDeposit) {
+        // Já paga (ou outro estado) — cobrança já quitada é imutável
+        // (RNF-007); só o registro de caução é ajustado.
         const usedAmount = existingDeposit.amount - existingDeposit.balance
         const newBalance = Math.max(0, data.security_deposit - usedAmount)
         await supabase
@@ -680,16 +709,10 @@ export async function uploadClientDocument(
 // createRentalWithDeposit — criação de locação com caução e config de encargos
 // ---------------------------------------------------------------------------
 
-const LateChargeConfigSchema = z.object({
-  late_fee_type:       z.enum(['fixed', 'percentage']),
-  late_fee_value:      z.number().min(0),
-  daily_interest_rate: z.number().min(0).max(1),
-  grace_period_days:   z.number().int().min(0),
-})
-
+// late_charge_config já vem de RentalSchema — não precisa redeclarar aqui
+// (e o Zod v4 não permite sobrescrever chave em schema com .refine()).
 const RentalWithDepositSchema = RentalSchema.extend({
   deposit_received_at: dateString.optional(),
-  late_charge_config:  LateChargeConfigSchema.optional(),
 })
 
 export async function createRentalWithDeposit(
@@ -832,15 +855,8 @@ export async function closeRentalFinancial(
 }
 
 // ---------------------------------------------------------------------------
-// adjustRental — reajusta cobranças futuras e registra histórico (RF-027–031)
+// adjustRental — reajusta valor do ciclo e encargos, com histórico (RF-027–031)
 // ---------------------------------------------------------------------------
-
-const AdjustRentalSchema = z.object({
-  rental_id:              uuid(),
-  new_cycle_amount:       z.number().positive(),
-  new_late_charge_config: LateChargeConfigSchema.optional(),
-  justification:          z.string().min(5, 'Justificativa deve ter ao menos 5 caracteres').max(500),
-})
 
 export async function adjustRental(
   input: unknown,
@@ -852,52 +868,182 @@ export async function adjustRental(
   const tenantId = await getCurrentTenantId(supabase)
   if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não encontrado' } }
 
-  const parsed = AdjustRentalSchema.safeParse(input)
+  const parsed = CreateRentalAdjustmentSchema.safeParse(input)
   if (!parsed.success) {
     const first = parsed.error.issues[0]
     return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos', field: first?.path?.map(String).join('.') } }
   }
 
   const { data: rental } = await supabase
-    .from('rentals').select('id, cycle_amount, late_charge_config').eq('id', parsed.data.rental_id).eq('tenant_id', tenantId).single()
+    .from('rentals').select('id, status, cycle_amount').eq('id', parsed.data.rental_id).eq('tenant_id', tenantId).single()
 
   if (!rental) return { ok: false, error: { code: 'NOT_FOUND', message: 'Locação não encontrada' } }
+  if (rental.status !== 'active') {
+    return { ok: false, error: { code: 'FORBIDDEN', message: 'Somente locações ativas podem ser reajustadas.' } }
+  }
 
-  // Atualiza apenas cobranças de ciclo pendentes/vencidas (não pagas, não canceladas)
-  const { data: updatedBillings, error: updateErr } = await supabase
+  // RN-025/RN-026: só cobranças de ciclo pendentes entram no reajuste — pagas,
+  // vencidas e canceladas são preservadas. O banco nunca grava status='overdue'
+  // literalmente (é derivado em runtime, ver @/lib/billing-status) — status='pending'
+  // sozinho não basta pra saber se já venceu, por isso filtramos due_date também.
+  const { data: candidateBillings, error: fetchErr } = await supabase
     .from('billings')
-    .update({ original_amount: parsed.data.new_cycle_amount, ...(parsed.data.new_late_charge_config ? { late_charge_config: parsed.data.new_late_charge_config } : {}) })
+    .select('id, original_amount, due_date, status')
     .eq('lease_id', parsed.data.rental_id)
     .eq('tenant_id', tenantId)
     .eq('billing_type', 'cycle')
-    .in('status', ['pending', 'overdue'])
-    .select('id')
+    .eq('status', 'pending')
 
-  if (updateErr) return { ok: false, error: { code: 'INTERNAL', message: updateErr.message } }
+  if (fetchErr) return { ok: false, error: { code: 'INTERNAL_ERROR', message: fetchErr.message } }
 
-  const count = updatedBillings?.length ?? 0
+  const pendingBillings = (candidateBillings ?? []).filter(b => effectiveBillingStatus(b) === 'pending')
 
-  // Registra ajuste no histórico
-  await supabase.from('rental_adjustments').insert({
-    tenant_id:               tenantId,
-    rental_id:               parsed.data.rental_id,
-    previous_cycle_amount:   rental.cycle_amount,
-    new_cycle_amount:        parsed.data.new_cycle_amount,
-    previous_config:         rental.late_charge_config ?? null,
-    new_config:              parsed.data.new_late_charge_config ?? null,
-    updated_billings_count:  count,
-    justification:           parsed.data.justification,
-    adjusted_by:             user.id,
+  // RN-027: recalcula proporcionalmente (preserva cobranças pro rata como fração do novo valor)
+  const billingUpdates = pendingBillings.map(b => ({
+    billing_id: b.id,
+    new_amount: calculateAdjustedBillingAmount(b.original_amount, rental.cycle_amount ?? 0, parsed.data.new_cycle_amount),
+  }))
+
+  const { data: updatedCount, error: rpcErr } = await supabase.rpc('adjust_rental', {
+    p_tenant_id:              tenantId,
+    p_lease_id:               parsed.data.rental_id,
+    p_new_cycle_amount:       parsed.data.new_cycle_amount,
+    p_new_late_charge_config: parsed.data.new_late_charge_config ?? null,
+    p_justification:          parsed.data.justification,
+    p_adjusted_by:            user.id,
+    p_billing_updates:        billingUpdates,
   })
 
-  // Atualiza valor do ciclo na própria locação
-  await supabase.from('rentals').update({
-    cycle_amount:       parsed.data.new_cycle_amount,
-    ...(parsed.data.new_late_charge_config ? { late_charge_config: parsed.data.new_late_charge_config } : {}),
-  }).eq('id', parsed.data.rental_id).eq('tenant_id', tenantId)
+  if (rpcErr) {
+    if (rpcErr.message?.includes('RENTAL_NOT_ACTIVE')) {
+      return { ok: false, error: { code: 'RENTAL_NOT_ACTIVE', message: 'Locação não está ativa.' } }
+    }
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: rpcErr.message } }
+  }
+
+  const count = (updatedCount as number | null) ?? 0
 
   await logAction({ action: 'update', table: 'rentals', recordId: parsed.data.rental_id, newData: { new_cycle_amount: parsed.data.new_cycle_amount, updated_billings_count: count } })
   revalidateRentalPaths()
   revalidatePath(`/locacoes/${parsed.data.rental_id}`)
+  revalidatePath(`/locacoes/${parsed.data.rental_id}/financeiro`)
   return { ok: true, data: { updated_billings_count: count } }
+}
+
+// ---------------------------------------------------------------------------
+// regenerateRentalSchedule — muda ciclo/dia de vencimento/pro rata: cancela
+// as cobranças pendentes futuras (que não batem mais com o novo padrão),
+// estorna crédito aplicado nelas, e regera a partir do ponto de corte.
+// ---------------------------------------------------------------------------
+
+export async function regenerateRentalSchedule(
+  input: unknown,
+): Promise<ActionResult<{ cancelled_count: number; created_count: number }>> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não encontrado' } }
+
+  const parsed = RegenerateRentalScheduleSchema.safeParse(input)
+  if (!parsed.success) {
+    const first = parsed.error.issues[0]
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos', field: first?.path?.map(String).join('.') } }
+  }
+
+  const { data: rental } = await supabase
+    .from('rentals')
+    .select('id, status, start_date, end_date')
+    .eq('id', parsed.data.rental_id)
+    .eq('tenant_id', tenantId)
+    .single()
+
+  if (!rental) return { ok: false, error: { code: 'NOT_FOUND', message: 'Locação não encontrada' } }
+  if (rental.status !== 'active') {
+    return { ok: false, error: { code: 'FORBIDDEN', message: 'Somente locações ativas podem ser reajustadas.' } }
+  }
+  if (!rental.start_date || !rental.end_date) {
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Locação sem data de início/fim definida.' } }
+  }
+
+  const { data: billings, error: fetchErr } = await supabase
+    .from('billings')
+    .select('id, due_date, status, discount_amount, credit_applied')
+    .eq('lease_id', parsed.data.rental_id)
+    .eq('tenant_id', tenantId)
+    .eq('billing_type', 'cycle')
+
+  if (fetchErr) return { ok: false, error: { code: 'INTERNAL_ERROR', message: fetchErr.message } }
+
+  const allBillings = billings ?? []
+  const today = new Date()
+  const cutoff = computeScheduleRegenerationCutoff(allBillings, today)
+
+  // Mesmo critério de "pendente de verdade" usado em adjustRental — pending
+  // com due_date já passado é vencida na prática (overdue nunca é gravado).
+  const toCancel = allBillings.filter(b => effectiveBillingStatus(b) === 'pending')
+  const cancelIds = toCancel.map(b => b.id)
+
+  let creditReversals: { credit_id: string; amount: number }[] = []
+  if (cancelIds.length > 0) {
+    const { data: applications, error: creditErr } = await supabase
+      .from('credit_applications')
+      .select('credit_id, amount')
+      .in('billing_id', cancelIds)
+      .eq('tenant_id', tenantId)
+      .is('reversed_at', null)
+
+    if (creditErr) return { ok: false, error: { code: 'INTERNAL_ERROR', message: creditErr.message } }
+
+    const byCredit = new Map<string, number>()
+    for (const a of applications ?? []) {
+      byCredit.set(a.credit_id, (byCredit.get(a.credit_id) ?? 0) + a.amount)
+    }
+    creditReversals = Array.from(byCredit, ([credit_id, amount]) => ({ credit_id, amount }))
+  }
+
+  const regenerateFrom = cutoff ?? rental.start_date
+  const newCharges = generateCycleCharges({
+    start_date:   regenerateFrom,
+    end_date:     rental.end_date,
+    cycle:        parsed.data.new_cycle,
+    due_day:      parsed.data.new_due_day,
+    cycle_amount: parsed.data.new_cycle_amount,
+    use_pro_rata: parsed.data.new_use_pro_rata,
+  }).filter(c => c.due_date > regenerateFrom)
+
+  const { data: rpcResult, error: rpcErr } = await supabase.rpc('regenerate_rental_schedule', {
+    p_tenant_id:              tenantId,
+    p_lease_id:               parsed.data.rental_id,
+    p_new_cycle:              parsed.data.new_cycle,
+    p_new_due_day:            parsed.data.new_due_day,
+    p_new_cycle_amount:       parsed.data.new_cycle_amount,
+    p_new_use_pro_rata:       parsed.data.new_use_pro_rata,
+    p_new_late_charge_config: parsed.data.new_late_charge_config ?? null,
+    p_justification:          parsed.data.justification,
+    p_adjusted_by:            user.id,
+    p_cancel_billing_ids:     cancelIds,
+    p_credit_reversals:       creditReversals,
+    p_new_charges:            newCharges,
+  })
+
+  if (rpcErr) {
+    if (rpcErr.message?.includes('RENTAL_NOT_ACTIVE')) {
+      return { ok: false, error: { code: 'RENTAL_NOT_ACTIVE', message: 'Locação não está ativa.' } }
+    }
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: rpcErr.message } }
+  }
+
+  const result = (rpcResult as { cancelled_count: number; created_count: number }[] | null)?.[0]
+    ?? { cancelled_count: 0, created_count: 0 }
+
+  await logAction({
+    action: 'update', table: 'rentals', recordId: parsed.data.rental_id,
+    newData: { new_cycle: parsed.data.new_cycle, new_due_day: parsed.data.new_due_day, ...result },
+  })
+  revalidateRentalPaths()
+  revalidatePath(`/locacoes/${parsed.data.rental_id}`)
+  revalidatePath(`/locacoes/${parsed.data.rental_id}/financeiro`)
+  return { ok: true, data: result }
 }

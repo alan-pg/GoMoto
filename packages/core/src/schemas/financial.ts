@@ -81,6 +81,21 @@ export const CreateRentalAdjustmentSchema = z.object({
 })
 
 // ============================================================
+// Mudança de ciclo/dia de vencimento/pro rata — cancela pendentes + regera
+// (extensão do reajuste: mudar a forma do cronograma, não só o valor)
+// ============================================================
+
+export const RegenerateRentalScheduleSchema = z.object({
+  rental_id:              z.string().uuid(),
+  new_cycle:              z.enum(['weekly', 'monthly']),
+  new_due_day:            z.number().int().min(1).max(28),
+  new_cycle_amount:       z.number().positive(),
+  new_use_pro_rata:       z.boolean(),
+  new_late_charge_config: LateChargeConfigSchema.optional(),
+  justification:          z.string().min(5),
+})
+
+// ============================================================
 // Pagamento de cobrança (RF-049, ADR 0013)
 // ============================================================
 

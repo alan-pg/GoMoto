@@ -394,3 +394,112 @@ export function getEarlyTerminationImpact(
     fine_amount: within_minimum ? CONTRACT_TERMINATION_FINE_BRL : 0,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Reajuste de locação (RF-027–031, PRD 0008 F11)
+// ---------------------------------------------------------------------------
+
+/**
+ * Recalcula o valor de uma cobrança pendente ao reajustar o ciclo (RN-027).
+ * Cobranças de valor cheio escalam 1:1; cobranças pro rata mantêm a mesma
+ * fração do novo valor (ex.: 60% do ciclo antigo vira 60% do ciclo novo).
+ */
+export function calculateAdjustedBillingAmount(
+  currentAmount: number,
+  previousCycleAmount: number,
+  newCycleAmount: number,
+): number {
+  if (previousCycleAmount <= 0) return newCycleAmount
+  const ratio = currentAmount / previousCycleAmount
+  return Math.round(ratio * newCycleAmount * 100) / 100
+}
+
+export interface RentalAdjustmentPreview {
+  affected_count: number
+  total_previous: number
+  total_new: number
+}
+
+/**
+ * Prévia de impacto de um reajuste antes da confirmação (RF-029).
+ * Recebe apenas as cobranças de ciclo com status pendente — pagas e
+ * vencidas nunca são afetadas (RN-026) e não entram nesta prévia.
+ */
+export function previewRentalAdjustment(
+  pendingCycleBillings: ReadonlyArray<{ original_amount: number }>,
+  previousCycleAmount: number,
+  newCycleAmount: number,
+): RentalAdjustmentPreview {
+  let total_previous = 0
+  let total_new = 0
+  for (const b of pendingCycleBillings) {
+    total_previous += b.original_amount
+    total_new += calculateAdjustedBillingAmount(b.original_amount, previousCycleAmount, newCycleAmount)
+  }
+  return { affected_count: pendingCycleBillings.length, total_previous, total_new }
+}
+
+// ---------------------------------------------------------------------------
+// Mudança de ciclo/dia de vencimento/pro rata — cancela pendentes + regera
+// ---------------------------------------------------------------------------
+
+/**
+ * Ponto de corte para regenerar o cronograma: a due_date mais recente entre
+ * as cobranças "travadas" (pagas, canceladas, prejuízo, ou pendentes cuja
+ * due_date já passou — vencida na prática, mesmo com status='pending' no
+ * banco, já que overdue nunca é persistido). Cobranças pendentes com
+ * due_date >= hoje ficam livres para cancelar e regerar.
+ *
+ * Diferente do pivot usado por renewRental (sempre a última cobrança de
+ * todas, pensado só pra estender o fim): aqui pode haver cobranças
+ * pendentes futuras além do corte, que serão canceladas — não apenas
+ * extensão para frente.
+ *
+ * Retorna null se não houver nenhuma cobrança travada (regera o
+ * cronograma inteiro a partir do início do contrato).
+ */
+export function computeScheduleRegenerationCutoff(
+  billings: ReadonlyArray<{ due_date: string; status: string }>,
+  today: Date,
+): string | null {
+  const todayMidnight = new Date(today)
+  todayMidnight.setHours(0, 0, 0, 0)
+
+  let cutoff: string | null = null
+  for (const b of billings) {
+    const isLocked = b.status !== 'pending' || parseIsoDate(b.due_date).getTime() < todayMidnight.getTime()
+    if (!isLocked) continue
+    if (!cutoff || b.due_date > cutoff) cutoff = b.due_date
+  }
+  return cutoff
+}
+
+export interface ScheduleRegenerationPreview {
+  cancelled_count: number
+  discount_lost_total: number
+  credit_to_restore_total: number
+  new_charges_count: number
+  new_charges_total: number
+}
+
+/**
+ * Prévia de impacto antes de confirmar uma mudança de ciclo/dia/pro-rata:
+ * quantas cobranças serão canceladas, quanto de desconto se perde (some
+ * junto com a cobrança cancelada) e quanto de crédito volta a ficar
+ * disponível para o cliente (estornado, nunca perdido).
+ */
+export function previewScheduleRegeneration(
+  cancelledBillings: ReadonlyArray<{ discount_amount?: number | null; credit_applied?: number | null }>,
+  newCharges: ReadonlyArray<{ amount: number }>,
+): ScheduleRegenerationPreview {
+  const discount_lost_total = cancelledBillings.reduce((s, b) => s + (b.discount_amount ?? 0), 0)
+  const credit_to_restore_total = cancelledBillings.reduce((s, b) => s + (b.credit_applied ?? 0), 0)
+  const new_charges_total = newCharges.reduce((s, c) => s + c.amount, 0)
+  return {
+    cancelled_count: cancelledBillings.length,
+    discount_lost_total,
+    credit_to_restore_total,
+    new_charges_count: newCharges.length,
+    new_charges_total,
+  }
+}

@@ -9,7 +9,8 @@ import { ConfirmBillingButton } from './_components/ConfirmBillingButton'
 
 function fmt(d: string | null | undefined) {
   if (!d) return '—'
-  return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR')
+  const date = d.includes('T') ? new Date(d) : new Date(d + 'T12:00:00')
+  return date.toLocaleDateString('pt-BR')
 }
 
 const TYPE_LABELS: Record<string, string> = {

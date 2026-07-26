@@ -3,6 +3,7 @@ import {
   LateChargeConfigSchema,
   CloseRentalFinancialSchema,
   CreateRentalAdjustmentSchema,
+  RegenerateRentalScheduleSchema,
   CreatePaymentSchema,
   WaiveChargesSchema,
   CreateCreditSchema,
@@ -156,6 +157,35 @@ describe('CreateRentalAdjustmentSchema', () => {
       justification: 'Justificativa válida aqui',
     })
     expect(result.success).toBe(false)
+  })
+})
+
+describe('RegenerateRentalScheduleSchema', () => {
+  const rentalId = '00000000-0000-4000-8000-000000000001'
+  const valid = {
+    rental_id: rentalId,
+    new_cycle: 'weekly' as const,
+    new_due_day: 3,
+    new_cycle_amount: 700,
+    new_use_pro_rata: true,
+    justification: 'Mudança de ciclo solicitada pelo cliente',
+  }
+
+  it('mudança válida de ciclo/dia/pro-rata', () => {
+    expect(RegenerateRentalScheduleSchema.safeParse(valid).success).toBe(true)
+  })
+
+  it('sem justificativa → inválido', () => {
+    const { justification: _justification, ...rest } = valid
+    expect(RegenerateRentalScheduleSchema.safeParse(rest).success).toBe(false)
+  })
+
+  it('new_due_day fora de [1,28] → inválido', () => {
+    expect(RegenerateRentalScheduleSchema.safeParse({ ...valid, new_due_day: 29 }).success).toBe(false)
+  })
+
+  it('new_cycle inválido → inválido', () => {
+    expect(RegenerateRentalScheduleSchema.safeParse({ ...valid, new_cycle: 'daily' }).success).toBe(false)
   })
 })
 

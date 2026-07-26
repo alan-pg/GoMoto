@@ -265,7 +265,7 @@ export default function LocacoesPage() {
               <thead>
                 <tr className="border-b border-[#323232] text-left">
                   <th className="h-9 px-4 font-medium text-[#9e9e9e]">Cliente</th>
-                  <th className="h-9 px-4 font-medium text-[#9e9e9e]">Moto</th>
+                  <th className="h-9 px-4 font-medium text-[#9e9e9e]">Veículo</th>
                   <th className="h-9 px-4 font-medium text-[#9e9e9e]">Tipo / Ciclo</th>
                   <th className="h-9 px-4 font-medium text-[#9e9e9e]">Valor/ciclo</th>
                   <th className="h-9 px-4 font-medium text-[#9e9e9e]">Início</th>

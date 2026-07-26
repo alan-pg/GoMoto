@@ -53,7 +53,7 @@ export async function registerPayment(
 
   const { data: billing, error: billingErr } = await supabase
     .from('billings')
-    .select('id, status, original_amount, discount_amount, credit_applied, late_charge_config, due_date, lease_id')
+    .select('id, status, billing_type, original_amount, discount_amount, credit_applied, late_charge_config, due_date, lease_id, customer_id')
     .eq('id', parsed.data.billing_id)
     .eq('tenant_id', tenantId)
     .single()
@@ -73,10 +73,11 @@ export async function registerPayment(
     .insert({
       tenant_id: tenantId,
       billing_id: parsed.data.billing_id,
+      customer_id: billing.customer_id,
       amount: parsed.data.amount,
       payment_method: parsed.data.payment_method,
       paid_at: parsed.data.paid_at,
-      paid_by: user.id,
+      received_by: user.id,
       notes: parsed.data.notes ?? null,
     })
     .select('id')
@@ -89,20 +90,29 @@ export async function registerPayment(
     await supabase.from('late_charges').insert({
       tenant_id: tenantId,
       billing_id: parsed.data.billing_id,
-      fee: chargesCalc.fee,
-      interest: chargesCalc.interest,
-      total: chargesCalc.total,
+      fee_amount: chargesCalc.fee,
+      interest_amount: chargesCalc.interest,
       days_overdue: chargesCalc.days_overdue,
-      config_snapshot: billing.late_charge_config,
+      snapshot_config: billing.late_charge_config,
       captured_at: parsed.data.paid_at,
     })
   }
 
   await supabase
     .from('billings')
-    .update({ status: 'paid', paid_at: parsed.data.paid_at, payment_method: parsed.data.payment_method, paid_by: user.id })
+    .update({ status: 'paid', paid_at: parsed.data.paid_at, payment_method: parsed.data.payment_method })
     .eq('id', parsed.data.billing_id)
     .eq('tenant_id', tenantId)
+
+  // Cobrança de caução paga → libera o saldo pro cliente (gatilho da caução
+  // ainda-não-paga virar disponível, ver locacoes/actions.ts::createRental).
+  if (billing.billing_type === 'deposit') {
+    await supabase
+      .from('deposits')
+      .update({ status: 'received', balance: billing.original_amount, received_at: parsed.data.paid_at })
+      .eq('billing_id', parsed.data.billing_id)
+      .eq('tenant_id', tenantId)
+  }
 
   await logAction({ action: 'create', table: 'payments', recordId: payment.id, newData: { billing_id: parsed.data.billing_id, amount: parsed.data.amount } })
   revalidatePath('/cobrancas')

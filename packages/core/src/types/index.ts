@@ -1,4 +1,5 @@
 import type { VehicleStatus } from '../schemas/vehicles'
+import type { LateChargeConfig } from './financial'
 
 export type { VehicleStatus }
 
@@ -425,6 +426,7 @@ export interface Billing {
   original_amount?: number | null;
   discount_amount?: number | null;
   discount_reason?: string | null;
+  credit_applied?: number | null;
   billing_type?: 'cycle' | 'one_time' | 'complementary' | 'fine' | null;
   due_date: string;
   status: ChargeStatus;
@@ -466,8 +468,7 @@ export interface Rental {
   status: 'active' | 'closed' | 'transferred';
   pdf_url?: string | null;
   observations?: string | null;
-  security_deposit?: number | null;
-  security_deposit_returned_at?: string | null;
+  late_charge_config?: LateChargeConfig | null;
   created_at: string;
   updated_at: string;
   customer?: Customer;

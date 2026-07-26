@@ -2,6 +2,7 @@
 
 import { z } from 'zod'
 import { SignJWT } from 'jose'
+import { LateChargeConfigSchema } from '@gomoto/core'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { buildOAuthUrl } from '@/lib/payment/mercadopago'
@@ -72,13 +73,6 @@ export async function disconnectPaymentAction() {
 // ============================================================
 // saveFinancialSettings — persiste configuração de encargos por atraso (RF-001)
 // ============================================================
-
-const LateChargeConfigSchema = z.object({
-  late_fee_type:       z.enum(['fixed', 'percentage']),
-  late_fee_value:      z.number().min(0),
-  daily_interest_rate: z.number().min(0).max(1),
-  grace_period_days:   z.number().int().min(0),
-})
 
 export async function saveFinancialSettings(input: unknown) {
   const ctx = await getAuthenticatedTenant()

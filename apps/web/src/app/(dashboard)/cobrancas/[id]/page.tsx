@@ -70,7 +70,8 @@ type BillingRow = {
 
 function fmt(d: string | null | undefined) {
   if (!d) return '—'
-  return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR')
+  const date = d.includes('T') ? new Date(d) : new Date(d + 'T12:00:00')
+  return date.toLocaleDateString('pt-BR')
 }
 
 function fmtDatetime(d: string | null | undefined) {
@@ -100,14 +101,17 @@ const BILLING_TYPE_LABELS: Record<string, string> = {
   cycle:         'Ciclo',
   one_time:      'Avulsa',
   complementary: 'Complementar',
+  deposit:       'Caução',
 }
 
 const SOURCE_LABELS: Record<string, string> = {
-  cycle:       'Locação',
-  fine:        'Multa',
-  maintenance: 'Manutenção',
-  expense:     'Despesa',
-  manual:      'Manual',
+  cycle:        'Ciclo',
+  rental_cycle: 'Ciclo',
+  fine:         'Multa',
+  maintenance:  'Manutenção',
+  expense:      'Despesa',
+  manual:       'Manual',
+  deposit:      'Caução',
 }
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {

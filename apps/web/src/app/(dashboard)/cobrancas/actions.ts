@@ -71,12 +71,24 @@ export async function markBillingAsPaid(id: string, paymentMethod: string) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
 
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { error: 'Tenant não resolvido' }
+
   const dbMethod = PAYMENT_METHOD_MAP[paymentMethod]
   if (!dbMethod) return { error: 'Método de pagamento inválido' }
 
-  const { data: before } = await supabase.from('billings').select().eq('id', id).single()
+  const { data: billing } = await supabase
+    .from('billings')
+    .select('id, status, customer_id, original_amount')
+    .eq('id', id)
+    .eq('tenant_id', tenantId)
+    .single()
+
+  if (!billing) return { error: 'Cobrança não encontrada' }
+  if (billing.status === 'paid') return { error: 'Cobrança já paga' }
 
   const today = new Date().toISOString().split('T')[0]
+  const nowIso = new Date().toISOString()
 
   const { data, error } = await supabase
     .from('billings')
@@ -88,12 +100,25 @@ export async function markBillingAsPaid(id: string, paymentMethod: string) {
       paid_by:          user.id,
     })
     .eq('id', id)
+    .eq('tenant_id', tenantId)
     .select()
     .single()
 
   if (error) return { error: 'Erro ao marcar como recebido' }
 
-  await logAction({ action: 'update', table: 'billings', recordId: id, oldData: before, newData: data })
+  // Cria registro na tabela payments para histórico completo na página de detalhe
+  await supabase.from('payments').insert({
+    tenant_id:      tenantId,
+    billing_id:     id,
+    customer_id:    billing.customer_id,
+    amount:         billing.original_amount,
+    payment_method: dbMethod,
+    paid_at:        nowIso,
+    received_by:    user.id,
+    notes:          null,
+  })
+
+  await logAction({ action: 'update', table: 'billings', recordId: id, oldData: billing, newData: data })
   revalidatePath('/cobrancas')
   return { data }
 }

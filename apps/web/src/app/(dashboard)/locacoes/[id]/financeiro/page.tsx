@@ -3,27 +3,21 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { formatCurrency } from '@/lib/utils'
+import {
+  effectiveBillingStatus, netBillingAmount, BILLING_STATUS_BADGE, BILLING_TYPE_LABEL,
+} from '@/lib/billing-status'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmt(d: string | null | undefined) {
   if (!d) return '—'
-  return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR')
+  const date = d.includes('T') ? new Date(d) : new Date(d + 'T12:00:00')
+  return date.toLocaleDateString('pt-BR')
 }
 
 function fmtDatetime(d: string | null | undefined) {
   if (!d) return '—'
   return new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
-}
-
-function calcBillingStatus(status: string, dueDate: string) {
-  if (status === 'paid')      return 'paid'
-  if (status === 'cancelled') return 'cancelled'
-  if (status === 'prejudice') return 'prejudice'
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const [y, m, d] = dueDate.split('-').map(Number)
-  const due = new Date(y, m - 1, d)
-  return due < today ? 'overdue' : 'pending'
 }
 
 type BillingRow = {
@@ -48,33 +42,20 @@ type DepositMovementRow = {
 
 type AdjustmentRow = {
   id: string
-  reason: string
-  old_amount: number
-  new_amount: number
-  effective_from: string | null
-  created_at: string
-}
-
-const BILLING_TYPE_LABELS: Record<string, string> = {
-  cycle:         'Ciclo',
-  one_time:      'Avulsa',
-  complementary: 'Complementar',
+  justification: string
+  previous_cycle_amount: number
+  new_cycle_amount: number
+  adjusted_at: string
 }
 
 const SOURCE_LABELS: Record<string, string> = {
-  cycle:       'Ciclo',
-  fine:        'Multa',
-  maintenance: 'Manutenção',
-  expense:     'Despesa',
-  manual:      'Manual',
-}
-
-const STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  paid:      { bg: 'bg-[#0e2f13]', text: 'text-[#229731]', label: 'Paga' },
-  overdue:   { bg: 'bg-[#7c1c1c]', text: 'text-[#ff9c9a]', label: 'Vencida' },
-  pending:   { bg: 'bg-[#2d0363]', text: 'text-[#a880ff]', label: 'Pendente' },
-  cancelled: { bg: 'bg-[#32323222]', text: 'text-[#9e9e9e]', label: 'Cancelada' },
-  prejudice: { bg: 'bg-[#3a180f]', text: 'text-[#e65e24]', label: 'Prejuízo' },
+  cycle:        'Ciclo',
+  rental_cycle: 'Ciclo',
+  fine:         'Multa',
+  maintenance:  'Manutenção',
+  expense:      'Despesa',
+  manual:       'Manual',
+  deposit:      'Caução',
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -89,10 +70,10 @@ export default async function RentalFinancialPage({
   const tenantId = await getCurrentTenantId(supabase)
   if (!tenantId) notFound()
 
-  const [rentalResult, billingsResult, depositMovementsResult, adjustmentsResult] = await Promise.all([
+  const [rentalResult, billingsResult, depositResult, depositMovementsResult, adjustmentsResult] = await Promise.all([
     supabase
       .from('rentals')
-      .select('id, status, cycle_amount, cycle, security_deposit, security_deposit_returned_at, start_date, end_date, customer:customers(id,name), vehicle:vehicles(id,license_plate,make,model)')
+      .select('id, status, cycle_amount, cycle, start_date, end_date, customer:customers(id,name), vehicle:vehicles(id,license_plate,make,model)')
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single(),
@@ -104,6 +85,13 @@ export default async function RentalFinancialPage({
       .neq('status', 'cancelled')
       .order('due_date', { ascending: true }),
     supabase
+      .from('deposits')
+      .select('amount, balance, status')
+      .eq('rental_id', id)
+      .eq('tenant_id', tenantId)
+      .in('status', ['pending', 'received'])
+      .maybeSingle(),
+    supabase
       .from('deposit_movements')
       .select('id, movement_type, amount, reason, created_at')
       .eq('rental_id', id)
@@ -111,10 +99,10 @@ export default async function RentalFinancialPage({
       .order('created_at', { ascending: false }),
     supabase
       .from('rental_adjustments')
-      .select('id, reason, old_amount, new_amount, effective_from, created_at')
+      .select('id, justification, previous_cycle_amount, new_cycle_amount, adjusted_at')
       .eq('rental_id', id)
       .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false }),
+      .order('adjusted_at', { ascending: false }),
   ])
 
   if (rentalResult.error || !rentalResult.data) notFound()
@@ -124,32 +112,39 @@ export default async function RentalFinancialPage({
     status: string
     cycle_amount: number | null
     cycle: string | null
-    security_deposit: number | null
-    security_deposit_returned_at: string | null
     start_date: string | null
     end_date: string | null
     customer: { id: string; name: string } | null
     vehicle: { id: string; license_plate: string; make: string; model: string } | null
   }
+  const deposit = depositResult.data as { amount: number; balance: number; status: string } | null
   const billings = (billingsResult.data ?? []) as unknown as BillingRow[]
   const depositMovements = (depositMovementsResult.data ?? []) as unknown as DepositMovementRow[]
   const adjustments = (adjustmentsResult.data ?? []) as unknown as AdjustmentRow[]
 
   // ── Totais ────────────────────────────────────────────────────────────────
-  const totalPaid    = billings.filter(b => b.status === 'paid').reduce((s, b) => s + b.original_amount - (b.discount_amount ?? 0), 0)
-  const totalPending = billings.filter(b => calcBillingStatus(b.status, b.due_date) === 'pending').reduce((s, b) => {
-    return s + Math.max(0, b.original_amount - (b.discount_amount ?? 0) - (b.credit_applied ?? 0))
-  }, 0)
-  const totalOverdue = billings.filter(b => calcBillingStatus(b.status, b.due_date) === 'overdue').reduce((s, b) => {
-    return s + Math.max(0, b.original_amount - (b.discount_amount ?? 0) - (b.credit_applied ?? 0))
-  }, 0)
+  // Mesma regra de @/lib/billing-status usada em /locacoes/[id], para os dois
+  // nunca mostrarem números divergentes.
+  const totalPaid = billings
+    .filter(b => b.status === 'paid')
+    .reduce((s, b) => s + netBillingAmount(b), 0)
+  const totalPending = billings
+    .filter(b => effectiveBillingStatus(b) === 'pending')
+    .reduce((s, b) => s + netBillingAmount(b), 0)
+  const totalOverdue = billings
+    .filter(b => effectiveBillingStatus(b) === 'overdue')
+    .reduce((s, b) => s + netBillingAmount(b), 0)
   const totalBilled = billings.reduce((s, b) => s + b.original_amount, 0)
 
-  // Caução: saldo atual
-  const depositReceived  = depositMovements.filter(m => m.movement_type === 'received').reduce((s, m) => s + m.amount, 0)
+  // Caução: usa deposits.amount/balance como source of truth; deposit_movements para histórico detalhado.
+  // Se ainda pendente (cobrança não paga), nada foi recebido de fato — mesmo a
+  // linha em `deposits` já existindo com o valor contratado.
+  const depositReceived  = deposit != null
+    ? (deposit.status === 'pending' ? 0 : deposit.amount)
+    : depositMovements.filter(m => m.movement_type === 'received').reduce((s, m) => s + m.amount, 0)
   const depositReturned  = depositMovements.filter(m => ['returned', 'partial_return'].includes(m.movement_type)).reduce((s, m) => s + m.amount, 0)
   const depositRetained  = depositMovements.filter(m => m.movement_type === 'retained').reduce((s, m) => s + m.amount, 0)
-  const depositBalance   = depositReceived - depositReturned - depositRetained
+  const depositBalance   = deposit?.balance ?? (depositReceived - depositReturned - depositRetained)
 
   const MOVEMENT_TYPE_LABELS: Record<string, string> = {
     received:       'Recebida',
@@ -210,7 +205,7 @@ export default async function RentalFinancialPage({
                 <tr className="border-b border-[#323232]">
                   <td className="h-9 w-52 px-4 text-[#9e9e9e]">Valor contratado</td>
                   <td className="h-9 px-4 font-mono text-[#f5f5f5]">
-                    {rental.security_deposit != null ? formatCurrency(rental.security_deposit) : '—'}
+                    {deposit != null ? formatCurrency(deposit.amount) : '—'}
                   </td>
                 </tr>
                 <tr className="border-b border-[#323232]">
@@ -287,17 +282,15 @@ export default async function RentalFinancialPage({
                     <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Motivo</th>
                     <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Anterior</th>
                     <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Novo</th>
-                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">A partir de</th>
                   </tr>
                 </thead>
                 <tbody>
                   {adjustments.map(a => (
                     <tr key={a.id} className="border-b border-[#1e1e1e] last:border-0 hover:bg-[#222222]">
-                      <td className="h-9 px-4 text-[#9e9e9e]">{fmt(a.created_at)}</td>
-                      <td className="h-9 max-w-[180px] truncate px-4 text-[#c7c7c7]">{a.reason}</td>
-                      <td className="h-9 px-4 text-right font-mono text-[#9e9e9e]">{formatCurrency(a.old_amount)}</td>
-                      <td className="h-9 px-4 text-right font-mono font-semibold text-[#f5f5f5]">{formatCurrency(a.new_amount)}</td>
-                      <td className="h-9 px-4 text-[#9e9e9e]">{a.effective_from ? fmt(a.effective_from) : '—'}</td>
+                      <td className="h-9 px-4 text-[#9e9e9e]">{fmt(a.adjusted_at)}</td>
+                      <td className="h-9 max-w-[180px] truncate px-4 text-[#c7c7c7]">{a.justification}</td>
+                      <td className="h-9 px-4 text-right font-mono text-[#9e9e9e]">{formatCurrency(a.previous_cycle_amount)}</td>
+                      <td className="h-9 px-4 text-right font-mono font-semibold text-[#f5f5f5]">{formatCurrency(a.new_cycle_amount)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -336,12 +329,12 @@ export default async function RentalFinancialPage({
                 </thead>
                 <tbody>
                   {billings.map(b => {
-                    const dynStatus = calcBillingStatus(b.status, b.due_date)
-                    const badge     = STATUS_BADGE[dynStatus] ?? STATUS_BADGE.pending
+                    const dynStatus = effectiveBillingStatus(b)
+                    const badge     = BILLING_STATUS_BADGE[dynStatus] ?? BILLING_STATUS_BADGE.pending
                     return (
                       <tr key={b.id} className="border-b border-[#1e1e1e] last:border-0 hover:bg-[#222222]">
                         <td className="h-9 px-4 text-[#c7c7c7]">{fmt(b.due_date)}</td>
-                        <td className="h-9 px-4 text-[#9e9e9e]">{BILLING_TYPE_LABELS[b.billing_type ?? 'one_time'] ?? '—'}</td>
+                        <td className="h-9 px-4 text-[#9e9e9e]">{BILLING_TYPE_LABEL[b.billing_type ?? 'one_time'] ?? '—'}</td>
                         <td className="h-9 px-4 text-[#9e9e9e]">{SOURCE_LABELS[b.source ?? ''] ?? '—'}</td>
                         <td className="h-9 px-4 text-right font-mono text-[#f5f5f5]">{formatCurrency(b.original_amount)}</td>
                         <td className="h-9 px-4">

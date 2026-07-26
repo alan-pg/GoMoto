@@ -19,8 +19,9 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
+import Link from 'next/link'
 import { useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, CheckCircle, AlertTriangle, Search, MessageCircle, CheckCircle2, DollarSign, QrCode, Copy, X, Clock, TrendingDown } from 'lucide-react'
+import { Plus, Edit2, Trash2, CheckCircle, AlertTriangle, Search, MessageCircle, CheckCircle2, DollarSign, QrCode, Copy, X, Clock, TrendingDown, Eye } from 'lucide-react'
 import { PageTitle } from '@/components/layout/PageTitle'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/Badge'
@@ -595,6 +596,9 @@ export default function CobrancasPage() {
                         </td>
                         <td className="whitespace-nowrap px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
+                            <Link href={`/cobrancas/${row.id}`} className="inline-flex h-8 w-8 items-center justify-center rounded bg-[#323232] text-[#9e9e9e] transition-colors hover:bg-[#474747] hover:text-[#f5f5f5]" title="Ver detalhes">
+                              <Eye className="h-4 w-4" />
+                            </Link>
                             {row.status !== 'paid' && (
                               <Button variant="secondary" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(row)} title="Editar">
                                 <Edit2 className="h-4 w-4" />

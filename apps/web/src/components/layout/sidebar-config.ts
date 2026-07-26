@@ -70,9 +70,10 @@ export const DASHBOARD_NAV: NavSection[] = [
   {
     label: 'Financeiro',
     items: [
-      { kind: 'leaf', href: '/despesas',  label: 'Despesas',  icon: TrendingDown },
-      { kind: 'leaf', href: '/entradas',  label: 'Entradas',  icon: TrendingUp },
-      { kind: 'leaf', href: '/cobrancas', label: 'Cobranças', icon: DollarSign },
+      { kind: 'leaf', href: '/financeiro', label: 'Painel',    icon: BarChart2 },
+      { kind: 'leaf', href: '/despesas',   label: 'Despesas',  icon: TrendingDown },
+      { kind: 'leaf', href: '/entradas',   label: 'Entradas',  icon: TrendingUp },
+      { kind: 'leaf', href: '/cobrancas',  label: 'Cobranças', icon: DollarSign },
     ],
   },
   {

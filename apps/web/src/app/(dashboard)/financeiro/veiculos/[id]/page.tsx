@@ -9,7 +9,8 @@ import { VehicleFinancialActions } from './_components/VehicleFinancialActions'
 
 function fmt(d: string | null | undefined) {
   if (!d) return '—'
-  return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR')
+  const date = d.includes('T') ? new Date(d) : new Date(d + 'T12:00:00')
+  return date.toLocaleDateString('pt-BR')
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -31,13 +32,15 @@ export default async function VehicleROIPage({
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single(),
-    // Receita total: cobranças pagas vinculadas a este veículo
+    // Receita total: cobranças pagas vinculadas a este veículo — caução fica
+    // de fora, é garantia/depósito, não receita operacional.
     supabase
       .from('billings')
       .select('original_amount, discount_amount, source, due_date')
       .eq('vehicle_id', id)
       .eq('tenant_id', tenantId)
-      .eq('status', 'paid'),
+      .eq('status', 'paid')
+      .neq('source', 'deposit'),
     // Custo: manutenções finalizadas
     supabase
       .from('maintenances')

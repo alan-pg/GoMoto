@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useCallback, useMemo } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Plus, Wrench, CheckCircle2, AlertTriangle, Clock, Trash2, Edit2, Eye,
@@ -314,6 +316,7 @@ function SituacaoCell({ m }: { m: MaintenanceWithMoto }) {
  * @returns {JSX.Element} A interface principal de manutenções compilada com seus modais auxiliares.
  */
 export default function MaintenancePage() {
+  const router = useRouter()
   const supabase = useSupabaseContext()
   const queryClient = useQueryClient()
   const maintenancesQuery = useMaintenances()
@@ -1064,7 +1067,7 @@ export default function MaintenancePage() {
                   const moto = item.vehicle
                   const onRowClick = () => {
                     if (isCompleted) {
-                      setViewingMaintenance(item)
+                      router.push(`/manutencao/${item.id}`)
                     } else {
                       handleOpenComplete(item)
                     }
@@ -1137,9 +1140,9 @@ export default function MaintenancePage() {
                         <div className="flex items-center justify-end gap-1">
                           {isCompleted ? (
                             <>
-                              <Button variant="secondary" size="sm" className="h-8 w-8 p-0" title="Visualizar" onClick={() => setViewingMaintenance(item)}>
+                              <Link href={`/manutencao/${item.id}`} className="inline-flex h-8 w-8 items-center justify-center rounded bg-[#323232] text-[#9e9e9e] transition-colors hover:bg-[#474747] hover:text-[#f5f5f5]" title="Ver detalhes">
                                 <Eye className="h-4 w-4" />
-                              </Button>
+                              </Link>
                               <Button variant="danger" size="sm" className="h-8 w-8 p-0" title="Excluir" onClick={() => handleOpenDelete(item.id)}>
                                 <Trash2 className="h-4 w-4" />
                               </Button>

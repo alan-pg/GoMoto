@@ -119,21 +119,23 @@ async function getDashboardData() {
     supabase.from('vehicles').select('*', { count: 'exact', head: true }).eq('status', 'rented'),
     supabase.from('vehicles').select('*', { count: 'exact', head: true }).eq('status', 'maintenance'),
     supabase.from('customers').select('*', { count: 'exact', head: true }).eq('active', true),
-    supabase.from('billings').select('customer_id').or(`status.eq.overdue,and(status.eq.pending,due_date.lt.${today})`),
-    supabase.from('billings').select('original_amount, discount_amount, status, due_date').in('status', ['pending', 'overdue']),
-    supabase.from('billings').select('id, original_amount, due_date, customers(name)').or(`status.eq.overdue,and(status.eq.pending,due_date.lt.${today})`).order('due_date', { ascending: true }).limit(5),
-    supabase.from('billings').select('original_amount').eq('status', 'paid').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
+    // Caução fica fora destas agregações: é garantia/depósito, não receita
+    // operacional, e um caução vencida não deve marcar o cliente como inadimplente.
+    supabase.from('billings').select('customer_id').neq('billing_type', 'deposit').or(`status.eq.overdue,and(status.eq.pending,due_date.lt.${today})`),
+    supabase.from('billings').select('original_amount, discount_amount, status, due_date').neq('billing_type', 'deposit').in('status', ['pending', 'overdue']),
+    supabase.from('billings').select('id, original_amount, due_date, customers(name)').neq('billing_type', 'deposit').or(`status.eq.overdue,and(status.eq.pending,due_date.lt.${today})`).order('due_date', { ascending: true }).limit(5),
+    supabase.from('billings').select('original_amount').eq('status', 'paid').neq('billing_type', 'deposit').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
     supabase.from('rentals').select('id, cycle_amount, end_date, customers(name), vehicles(model, make, license_plate)').eq('status', 'active').order('created_at', { ascending: false }).limit(5),
     supabase.from('maintenance_records').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
     supabase.from('rentals').select('*', { count: 'exact', head: true }).eq('status', 'active').gte('end_date', today).lte('end_date', in15Days),
-    supabase.from('billings').select('*', { count: 'exact', head: true }).eq('status', 'pending').eq('due_date', today),
-    supabase.from('billings').select('*', { count: 'exact', head: true }).eq('status', 'pending').eq('due_date', tomorrow),
+    supabase.from('billings').select('*', { count: 'exact', head: true }).eq('status', 'pending').neq('billing_type', 'deposit').eq('due_date', today),
+    supabase.from('billings').select('*', { count: 'exact', head: true }).eq('status', 'pending').neq('billing_type', 'deposit').eq('due_date', tomorrow),
     supabase.from('vehicles').select('model, make, license_plate').eq('status', 'available').lte('updated_at', sevenDaysAgo).limit(3),
     supabase.from('maintenances').select('id, scheduled_date, type, vehicles(model, make, license_plate)').eq('completed', false).gte('scheduled_date', today).lte('scheduled_date', in7Days).order('scheduled_date', { ascending: true }).limit(5),
     supabase.from('queue_entries').select('id, created_at, position, customers(name)').order('position', { ascending: true }).limit(5),
     supabase.from('incomes').select('amount, date').gte('date', sixMonthsAgo).lte('date', lastDayOfMonth),
     supabase.from('expenses').select('amount, date').gte('date', sixMonthsAgo).lte('date', lastDayOfMonth),
-    supabase.from('billings').select('status, original_amount, due_date').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
+    supabase.from('billings').select('status, original_amount, due_date').neq('billing_type', 'deposit').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
   ])
 
   // Fleet

@@ -184,6 +184,66 @@ Operador submete formulário de nova locação
       → { ok: true, data: { rentalId } }
 ```
 
+> ✅ **Implementado em 2026-07-26, com redesenho em relação ao pseudocódigo
+> acima.** A action real é `createRental` (`createRentalWithDeposit` nunca foi
+> ligada a nenhuma tela — permanece morta). A mudança de fundo: caução deixou
+> de ser só bookkeeping em `deposits` e passa a gerar uma cobrança de verdade
+> (`billings.billing_type = 'deposit'`, `source = 'deposit'`), paga ou pendente
+> conforme o operador indica na criação (checkbox "Caução já foi paga",
+> marcado por padrão — preserva o comportamento de quem recebe em dinheiro na
+> assinatura):
+> - Marcado → cobrança nasce `paid`, `deposits.status = 'received'`, saldo
+>   disponível imediatamente (equivalente ao fluxo antigo).
+> - Desmarcado → cobrança nasce `pending`; o pagamento dela pelo fluxo normal
+>   de `/cobrancas/[id]` (`registerPayment`) é o gatilho que libera o saldo
+>   (`deposits.status → 'received'`, `balance = amount`, `received_at = paid_at`).
+>
+> `deposit_status` ganhou o valor `'pending'`; `deposits.billing_id` referencia
+> a cobrança que originou a caução; `deposits.received_at` deixou de ser
+> `NOT NULL` (fica `null` enquanto pendente). RPC `create_rental_with_charges`
+> ganhou `p_deposit_paid BOOLEAN DEFAULT true` (migration
+> `20260726005100_deposit_billing.sql`) — exigiu `DROP FUNCTION` explícito da
+> assinatura anterior antes do `CREATE OR REPLACE` (mesma armadilha de
+> sobrecarga já documentada na migration de reajuste).
+>
+> Editar o valor de uma caução ainda pendente atualiza a cobrança vinculada
+> junto (`updateRental`); editar uma já paga só ajusta `deposits` — a cobrança
+> paga permanece imutável (RNF-007). Destino da caução ao encerrar a locação
+> (`closeRentalFinancial`) continua fora do escopo desta leva — gap
+> pré-existente, não coberto por esta mudança.
+>
+> **Ajuste em 2026-07-26:** o formulário de criação passou a pedir a data
+> certa conforme o estado do checkbox, em vez de assumir `now()`/`start_date`
+> — marcado → "Data do pagamento" (default hoje); desmarcado → "Data de
+> vencimento" (default `start_date`). Migration `20260726021857_deposit_dates.sql`
+> adicionou `p_deposit_payment_date`/`p_deposit_due_date` (ambos `DATE
+> DEFAULT NULL`) a `create_rental_with_charges` — mesmo padrão de `DROP
+> FUNCTION` explícito antes do `CREATE OR REPLACE` para não duplicar
+> sobrecarga. Quando paga, `due_date` da cobrança passa a ser a própria data
+> do pagamento (não faz sentido uma cobrança já quitada vencer no futuro).
+>
+> **Decisão confirmada com o usuário:** os totais agregados de faturamento
+> (painel `/financeiro`, ROI por veículo em `/financeiro/veiculos/[id]`, e os
+> KPIs do `/dashboard` — total a receber, em atraso, recebido no mês,
+> inadimplência) passaram a **excluir** `billing_type = 'deposit'` (via
+> `.neq('billing_type', 'deposit')` nas queries, ou `.neq('source', 'deposit')`
+> onde só `source` estava selecionado). Caução é garantia/depósito, não
+> receita operacional — antes não existia esse risco porque caução nunca
+> gerava `billing`. **`/cobrancas` (lista operacional de cobranças) foi
+> deixado de fora de propósito**: lá o objetivo é gerenciar qualquer cobrança
+> pendente de ação, caução incluída, então ela deve continuar aparecendo nos
+> totais dessa tela.
+>
+> **Bug pré-existente encontrado e corrigido de passagem:** as duas queries de
+> `/financeiro/page.tsx` tentavam `vehicle:vehicles(id,license_plate)`
+> diretamente a partir de `billings` — mas `billings` não tem `vehicle_id`,
+> só `lease_id → rentals.vehicle_id`. Isso fazia PostgREST retornar erro
+> (`PGRST200`, relacionamento inexistente) silenciosamente engolido por
+> `?? []`, então **a seção "Cobranças do mês" do painel financeiro sempre
+> mostrou zero**, para qualquer tenant, desde que o módulo foi construído —
+> não tinha relação com caução, só foi descoberto ao verificar o filtro acima.
+> Corrigido trocando o embed para `rental:rentals(vehicle:vehicles(...))`.
+
 ### FT-03 — Ciclo de vida de cobrança (PRD F5)
 
 **3a — Exibição de encargos (leitura):**
@@ -276,6 +336,17 @@ Ao recusar:
       → logAction + revalidatePath
       → { ok: true, data: { updated_billings_count } }
 ```
+
+> ✅ **Implementado em 2026-07-24.** Diferença em relação ao pseudocódigo acima: a
+> atomicidade (RNF-006) é garantida por uma RPC PostgreSQL `adjust_rental`
+> (migration `20260724232232_adjust_rental_rpc.sql`), não uma transação aberta
+> direto no Server Action — mesmo padrão já usado por `renew_rental`/
+> `create_rental_with_charges`. O TypeScript calcula os valores por cobrança
+> (via `calculateAdjustedBillingAmount`, RN-027 — recálculo proporcional para
+> pro rata) e a RPC só escreve atomicamente. Tela em `/locacoes/[id]/reajustar`
+> (ver [[Telas/Locações]]). Ligado a isso, `renew_rental` também foi corrigido
+> na mesma migration: cobranças de renovação agora saem com `source =
+> 'rental_cycle'` em vez do default `'manual'`.
 
 ### FT-08 — Classificação automática de inadimplência (PRD F12-runtime)
 

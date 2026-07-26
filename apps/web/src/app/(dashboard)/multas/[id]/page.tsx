@@ -9,7 +9,8 @@ import { FineAttachments, type FineAttachment, type AttachmentType } from './_co
 
 function fmt(d: string | null | undefined) {
   if (!d) return '—'
-  return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR')
+  const date = d.includes('T') ? new Date(d) : new Date(d + 'T12:00:00')
+  return date.toLocaleDateString('pt-BR')
 }
 
 function calcStatus(fine: { status: string; due_date?: string | null }) {

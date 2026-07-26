@@ -25,7 +25,7 @@ export default async function EditRentalPage({
       .select('amount')
       .eq('rental_id', id)
       .eq('tenant_id', tenantId)
-      .eq('status', 'received')
+      .in('status', ['pending', 'received'])
       .maybeSingle(),
   ])
 
