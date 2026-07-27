@@ -9,6 +9,8 @@ import { formatCurrency } from '@/lib/utils'
 import {
   effectiveBillingStatus, netBillingAmount, BILLING_STATUS_BADGE, BILLING_TYPE_LABEL,
 } from '@/lib/billing-status'
+import { SignedContractUpload } from '../_components/SignedContractUpload'
+import { ContractPreviewPanel } from '../_components/ContractPreviewPanel'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -34,6 +36,14 @@ const STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> 
   transferred: { bg: 'bg-[#60a5fa22]', text: 'text-[#60a5fa]', label: 'Transferida' },
 }
 
+const SIGNED_CONTRACT_BUCKET = 'rental-documents'
+
+async function getSignedContractUrl(supabase: Awaited<ReturnType<typeof createClient>>, path: string | null | undefined): Promise<string | null> {
+  if (!path) return null
+  const { data } = await supabase.storage.from(SIGNED_CONTRACT_BUCKET).createSignedUrl(path, 3600)
+  return data?.signedUrl ?? null
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function RentalDetailPage({
@@ -46,10 +56,13 @@ export default async function RentalDetailPage({
   const tenantId  = await getCurrentTenantId(supabase)
   if (!tenantId) notFound()
 
-  const [rentalResult, billingsResult, depositResult, adjustmentsResult] = await Promise.all([
+  const [rentalResult, billingsResult, depositResult, adjustmentsResult, tenantResult] = await Promise.all([
     supabase
       .from('rentals')
-      .select('*, customer:customers(id,name,phone,cpf), vehicle:vehicles(id,license_plate,make,model,year_manufacture,color)')
+      .select(`*,
+        customer:customers(id,name,phone,cpf,rg,drivers_license,drivers_license_category,street,street_number,complement,neighborhood,city,state,zip_code),
+        vehicle:vehicles(id,license_plate,make,model,year_manufacture,year_model,color,renavam,chassis,fuel,km_current),
+        contract_template:contract_templates(id,name)`)
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single(),
@@ -71,6 +84,11 @@ export default async function RentalDetailPage({
       .eq('rental_id', id)
       .eq('tenant_id', tenantId)
       .order('adjusted_at', { ascending: false }),
+    supabase
+      .from('tenants')
+      .select('name, legal_name')
+      .eq('id', tenantId)
+      .single(),
   ])
 
   if (rentalResult.error || !rentalResult.data) notFound()
@@ -81,6 +99,8 @@ export default async function RentalDetailPage({
   const adjustments = adjustmentsResult.data ?? []
   const statusCfg   = STATUS_BADGE[rental.status] ?? STATUS_BADGE.closed
   const isActive    = rental.status === 'active'
+  const signedContractUrl = await getSignedContractUrl(supabase, rental.signed_contract_path)
+  const tenantName  = tenantResult.data?.legal_name ?? tenantResult.data?.name ?? ''
 
   // Totais financeiros — mesma regra de @/lib/billing-status usada em /financeiro,
   // para os dois nunca mostrarem números divergentes.
@@ -257,6 +277,52 @@ export default async function RentalDetailPage({
                 )}
               </tbody>
             </table>
+          </div>
+          <div className="mt-3 space-y-3">
+            <ContractPreviewPanel
+              rentalId={id}
+              currentTemplateId={rental.contract_template_id}
+              customer={{
+                name: rental.customer?.name ?? '',
+                cpf: rental.customer?.cpf ?? null,
+                rg: rental.customer?.rg ?? null,
+                drivers_license: rental.customer?.drivers_license ?? null,
+                drivers_license_category: rental.customer?.drivers_license_category ?? null,
+                street: rental.customer?.street ?? null,
+                street_number: rental.customer?.street_number ?? null,
+                complement: rental.customer?.complement ?? null,
+                neighborhood: rental.customer?.neighborhood ?? null,
+                city: rental.customer?.city ?? null,
+                state: rental.customer?.state ?? null,
+                zip_code: rental.customer?.zip_code ?? null,
+              }}
+              vehicle={{
+                make: rental.vehicle?.make ?? '',
+                model: rental.vehicle?.model ?? '',
+                year_manufacture: rental.vehicle?.year_manufacture ?? '',
+                year_model: rental.vehicle?.year_model ?? undefined,
+                renavam: rental.vehicle?.renavam ?? '',
+                license_plate: rental.vehicle?.license_plate ?? '',
+                chassis: rental.vehicle?.chassis ?? '',
+                color: rental.vehicle?.color ?? '',
+                fuel: rental.vehicle?.fuel ?? undefined,
+                km_current: rental.vehicle?.km_current ?? undefined,
+              }}
+              rental={{
+                cycle: rental.cycle ?? 'monthly',
+                due_day: rental.due_day ?? 10,
+                cycle_amount: rental.cycle_amount ?? 0,
+                start_date: rental.start_date,
+                end_date: rental.end_date,
+                security_deposit: deposit?.amount ?? null,
+              }}
+              tenantName={tenantName}
+            />
+            <SignedContractUpload
+              rentalId={id}
+              currentFileName={rental.signed_contract_file_name}
+              signedUrl={signedContractUrl}
+            />
           </div>
         </section>
 

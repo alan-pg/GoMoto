@@ -1,4 +1,5 @@
 export * from './rentals'
+export * from './contract-variables'
 export * from './billings'
 export * from './vehicles'
 export * from './vehicle-status'

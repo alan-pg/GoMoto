@@ -466,13 +466,17 @@ export interface Rental {
   /** @deprecated Use cycle_amount. */
   monthly_amount?: number | null;
   status: 'active' | 'closed' | 'transferred';
-  pdf_url?: string | null;
   observations?: string | null;
   late_charge_config?: LateChargeConfig | null;
+  contract_template_id?: string | null;
+  signed_contract_path?: string | null;
+  signed_contract_file_name?: string | null;
+  signed_contract_uploaded_at?: string | null;
   created_at: string;
   updated_at: string;
   customer?: Customer;
   vehicle?: Vehicle;
+  contract_template?: Pick<ContractTemplate, 'id' | 'name'>;
 }
 
 /** Resultado tipado de Server Actions (envelope padrão). */

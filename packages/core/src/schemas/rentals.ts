@@ -32,6 +32,8 @@ export const RentalSchema = z.object({
   // Relevante apenas quando deposit_paid = false: vencimento da cobrança.
   deposit_due_date:     dateString.optional(),
   late_charge_config: LateChargeConfigSchema.optional(),
+  // Modelo de contrato usado para gerar o PDF na criação (opcional).
+  contract_template_id: z.string().uuid().nullable().optional(),
   observations:       z.string().max(2000).nullable().optional(),
 }).refine((d) => d.end_date > d.start_date, {
   message: 'Data de fim deve ser posterior à data de início',
@@ -142,3 +144,15 @@ export const UploadClientDocumentSchema = z.object({
 })
 
 export type UploadClientDocument = z.infer<typeof UploadClientDocumentSchema>
+
+// ---------------------------------------------------------------------------
+// Locação — anexo do contrato assinado
+// ---------------------------------------------------------------------------
+
+export const AttachSignedContractSchema = z.object({
+  lease_id:     z.string().uuid(),
+  storage_path: z.string().min(1),
+  file_name:    z.string().min(1),
+})
+
+export type AttachSignedContract = z.infer<typeof AttachSignedContractSchema>

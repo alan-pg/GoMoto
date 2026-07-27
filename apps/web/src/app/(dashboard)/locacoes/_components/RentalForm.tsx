@@ -5,12 +5,13 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 
-import { useCustomers, useAvailableVehicles } from '@gomoto/data'
-import { generateCycleCharges } from '@gomoto/core'
+import { useCustomers, useAvailableVehicles, useContractTemplates, useContractTemplate } from '@gomoto/data'
+import { generateCycleCharges, WEEK_DAY_OPTIONS, formatDueDay, resolveContractVariables, substituteVariables } from '@gomoto/core'
 import type { CycleCharge, Rental, LateChargeConfig } from '@gomoto/core'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { WEEK_DAY_OPTIONS, formatDueDay } from '@/lib/rental-cycle'
-import { createRental, updateRental } from '../actions'
+import { renderContractTemplateHtml } from '@/lib/contract-render'
+import { printHtmlDocument } from '@/lib/contract-print'
+import { createRental, updateRental, updateContractTemplate } from '../actions'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,8 @@ interface RentalFormProps {
   // página de edição computa o valor à parte e injeta aqui como campo extra.
   initialData?: Partial<Rental> & { security_deposit?: number | null }
   defaultCustomerId?: string
+  // Usado na variável {{nome_empresa}} ao gerar o contrato — só relevante na criação.
+  tenantName?: string
 }
 
 type FormState = {
@@ -33,6 +36,7 @@ type FormState = {
   end_date:         string
   use_pro_rata:     boolean
   security_deposit: string
+  contract_template_id: string
   observations:     string
 }
 
@@ -89,6 +93,7 @@ function buildInitialForm(d?: Partial<Rental> & { security_deposit?: number | nu
     end_date:         d?.end_date ?? '',
     use_pro_rata:     d?.use_pro_rata ?? true,
     security_deposit: d?.security_deposit != null ? String(d.security_deposit) : '',
+    contract_template_id: d?.contract_template_id ?? '',
     observations:     d?.observations ?? '',
   }
 }
@@ -131,13 +136,14 @@ function ChargePreview({ charges }: { charges: CycleCharge[] }) {
 
 // ─── RentalForm ───────────────────────────────────────────────────────────────
 
-export function RentalForm({ rentalId, initialData, defaultCustomerId }: RentalFormProps) {
+export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantName }: RentalFormProps) {
   const isEditMode = !!rentalId
   const router     = useRouter()
   const [isPending, startTransition] = useTransition()
 
   const customersQuery = useCustomers()
   const vehiclesQuery  = useAvailableVehicles()
+  const templatesQuery = useContractTemplates()
 
   const customers = useMemo(
     () => (customersQuery.data ?? []).filter(c => c.active).sort((a,b) => a.name.localeCompare(b.name)),
@@ -168,6 +174,47 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId }: RentalF
   const [depositPaid, setDepositPaid] = useState(true)
   const [depositPaymentDate, setDepositPaymentDate] = useState(() => todayISO())
   const [depositDueDate, setDepositDueDate] = useState('')
+
+  // Modelo de contrato — só na criação; geração roda no client com os dados
+  // já preenchidos no form, sem depender da locação existir no banco ainda.
+  const selectedTemplateQuery = useContractTemplate(form.contract_template_id)
+  const [generatingContract, setGeneratingContract] = useState(false)
+  const [contractError, setContractError] = useState<string | null>(null)
+
+  async function handleGenerateContract() {
+    setContractError(null)
+    const template = selectedTemplateQuery.data
+    const customer = customers.find(c => c.id === form.customer_id)
+    const vehicle  = vehicles.find(v => v.id === form.vehicle_id)
+    if (!template || !customer || !vehicle) {
+      setContractError('Selecione cliente, veículo e modelo antes de gerar o contrato.')
+      return
+    }
+    setGeneratingContract(true)
+    try {
+      const html = renderContractTemplateHtml(template.content)
+      if (!html) {
+        setContractError('Este modelo ainda não possui conteúdo.')
+        return
+      }
+      const variables = resolveContractVariables({
+        customer,
+        vehicle,
+        rental: {
+          cycle:        form.cycle,
+          due_day:      parseInt(form.due_day, 10),
+          cycle_amount: parseFloat(form.cycle_amount) || 0,
+          start_date:   form.start_date,
+          end_date:     form.end_date,
+          security_deposit: form.security_deposit ? parseFloat(form.security_deposit) : null,
+        },
+        tenantName: tenantName ?? '',
+      })
+      await printHtmlDocument(substituteVariables(html, variables), template.name)
+    } finally {
+      setGeneratingContract(false)
+    }
+  }
 
   function set<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm(f => ({ ...f, [k]: v }))
@@ -248,13 +295,18 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId }: RentalF
     setGlobalError(null)
     startTransition(async () => {
       if (isEditMode) {
-        // Editar só grava caução + observações — tudo que afeta cobranças
-        // (valor, ciclo, dia, datas) passa por Reajustar/Renovar/Encerrar.
+        // Editar só grava caução + observações + modelo de contrato — tudo
+        // que afeta cobranças (valor, ciclo, dia, datas) passa por
+        // Reajustar/Renovar/Encerrar.
         const result = await updateRental(rentalId!, {
           observations:     form.observations || null,
           security_deposit: form.security_deposit ? parseFloat(form.security_deposit) : null,
         })
         if (!result.ok) { setGlobalError(result.error.message); return }
+
+        const templateResult = await updateContractTemplate(rentalId!, form.contract_template_id || null)
+        if (!templateResult.ok) { setGlobalError(templateResult.error.message); return }
+
         router.push(`/locacoes/${rentalId}`)
         return
       }
@@ -284,6 +336,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId }: RentalF
         deposit_payment_date: depositPaid ? depositPaymentDate : undefined,
         deposit_due_date:     !depositPaid ? (depositDueDate || form.start_date || undefined) : undefined,
         late_charge_config,
+        contract_template_id: form.contract_template_id || null,
         observations:     form.observations || null,
       })
       if (!result.ok) { setGlobalError(result.error.message); return }
@@ -721,6 +774,29 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId }: RentalF
               </div>
             </section>
 
+            {/* ── Seção: Modelo de contrato ──────────────────────────────── */}
+            <section>
+              <h2 className="mb-5 text-[14px] font-bold text-[#BAFF1A]">Modelo de contrato</h2>
+              <div className="max-w-md">
+                <label className={labelCls}>Modelo (opcional)</label>
+                <select
+                  className={selectCls}
+                  value={form.contract_template_id}
+                  onChange={e => set('contract_template_id', e.target.value)}
+                >
+                  <option value="">Nenhum{!isEditMode ? ' — gerar depois' : ''}</option>
+                  {(templatesQuery.data ?? []).map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[12px] text-[#616161]">
+                  {isEditMode
+                    ? 'Ao salvar, o novo modelo fica vinculado à locação — visualize ou baixe o contrato atualizado na tela de detalhe.'
+                    : 'Selecione um modelo para gerar o contrato preenchido na etapa de revisão.'}
+                </p>
+              </div>
+            </section>
+
             {/* Preview de cobranças (inline) — só na criação */}
             {!isEditMode && previewCharges.length > 0 && <ChargePreview charges={previewCharges} />}
 
@@ -769,6 +845,32 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId }: RentalF
                   <span className="text-[#9e9e9e]">Observações: </span>
                   <span className="text-[#c7c7c7]">{form.observations}</span>
                 </div>
+              )}
+            </div>
+
+            <div className="rounded-xl bg-[#202020] p-5 text-[13px]">
+              <h2 className="mb-3 text-[14px] font-bold text-[#BAFF1A]">Contrato</h2>
+              {form.contract_template_id ? (
+                <div className="flex items-center justify-between gap-4">
+                  <p className="text-[#9e9e9e]">
+                    Modelo selecionado: <span className="text-[#f5f5f5]">{selectedTemplateQuery.data?.name ?? '…'}</span>
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleGenerateContract}
+                    disabled={generatingContract || !selectedTemplateQuery.data}
+                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-[#474747] px-4 text-[13px] text-[#f5f5f5] transition-colors hover:border-[#BAFF1A] hover:text-[#BAFF1A] disabled:opacity-50"
+                  >
+                    {generatingContract ? 'Gerando…' : 'Gerar contrato (PDF)'}
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[#9e9e9e]">
+                  Nenhum modelo selecionado — você poderá anexar o contrato assinado depois de criar a locação.
+                </p>
+              )}
+              {contractError && (
+                <p className="mt-2 text-[12px] text-[#ff9c9a]">{contractError}</p>
               )}
             </div>
 

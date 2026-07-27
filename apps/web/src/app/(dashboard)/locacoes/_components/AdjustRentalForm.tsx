@@ -6,11 +6,10 @@ import Link from 'next/link'
 import { AlertCircle, AlertTriangle, Info } from 'lucide-react'
 
 import { useBillings } from '@gomoto/data'
-import { previewRentalAdjustment, previewScheduleRegeneration, computeScheduleRegenerationCutoff, generateCycleCharges } from '@gomoto/core'
+import { previewRentalAdjustment, previewScheduleRegeneration, computeScheduleRegenerationCutoff, generateCycleCharges, WEEK_DAY_OPTIONS } from '@gomoto/core'
 import type { Rental, LateChargeConfig } from '@gomoto/core'
 import { formatCurrency } from '@/lib/utils'
 import { effectiveBillingStatus } from '@/lib/billing-status'
-import { WEEK_DAY_OPTIONS } from '@/lib/rental-cycle'
 import { adjustRental, regenerateRentalSchedule } from '../actions'
 
 interface AdjustRentalFormProps {

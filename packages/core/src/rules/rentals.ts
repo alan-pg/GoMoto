@@ -35,6 +35,26 @@ export interface RentalValidityInput {
 }
 
 // ---------------------------------------------------------------------------
+// Exibição — ciclo e dia de vencimento
+// ---------------------------------------------------------------------------
+
+export const WEEK_DAY_OPTIONS = [
+  { value: '7', label: 'Domingo' },
+  { value: '1', label: 'Segunda-feira' },
+  { value: '2', label: 'Terça-feira' },
+  { value: '3', label: 'Quarta-feira' },
+  { value: '4', label: 'Quinta-feira' },
+  { value: '5', label: 'Sexta-feira' },
+  { value: '6', label: 'Sábado' },
+]
+
+/** Rótulo de exibição do dia de vencimento — "Dia N" (mensal) ou nome do dia da semana (semanal). */
+export function formatDueDay(cycle: RentalCycle, dueDay: string): string {
+  if (cycle === 'monthly') return `Dia ${dueDay}`
+  return WEEK_DAY_OPTIONS.find(o => o.value === dueDay)?.label ?? dueDay
+}
+
+// ---------------------------------------------------------------------------
 // Utilitários de data
 // ---------------------------------------------------------------------------
 

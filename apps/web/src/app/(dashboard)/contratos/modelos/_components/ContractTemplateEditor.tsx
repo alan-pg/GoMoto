@@ -16,7 +16,7 @@ import {
   List, ListOrdered, Heading1, Heading2, Heading3,
   Pilcrow, ChevronDown, Variable, Undo, Redo,
 } from 'lucide-react'
-import { TEMPLATE_VARIABLES, VARIABLE_CATEGORIES } from './variables'
+import { TEMPLATE_VARIABLES, VARIABLE_CATEGORIES } from '@gomoto/core'
 import {
   ContractDocument,
   ContractPage,

@@ -13,6 +13,7 @@ import {
   OneTimeChargeSchema,
   AddToQueueSchema,
   UploadClientDocumentSchema,
+  AttachSignedContractSchema,
   CreateRentalAdjustmentSchema,
   RegenerateRentalScheduleSchema,
   generateCycleCharges,
@@ -34,6 +35,7 @@ import type {
   CreateOneTimeCharge,
   AddToQueue,
   UploadClientDocument,
+  AttachSignedContract,
   LateChargeConfig,
 } from '@gomoto/core'
 
@@ -113,6 +115,16 @@ export async function createRental(
   }
 
   await logAction({ action: 'create', table: 'rentals', recordId: leaseId, newData: { charges_count: charges.length } })
+
+  // Vínculo com o modelo de contrato usado para gerar o PDF — metadado
+  // informativo, sem necessidade de atomicidade com a RPC de cobranças.
+  if (parsed.data.contract_template_id) {
+    await supabase
+      .from('rentals')
+      .update({ contract_template_id: parsed.data.contract_template_id })
+      .eq('id', leaseId)
+      .eq('tenant_id', tenantId)
+  }
 
   // Remove da fila ao iniciar locação (best-effort: não falha a locação se não houver entrada)
   await supabase
@@ -703,6 +715,77 @@ export async function uploadClientDocument(
   await logAction({ action: 'create', table: 'clients_documents', recordId: doc.id })
   revalidatePath('/clientes')
   return { ok: true, data: { document_id: doc.id } }
+}
+
+// ---------------------------------------------------------------------------
+// attachSignedContract — anexa o PDF do contrato assinado a uma locação.
+// O upload em si (Storage, bucket rental-documents) acontece client-side;
+// esta action só grava o path/nome resultante em `rentals`.
+// ---------------------------------------------------------------------------
+
+export async function attachSignedContract(
+  data: AttachSignedContract,
+): Promise<ActionResult<void>> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não encontrado' } }
+
+  const parsed = AttachSignedContractSchema.safeParse(data)
+  if (!parsed.success) {
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Dados inválidos' } }
+  }
+
+  const { error } = await supabase
+    .from('rentals')
+    .update({
+      signed_contract_path:        parsed.data.storage_path,
+      signed_contract_file_name:   parsed.data.file_name,
+      signed_contract_uploaded_at: new Date().toISOString(),
+    })
+    .eq('id', parsed.data.lease_id)
+    .eq('tenant_id', tenantId)
+
+  if (error) return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
+
+  await logAction({ action: 'update', table: 'rentals', recordId: parsed.data.lease_id })
+  revalidatePath(`/locacoes/${parsed.data.lease_id}`)
+  return { ok: true, data: undefined }
+}
+
+// ---------------------------------------------------------------------------
+// updateContractTemplate — troca o modelo de contrato vinculado a uma locação
+// já criada, para gerar um novo contrato com outro modelo.
+// ---------------------------------------------------------------------------
+
+export async function updateContractTemplate(
+  leaseId: string,
+  contractTemplateId: string | null,
+): Promise<ActionResult<void>> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não encontrado' } }
+
+  if (contractTemplateId !== null && !uuid().safeParse(contractTemplateId).success) {
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Modelo inválido' } }
+  }
+
+  const { error } = await supabase
+    .from('rentals')
+    .update({ contract_template_id: contractTemplateId })
+    .eq('id', leaseId)
+    .eq('tenant_id', tenantId)
+
+  if (error) return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
+
+  await logAction({ action: 'update', table: 'rentals', recordId: leaseId })
+  revalidatePath(`/locacoes/${leaseId}`)
+  return { ok: true, data: undefined }
 }
 
 // ---------------------------------------------------------------------------
