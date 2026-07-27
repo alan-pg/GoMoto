@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest'
-import { resolveContractVariables, buildSampleData, substituteVariables, TEMPLATE_VARIABLES } from './contract-variables'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import {
+  resolveContractVariables, buildSampleData, substituteVariables, TEMPLATE_VARIABLES,
+  warnMissingContractFields, CONTRACT_VEHICLE_FIELDS,
+} from './contract-variables'
 
 const baseInput = {
   customer: {
@@ -27,6 +30,8 @@ const baseInput = {
     color: 'Vermelho',
     fuel: 'Flex',
     km_current: 12540,
+    registered_owner_name: 'GoMoto Locações LTDA',
+    registered_owner_document: '12345678000190',
   },
   rental: {
     cycle: 'monthly' as const,
@@ -65,6 +70,8 @@ describe('resolveContractVariables', () => {
     expect(vars.cor_veiculo).toBe('Vermelho')
     expect(vars.combustivel_veiculo).toBe('Flex')
     expect(vars.km_inicial).toBe('12.540')
+    expect(vars.proprietario_veiculo).toBe('GoMoto Locações LTDA')
+    expect(vars.documento_proprietario_veiculo).toBe('12.345.678/0001-90')
   })
 
   it('resolve valores financeiros e datas', () => {
@@ -108,5 +115,37 @@ describe('substituteVariables', () => {
   it('substitui {{chave}} e preserva placeholders desconhecidos', () => {
     const html = '<p>{{nome_cliente}} — {{chave_inexistente}}</p>'
     expect(substituteVariables(html, { nome_cliente: 'Ana' })).toBe('<p>Ana — {{chave_inexistente}}</p>')
+  })
+})
+
+describe('warnMissingContractFields', () => {
+  const originalEnv = process.env.NODE_ENV
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    process.env.NODE_ENV = originalEnv
+  })
+
+  it('avisa quando uma coluna esperada não veio no registro (fora de produção)', () => {
+    process.env.NODE_ENV = 'development'
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { registered_owner_name, ...vehicleWithoutOwner } = baseInput.vehicle as Record<string, unknown>
+    warnMissingContractFields('vehicle', vehicleWithoutOwner, CONTRACT_VEHICLE_FIELDS)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toContain('registered_owner_name')
+  })
+
+  it('não avisa quando todas as colunas estão presentes (mesmo com valor null)', () => {
+    process.env.NODE_ENV = 'development'
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warnMissingContractFields('vehicle', { ...baseInput.vehicle, registered_owner_name: null }, CONTRACT_VEHICLE_FIELDS)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('não avisa em produção mesmo faltando coluna', () => {
+    process.env.NODE_ENV = 'production'
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warnMissingContractFields('vehicle', {}, CONTRACT_VEHICLE_FIELDS)
+    expect(warn).not.toHaveBeenCalled()
   })
 })

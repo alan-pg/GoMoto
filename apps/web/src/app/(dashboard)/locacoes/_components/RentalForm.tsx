@@ -10,7 +10,7 @@ import { generateCycleCharges, WEEK_DAY_OPTIONS, formatDueDay, resolveContractVa
 import type { CycleCharge, Rental, LateChargeConfig } from '@gomoto/core'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { renderContractTemplateHtml } from '@/lib/contract-render'
-import { printHtmlDocument } from '@/lib/contract-print'
+import { printHtmlDocument, buildContractFileName } from '@/lib/contract-print'
 import { createRental, updateRental, updateContractTemplate } from '../actions'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -210,7 +210,12 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
         },
         tenantName: tenantName ?? '',
       })
-      await printHtmlDocument(substituteVariables(html, variables), template.name)
+      const fileName = buildContractFileName({
+        customerName: customer.name,
+        licensePlate: vehicle.license_plate,
+        startDate: form.start_date,
+      })
+      await printHtmlDocument(substituteVariables(html, variables), fileName)
     } finally {
       setGeneratingContract(false)
     }

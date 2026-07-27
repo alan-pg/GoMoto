@@ -3,6 +3,7 @@ import Link from 'next/link'
 import {
   Edit2, X, RotateCcw, TrendingUp, Zap, ChevronRight, Users, Bike,
 } from 'lucide-react'
+import { CONTRACT_CUSTOMER_FIELDS, CONTRACT_VEHICLE_FIELDS, warnMissingContractFields } from '@gomoto/core'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { formatCurrency } from '@/lib/utils'
@@ -56,12 +57,21 @@ export default async function RentalDetailPage({
   const tenantId  = await getCurrentTenantId(supabase)
   if (!tenantId) notFound()
 
+  // O select do Supabase precisa ser uma string LITERAL (não computada em
+  // runtime) para o client tipado conseguir inferir o shape do retorno — por
+  // isso as colunas de cliente/veículo abaixo não podem vir de
+  // `CONTRACT_CUSTOMER_FIELDS.join(',')` diretamente. Elas devem espelhar
+  // manualmente essas constantes (@gomoto/core); a checagem `assertContractFieldsSelected`
+  // logo abaixo falha alto (dev) se alguém adicionar uma coluna nova em
+  // CONTRACT_CUSTOMER_FIELDS/CONTRACT_VEHICLE_FIELDS e esquecer de replicar aqui.
+  // `id`/`phone` são colunas extras só desta página (link "Ver cliente"/
+  // "Ver veículo", telefone no card de Vínculo).
   const [rentalResult, billingsResult, depositResult, adjustmentsResult, tenantResult] = await Promise.all([
     supabase
       .from('rentals')
       .select(`*,
-        customer:customers(id,name,phone,cpf,rg,drivers_license,drivers_license_category,street,street_number,complement,neighborhood,city,state,zip_code),
-        vehicle:vehicles(id,license_plate,make,model,year_manufacture,year_model,color,renavam,chassis,fuel,km_current),
+        customer:customers(id,phone,name,cpf,rg,drivers_license,drivers_license_category,street,street_number,complement,neighborhood,city,state,zip_code),
+        vehicle:vehicles(id,make,model,year_manufacture,year_model,renavam,license_plate,chassis,color,fuel,km_current,registered_owner_name,registered_owner_document),
         contract_template:contract_templates(id,name)`)
       .eq('id', id)
       .eq('tenant_id', tenantId)
@@ -94,6 +104,8 @@ export default async function RentalDetailPage({
   if (rentalResult.error || !rentalResult.data) notFound()
 
   const rental      = rentalResult.data
+  warnMissingContractFields('customer', rental.customer, CONTRACT_CUSTOMER_FIELDS)
+  warnMissingContractFields('vehicle', rental.vehicle, CONTRACT_VEHICLE_FIELDS)
   const billings    = billingsResult.data ?? []
   const deposit     = depositResult.data as { amount: number; balance: number; status: string; received_at: string } | null
   const adjustments = adjustmentsResult.data ?? []
@@ -307,6 +319,8 @@ export default async function RentalDetailPage({
                 color: rental.vehicle?.color ?? '',
                 fuel: rental.vehicle?.fuel ?? undefined,
                 km_current: rental.vehicle?.km_current ?? undefined,
+                registered_owner_name: rental.vehicle?.registered_owner_name ?? null,
+                registered_owner_document: rental.vehicle?.registered_owner_document ?? null,
               }}
               rental={{
                 cycle: rental.cycle ?? 'monthly',

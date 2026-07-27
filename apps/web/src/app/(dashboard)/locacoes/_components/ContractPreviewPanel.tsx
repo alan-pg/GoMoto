@@ -7,7 +7,7 @@ import { useContractTemplate } from '@gomoto/data'
 import { resolveContractVariables, substituteVariables } from '@gomoto/core'
 import type { ResolveContractVariablesInput } from '@gomoto/core'
 import { renderContractTemplateHtml } from '@/lib/contract-render'
-import { openHtmlDocument, printHtmlDocument } from '@/lib/contract-print'
+import { openHtmlDocument, printHtmlDocument, buildContractFileName } from '@/lib/contract-print'
 
 interface ContractPreviewPanelProps {
   rentalId: string
@@ -36,13 +36,21 @@ export function ContractPreviewPanel({
     return substituteVariables(html, variables)
   }
 
+  function getFileName(): string {
+    return buildContractFileName({
+      customerName: customer.name,
+      licensePlate: vehicle.license_plate,
+      startDate: rental.start_date,
+    })
+  }
+
   async function handleView() {
     setError(null)
     const html = buildContractHtml()
     if (!html) { setError('Este modelo ainda não possui conteúdo.'); return }
     setBusy('view')
     try {
-      openHtmlDocument(html, selectedTemplateQuery.data!.name)
+      openHtmlDocument(html, getFileName())
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Não foi possível abrir a visualização.')
     } finally {
@@ -56,7 +64,7 @@ export function ContractPreviewPanel({
     if (!html) { setError('Este modelo ainda não possui conteúdo.'); return }
     setBusy('download')
     try {
-      await printHtmlDocument(html, selectedTemplateQuery.data!.name)
+      await printHtmlDocument(html, getFileName())
     } finally {
       setBusy(null)
     }

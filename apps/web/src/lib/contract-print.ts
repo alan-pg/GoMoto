@@ -14,6 +14,19 @@ const PRINT_STYLE = `
   [style*="text-align: justify"] { text-align: justify; }
 `
 
+/**
+ * Nome sugerido pelo navegador no diálogo "Salvar como PDF" (`window.print()`
+ * usa o `<title>` do documento como nome de arquivo padrão). Baseado em
+ * cliente + placa + início da locação — não no nome do modelo — pra não
+ * colidir quando o mesmo modelo gera contratos de locações diferentes.
+ */
+export function buildContractFileName(parts: { customerName: string; licensePlate: string; startDate?: string }): string {
+  const sanitize = (s: string) => s.trim().replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ')
+  const segments = ['Contrato', sanitize(parts.customerName), sanitize(parts.licensePlate)]
+  if (parts.startDate) segments.push(parts.startDate.split('-').reverse().join('-')) // DD-MM-YYYY — sem barras
+  return segments.filter(Boolean).join(' - ')
+}
+
 /** Abre um documento HTML numa nova aba, para visualização — sem disparar o diálogo de impressão. Mesmo estilo de `printHtmlDocument`, mas só pra "ver", não "baixar". */
 export function openHtmlDocument(html: string, title: string): void {
   const win = window.open('', '_blank')
@@ -25,7 +38,17 @@ export function openHtmlDocument(html: string, title: string): void {
   win.document.close()
 }
 
-/** Abre o diálogo de impressão do navegador para um documento HTML — via iframe oculto, sem navegar a página atual. Usado tanto no preview de modelos quanto na geração de contrato de uma locação real. */
+/**
+ * Abre o diálogo de impressão do navegador para um documento HTML — via
+ * iframe oculto, sem navegar a página atual. Usado tanto no preview de
+ * modelos quanto na geração de contrato de uma locação real.
+ *
+ * O nome sugerido em "Salvar como PDF" vem do `document.title` da ABA atual
+ * — não do `<title>` do iframe — mesmo imprimindo via `iframe.contentWindow.print()`.
+ * Por isso trocamos `document.title` (da página real) antes de imprimir e
+ * restauramos depois; só setar o `<title>` do iframe (como antes) não tinha
+ * efeito nenhum no nome do arquivo.
+ */
 export async function printHtmlDocument(html: string, title: string): Promise<void> {
   const iframe = document.createElement('iframe')
   Object.assign(iframe.style, {
@@ -45,7 +68,11 @@ export async function printHtmlDocument(html: string, title: string): Promise<vo
   const win = iframe.contentWindow
   if (!win) throw new Error('Janela de impressão não encontrada')
 
+  const originalTitle = document.title
+  document.title = title
+
   const cleanup = () => {
+    document.title = originalTitle
     try { document.body.removeChild(iframe) } catch { /* já removido */ }
   }
   win.addEventListener('afterprint', cleanup, { once: true })

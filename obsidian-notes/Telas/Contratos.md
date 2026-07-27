@@ -39,6 +39,11 @@ Não há tabela/catálogo de variáveis no banco — a lista de variáveis é ha
 
 `substituteVariables(html, data)` faz replace de `{{chave}}` via regex. `resolveContractVariables(input)` resolve o dicionário a partir de dados reais (usado por `RentalForm.tsx`); `buildSampleData()` continua gerando os dados fictícios do preview. Categorias e chaves atuais:
 
+**Como adicionar uma variável nova (2026-07-27):**
+1. Acrescente a entrada em `TEMPLATE_VARIABLES` (`key`/`label`/`category`/`sample`) — o dropdown do editor e `VARIABLE_CATEGORIES` (derivado automaticamente, dedupe por ordem de aparição) já pegam isso sem mais nada.
+2. Resolva a chave em `resolveContractVariables`. O retorno é tipado `Record<TemplateVariableKey, string>` (`TemplateVariableKey` = união das `key` literais do catálogo) — **esquecer uma chave quebra o `typecheck`**, não é mais só um teste Vitest que pode passar despercebido.
+3. Se a variável depende de coluna nova de `customers`/`vehicles`, acrescente o nome em `CONTRACT_CUSTOMER_FIELDS`/`CONTRACT_VEHICLE_FIELDS` (mesmo arquivo) — isso amplia o `Pick<>` de `ResolveContractVariablesInput`. `RentalForm.tsx` (criação) usa `select('*')`, então já recebe a coluna de graça. Qualquer outra tela que faça `select` explícito (hoje só `/locacoes/[id]/page.tsx`) precisa replicar a coluna nova ali manualmente — **o `.select()` do Supabase tem que ser string literal pro client tipado inferir o retorno, então não dá pra gerar essa lista a partir do array em runtime**. Chame `warnMissingContractFields(label, record, FIELDS)` logo após o fetch (dev only) para pegar esse esquecimento em log em vez de silenciosamente virar `''` no contrato gerado.
+
 | Categoria | Chave | Fonte real de dado |
 |---|---|---|
 | Cliente | `nome_cliente` | `customers.name` |
@@ -59,6 +64,8 @@ Não há tabela/catálogo de variáveis no banco — a lista de variáveis é ha
 | Veículo | `cor_veiculo` | `vehicles.color` |
 | Veículo | `combustivel_veiculo` | `vehicles.fuel` |
 | Veículo | `km_inicial` | `vehicles.km_current` (decisão: KM atual do veículo, não `km_entry` — que é KM de entrada na frota, não desta locação) |
+| Veículo | `proprietario_veiculo` | `vehicles.registered_owner_name` |
+| Veículo | `documento_proprietario_veiculo` | `vehicles.registered_owner_document` (com `formatDocument`, detecta CPF/CNPJ pelo nº de dígitos) |
 | Financeiro | `valor_ciclo` (nome canônico) / `valor_semanal` (alias legado) | valor do ciclo da locação por extenso, via `currencyToExtensoPtBr` (`packages/core/src/utils/currency-words.ts`) |
 | Financeiro | `ciclo_cobranca` | "Mensal"/"Semanal" |
 | Financeiro | `dia_vencimento` | `formatDueDay` (`packages/core/src/rules/rentals.ts`) |
@@ -67,11 +74,17 @@ Não há tabela/catálogo de variáveis no banco — a lista de variáveis é ha
 | Datas | `data_hoje` | computado em runtime, não é coluna |
 | Empresa | `nome_empresa` | `tenants.legal_name` (fallback `tenants.name`) |
 
+> `proprietario_veiculo`/`documento_proprietario_veiculo` foram adicionadas em 2026-07-27 — `vehicles` já tinha essas colunas (documentação do veículo, PRD 0002), só faltava expô-las como variável de contrato.
+
 > As chaves de veículo usavam sufixo `_moto` (`placa_moto`, `marca_moto`, etc.) até 2026-07-26, quando foram renomeadas para `_veiculo` para alinhar com a generalização `motorcycle → vehicle` do [[0007-generalizacao-entidade-veiculo]]. Modelos já salvos no banco com `{{placa_moto}}` etc. ficam com o placeholder não substituído — só afeta modelos antigos não migrados manualmente.
 
 ## Preview (`TemplatePreview.tsx`)
 
 `substituteVariables(html, buildSampleData())` — sempre com dados **fictícios fixos** (`sample:` de cada variável), nunca com dados reais de uma locação (isso é papel de `RentalForm.tsx`, ver [[Locações]]).
+
+## Nome do arquivo ao "baixar" o PDF (2026-07-27)
+
+O "PDF" não é gerado por lib nenhuma — é `window.print()` num iframe oculto (`apps/web/src/lib/contract-print.ts`), e o navegador sugere como nome de arquivo o `<title>` do documento impresso. `buildContractFileName({ customerName, licensePlate, startDate })` monta esse título como `Contrato - {cliente} - {placa} - {DD-MM-YYYY}` para os dois pontos de **geração real** (`RentalForm.tsx` na criação, `ContractPreviewPanel.tsx` no detalhe) — antes usavam `template.name`, que é o mesmo pra qualquer locação gerada a partir do mesmo modelo (colidia/confundia ao arquivar vários contratos baixados). `TemplatePreview.tsx` (preview do modelo, sem cliente/veículo reais) continua usando `template.name`.
 
 ## Fluxo de CRUD
 

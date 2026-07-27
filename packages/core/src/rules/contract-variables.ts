@@ -8,7 +8,7 @@
  */
 
 import type { Customer, Vehicle } from '../types/index'
-import { applyCpfMask, applyZipMask, formatRenavam } from '../masks'
+import { applyCpfMask, applyZipMask, formatDocument, formatRenavam } from '../masks'
 import { formatCurrencyPlain } from '../utils/index'
 import { currencyToExtensoPtBr } from '../utils/currency-words'
 import { formatDateExtensoPtBr } from '../utils/date-words'
@@ -21,7 +21,7 @@ export interface TemplateVariable {
   sample: string
 }
 
-export const TEMPLATE_VARIABLES: TemplateVariable[] = [
+export const TEMPLATE_VARIABLES = [
   // Cliente
   { key: 'nome_cliente',      label: 'Nome completo',              category: 'Cliente',    sample: 'João Silva Santos' },
   { key: 'cpf_cliente',       label: 'CPF',                        category: 'Cliente',    sample: '123.456.789-00' },
@@ -42,6 +42,13 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
   { key: 'cor_veiculo',          label: 'Cor',                        category: 'Veículo',       sample: 'Vermelho' },
   { key: 'combustivel_veiculo',  label: 'Combustível',                category: 'Veículo',       sample: 'Flex' },
   { key: 'km_inicial',        label: 'KM atual do veículo (no momento da locação)', category: 'Veículo', sample: '12.540' },
+  // Amostra deliberadamente diferente da de nome_empresa: registered_owner_name
+  // só coincide com o nome da empresa quando a moto já foi transferida pro
+  // CNPJ dela (ownership_transferred=true) — antes disso é o vendedor/pessoa
+  // física (ver PRD 0002). Sample igual ao de nome_empresa deixava as duas
+  // variáveis parecendo o mesmo dado no preview do modelo.
+  { key: 'proprietario_veiculo', label: 'Proprietário (nome)',        category: 'Veículo',       sample: 'Roberto Almeida Souza' },
+  { key: 'documento_proprietario_veiculo', label: 'Documento do proprietário (CPF/CNPJ)', category: 'Veículo', sample: '987.654.321-00' },
   // Financeiro e datas
   { key: 'valor_semanal',     label: 'Valor do ciclo por extenso (legado — use valor_ciclo)', category: 'Financeiro', sample: '350,00 (trezentos e cinquenta reais)' },
   { key: 'valor_ciclo',       label: 'Valor do ciclo por extenso (semanal ou mensal)', category: 'Financeiro', sample: '350,00 (trezentos e cinquenta reais)' },
@@ -53,31 +60,69 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
   { key: 'data_hoje',         label: 'Data atual por extenso',     category: 'Datas',      sample: '6 de julho de 2026' },
   // Empresa
   { key: 'nome_empresa',      label: 'Nome da empresa',            category: 'Empresa',    sample: 'GoMoto Locações LTDA' },
-]
+] as const satisfies readonly TemplateVariable[]
 
-export const VARIABLE_CATEGORIES = [
-  'Cliente',
-  'Veículo',
-  'Financeiro',
-  'Datas',
-  'Empresa',
-] as const
+// Deriva as chaves reais do catálogo — usado para forçar em tempo de
+// compilação que `resolveContractVariables`/`buildSampleData` cubram 100%
+// das variáveis declaradas acima (nenhuma chave nova pode ficar sem resolução).
+export type TemplateVariableKey = (typeof TEMPLATE_VARIABLES)[number]['key']
 
-export function buildSampleData(): Record<string, string> {
-  return Object.fromEntries(TEMPLATE_VARIABLES.map(v => [v.key, v.sample]))
+// Derivado do catálogo (não mantido à mão) — uma categoria nova em
+// TEMPLATE_VARIABLES aparece aqui automaticamente, na ordem em que aparece
+// pela primeira vez no array acima.
+export const VARIABLE_CATEGORIES = Array.from(
+  new Set(TEMPLATE_VARIABLES.map(v => v.category)),
+) as (typeof TEMPLATE_VARIABLES)[number]['category'][]
+
+export function buildSampleData(): Record<TemplateVariableKey, string> {
+  return Object.fromEntries(TEMPLATE_VARIABLES.map(v => [v.key, v.sample])) as Record<TemplateVariableKey, string>
 }
 
 export function substituteVariables(html: string, data: Record<string, string>): string {
   return html.replace(/\{\{([\w_]+)\}\}/g, (match, key) => data[key] ?? match)
 }
 
+// Colunas de `customers`/`vehicles` que `resolveContractVariables` precisa —
+// única fonte de verdade para o Pick abaixo. NÃO dá para montar o `.select()`
+// do Supabase a partir destes arrays em runtime (`.join(',')`): o client
+// tipado só infere o shape do retorno quando a string passada a `.select()`
+// é literal, então quem faz select explícito (não `select('*')`) precisa
+// copiar os nomes à mão — use `warnMissingContractFields` (abaixo) logo após
+// o fetch para pegar esquecimentos em dev.
+export const CONTRACT_CUSTOMER_FIELDS = [
+  'name', 'cpf', 'rg', 'drivers_license', 'drivers_license_category',
+  'street', 'street_number', 'complement', 'neighborhood', 'city', 'state', 'zip_code',
+] as const satisfies readonly (keyof Customer)[]
+
+export const CONTRACT_VEHICLE_FIELDS = [
+  'make', 'model', 'year_manufacture', 'year_model', 'renavam',
+  'license_plate', 'chassis', 'color', 'fuel', 'km_current',
+  'registered_owner_name', 'registered_owner_document',
+] as const satisfies readonly (keyof Vehicle)[]
+
+/**
+ * @function warnMissingContractFields
+ * @description Alerta (console.warn, dev only) quando um registro vindo de
+ * um `select()` explícito do Supabase não tem alguma das colunas listadas
+ * em `CONTRACT_CUSTOMER_FIELDS`/`CONTRACT_VEHICLE_FIELDS` — sinal de que o
+ * `.select()` da página ficou desalinhado com o que `resolveContractVariables`
+ * precisa. Verifica presença da CHAVE, não o valor (`null` é um dado válido).
+ */
+export function warnMissingContractFields(
+  label: string,
+  record: Record<string, unknown> | null | undefined,
+  fields: readonly string[],
+): void {
+  if (process.env.NODE_ENV === 'production' || !record) return
+  const missing = fields.filter(f => !(f in record))
+  if (missing.length > 0) {
+    console.warn(`[contract-variables] ${label}: colunas ausentes no select() — ${missing.join(', ')}. Verifique CONTRACT_CUSTOMER_FIELDS/CONTRACT_VEHICLE_FIELDS.`)
+  }
+}
+
 export interface ResolveContractVariablesInput {
-  customer: Pick<Customer,
-    | 'name' | 'cpf' | 'rg' | 'drivers_license' | 'drivers_license_category'
-    | 'street' | 'street_number' | 'complement' | 'neighborhood' | 'city' | 'state' | 'zip_code'>
-  vehicle: Pick<Vehicle,
-    | 'make' | 'model' | 'year_manufacture' | 'year_model' | 'renavam'
-    | 'license_plate' | 'chassis' | 'color' | 'fuel' | 'km_current'>
+  customer: Pick<Customer, (typeof CONTRACT_CUSTOMER_FIELDS)[number]>
+  vehicle: Pick<Vehicle, (typeof CONTRACT_VEHICLE_FIELDS)[number]>
   rental: {
     cycle: RentalCycle
     due_day: number
@@ -98,7 +143,7 @@ export interface ResolveContractVariablesInput {
  * `substituteVariables`. Complementa `buildSampleData` (dados fictícios,
  * usada só no preview de modelos).
  */
-export function resolveContractVariables(input: ResolveContractVariablesInput): Record<string, string> {
+export function resolveContractVariables(input: ResolveContractVariablesInput): Record<TemplateVariableKey, string> {
   const { customer, vehicle, rental, tenantName } = input
   const today = input.today ?? new Date()
 
@@ -135,6 +180,8 @@ export function resolveContractVariables(input: ResolveContractVariablesInput): 
     cor_veiculo: vehicle.color ?? '',
     combustivel_veiculo: vehicle.fuel ?? '',
     km_inicial: vehicle.km_current != null ? vehicle.km_current.toLocaleString('pt-BR') : '',
+    proprietario_veiculo: vehicle.registered_owner_name ?? '',
+    documento_proprietario_veiculo: vehicle.registered_owner_document ? formatDocument(vehicle.registered_owner_document) : '',
 
     valor_semanal: cycleAmountWords,
     valor_ciclo: cycleAmountWords,
