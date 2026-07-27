@@ -74,6 +74,16 @@ export default async function VehicleDetailPage({
   const obligations = obligationsResult.data ?? []
   const maintenances = maintenancesResult.data ?? []
 
+  const maintenancePlan = moto.maintenance_plan_id
+    ? (
+        await supabase
+          .from('maintenance_plans')
+          .select('id, name')
+          .eq('id', moto.maintenance_plan_id)
+          .maybeSingle()
+      ).data
+    : null
+
   // Gerar URLs assinadas para fotos em paralelo
   const photoUrls: Partial<Record<VehiclePhotoSlot, string>> = {}
   await Promise.all(
@@ -384,6 +394,32 @@ export default async function VehicleDetailPage({
                   ))}
                 </tbody>
               </table>
+            )}
+          </div>
+        </section>
+
+        {/* Plano de manutenção */}
+        <section>
+          <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Plano de Manutenção</h2>
+          <div className="bg-[#202020] rounded-xl overflow-hidden">
+            {maintenancePlan ? (
+              <table className="w-full text-[13px]">
+                <tbody>
+                  <tr>
+                    <td className="h-9 px-4 text-[#9e9e9e] w-48">Plano vinculado</td>
+                    <td className="h-9 px-4">
+                      <Link
+                        href={`/planos-manutencao/${maintenancePlan.id}`}
+                        className="text-[#BAFF1A] hover:underline"
+                      >
+                        {maintenancePlan.name}
+                      </Link>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            ) : (
+              <p className="h-9 px-4 flex items-center text-[13px] text-[#616161]">Nenhum plano de manutenção vinculado</p>
             )}
           </div>
         </section>
