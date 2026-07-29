@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Bike, Users, DollarSign, ScrollText,
-  TrendingUp, TrendingDown, AlertTriangle, Wrench,
+  TrendingDown, AlertTriangle, Wrench,
   Clock, BarChart2, HelpCircle, Settings,
   ClipboardCheck, ClipboardList, ListOrdered,
   type LucideIcon,
@@ -72,7 +72,6 @@ export const DASHBOARD_NAV: NavSection[] = [
     items: [
       { kind: 'leaf', href: '/financeiro', label: 'Painel',    icon: BarChart2 },
       { kind: 'leaf', href: '/despesas',   label: 'Despesas',  icon: TrendingDown },
-      { kind: 'leaf', href: '/entradas',   label: 'Entradas',  icon: TrendingUp },
       { kind: 'leaf', href: '/cobrancas',  label: 'Cobranças', icon: DollarSign },
     ],
   },

@@ -112,18 +112,6 @@ export const BillingSchema = z.object({
   observations:    z.string().trim().max(2000).optional().nullable(),
 })
 
-export const IncomeSchema = z.object({
-  vehicle: z.string().trim().max(10),
-  date: dateString,
-  lessee: z.string().trim().min(1).max(200),
-  amount: z.number().positive().max(9999999),
-  reference: z.string().trim().max(50).optional().nullable(),
-  payment_method: z.string().trim().max(50).optional().nullable(),
-  period_from: dateString.optional().nullable(),
-  period_to: dateString.optional().nullable(),
-  observations: z.string().trim().max(2000).optional().nullable(),
-})
-
 export const ExpenseSchema = z.object({
   description: z.string().trim().min(1).max(300),
   amount: z.number().positive().max(9999999),

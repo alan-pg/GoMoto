@@ -110,7 +110,7 @@ async function getDashboardData() {
     idleVehiclesRes,
     upcomingMaintenancesRes,
     queueEntriesRes,
-    sixMonthIncomesRes,
+    sixMonthPaymentsRes,
     sixMonthExpensesRes,
     billingsByStatusRes,
   ] = await Promise.all([
@@ -133,7 +133,7 @@ async function getDashboardData() {
     supabase.from('vehicles').select('model, make, license_plate').eq('status', 'available').lte('updated_at', sevenDaysAgo).limit(3),
     supabase.from('maintenances').select('id, scheduled_date, type, vehicles(model, make, license_plate)').eq('completed', false).gte('scheduled_date', today).lte('scheduled_date', in7Days).order('scheduled_date', { ascending: true }).limit(5),
     supabase.from('queue_entries').select('id, created_at, position, customers(name)').order('position', { ascending: true }).limit(5),
-    supabase.from('incomes').select('amount, date').gte('date', sixMonthsAgo).lte('date', lastDayOfMonth),
+    supabase.from('payments').select('amount, paid_at').gte('paid_at', sixMonthsAgo).lte('paid_at', lastDayOfMonth),
     supabase.from('expenses').select('amount, date').gte('date', sixMonthsAgo).lte('date', lastDayOfMonth),
     supabase.from('billings').select('status, original_amount, due_date').neq('billing_type', 'deposit').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
   ])
@@ -213,8 +213,8 @@ async function getDashboardData() {
     revenueByMonth[key] = 0
     expensesByMonth[key] = 0
   }
-  ;(sixMonthIncomesRes.data ?? []).forEach((row) => {
-    const key = row.date.substring(0, 7)
+  ;(sixMonthPaymentsRes.data ?? []).forEach((row) => {
+    const key = (row.paid_at as string).substring(0, 7)
     if (key in revenueByMonth) revenueByMonth[key] += Number(row.amount) || 0
   })
   ;(sixMonthExpensesRes.data ?? []).forEach((row) => {

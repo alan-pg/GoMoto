@@ -260,26 +260,6 @@ export interface Customer {
 }
 
 /**
- * @interface Income
- * @description Registro de qualquer valor financeiro que entra no caixa da empresa.
- */
-export interface Income {
-  id: string;
-  tenant_id: string;
-  description?: string;
-  vehicle: string;
-  date: string;
-  lessee: string;
-  amount: number;
-  reference: string;
-  payment_method: string;
-  period_from?: string;
-  period_to?: string;
-  observations?: string;
-  created_at: string;
-}
-
-/**
  * @interface Expense
  * @description Registro de saídas financeiras e custos operacionais da empresa.
  * Pode estar vinculada a um veículo específico ou ser uma despesa geral.

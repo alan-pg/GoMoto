@@ -14,7 +14,6 @@ const SEGMENT_LABELS: Record<string, string> = {
   'planos-manutencao': 'Planos de Manutenção',
   multas:              'Multas',
   despesas:            'Despesas',
-  entradas:            'Entradas',
   cobrancas:           'Cobranças',
   veiculos:            'Veículos',
   clientes:            'Clientes',
