@@ -105,7 +105,6 @@ type ExpenseFormData = {
  */
 const EXPENSE_CATEGORIES: string[] = [
   'Manutenção',
-  'Combustível',
   'Aluguel',
   'Salário',
   'Impostos',
