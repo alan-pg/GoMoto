@@ -4,6 +4,7 @@ import {
   DEFAULT_WARN_THRESHOLD_PCT,
   calculateMaintenanceStatus,
   calculateNextMaintenance,
+  filterMaintenancesInRentalPeriod,
 } from './maintenance'
 
 describe('KM_POR_DIA', () => {
@@ -361,5 +362,55 @@ describe('calculateNextMaintenance', () => {
         interval_days: 180,
       }),
     ).toEqual({ scheduled_date: '2026-06-30' })
+  })
+})
+
+describe('filterMaintenancesInRentalPeriod', () => {
+  const rental = { vehicle_id: 'v1', start_date: '2026-06-01', end_date: '2026-06-30' }
+
+  it('mantém manutenção do mesmo veículo com scheduled_date dentro do período', () => {
+    const maintenances = [
+      { id: 'm1', vehicle_id: 'v1', scheduled_date: '2026-06-15', completed_date: null },
+    ]
+    expect(filterMaintenancesInRentalPeriod(maintenances, rental)).toHaveLength(1)
+  })
+
+  it('mantém manutenção com completed_date dentro do período mesmo sem scheduled_date', () => {
+    const maintenances = [
+      { id: 'm1', vehicle_id: 'v1', scheduled_date: null, completed_date: '2026-06-20' },
+    ]
+    expect(filterMaintenancesInRentalPeriod(maintenances, rental)).toHaveLength(1)
+  })
+
+  it('descarta manutenção de outro veículo, mesmo com data dentro do período', () => {
+    const maintenances = [
+      { id: 'm1', vehicle_id: 'v2', scheduled_date: '2026-06-15', completed_date: null },
+    ]
+    expect(filterMaintenancesInRentalPeriod(maintenances, rental)).toEqual([])
+  })
+
+  it('descarta manutenção do mesmo veículo com datas fora do período', () => {
+    const maintenances = [
+      { id: 'm1', vehicle_id: 'v1', scheduled_date: '2026-05-31', completed_date: null },
+      { id: 'm2', vehicle_id: 'v1', scheduled_date: '2026-07-01', completed_date: null },
+    ]
+    expect(filterMaintenancesInRentalPeriod(maintenances, rental)).toEqual([])
+  })
+
+  it('inclui os limites [start_date, end_date]', () => {
+    const maintenances = [
+      { id: 'm1', vehicle_id: 'v1', scheduled_date: '2026-06-01', completed_date: null },
+      { id: 'm2', vehicle_id: 'v1', scheduled_date: null, completed_date: '2026-06-30' },
+    ]
+    expect(filterMaintenancesInRentalPeriod(maintenances, rental)).toHaveLength(2)
+  })
+
+  it('sem start_date/end_date na locação, retorna lista vazia', () => {
+    const maintenances = [
+      { id: 'm1', vehicle_id: 'v1', scheduled_date: '2026-06-15', completed_date: null },
+    ]
+    expect(
+      filterMaintenancesInRentalPeriod(maintenances, { vehicle_id: 'v1', start_date: null, end_date: '2026-06-30' }),
+    ).toEqual([])
   })
 })

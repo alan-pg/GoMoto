@@ -10,14 +10,28 @@ Rota base: `/locacoes` | Tipo: mistura de Server Component (leitura/SSR) + Clien
 |---|---|---|
 | `/locacoes` | `page.tsx` | Listagem de contratos (ativos/encerrados) |
 | `/locacoes/fila` | `fila/page.tsx` | Fila de espera |
-| `/locacoes/nova` | `nova/page.tsx` + `_components/RentalForm.tsx` (modo criação) | Criação de locação com preview de cobranças + geração opcional de contrato (PDF) |
-| `/locacoes/[id]` | `[id]/page.tsx` | Detalhe — resumo financeiro, contrato (+ anexo do PDF assinado), vínculo, prévia de cobranças (somente leitura) |
-| `/locacoes/[id]/editar` | `[id]/editar/page.tsx` + `_components/RentalForm.tsx` (modo edição) | **Só** caução + observações |
-| `/locacoes/[id]/renovar` | `_components/RenewForm.tsx` | Estender prazo (`renewRental`) |
-| `/locacoes/[id]/encerrar` | `_components/TerminateForm.tsx` | Antecipar fim (`terminateRental`) |
-| `/locacoes/[id]/reajustar` | `_components/AdjustRentalForm.tsx` | Reajustar valor do ciclo + encargos (`adjustRental`, PRD 0008 F11) |
-| `/locacoes/[id]/cobranca-avulsa` | — | Cobrança avulsa fora do ciclo |
-| `/locacoes/[id]/financeiro` | `[id]/financeiro/page.tsx` | Extrato completo: cobranças, caução, histórico de reajustes |
+| `/locacoes/nova` | `nova/page.tsx` + `_components/RentalForm.tsx` (modo criação) | Criação de locação com preview de cobranças + geração opcional de contrato (PDF) + vínculos de Perfil de Vistoria (Spec 0009) |
+| `/locacoes/[id]` | `[id]/(tabs)/layout.tsx` + `[id]/(tabs)/page.tsx` | Detalhe — abas (ver seção própria abaixo). Aba **Principal**: cards de totais + vínculo cliente/veículo — somente leitura |
+| `/locacoes/[id]/contrato` | `[id]/(tabs)/contrato/page.tsx` | Aba **Contrato**: dados do contrato, preview/download do PDF, anexo do assinado — somente leitura |
+| `/locacoes/[id]/vistorias` | `[id]/(tabs)/vistorias/page.tsx` | Aba **Vistorias**: status check-in/check-out + comparação + agendamento periódico (Spec 0009) — somente leitura |
+| `/locacoes/[id]/manutencoes` | `[id]/(tabs)/manutencoes/page.tsx` | Aba **Manutenções**: manutenções do veículo cujo período cai dentro da locação — somente leitura |
+| `/locacoes/[id]/financeiro` | `[id]/(tabs)/financeiro/page.tsx` | Aba **Financeiro**: extrato completo — cobranças, caução, histórico de reajustes |
+| `/locacoes/[id]/editar` | `[id]/editar/page.tsx` + `_components/RentalForm.tsx` (modo edição) | **Só** caução + observações — fora do group de abas, sem barra de abas |
+| `/locacoes/[id]/renovar` | `_components/RenewForm.tsx` | Estender prazo (`renewRental`) — fora do group de abas |
+| `/locacoes/[id]/encerrar` | `_components/TerminateForm.tsx` | Antecipar fim (`terminateRental`) — fora do group de abas |
+| `/locacoes/[id]/reajustar` | `_components/AdjustRentalForm.tsx` | Reajustar valor do ciclo + encargos (`adjustRental`, PRD 0008 F11) — fora do group de abas |
+| `/locacoes/[id]/cobranca-avulsa` | — | Cobrança avulsa fora do ciclo — fora do group de abas |
+
+## Detalhe da locação em abas (2026-08-01)
+
+`/locacoes/[id]` deixou de ser uma página única (contrato + vínculo + vistoria + prévia de cobranças tudo empilhado) e virou 5 abas via **rotas aninhadas** — não um componente de Tabs client-side. Ver [[decisions/0017-rotas-aninhadas-para-abas-de-locacao]] para a análise completa da decisão (trade-off contra Tabs client-side/shadcn).
+
+- **Estrutura**: route group `[id]/(tabs)/` (não aparece na URL) contendo `layout.tsx` (header + nav de abas) e uma pasta por aba (`page.tsx` = Principal, `contrato/`, `vistorias/`, `manutencoes/`, `financeiro/`). Cada aba é um Server Component independente que busca só os dados que usa — trocar de aba é uma navegação real (round-trip ao servidor), não troca de estado local.
+- **`renovar`/`encerrar`/`reajustar`/`cobranca-avulsa`/`editar` ficam fora do group**, de propósito — são formulários full-page com header próprio, não abas de visualização.
+- **`_lib/get-rental-core.ts`**: fetch base de `rentals` (+ customer/vehicle/contract_template, mesmo `.select()` literal de sempre) envolto em `React.cache()` — dedupe por request entre `layout.tsx` e a aba ativa, um único round-trip a `rentals` mesmo com dois Server Components pedindo os mesmos dados. `warnMissingContractFields` roda na aba Contrato, que é quem de fato consome os campos de contrato.
+- **`_lib/shared.ts`**: labels/badges (`STATUS_BADGE`, `CYCLE_LABEL`, `SCHEDULE_STATUS_BADGE`, `INSPECTION_STATUS_BADGE`, `MAINTENANCE_STATUS_BADGE`, `MAINTENANCE_TYPE_LABEL`) e o helper `fmt()` compartilhados entre abas — evita reimportar de `/financeiro` como antes.
+- **`InspectionStatusCard`** saiu de dentro do antigo `page.tsx` monolítico para `(tabs)/_components/InspectionStatusCard.tsx` — só usado pela aba Vistorias.
+- **Aba Manutenções é funcionalidade nova, não só extração**: não existe FK `maintenances → rentals` (a tabela só referencia `vehicle_id`, ver `supabase/migrations/20260611002632_initial_schema.sql`). A associação com a locação é inferida por `filterMaintenancesInRentalPeriod()` (`packages/core/src/rules/maintenance.ts`) — mesmo veículo + `scheduled_date` ou `completed_date` dentro de `[start_date, end_date]` da locação. Testado em `maintenance.test.ts`.
 
 ## Decisão de escopo: "Editar" não mexe em nada que afeta cobranças
 
@@ -71,6 +85,13 @@ Ver [[Telas/Contratos]] para o catálogo de variáveis e a mecânica de geraçã
 - Recálculo proporcional (RN-027) via `calculateAdjustedBillingAmount` em `packages/core/src/rules/rentals.ts` — cobrança pro rata mantém a mesma fração do novo valor, não vira o valor cheio.
 - Prévia de impacto (RF-029) via `previewRentalAdjustment` (mesmo arquivo), consumida tanto pela UI quanto potencialmente por outras integrações.
 - `renew_rental` corrigido na mesma migration: cobranças de renovação agora saem com `source='rental_cycle'` (antes caíam no default `'manual'`).
+
+## Vistoria (Spec 0009, 2026-07-30)
+
+- **`/locacoes/nova`**: `RentalForm.tsx` ganha a seção "Vistoria" (só criação, `!isEditMode` — mesmo padrão de escopo da seção acima): dois seletores de Perfil de Vistoria (`useInspectionProfiles()`, filtrado a `archived_at === null`) — Check-in/Check-out e Periódica + frequência (dias, obrigatória sse o perfil periódico for selecionado, RN-005). Os três campos vão direto no payload de `createRental` → RPC `create_rental_with_charges` estendida, que insere `inspections` (check-in/check-out `pending`) e `inspection_schedules` (upfront) na mesma transação.
+- **`/locacoes/[id]/vistorias`** (aba Vistorias, ver seção "Detalhe da locação em abas" acima): cards de status de check-in/check-out (link para `/vistorias/execute/[id]`, mesmo componente de execução usado na lista central de pendências, RF-018), comparação lado a lado quando ambos `completed` (`InspectionComparisonPanel.tsx`), e tabela de agendamentos periódicos com status derivado na leitura (`deriveInspectionScheduleStatus` de `@gomoto/core` — nunca de `@gomoto/data`, ver nota abaixo).
+- **Vínculos são imutáveis após a criação** — mesma decisão de escopo de tipo/ciclo/dia de vencimento (tabela acima): não há fluxo de "editar vistoria" numa locação já criada.
+- **Armadilha de bundling: Server Component não pode importar de `@gomoto/data`.** `packages/data`'s `index.ts` reexporta hooks (`createContext`/`useEffect` sem `'use client'` no próprio arquivo) — importar qualquer símbolo do pacote (mesmo um repositório "puro") num Server Component quebra o build do Next ("You're importing a component that needs createContext"). Todas as abas de `/locacoes/[id]/(tabs)/` e `/veiculos/[id]/page.tsx` fazem `select()` inline via `createClient()` (nunca chamam repositórios de `@gomoto/data`); a lógica de derivação de status (`deriveInspectionScheduleStatus`, `pickLatestInspectionBySchedule`, `filterMaintenancesInRentalPeriod`) fica em `@gomoto/core` justamente para ser importável dos dois lados (Server Component e hook de Client Component).
 
 ## Tags
 `#projeto/tela` `#gomoto/locacoes` `#gomoto/financeiro`

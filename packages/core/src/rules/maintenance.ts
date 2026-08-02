@@ -161,3 +161,37 @@ export function calculateNextMaintenance(
   }
   return out
 }
+
+export interface RentalMaintenancePeriod {
+  vehicle_id: string | null
+  start_date: string | null
+  end_date: string | null
+}
+
+export interface MaintenancePeriodInput {
+  vehicle_id: string
+  scheduled_date: string | null
+  completed_date: string | null
+}
+
+/**
+ * Filtra as manutenções que pertencem ao período de uma locação. Não existe FK
+ * `maintenances → rentals` (a tabela só referencia `vehicle_id`) — a associação
+ * é inferida por mesmo veículo + `scheduled_date` ou `completed_date` caindo
+ * dentro de `[start_date, end_date]` da locação (ver obsidian-notes/Telas/Locações.md).
+ * Datas são strings `YYYY-MM-DD`: comparação lexicográfica já é cronológica,
+ * mesmo padrão usado em `generateCycleCharges`/`adjustRental`.
+ */
+export function filterMaintenancesInRentalPeriod<T extends MaintenancePeriodInput>(
+  maintenances: T[],
+  rental: RentalMaintenancePeriod,
+): T[] {
+  if (!rental.vehicle_id || !rental.start_date || !rental.end_date) return []
+  const { vehicle_id, start_date, end_date } = rental
+  return maintenances.filter((m) => {
+    if (m.vehicle_id !== vehicle_id) return false
+    return [m.scheduled_date, m.completed_date].some(
+      d => d != null && d >= start_date && d <= end_date,
+    )
+  })
+}
