@@ -220,6 +220,8 @@ export * from './payments'
 export * from './vehicles'
 export * from './contractTemplates'
 export * from './financial'
+export * from './inspectionProfile'
+export * from './inspection'
 
 export const TenantSuspendSchema = z.object({
   reason: z.string().trim().min(1, 'Informe o motivo da suspensão').max(500),

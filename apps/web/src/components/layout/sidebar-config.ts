@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Bike, Users, DollarSign, ScrollText,
   TrendingDown, AlertTriangle, Wrench,
   Clock, BarChart2, HelpCircle, Settings,
-  ClipboardCheck, ClipboardList, ListOrdered,
+  ClipboardCheck, ClipboardList, ListOrdered, Camera,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -62,6 +62,15 @@ export const DASHBOARD_NAV: NavSection[] = [
           { kind: 'leaf', href: '/manutencao',        label: 'Registros',  icon: Wrench },
           { kind: 'leaf', href: '/aprovacoes',        label: 'Aprovações', icon: ClipboardCheck, badge: 'pending-maintenance' },
           { kind: 'leaf', href: '/planos-manutencao', label: 'Planos',     icon: ClipboardList },
+        ],
+      },
+      {
+        kind: 'branch',
+        label: 'Vistorias',
+        icon: Camera,
+        children: [
+          { kind: 'leaf', href: '/vistorias',        label: 'Pendências', icon: Camera },
+          { kind: 'leaf', href: '/vistorias/perfis', label: 'Perfis',     icon: ClipboardList },
         ],
       },
       { kind: 'leaf', href: '/multas', label: 'Multas', icon: AlertTriangle },

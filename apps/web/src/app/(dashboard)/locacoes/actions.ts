@@ -102,6 +102,9 @@ export async function createRental(
     p_deposit_paid:         parsed.data.deposit_paid,
     p_deposit_payment_date: parsed.data.deposit_payment_date ?? null,
     p_deposit_due_date:     parsed.data.deposit_due_date ?? null,
+    p_checkin_checkout_inspection_profile_id: parsed.data.checkin_checkout_inspection_profile_id ?? null,
+    p_periodic_inspection_profile_id:         parsed.data.periodic_inspection_profile_id ?? null,
+    p_periodic_inspection_frequency_days:     parsed.data.periodic_inspection_frequency_days ?? null,
   })
 
   if (error) {

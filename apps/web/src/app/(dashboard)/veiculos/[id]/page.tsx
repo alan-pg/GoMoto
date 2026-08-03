@@ -18,6 +18,20 @@ import { formatCurrency } from '@/lib/utils'
 import VehicleStatusActions from './_components/VehicleStatusActions'
 import VehiclePhotoGallery from './_components/VehiclePhotoGallery'
 
+const INSPECTION_KIND_LABEL: Record<string, string> = {
+  checkin: 'Check-in',
+  checkout: 'Check-out',
+  periodic: 'Vistoria periódica',
+}
+
+const INSPECTION_STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
+  pending:   { bg: 'bg-[#32323222]', text: 'text-[#9e9e9e]', label: 'Pendente'          },
+  completed: { bg: 'bg-[#0e2f13]',   text: 'text-[#229731]', label: 'Concluída'         },
+  submitted: { bg: 'bg-[#5e3a00]',   text: 'text-[#ffba49]', label: 'Aguardando análise' },
+  approved:  { bg: 'bg-[#0e2f13]',   text: 'text-[#229731]', label: 'Aprovada'          },
+  rejected:  { bg: 'bg-[#7c1c1c]',   text: 'text-[#ff9c9a]', label: 'Rejeitada'         },
+}
+
 const STATUS_COLORS: Record<VehicleStatus, string> = {
   available:   'bg-[#143c18] text-[#4ade80] border-[#4ade80]/30',
   rented:      'bg-[#2d0363] text-[#a880ff] border-[#a880ff]/30',
@@ -73,6 +87,23 @@ export default async function VehicleDetailPage({
   const documents = documentsResult.data ?? []
   const obligations = obligationsResult.data ?? []
   const maintenances = maintenancesResult.data ?? []
+
+  // Histórico agregado de vistorias do veículo, através de todas as suas
+  // locações (RF-023) — join direto, sem passar por @gomoto/data (repositórios
+  // do pacote arrastariam hooks/contexto React, incompatíveis com Server Component).
+  const { data: inspectionHistoryData } = await supabase
+    .from('inspections')
+    .select('*, rental:rentals!inner(id, vehicle_id, customer:customers(id,name))')
+    .eq('rental.vehicle_id', id)
+    .order('created_at', { ascending: false })
+  const inspectionHistory = (inspectionHistoryData ?? []) as Array<{
+    id: string
+    kind: string
+    status: string
+    created_at: string
+    executed_at: string | null
+    rental: { customer: { name: string } | null } | null
+  }>
 
   const maintenancePlan = moto.maintenance_plan_id
     ? (
@@ -326,6 +357,52 @@ export default async function VehicleDetailPage({
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+
+        {/* Histórico de vistorias (RF-023) */}
+        <section>
+          <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">
+            Histórico de Vistorias <span className="text-[12px] font-normal text-[#9e9e9e]">({inspectionHistory.length})</span>
+          </h2>
+          <div className="bg-[#202020] rounded-xl overflow-hidden">
+            {inspectionHistory.length === 0 ? (
+              <p className="text-[13px] text-[#9e9e9e] px-4 py-3">Nenhuma vistoria registrada para este veículo.</p>
+            ) : (
+              <table className="w-full text-[13px]">
+                <thead className="border-b border-[#323232]">
+                  <tr>
+                    <th className="h-9 px-4 text-left text-[#9e9e9e] font-medium">Tipo</th>
+                    <th className="h-9 px-4 text-left text-[#9e9e9e] font-medium">Cliente</th>
+                    <th className="h-9 px-4 text-left text-[#9e9e9e] font-medium">Data</th>
+                    <th className="h-9 px-4 text-left text-[#9e9e9e] font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inspectionHistory.map((insp) => {
+                    const badge = INSPECTION_STATUS_BADGE[insp.status] ?? INSPECTION_STATUS_BADGE.pending
+                    return (
+                      <tr key={insp.id} className="border-b border-[#323232] last:border-0 hover:bg-[#282828] transition-colors">
+                        <td className="h-9 px-4">
+                          <Link href={`/vistorias/execute/${insp.id}`} className="text-[#f5f5f5] hover:text-[#BAFF1A] transition-colors">
+                            {INSPECTION_KIND_LABEL[insp.kind] ?? insp.kind}
+                          </Link>
+                        </td>
+                        <td className="h-9 px-4 text-[#9e9e9e]">{insp.rental?.customer?.name ?? '—'}</td>
+                        <td className="h-9 px-4 text-[#9e9e9e]">
+                          {new Date(insp.executed_at ?? insp.created_at).toLocaleDateString('pt-BR')}
+                        </td>
+                        <td className="h-9 px-4">
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge.bg} ${badge.text}`}>
+                            {badge.label}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             )}

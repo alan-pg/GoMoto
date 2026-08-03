@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 
-import { useCustomers, useAvailableVehicles, useContractTemplates, useContractTemplate } from '@gomoto/data'
+import { useCustomers, useAvailableVehicles, useContractTemplates, useContractTemplate, useInspectionProfiles } from '@gomoto/data'
 import { generateCycleCharges, WEEK_DAY_OPTIONS, formatDueDay, resolveContractVariables, substituteVariables } from '@gomoto/core'
 import type { CycleCharge, Rental, LateChargeConfig } from '@gomoto/core'
 import { formatCurrency, formatDate } from '@/lib/utils'
@@ -38,6 +38,9 @@ type FormState = {
   security_deposit: string
   contract_template_id: string
   observations:     string
+  checkin_checkout_inspection_profile_id: string
+  periodic_inspection_profile_id:         string
+  periodic_inspection_frequency_days:     string
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -95,6 +98,9 @@ function buildInitialForm(d?: Partial<Rental> & { security_deposit?: number | nu
     security_deposit: d?.security_deposit != null ? String(d.security_deposit) : '',
     contract_template_id: d?.contract_template_id ?? '',
     observations:     d?.observations ?? '',
+    checkin_checkout_inspection_profile_id: '',
+    periodic_inspection_profile_id:         '',
+    periodic_inspection_frequency_days:     '',
   }
 }
 
@@ -144,6 +150,12 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
   const customersQuery = useCustomers()
   const vehiclesQuery  = useAvailableVehicles()
   const templatesQuery = useContractTemplates()
+  const inspectionProfilesQuery = useInspectionProfiles()
+
+  const activeInspectionProfiles = useMemo(
+    () => (inspectionProfilesQuery.data ?? []).filter(p => p.archived_at === null).sort((a, b) => a.name.localeCompare(b.name)),
+    [inspectionProfilesQuery.data],
+  )
 
   const customers = useMemo(
     () => (customersQuery.data ?? []).filter(c => c.active).sort((a,b) => a.name.localeCompare(b.name)),
@@ -316,6 +328,12 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
         return
       }
 
+      // RN-005 — frequência é obrigatória quando o vínculo periódico é associado
+      if (form.periodic_inspection_profile_id && !form.periodic_inspection_frequency_days) {
+        setGlobalError('Informe a frequência da vistoria periódica.')
+        return
+      }
+
       const hasCustomLateCharges = Boolean(lateFeeValue || dailyInterestPct || graceDays)
       const late_charge_config: LateChargeConfig | undefined = hasCustomLateCharges
         ? {
@@ -343,6 +361,11 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
         late_charge_config,
         contract_template_id: form.contract_template_id || null,
         observations:     form.observations || null,
+        checkin_checkout_inspection_profile_id: form.checkin_checkout_inspection_profile_id || null,
+        periodic_inspection_profile_id:         form.periodic_inspection_profile_id || null,
+        periodic_inspection_frequency_days:     form.periodic_inspection_profile_id && form.periodic_inspection_frequency_days
+          ? parseInt(form.periodic_inspection_frequency_days, 10)
+          : null,
       })
       if (!result.ok) { setGlobalError(result.error.message); return }
       router.push(`/locacoes/${result.data.lease_id}`)
@@ -778,6 +801,55 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                 </div>
               </div>
             </section>
+
+            {/* ── Seção: Vistoria (Spec 0009 — só na criação) ──────────────── */}
+            {!isEditMode && (
+              <section>
+                <h2 className="mb-5 text-[14px] font-bold text-[#BAFF1A]">Vistoria</h2>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelCls}>Perfil — Check-in/Check-out</label>
+                    <select
+                      className={selectCls}
+                      value={form.checkin_checkout_inspection_profile_id}
+                      onChange={e => set('checkin_checkout_inspection_profile_id', e.target.value)}
+                    >
+                      <option value="">Nenhum — sem check-in/check-out</option>
+                      {activeInspectionProfiles.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-[12px] text-[#616161]">
+                      Check-in nasce pendente na criação; check-out fica disponível ao encerrar.
+                    </p>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Perfil — Vistoria Periódica</label>
+                    <select
+                      className={selectCls}
+                      value={form.periodic_inspection_profile_id}
+                      onChange={e => set('periodic_inspection_profile_id', e.target.value)}
+                    >
+                      <option value="">Nenhum — sem vistoria periódica</option>
+                      {activeInspectionProfiles.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    {form.periodic_inspection_profile_id && (
+                      <div className="mt-2">
+                        <label className={labelCls}>Frequência (dias) *</label>
+                        <input
+                          type="number" min={1} step={1} placeholder="Ex.: 30"
+                          className={inputCls}
+                          value={form.periodic_inspection_frequency_days}
+                          onChange={e => set('periodic_inspection_frequency_days', e.target.value)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
 
             {/* ── Seção: Modelo de contrato ──────────────────────────────── */}
             <section>

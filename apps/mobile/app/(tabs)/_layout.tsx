@@ -48,6 +48,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="vistorias"
+        options={{
+          title: 'Vistorias',
+          tabBarIcon: ({ focused }) => <TabIcon label="V" focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
         name="suporte"
         options={{
           title: 'Conta',

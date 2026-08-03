@@ -35,10 +35,22 @@ export const RentalSchema = z.object({
   // Modelo de contrato usado para gerar o PDF na criação (opcional).
   contract_template_id: z.string().uuid().nullable().optional(),
   observations:       z.string().max(2000).nullable().optional(),
+  // Vínculos de Perfil de Vistoria (Spec 0009 / ADR 0015) — independentes
+  // entre si (RN-004). checkin_checkout e periodic podem coexistir, faltar
+  // um, ou faltar os dois.
+  checkin_checkout_inspection_profile_id: z.string().uuid().nullable().optional(),
+  periodic_inspection_profile_id:         z.string().uuid().nullable().optional(),
+  periodic_inspection_frequency_days:     z.number().int().positive().nullable().optional(),
 }).refine((d) => d.end_date > d.start_date, {
   message: 'Data de fim deve ser posterior à data de início',
   path: ['end_date'],
-})
+}).refine(
+  (d) => !!d.periodic_inspection_profile_id === !!d.periodic_inspection_frequency_days,
+  {
+    message: 'Frequência é obrigatória quando o perfil de vistoria periódica é associado',
+    path: ['periodic_inspection_frequency_days'],
+  },
+) // RN-005 — espelha o CHECK de banco (defesa em profundidade, não substitui)
 
 export type CreateRental = z.infer<typeof RentalSchema>
 
