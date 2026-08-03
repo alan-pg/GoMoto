@@ -38,7 +38,13 @@ export function formatCurrencyPlain(value: number): string {
  * @returns String formatada.
  */
 export function formatDate(date: string | Date): string {
-  return new Intl.DateTimeFormat('pt-BR').format(new Date(date))
+  // Strings "YYYY-MM-DD" (colunas `date` do Postgres) são interpretadas pelo
+  // `Date` nativo como meia-noite UTC — em fusos negativos (ex: America/Sao_Paulo)
+  // isso exibe o dia anterior. Ancorar em meia-noite local evita o desvio.
+  const parsed = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? new Date(`${date}T00:00:00`)
+    : new Date(date)
+  return new Intl.DateTimeFormat('pt-BR').format(parsed)
 }
 
 export * from './currency-words'
