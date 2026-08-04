@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 
 import { LayoutShell } from '@/components/layout/LayoutShell'
 import { SidebarProvider } from '@/components/layout/SidebarContext'
@@ -6,6 +7,7 @@ import { Providers } from '@/providers/Providers'
 import { createClient } from '@/lib/supabase/server'
 import { getPlatformRole } from '@/lib/auth/platform'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
+import { isMobileUserAgent } from '@/lib/device'
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -34,6 +36,13 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
   const supabase = await createClient()
   const role = await getPlatformRole(supabase)
   if (role) redirect('/admin/dashboard')
+
+  // Confinamento de sessão mobile ao /mobile/* (ADR 0018) — o cockpit
+  // desktop não é responsivo; qualquer navegação vinda de um celular real
+  // (link salvo, digitação direta de URL, voltar do histórico) é
+  // redirecionada pra tela adaptada em vez de renderizar a chrome quebrada
+  // de Sidebar/Topbar.
+  if (isMobileUserAgent(headers().get('user-agent'))) redirect('/mobile/vistorias')
 
   const tenantId = await getCurrentTenantId(supabase)
   if (!tenantId) redirect('/login')

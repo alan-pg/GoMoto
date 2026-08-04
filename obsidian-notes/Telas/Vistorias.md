@@ -36,5 +36,19 @@ Diferente de Planos de Manutenção (`PlanForm.tsx`): não há Server Action por
 
 Ver `apps/mobile/src/screens/Inspections/` — aba "Vistorias" no app do cliente. Único ponto de escrita do cliente no sistema; passa pelo Route Handler `/api/inspections/schedules/[scheduleId]/submit` (ADR 0016), nunca por Server Action. Upload de foto acontece direto do app pro bucket `inspection-photos` (policy de storage aceita qualquer `authenticated`, path é o que isola por tenant) — o Route Handler só recebe os `storage_path` já prontos, mesmo padrão do `pix/route.ts`.
 
+## Check-in/check-out pelo funcionário no pátio (mobile web)
+
+Implementa [[decisions/0018-vistoria-mobile-responsividade-cockpit-web|ADR 0018]] — não é o app `apps/mobile` (esse é do cliente final, com modelo de identidade próprio); é uma fatia responsiva do próprio `apps/web`, fora da chrome do `(dashboard)` (sem Sidebar/Topbar), pro funcionário acessar do celular no navegador, logado com a própria conta de operador (mesmo login de hoje).
+
+| Rota | Arquivo | Responsabilidade |
+|---|---|---|
+| `/mobile/*` | `(mobile)/layout.tsx` | Layout sem chrome desktop — mesmos guards de auth/tenant do `(dashboard)/layout.tsx`, header fino com logout. Prefixo genérico (não `/vistorias/*`) porque outras telas podem ganhar versão mobile aqui no futuro |
+| `/mobile/vistorias` | `(mobile)/mobile/vistorias/page.tsx` | Lista mobile de pendências — mesmo hook `usePendingInspections` do `/vistorias` desktop, filtrado a check-in/check-out (vistoria periódica é análise de mesa, fora de escopo), cards em vez de tabela |
+| `/mobile/vistorias/[inspectionId]` | `(mobile)/mobile/vistorias/[inspectionId]/page.tsx` | Wrapper fino do mesmo `InspectionExecutionPanel.tsx` usado no desktop — nenhuma lógica duplicada |
+
+Sessão mobile (detectada por `User-Agent`, `apps/web/src/lib/device.ts`) é confinada a `/mobile/*` — qualquer entrada num celular real em rota do `(dashboard)` (inclusive o redirect pós-login) é redirecionada pra `/mobile/vistorias` (ADR 0018).
+
+`InspectionExecutionPanel.tsx` (compartilhado entre `/vistorias/execute/[id]`, `/locacoes/[id]` e `/mobile/vistorias/[id]`) recebeu ajustes de alvo de toque (botões OK/Não-OK e "Salvar vistoria" de `h-8`/`h-9` para `h-11`) e `capture="environment"` no input de foto — mudanças aditivas, sem efeito no desktop.
+
 ## Tags
 `#projeto/tela` `#gomoto/vistorias` `#gomoto/locacoes`

@@ -6,6 +6,7 @@
 
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { isMobileUserAgent } from './lib/device';
 
 // In-memory rate limiter for login attempts (per IP, sliding window)
 const loginAttempts = new Map<string, number[]>()
@@ -143,7 +144,9 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url);
     }
     const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
+    // Sessão mobile vai direto pra tela adaptada (ADR 0018) — evita o hop
+    // extra de cair em /dashboard e só depois ser redirecionada pelo layout.
+    url.pathname = isMobileUserAgent(request.headers.get('user-agent')) ? '/mobile/vistorias' : '/dashboard';
     return NextResponse.redirect(url);
   }
 

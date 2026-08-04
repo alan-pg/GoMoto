@@ -232,7 +232,7 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
                     <button
                       type="button"
                       onClick={() => setAnswers((prev) => ({ ...prev, [item.id]: { ...prev[item.id], status: 'ok' } }))}
-                      className={`h-8 px-4 rounded-full text-[12px] font-semibold transition-colors ${
+                      className={`h-11 px-4 rounded-full text-[12px] font-semibold transition-colors ${
                         draft?.status === 'ok' ? 'bg-[#229731] text-[#0e2f13]' : 'bg-[#282828] text-[#9e9e9e] hover:text-[#f5f5f5]'
                       }`}
                     >
@@ -241,7 +241,7 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
                     <button
                       type="button"
                       onClick={() => setAnswers((prev) => ({ ...prev, [item.id]: { ...prev[item.id], status: 'not_ok' } }))}
-                      className={`h-8 px-4 rounded-full text-[12px] font-semibold transition-colors ${
+                      className={`h-11 px-4 rounded-full text-[12px] font-semibold transition-colors ${
                         draft?.status === 'not_ok' ? 'bg-[#ff9c9a] text-[#7c1c1c]' : 'bg-[#282828] text-[#9e9e9e] hover:text-[#f5f5f5]'
                       }`}
                     >
@@ -288,6 +288,7 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
                       <input
                         type="file"
                         accept="image/jpeg,image/png,image/webp"
+                        capture="environment"
                         className="hidden"
                         onChange={(e) => {
                           const file = e.target.files?.[0]
@@ -396,7 +397,7 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
             type="button"
             disabled={submitting}
             onClick={handleSubmit}
-            className="h-9 px-6 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors disabled:opacity-60"
+            className="h-11 px-6 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors disabled:opacity-60"
           >
             {submitting ? 'Salvando…' : 'Salvar vistoria'}
           </button>
