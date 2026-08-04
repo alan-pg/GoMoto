@@ -50,5 +50,9 @@ Sessão mobile (detectada por `User-Agent`, `apps/web/src/lib/device.ts`) é con
 
 `InspectionExecutionPanel.tsx` (compartilhado entre `/vistorias/execute/[id]`, `/locacoes/[id]` e `/mobile/vistorias/[id]`) recebeu ajustes de alvo de toque (botões OK/Não-OK e "Salvar vistoria" de `h-8`/`h-9` para `h-11`) e `capture="environment"` no input de foto — mudanças aditivas, sem efeito no desktop.
 
+### PWA instalável
+
+`(mobile)/layout.tsx` declara `manifest`/`appleWebApp`/`viewport.themeColor` — só nesse layout, então só `/mobile/*` vira "app" na tela inicial do celular; `(dashboard)` não tem nenhum `<link rel="manifest">`. Manifest estático em `public/mobile-manifest.webmanifest` (`start_url`/`scope` restritos a `/mobile/`, `display: standalone`). Ícones em `public/mobile/` (`icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png`) são placeholder gerado (círculo `#BAFF1A` sobre `#121212`, sem dependência externa) — trocar pelos definitivos quando existirem, mesmos nomes de arquivo e dimensões (192², 512², 512² maskable, 180²). Sem service worker / cache offline por decisão explícita (só instalável por ora).
+
 ## Tags
 `#projeto/tela` `#gomoto/vistorias` `#gomoto/locacoes`

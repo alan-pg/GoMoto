@@ -1,3 +1,4 @@
+import type { Metadata, Viewport } from 'next'
 import { redirect } from 'next/navigation'
 import { Bike, LogOut } from 'lucide-react'
 
@@ -5,6 +6,25 @@ import { Providers } from '@/providers/Providers'
 import { createClient } from '@/lib/supabase/server'
 import { getPlatformRole } from '@/lib/auth/platform'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
+
+// PWA instalável (ADR 0018) — escopo restrito a este layout, não ao app
+// inteiro: só a fatia /mobile/* vira "app" na tela inicial do celular, o
+// cockpit desktop (dashboard) continua sem manifest/ícone algum.
+export const metadata: Metadata = {
+  manifest: '/mobile-manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'GoMoto Vistoria',
+    statusBarStyle: 'black-translucent',
+  },
+  icons: {
+    apple: '/mobile/apple-touch-icon.png',
+  },
+}
+
+export const viewport: Viewport = {
+  themeColor: '#121212',
+}
 
 interface MobileLayoutProps {
   children: React.ReactNode
