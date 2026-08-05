@@ -1,43 +1,31 @@
 {
-  "name": "sistema-gomoto",
+  "name": "gomoto",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.5.3",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "test": "playwright test",
-    "test:ui": "playwright test --ui",
-    "test:headed": "playwright test --headed",
-    "test:report": "playwright show-report"
-  },
-  "dependencies": {
-    "@supabase/ssr": "^0.9.0",
-    "@supabase/supabase-js": "^2.99.0",
-    "@types/leaflet": "^1.9.21",
-    "clsx": "^2.1.1",
-    "docxtemplater": "^3.68.7",
-    "leaflet": "^1.9.4",
-    "lucide-react": "^0.577.0",
-    "next": "14.2.35",
-    "pizzip": "^3.2.0",
-    "react": "^18",
-    "react-dom": "^18",
-    "recharts": "^3.8.1",
-    "tailwind-merge": "^3.5.0",
-    "zod": "^4.3.6"
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset --local",
+    "db:diff": "supabase db diff --local -f",
+    "db:status": "supabase status",
+    "db:push": "supabase db push",
+    "bootstrap-admin": "node scripts/bootstrap-admin.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "^1.59.1",
+    "@supabase/supabase-js": "^2.99.0",
     "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
-    "dotenv": "^17.4.2",
-    "eslint": "^8",
-    "eslint-config-next": "14.2.35",
-    "postcss": "^8",
-    "tailwindcss": "^3.4.1",
+    "next": "14.2.35",
+    "turbo": "^2.5.8",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=10"
   }
 }

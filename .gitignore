@@ -11,11 +11,20 @@
 /coverage
 /playwright-report
 /test-results
-tests/.auth/
+**/coverage/
+**/playwright-report/
+**/test-results/
+**/tests/.auth/
 
 # next.js
 /.next/
 /out/
+**/.next/
+**/out/
+
+# turborepo
+.turbo/
+**/.turbo/
 
 # production
 /build
@@ -30,18 +39,25 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
+.env
 .env*.local
 .env.test
 
 # vercel
 .vercel
 
+# Supabase local (Docker) — manter migrations/, seed.sql, config.toml versionados
+supabase/.branches/
+supabase/.temp/
+supabase/volumes/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
 
 # AI tools (contêm tokens e configurações locais)
-.claude/
+.claude/*
+!.claude/settings.json
 .gemini/
 .mcp.json
 

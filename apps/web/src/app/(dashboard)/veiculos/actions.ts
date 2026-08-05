@@ -1,0 +1,391 @@
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+import { revalidatePath } from 'next/cache'
+import {
+  VehicleSchema,
+  VehicleBaseSchema,
+  VehicleStatusTransitionSchema,
+  type VehicleStatus,
+  type VehiclePhotoSlot,
+  type ActionResult,
+} from '@gomoto/core'
+import { logAction } from '@/lib/audit'
+import { getCurrentTenantId } from '@/lib/auth/tenant'
+import { recordStatusTransition } from '@/lib/vehicle-status-history'
+import { canChangeStatus } from '@gomoto/core'
+
+async function getAuthenticatedContext() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const tenantId = user ? await getCurrentTenantId(supabase) : null
+  return { supabase, user, tenantId }
+}
+
+export async function createVehicle(
+  input: unknown,
+  photos?: Partial<Record<VehiclePhotoSlot, string>>,
+): Promise<ActionResult<{ id: string; failedSlots?: VehiclePhotoSlot[] }>> {
+  const { supabase, user, tenantId } = await getAuthenticatedContext()
+
+  if (!user) {
+    return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+  }
+  if (!tenantId) {
+    return { ok: false, error: { code: 'FORBIDDEN', message: 'Tenant não resolvido' } }
+  }
+
+  const parsed = VehicleSchema.safeParse(input)
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0]
+    return {
+      ok: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: firstIssue?.message ?? 'Dados inválidos',
+        field: firstIssue?.path.join('.'),
+      },
+    }
+  }
+
+  const { data: vehicle, error: insertError } = await supabase
+    .from('vehicles')
+    .insert({ ...parsed.data, tenant_id: tenantId })
+    .select()
+    .single()
+
+  if (insertError) {
+    if (insertError.code === '23505' && insertError.message.includes('license_plate')) {
+      return {
+        ok: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Esta placa já está cadastrada.', field: 'license_plate' },
+      }
+    }
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Erro ao cadastrar veículo' } }
+  }
+
+  try {
+    await recordStatusTransition(supabase, {
+      vehicleId:      vehicle.id,
+      tenantId,
+      previousStatus: null,
+      newStatus:      vehicle.status as VehicleStatus,
+      userId:         user.id,
+    })
+  } catch {
+    // Falha no histórico não deve bloquear o cadastro já criado — logar e continuar
+    console.error('[createVehicle] recordStatusTransition failed for', vehicle.id)
+  }
+
+  const failedSlots: VehiclePhotoSlot[] = []
+  if (photos) {
+    await Promise.allSettled(
+      (Object.entries(photos) as [VehiclePhotoSlot, string][])
+        .filter(([, url]) => !!url)
+        .map(async ([slot, url]) => {
+          const { error } = await supabase.from('vehicle_photos').upsert({
+            vehicle_id: vehicle.id,
+            tenant_id:  tenantId,
+            slot,
+            url,
+          }, { onConflict: 'vehicle_id,slot' })
+          if (error) {
+            console.error('[createVehicle] photo upsert failed', { vehicleId: vehicle.id, slot })
+            failedSlots.push(slot)
+          }
+        }),
+    )
+  }
+
+  await logAction({ action: 'create', table: 'vehicles', recordId: vehicle.id, newData: vehicle })
+  revalidatePath('/veiculos')
+  revalidatePath(`/veiculos/${vehicle.id}`)
+
+  return {
+    ok: true,
+    data: { id: vehicle.id, ...(failedSlots.length > 0 ? { failedSlots } : {}) },
+  }
+}
+
+export async function updateVehicle(
+  vehicleId: string,
+  input: unknown,
+  photos?: Partial<Record<VehiclePhotoSlot, string | null>>,
+): Promise<ActionResult<{ id: string; failedSlots?: VehiclePhotoSlot[] }>> {
+  const { supabase, user, tenantId } = await getAuthenticatedContext()
+
+  if (!user) {
+    return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+  }
+  if (!tenantId) {
+    return { ok: false, error: { code: 'FORBIDDEN', message: 'Tenant não resolvido' } }
+  }
+
+  const { data: current, error: fetchError } = await supabase
+    .from('vehicles')
+    .select('id, status, km_entry')
+    .eq('id', vehicleId)
+    .single()
+
+  if (fetchError || !current) {
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Veículo não encontrado', field: 'id' } }
+  }
+
+  const parsed = VehicleBaseSchema.partial().safeParse(input)
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0]
+    return {
+      ok: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: firstIssue?.message ?? 'Dados inválidos',
+        field: firstIssue?.path.join('.'),
+      },
+    }
+  }
+
+  // km_entry é imutável (RF-015) — ignorar mesmo se enviado
+  const { km_entry: _ignored, ...updateData } = parsed.data
+
+  // Se moto está Locada, status não pode ser alterado (RN-002)
+  if (current.status === 'rented' && updateData.status) {
+    delete updateData.status
+  }
+
+  const previousStatus = current.status as VehicleStatus
+  const newStatus = updateData.status as VehicleStatus | undefined
+
+  const { data: updatedVehicle, error: updateError } = await supabase
+    .from('vehicles')
+    .update(updateData)
+    .eq('id', vehicleId)
+    .select()
+    .single()
+
+  if (updateError) {
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Erro ao atualizar veículo' } }
+  }
+
+  if (newStatus && newStatus !== previousStatus) {
+    await recordStatusTransition(supabase, {
+      vehicleId,
+      tenantId,
+      previousStatus,
+      newStatus,
+      userId: user.id,
+    })
+  }
+
+  const failedSlots: VehiclePhotoSlot[] = []
+  if (photos) {
+    await Promise.allSettled(
+      (Object.entries(photos) as [VehiclePhotoSlot, string | null][]).map(async ([slot, url]) => {
+        if (url === null) {
+          // Deletar foto do slot
+          const { data: existing } = await supabase
+            .from('vehicle_photos')
+            .select('url')
+            .eq('vehicle_id', vehicleId)
+            .eq('slot', slot)
+            .maybeSingle()
+
+          if (existing?.url) {
+            await supabase.storage.from('vehicle-photos').remove([existing.url])
+          }
+          await supabase
+            .from('vehicle_photos')
+            .delete()
+            .eq('vehicle_id', vehicleId)
+            .eq('slot', slot)
+        } else if (url) {
+          const { error } = await supabase.from('vehicle_photos').upsert({
+            vehicle_id: vehicleId,
+            tenant_id:  tenantId,
+            slot,
+            url,
+          }, { onConflict: 'vehicle_id,slot' })
+          if (error) {
+            console.error('[updateVehicle] photo upsert failed', { vehicleId, slot })
+            failedSlots.push(slot)
+          }
+        }
+      }),
+    )
+  }
+
+  await logAction({
+    action: 'update',
+    table: 'vehicles',
+    recordId: vehicleId,
+    oldData: current,
+    newData: updatedVehicle,
+  })
+  revalidatePath('/veiculos')
+  revalidatePath(`/veiculos/${vehicleId}`)
+
+  return {
+    ok: true,
+    data: { id: vehicleId, ...(failedSlots.length > 0 ? { failedSlots } : {}) },
+  }
+}
+
+export async function changeVehicleStatus(
+  vehicleId: string,
+  input: unknown,
+): Promise<ActionResult<{ id: string }>> {
+  const { supabase, user, tenantId } = await getAuthenticatedContext()
+
+  if (!user) {
+    return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+  }
+  if (!tenantId) {
+    return { ok: false, error: { code: 'FORBIDDEN', message: 'Tenant não resolvido' } }
+  }
+
+  const parsed = VehicleStatusTransitionSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Dados inválidos' } }
+  }
+
+  const { new_status: newStatus } = parsed.data
+
+  // changeVehicleStatus só aceita sold, inactive, available
+  if (!['sold', 'inactive', 'available'].includes(newStatus)) {
+    return {
+      ok: false,
+      error: { code: 'VALIDATION_ERROR', message: 'Transição não permitida por este endpoint' },
+    }
+  }
+
+  const { data: vehicle, error: fetchError } = await supabase
+    .from('vehicles')
+    .select('id, status')
+    .eq('id', vehicleId)
+    .single()
+
+  if (fetchError || !vehicle) {
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Veículo não encontrado', field: 'id' } }
+  }
+
+  const currentStatus = vehicle.status as VehicleStatus
+
+  if (!canChangeStatus(currentStatus, newStatus)) {
+    return {
+      ok: false,
+      error: {
+        code: 'FORBIDDEN',
+        message: `Não é possível alterar de "${currentStatus}" para "${newStatus}"`,
+      },
+    }
+  }
+
+  const { error: updateError } = await supabase
+    .from('vehicles')
+    .update({ status: newStatus })
+    .eq('id', vehicleId)
+
+  if (updateError) {
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Erro ao atualizar status' } }
+  }
+
+  await recordStatusTransition(supabase, {
+    vehicleId,
+    tenantId,
+    previousStatus: currentStatus,
+    newStatus,
+    userId: user.id,
+  })
+
+  await logAction({
+    action: 'update',
+    table: 'vehicles',
+    recordId: vehicleId,
+    oldData: { status: currentStatus },
+    newData: { status: newStatus },
+  })
+
+  revalidatePath('/veiculos')
+  revalidatePath(`/veiculos/${vehicleId}`)
+
+  return { ok: true, data: { id: vehicleId } }
+}
+
+export async function saveVehicleObligations(
+  vehicleId: string,
+  obligations: Array<{
+    type: 'ipva' | 'licensing' | 'dpvat'
+    amount: number
+    due_date: string
+    status: 'pending' | 'paid' | 'exempt'
+    reference_year: number
+  }>,
+): Promise<ActionResult<void>> {
+  const { supabase, user, tenantId } = await getAuthenticatedContext()
+
+  if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+  if (!tenantId) return { ok: false, error: { code: 'FORBIDDEN', message: 'Tenant não resolvido' } }
+
+  for (const obl of obligations) {
+    const { error } = await supabase
+      .from('vehicle_obligations')
+      .upsert(
+        {
+          tenant_id:      tenantId,
+          vehicle_id:     vehicleId,
+          type:           obl.type,
+          reference_year: obl.reference_year,
+          amount:         obl.amount,
+          due_date:       obl.due_date,
+          status:         obl.status,
+          paid_at:        obl.status === 'paid' ? obl.due_date : null,
+        },
+        { onConflict: 'vehicle_id,type,reference_year' },
+      )
+    if (error) {
+      return { ok: false, error: { code: 'INTERNAL_ERROR', message: `Erro ao salvar ${obl.type}: ${error.message}` } }
+    }
+  }
+
+  await logAction({ action: 'update', table: 'vehicle_obligations', recordId: vehicleId })
+  revalidatePath(`/veiculos/${vehicleId}`)
+  return { ok: true, data: undefined }
+}
+
+export async function deleteVehiclePhoto(
+  vehicleId: string,
+  slot: VehiclePhotoSlot,
+): Promise<ActionResult<void>> {
+  const { supabase, user } = await getAuthenticatedContext()
+
+  if (!user) {
+    return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+  }
+
+  const { data: photo } = await supabase
+    .from('vehicle_photos')
+    .select('url')
+    .eq('vehicle_id', vehicleId)
+    .eq('slot', slot)
+    .maybeSingle()
+
+  if (photo?.url) {
+    await supabase.storage.from('vehicle-photos').remove([photo.url])
+  }
+
+  const { error } = await supabase
+    .from('vehicle_photos')
+    .delete()
+    .eq('vehicle_id', vehicleId)
+    .eq('slot', slot)
+
+  if (error) {
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Erro ao remover foto' } }
+  }
+
+  await logAction({ action: 'delete', table: 'vehicle_photos', recordId: vehicleId })
+
+  revalidatePath(`/veiculos/${vehicleId}`)
+  revalidatePath('/veiculos')
+
+  return { ok: true, data: undefined }
+}

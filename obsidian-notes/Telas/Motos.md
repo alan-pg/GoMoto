@@ -110,5 +110,9 @@ DELETE FROM motorcycles WHERE id = ?
 - **`visibleMotoIds`**: apenas motos da lista filtrada aparecem no mapa
 - **Cores do ponto de status:** available `#28b438` · rented `#a880ff` · maintenance `#e65e24` · inactive `#474747`
 
+## Histórico de Vistorias (Spec 0009, 2026-07-30)
+
+Esta nota cobre só a lista (`/motos`); a tela de **detalhe** (`apps/web/src/app/(dashboard)/veiculos/[id]/page.tsx`, sem nota própria ainda) ganhou uma seção "Histórico de Vistorias" — agrega `inspections` de todas as locações do veículo (`rental:rentals!inner(vehicle_id)`, RF-023/RN-012), com link para `/vistorias/execute/[id]`.
+
 ## Tags
 `#projeto/tela` `#gomoto/motos`

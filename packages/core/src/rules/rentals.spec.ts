@@ -1,0 +1,403 @@
+import { describe, it, expect } from 'vitest'
+import {
+  generateCycleCharges,
+  calculateProRataValue,
+  isRentalTerminationWithinMinimum,
+  calculateMinimumEndDateForRental,
+  getEarlyTerminationImpact,
+  calculateAdjustedBillingAmount,
+  previewRentalAdjustment,
+  computeScheduleRegenerationCutoff,
+  previewScheduleRegeneration,
+  RENTAL_MINIMUM_DURATION,
+} from './rentals'
+import { RentalSchema, RenewRentalSchema, TerminateRentalSchema } from '../schemas/rentals'
+import type { CycleCharge } from './rentals'
+
+// ---------------------------------------------------------------------------
+// calculateProRataValue
+// ---------------------------------------------------------------------------
+
+describe('calculateProRataValue', () => {
+  it('retorna valor proporcional (3 de 7 dias)', () => {
+    expect(calculateProRataValue(350, 3, 7)).toBeCloseTo(150, 2)
+  })
+
+  it('retorna valor cheio quando dias === cycleDays', () => {
+    expect(calculateProRataValue(200, 30, 30)).toBeCloseTo(200, 2)
+  })
+
+  it('arredonda para 2 casas decimais', () => {
+    const result = calculateProRataValue(100, 1, 3)
+    expect(result).toBeCloseTo(33.33, 2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// generateCycleCharges — ciclo mensal
+// ---------------------------------------------------------------------------
+
+describe('generateCycleCharges — mensal', () => {
+  it('gera 3 cobranças mensais sem pro rata', () => {
+    const charges = generateCycleCharges({
+      start_date:   '2025-01-01',
+      end_date:     '2025-04-01',
+      cycle:        'monthly',
+      due_day:      10,
+      cycle_amount: 600,
+      use_pro_rata: false,
+    })
+    expect(charges).toHaveLength(3)
+    expect(charges.every((c) => c.amount === 600)).toBe(true)
+    expect(charges.every((c) => c.billing_type === 'cycle')).toBe(true)
+  })
+
+  it('vencimentos caem no dia correto do mês', () => {
+    const charges = generateCycleCharges({
+      start_date:   '2025-01-01',
+      end_date:     '2025-04-01',
+      cycle:        'monthly',
+      due_day:      15,
+      cycle_amount: 600,
+      use_pro_rata: false,
+    })
+    expect(charges.map((c) => c.due_date)).toEqual(['2025-01-15', '2025-02-15', '2025-03-15'])
+  })
+
+  it('aplica pro rata na primeira cobrança quando início != vencimento', () => {
+    const charges = generateCycleCharges({
+      start_date:   '2025-01-05',  // 5 dias depois do início
+      end_date:     '2025-03-10',
+      cycle:        'monthly',
+      due_day:      10,
+      cycle_amount: 300,
+      use_pro_rata: true,
+    })
+    // Primeira cobrança (10/jan) deve ser pro rata: 5 dias / 31 dias do ciclo
+    expect(charges[0]?.due_date).toBe('2025-01-10')
+    expect(charges[0]?.amount).toBeLessThan(300)
+    // Intermediária deve ser integral
+    expect(charges[1]?.amount).toBe(300)
+  })
+
+  it('aplica pro rata na última cobrança quando fim != vencimento', () => {
+    const charges = generateCycleCharges({
+      start_date:   '2025-01-10',
+      end_date:     '2025-03-05',  // antes do dia 10
+      cycle:        'monthly',
+      due_day:      10,
+      cycle_amount: 300,
+      use_pro_rata: true,
+    })
+    const last = charges[charges.length - 1]
+    // Última cobrança deve ser pro rata (cobrir apenas até 05/mar)
+    expect(last?.amount).toBeLessThan(300)
+  })
+
+  it('retorna uma cobrança quando não há vencimento no período', () => {
+    // Jan 11 a Jan 25 — o próximo dia 10 é Feb 10, fora do período
+    const charges = generateCycleCharges({
+      start_date:   '2025-01-11',
+      end_date:     '2025-01-25',
+      cycle:        'monthly',
+      due_day:      10,
+      cycle_amount: 300,
+      use_pro_rata: true,
+    })
+    expect(charges).toHaveLength(1)
+    expect(charges[0]?.amount).toBeLessThan(300)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// generateCycleCharges — ciclo semanal
+// ---------------------------------------------------------------------------
+
+describe('generateCycleCharges — semanal', () => {
+  it('gera cobranças semanais sem pro rata', () => {
+    // due_day 1 = Segunda. Início: 2025-01-06 (Seg), fim: 2025-01-28 (Ter)
+    const charges = generateCycleCharges({
+      start_date:   '2025-01-06',
+      end_date:     '2025-01-28',
+      cycle:        'weekly',
+      due_day:      1,  // segunda
+      cycle_amount: 100,
+      use_pro_rata: false,
+    })
+    // Segundas: 06, 13, 20, 27 — 4 vencimentos dentro do período
+    expect(charges).toHaveLength(4)
+    expect(charges.every((c) => c.amount === 100)).toBe(true)
+  })
+
+  it('vencimentos são todas as segundas-feiras', () => {
+    const charges = generateCycleCharges({
+      start_date:   '2025-01-06',
+      end_date:     '2025-01-28',
+      cycle:        'weekly',
+      due_day:      1,
+      cycle_amount: 100,
+      use_pro_rata: false,
+    })
+    const expectedDates = ['2025-01-06', '2025-01-13', '2025-01-20', '2025-01-27']
+    expect(charges.map((c) => c.due_date)).toEqual(expectedDates)
+  })
+
+  it('due_day 7 (domingo) funciona corretamente', () => {
+    // due_day 7 = Domingo
+    const charges = generateCycleCharges({
+      start_date:   '2025-01-05',  // Domingo
+      end_date:     '2025-01-20',
+      cycle:        'weekly',
+      due_day:      7,
+      cycle_amount: 150,
+      use_pro_rata: false,
+    })
+    // Domingos: 05, 12, 19 — todos dentro do período
+    expect(charges.every((c) => c.amount === 150)).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// isRentalTerminationWithinMinimum
+// ---------------------------------------------------------------------------
+
+describe('isRentalTerminationWithinMinimum', () => {
+  it('rental: retorna true se dentro de 3 meses', () => {
+    const startDate = '2025-01-01'
+    const today = new Date('2025-02-15')  // 45 dias após início
+    expect(isRentalTerminationWithinMinimum({ start_date: startDate, rental_type: 'rental' }, today)).toBe(true)
+  })
+
+  it('rental: retorna false se além de 3 meses', () => {
+    const startDate = '2025-01-01'
+    const today = new Date('2025-04-15')  // > 3 meses
+    expect(isRentalTerminationWithinMinimum({ start_date: startDate, rental_type: 'rental' }, today)).toBe(false)
+  })
+
+  it('rent_to_own: retorna true se dentro de 2 anos', () => {
+    const startDate = '2024-01-01'
+    const today = new Date('2025-06-01')  // ~17 meses
+    expect(isRentalTerminationWithinMinimum({ start_date: startDate, rental_type: 'rent_to_own' }, today)).toBe(true)
+  })
+
+  it('rent_to_own: retorna false se além de 2 anos', () => {
+    const startDate = '2023-01-01'
+    const today = new Date('2025-02-01')  // >2 anos
+    expect(isRentalTerminationWithinMinimum({ start_date: startDate, rental_type: 'rent_to_own' }, today)).toBe(false)
+  })
+
+  it('rental_type padrão é rental', () => {
+    const startDate = '2025-01-01'
+    const today = new Date('2025-02-15')
+    expect(isRentalTerminationWithinMinimum({ start_date: startDate }, today)).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// calculateMinimumEndDateForRental
+// ---------------------------------------------------------------------------
+
+describe('calculateMinimumEndDateForRental', () => {
+  it('rental: data mínima é 3 meses após início', () => {
+    const minDate = calculateMinimumEndDateForRental('2025-01-01', 'rental')
+    expect(minDate.toISOString().slice(0, 10)).toBe('2025-04-01')
+  })
+
+  it('rent_to_own: data mínima é 2 anos após início', () => {
+    const minDate = calculateMinimumEndDateForRental('2025-01-01', 'rent_to_own')
+    expect(minDate.toISOString().slice(0, 10)).toBe('2027-01-01')
+  })
+
+  it('RENTAL_MINIMUM_DURATION é coerente com os cálculos', () => {
+    expect(RENTAL_MINIMUM_DURATION.rental.months).toBe(3)
+    expect(RENTAL_MINIMUM_DURATION.rent_to_own.years).toBe(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// getEarlyTerminationImpact
+// ---------------------------------------------------------------------------
+
+describe('getEarlyTerminationImpact', () => {
+  const charges = [
+    { due_date: '2025-01-10', status: 'overdue' },
+    { due_date: '2025-02-10', status: 'pending' },
+    { due_date: '2025-03-10', status: 'pending' },
+    { due_date: '2025-04-10', status: 'pending' },
+  ]
+
+  it('conta cobranças vencidas e futuras corretamente', () => {
+    const today = new Date('2025-02-15')
+    const impact = getEarlyTerminationImpact(charges, today, '2025-01-01', 'rental')
+    // jan/10 e fev/10 são passadas; mar/10 e abr/10 são futuras
+    expect(impact.overdue_count).toBe(2)
+    expect(impact.future_count).toBe(2)
+  })
+
+  it('within_minimum = true se dentro do período mínimo (rental)', () => {
+    const today = new Date('2025-02-15')  // 45 dias, < 3 meses
+    const impact = getEarlyTerminationImpact(charges, today, '2025-01-01', 'rental')
+    expect(impact.within_minimum).toBe(true)
+  })
+
+  it('fine_amount > 0 quando within_minimum = true', () => {
+    const today = new Date('2025-02-15')
+    const impact = getEarlyTerminationImpact(charges, today, '2025-01-01', 'rental')
+    expect(impact.fine_amount).toBeGreaterThan(0)
+  })
+
+  it('fine_amount = 0 quando beyond minimum period', () => {
+    const today = new Date('2025-05-01')  // > 3 meses
+    const impact = getEarlyTerminationImpact(charges, today, '2025-01-01', 'rental')
+    expect(impact.fine_amount).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// RentalSchema
+// ---------------------------------------------------------------------------
+
+describe('RentalSchema', () => {
+  const validRental = {
+    vehicle_id:  '550e8400-e29b-41d4-a716-446655440000',
+    customer_id:    '550e8400-e29b-41d4-a716-446655440001',
+    contract_type:  'rental',
+    cycle:          'monthly',
+    due_day:        10,
+    cycle_amount:   600,
+    start_date:     '2025-01-01',
+    end_date:       '2025-12-01',
+    use_pro_rata:   true,
+  }
+
+  it('valida dados corretos', () => {
+    const result = RentalSchema.safeParse(validRental)
+    expect(result.success).toBe(true)
+  })
+
+  it('rejeita end_date anterior a start_date', () => {
+    const result = RentalSchema.safeParse({ ...validRental, end_date: '2024-12-01' })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejeita due_day fora de [1, 31]', () => {
+    const result = RentalSchema.safeParse({ ...validRental, due_day: 0 })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejeita cycle_amount negativo', () => {
+    const result = RentalSchema.safeParse({ ...validRental, cycle_amount: -100 })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejeita contract_type inválido', () => {
+    const result = RentalSchema.safeParse({ ...validRental, contract_type: 'loyalty' })
+    expect(result.success).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// calculateAdjustedBillingAmount / previewRentalAdjustment (RF-027–031, RN-027)
+// ---------------------------------------------------------------------------
+
+describe('calculateAdjustedBillingAmount', () => {
+  it('escala cobrança de valor cheio 1:1 com o novo ciclo', () => {
+    expect(calculateAdjustedBillingAmount(500, 500, 600)).toBeCloseTo(600, 2)
+  })
+
+  it('escala cobrança pro rata mantendo a mesma fração (RN-027)', () => {
+    // 300 de um ciclo de 500 = 60% → deve virar 60% do novo valor (600)
+    expect(calculateAdjustedBillingAmount(300, 500, 600)).toBeCloseTo(360, 2)
+  })
+
+  it('arredonda para 2 casas decimais', () => {
+    expect(calculateAdjustedBillingAmount(100, 300, 200)).toBeCloseTo(66.67, 2)
+  })
+
+  it('retorna o novo valor cheio quando previousCycleAmount é zero ou negativo (defensivo)', () => {
+    expect(calculateAdjustedBillingAmount(100, 0, 600)).toBe(600)
+  })
+})
+
+describe('previewRentalAdjustment', () => {
+  it('soma corretamente cobranças de valor cheio e pro rata', () => {
+    const billings = [{ original_amount: 500 }, { original_amount: 500 }, { original_amount: 300 }]
+    const result = previewRentalAdjustment(billings, 500, 600)
+    expect(result.affected_count).toBe(3)
+    expect(result.total_previous).toBeCloseTo(1300, 2)
+    expect(result.total_new).toBeCloseTo(600 + 600 + 360, 2)
+  })
+
+  it('retorna zeros quando não há cobranças pendentes (F11 FA)', () => {
+    const result = previewRentalAdjustment([], 500, 600)
+    expect(result).toEqual({ affected_count: 0, total_previous: 0, total_new: 0 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// computeScheduleRegenerationCutoff / previewScheduleRegeneration
+// ---------------------------------------------------------------------------
+
+describe('computeScheduleRegenerationCutoff', () => {
+  const today = new Date(2026, 6, 24) // 24/07/2026
+
+  it('retorna a due_date mais recente entre pagas e pendentes já vencidas', () => {
+    const billings = [
+      { due_date: '2026-04-10', status: 'paid' },
+      { due_date: '2026-05-10', status: 'pending' }, // vencida na prática
+      { due_date: '2026-06-10', status: 'pending' }, // vencida na prática
+      { due_date: '2026-07-10', status: 'pending' }, // vencida na prática (< 24/07)
+      { due_date: '2026-08-10', status: 'pending' }, // ainda não venceu — livre pra regerar
+    ]
+    expect(computeScheduleRegenerationCutoff(billings, today)).toBe('2026-07-10')
+  })
+
+  it('retorna null quando nenhuma cobrança está travada', () => {
+    const billings = [
+      { due_date: '2026-08-10', status: 'pending' },
+      { due_date: '2026-09-10', status: 'pending' },
+    ]
+    expect(computeScheduleRegenerationCutoff(billings, today)).toBeNull()
+  })
+
+  it('retorna null para lista vazia', () => {
+    expect(computeScheduleRegenerationCutoff([], today)).toBeNull()
+  })
+
+  it('considera cancelada/prejuízo como travada mesmo com due_date futura', () => {
+    const billings = [
+      { due_date: '2026-12-10', status: 'cancelled' },
+      { due_date: '2026-08-10', status: 'pending' },
+    ]
+    expect(computeScheduleRegenerationCutoff(billings, today)).toBe('2026-12-10')
+  })
+})
+
+describe('previewScheduleRegeneration', () => {
+  it('soma desconto perdido e crédito a estornar das cobranças canceladas', () => {
+    const cancelled = [
+      { discount_amount: 50, credit_applied: null },
+      { discount_amount: null, credit_applied: 100 },
+      { discount_amount: null, credit_applied: null },
+    ]
+    const newCharges = [{ amount: 700 }, { amount: 700 }]
+    const result = previewScheduleRegeneration(cancelled, newCharges)
+    expect(result).toEqual({
+      cancelled_count: 3,
+      discount_lost_total: 50,
+      credit_to_restore_total: 100,
+      new_charges_count: 2,
+      new_charges_total: 1400,
+    })
+  })
+
+  it('retorna zeros quando não há cobranças canceladas nem novas', () => {
+    expect(previewScheduleRegeneration([], [])).toEqual({
+      cancelled_count: 0,
+      discount_lost_total: 0,
+      credit_to_restore_total: 0,
+      new_charges_count: 0,
+      new_charges_total: 0,
+    })
+  })
+})

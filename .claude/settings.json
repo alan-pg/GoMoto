@@ -1,0 +1,20 @@
+{
+  "extraKnownMarketplaces": {
+    "mercadopago-claude-marketplace": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/mercadopago/mercadopago-claude-marketplace.git"
+      }
+    },
+    "claude-plugins-official": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/anthropics/claude-plugins-public.git"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "mercadopago@mercadopago-claude-marketplace": true,
+    "claude-md-management@claude-plugins-official": true
+  }
+}
