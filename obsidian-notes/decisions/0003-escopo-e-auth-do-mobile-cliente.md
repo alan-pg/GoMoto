@@ -1,11 +1,11 @@
 # ADR 0003 — Escopo e autenticação do mobile (cliente final)
 
-- **Status:** Aceita (estendida por [[decisions/0004-control-plane-e-identidade-do-cliente|ADR 0004]] em 2026-06-15)
+- **Status:** Aceita (estendida por [[decisions/0004-control-plane-e-identidade-do-cliente|ADR 0004]] em 2026-06-15 e por [[decisions/0016-escrita-cliente-mobile-route-handler|ADR 0016]] em 2026-07-30)
 - **Data:** 2026-06-12
 - **Autores:** Stakeholder + agente IA
 - **Substitui:** —
 - **Substituída por:** —
-- **Estendida por:** [[decisions/0004-control-plane-e-identidade-do-cliente|ADR 0004]] — formaliza CPF como identidade global (§2) e troca login email→CPF via shell email (§4), além do picker dedicado `/select-tenant` (§3).
+- **Estendida por:** [[decisions/0004-control-plane-e-identidade-do-cliente|ADR 0004]] — formaliza CPF como identidade global (§2) e troca login email→CPF via shell email (§4), além do picker dedicado `/select-tenant` (§3). [[decisions/0016-escrita-cliente-mobile-route-handler|ADR 0016]] — resolve a seção "Quando reavaliar" abaixo ("Cliente precisa escrever"): formaliza Route Handler + service role como o padrão de escrita do cliente mobile, mantendo RLS exclusivamente de leitura.
 
 ## Contexto
 
