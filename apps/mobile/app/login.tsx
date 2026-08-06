@@ -13,7 +13,7 @@ import { StatusBar } from 'expo-status-bar'
 import { formatCpf, normalizeCpf } from '@gomoto/core'
 
 import { useAuth } from '../src/contexts/auth'
-import { useTheme, useStatusBarStyle, type ThemeTokens } from '../src/theme'
+import { lightTheme, type ThemeTokens } from '../src/theme'
 
 const NOT_A_CUSTOMER_ERROR = 'Esta conta não tem acesso ao app.'
 
@@ -23,8 +23,12 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const theme = useTheme()
-  const statusBarStyle = useStatusBarStyle()
+  // Fluxo de autenticação fica sempre no tema claro padrão, ignorando a
+  // preferência salva — antes do login não sabemos ainda quem é o cliente
+  // (nem se a preferência salva no aparelho é dele). Depois de autenticado,
+  // as telas normais (tabs) voltam a usar useTheme() normalmente.
+  const theme = lightTheme
+  const statusBarStyle = 'dark' as const
   const styles = useMemo(() => createStyles(theme), [theme])
 
   function handleCpfChange(value: string) {

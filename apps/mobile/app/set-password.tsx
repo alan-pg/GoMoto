@@ -12,7 +12,7 @@ import {
 import { StatusBar } from 'expo-status-bar'
 
 import { useAuth } from '../src/contexts/auth'
-import { useTheme, useStatusBarStyle, type ThemeTokens } from '../src/theme'
+import { lightTheme, type ThemeTokens } from '../src/theme'
 
 export default function SetPasswordScreen() {
   const { setPassword, signOut } = useAuth()
@@ -20,8 +20,9 @@ export default function SetPasswordScreen() {
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const theme = useTheme()
-  const statusBarStyle = useStatusBarStyle()
+  // Fluxo de autenticação fica sempre no tema claro padrão — ver login.tsx.
+  const theme = lightTheme
+  const statusBarStyle = 'dark' as const
   const styles = useMemo(() => createStyles(theme), [theme])
 
   async function handleSubmit() {

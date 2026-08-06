@@ -65,6 +65,12 @@ O sweep mecânico (mesmo princípio do ADR 0019 §"refactor(web)") não pôde tr
 - **Splash claro/escuro de verdade**: `expo-splash-screen` (`~56.0.14`, instalado via `expo install` pra pegar a versão compatível com o SDK) configurado como plugin com `backgroundColor` claro (`#F8FAFC`, = `lightTheme.bg`) e `dark.backgroundColor` escuro (`#0B1120`, = `darkTheme.bg`) — a mesma imagem serve pros dois, só o fundo muda. É a primeira peça do app que reage ao tema **antes** do JS carregar.
 - **Validado** com `npx expo config --type public` (schema resolve sem erro) e `npx expo-doctor` — os 5 avisos que aparecem (`newArchEnabled` no schema, Metro/symlinks, `@react-navigation/bottom-tabs` junto com expo-router, React duplicado no monorepo, pacotes atrás da SDK 56) são todos **pré-existentes**, nenhum relacionado a ícone/splash/favicon — confirmado comparando com o `app.json` de antes desta ADR.
 
+### 6. Fluxo de autenticação é sempre claro — não usa `useTheme()`
+
+Bug reportado: a tela de login abria escura sempre que o SO do aparelho estava em modo escuro (preferência `'auto'`, default, resolve pro sistema). `login.tsx`, `set-password.tsx` e `select-tenant.tsx` — as 3 telas que existem fora das tabs, antes de terminar de autenticar — usam `lightTheme` importado direto de `theme/tokens.ts`, não o hook `useTheme()`. Motivo: antes do login não dá pra saber ainda quem é o cliente nem se a preferência salva no aparelho é dele (AsyncStorage é por aparelho, não por conta — um aparelho compartilhado ou revendido poderia mostrar a preferência de outra pessoa na tela de login). `useStatusBarStyle()` também fica fixo (`'dark'`, ícones escuros sobre fundo claro) nessas 3 telas, pelo mesmo motivo.
+
+Nada muda pra dentro das tabs (`app/(tabs)/*`) — continuam lendo `useTheme()` do `ThemeProvider` normalmente: preferência salva do cliente, ou `'auto'` (segue o SO) se nunca configurou. Esse comportamento já era o que a ADR descrevia desde a primeira versão — o bug era só as telas de autenticação vazando o mesmo contexto.
+
 ## Consequências
 
 ### Positivas

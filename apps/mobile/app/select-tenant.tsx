@@ -9,12 +9,13 @@ import {
 import { StatusBar } from 'expo-status-bar'
 
 import { useAuth } from '../src/contexts/auth'
-import { useTheme, useStatusBarStyle, type ThemeTokens } from '../src/theme'
+import { lightTheme, type ThemeTokens } from '../src/theme'
 
 export default function SelectTenantScreen() {
   const { tenants, selectTenant, signOut } = useAuth()
-  const theme = useTheme()
-  const statusBarStyle = useStatusBarStyle()
+  // Fluxo de autenticação fica sempre no tema claro padrão — ver login.tsx.
+  const theme = lightTheme
+  const statusBarStyle = 'dark' as const
   const styles = useMemo(() => createStyles(theme), [theme])
 
   return (
