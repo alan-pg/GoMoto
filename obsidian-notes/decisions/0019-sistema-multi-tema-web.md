@@ -86,6 +86,16 @@ Nova seção "Aparência" em `/configuracoes` (`apps/web/src/app/(dashboard)/con
 
 `apps/web/src/app/layout.tsx` já resolve a sessão no server; passa a ler `theme_brand` e `color_mode` do usuário atual em `tenant_members` e escrever `data-brand` (sempre) e `data-mode` (só quando `color_mode !== 'system'`) diretamente no `<html>` renderizado no servidor. Não há troca client-side depois do primeiro paint.
 
+### 5.1 Login sempre claro (correção — mesmo princípio do app mobile)
+
+Bug: `/login` podia abrir escuro, porque sem sessão `getThemePreference` caía num default com `color_mode: 'system'` — se o SO/navegador de quem está tentando entrar preferir escuro, `@media (prefers-color-scheme: dark)` resolvia escuro. Mesma causa raiz do bug já corrigido no mobile (ADR 0021 §6): antes de autenticar não dá pra saber quem é o operador nem se a preferência do navegador tem algo a ver com ele.
+
+`getThemePreference` (`apps/web/src/lib/auth/theme.ts`) agora distingue dois defaults:
+- **Sem sessão** (`!user` — cobre `/login`, a única rota do grupo `(auth)`): `color_mode: 'light'` fixo.
+- **Autenticado sem tenant** (`!tenantId` — ex.: `platform_admin` no control plane): continua `color_mode: 'system'`, sem mudança — é um usuário real, só não tem preferência de operador pra ler; não é o mesmo caso do login.
+
+Como todo o resto do app (`(dashboard)`, `(admin)`, `(mobile)`) exige sessão antes de renderizar (redireciona pra `/login` sem uma), na prática esse ajuste só afeta a própria tela de login — sem precisar de lógica por rota, porque `getThemePreference` já é o único ponto que resolve o tema pro `<html>`.
+
 ### 6. Escopo
 
 Esta ADR cobre `apps/web` inteiro — inclui a fatia `/mobile/*` (PWA de campo, ADR 0018), porque ela consome o mesmo `globals.css`/tokens e herda a troca automaticamente, sem trabalho extra. **`apps/mobile` (Expo) fica de fora** — é outro sistema de estilo (StyleSheet do React Native, sem CSS custom properties) e pede uma ADR própria se/quando for temizado.
