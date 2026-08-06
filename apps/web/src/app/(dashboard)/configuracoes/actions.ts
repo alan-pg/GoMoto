@@ -2,7 +2,7 @@
 
 import { z } from 'zod'
 import { SignJWT } from 'jose'
-import { LateChargeConfigSchema } from '@gomoto/core'
+import { LateChargeConfigSchema, ThemePreferenceSchema } from '@gomoto/core'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { buildOAuthUrl } from '@/lib/payment/mercadopago'
@@ -141,5 +141,40 @@ export async function saveAutoApplyCreditSetting(enabled: boolean) {
   if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
 
   revalidatePath('/configuracoes')
+  return { ok: true, data: undefined }
+}
+
+// ============================================================
+// updateThemePreferenceAction — direção de marca + modo de cor (ADR 0019)
+// Preferência por operador (tenant_members), não por tenant.
+// ============================================================
+
+export async function updateThemePreferenceAction(input: unknown) {
+  const ctx = await getAuthenticatedTenant()
+  if ('error' in ctx) return { ok: false, error: { code: ctx.error, message: 'Não autorizado' } }
+
+  const parsed = ThemePreferenceSchema.safeParse(input)
+  if (!parsed.success) {
+    const first = parsed.error.issues[0]
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos' } }
+  }
+
+  const { error } = await ctx.supabase
+    .from('tenant_members')
+    .update({ theme_brand: parsed.data.theme_brand, color_mode: parsed.data.color_mode })
+    .eq('tenant_id', ctx.tenantId)
+    .eq('user_id', ctx.user.id)
+
+  if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
+
+  await logAction({
+    action: 'update',
+    table: 'tenant_members',
+    newData: parsed.data,
+  })
+
+  // Revalida o layout raiz (não só /configuracoes) — é onde data-brand/data-mode
+  // são escritos no <html> a partir de tenant_members (ADR 0019 §5).
+  revalidatePath('/', 'layout')
   return { ok: true, data: undefined }
 }

@@ -16,16 +16,32 @@
 
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { Building2, Lock, User, Save, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, CreditCard, Link2, Link2Off } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
+import { Building2, Lock, User, Save, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, CreditCard, Link2, Link2Off, Palette } from 'lucide-react'
 import { PageTitle } from '@/components/layout/PageTitle'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
+import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { usePaymentConnection } from '@gomoto/data'
-import { connectMercadoPagoAction, disconnectPaymentAction } from './actions'
+import { usePaymentConnection, useThemePreference } from '@gomoto/data'
+import type { ThemeBrand, ColorMode } from '@gomoto/core'
+import { connectMercadoPagoAction, disconnectPaymentAction, updateThemePreferenceAction } from './actions'
+
+const THEME_BRANDS: { value: ThemeBrand; label: string; description: string; swatch: string[] }[] = [
+  { value: 'frota-confiavel', label: 'Frota Confiável', description: 'Azul, neutros frios — recomendado', swatch: ['#F8FAFC', '#2563EB', '#0F172A'] },
+  { value: 'estrada', label: 'Estrada', description: 'Petróleo, neutros quentes', swatch: ['#FAFAF9', '#0D9488', '#1C1917'] },
+  { value: 'sinalizacao', label: 'Sinalização', description: 'Laranja-ember, escuro por padrão', swatch: ['#0B0C10', '#F2790A', '#F4F5F7'] },
+  { value: 'classico', label: 'Clássico', description: 'Verde-limão sobre preto — visual original', swatch: ['#121212', '#BAFF1A', '#FFFFFF'] },
+]
+
+const COLOR_MODES: { value: ColorMode; label: string }[] = [
+  { value: 'system', label: 'Sistema' },
+  { value: 'light', label: 'Claro' },
+  { value: 'dark', label: 'Escuro' },
+]
 
 /**
  * @interface CompanyData
@@ -74,6 +90,7 @@ export default function SettingsPage() {
    * a criação de novas instâncias a cada atualização de estado.
    */
   const supabase = React.useMemo(() => createClient(), [])
+  const router = useRouter()
 
   // --- ESTADOS: Dados da Empresa ---
 
@@ -127,6 +144,82 @@ export default function SettingsPage() {
   const [isConnecting, setIsConnecting] = useState(false)
   const [isDisconnecting, setIsDisconnecting] = useState(false)
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false)
+
+  // --- ESTADOS: Aparência (ADR 0019) ---
+
+  const themePreferenceQuery = useThemePreference()
+  const [themeBrand, setThemeBrand] = useState<ThemeBrand>('frota-confiavel')
+  const [colorMode, setColorMode] = useState<ColorMode>('system')
+  const [isSavingTheme, setIsSavingTheme] = useState(false)
+  const [themeFeedback, setThemeFeedback] = useState<FeedbackState | null>(null)
+
+  useEffect(() => {
+    if (themePreferenceQuery.data) {
+      setThemeBrand(themePreferenceQuery.data.theme_brand)
+      setColorMode(themePreferenceQuery.data.color_mode)
+    }
+  }, [themePreferenceQuery.data])
+
+  /**
+   * Pré-visualização ao vivo (ADR 0019): escrever os atributos direto no
+   * <html> mostra o tema escolhido na hora, sem esperar salvar. Só roda em
+   * resposta a clique do usuário — nunca no mount/carregamento da
+   * preferência salva, pra não piscar o tema real por um instante.
+   *
+   * O layout raiz (Server Component) só reexecuta em reload completo ou
+   * depois de `router.refresh()` — navegação client-side entre páginas do
+   * dashboard não remonta ele. Sem o cleanup abaixo, uma pré-visualização
+   * não salva "vazaria" pro resto do app ao trocar de tela pela sidebar.
+   * `themeSavedRef` guarda se o usuário confirmou com "Salvar Aparência";
+   * se não confirmou, o unmount desta página restaura o que estava
+   * persistido antes de qualquer clique.
+   */
+  const originalThemeRef = useRef<{ brand: string | null; mode: string | null } | null>(null)
+  const themeSavedRef = useRef(false)
+
+  useEffect(() => {
+    if (originalThemeRef.current === null) {
+      originalThemeRef.current = {
+        brand: document.documentElement.getAttribute('data-brand'),
+        mode: document.documentElement.getAttribute('data-mode'),
+      }
+    }
+    return () => {
+      if (themeSavedRef.current || !originalThemeRef.current) return
+      const { brand, mode } = originalThemeRef.current
+      if (brand) document.documentElement.setAttribute('data-brand', brand)
+      if (mode) document.documentElement.setAttribute('data-mode', mode)
+      else document.documentElement.removeAttribute('data-mode')
+    }
+  }, [])
+
+  function handleSelectThemeBrand(brand: ThemeBrand) {
+    setThemeBrand(brand)
+    document.documentElement.setAttribute('data-brand', brand)
+  }
+
+  function handleSelectColorMode(mode: ColorMode) {
+    setColorMode(mode)
+    if (mode === 'system') {
+      document.documentElement.removeAttribute('data-mode')
+    } else {
+      document.documentElement.setAttribute('data-mode', mode)
+    }
+  }
+
+  async function handleSaveTheme() {
+    setIsSavingTheme(true)
+    setThemeFeedback(null)
+    const result = await updateThemePreferenceAction({ theme_brand: themeBrand, color_mode: colorMode })
+    if (!result.ok) {
+      setThemeFeedback({ type: 'error', message: result.error?.message ?? 'Erro ao salvar aparência.' })
+    } else {
+      themeSavedRef.current = true
+      setThemeFeedback({ type: 'success', message: 'Aparência atualizada.' })
+      router.refresh()
+    }
+    setIsSavingTheme(false)
+  }
 
   /**
    * @effect fetchInitialData
@@ -338,8 +431,8 @@ export default function SettingsPage() {
       <div
         className={`flex items-center gap-2 rounded-2xl px-4 py-3 text-[13px] font-medium ${
           isSuccess
-            ? 'bg-[#0e2f13] border border-[#229731] text-[#229731]'
-            : 'bg-[#7c1c1c] border border-[#ff9c9a] text-[#ff9c9a]'
+            ? 'bg-success-bg border border-success text-success'
+            : 'bg-danger-bg border border-danger text-danger'
         }`}
       >
         {isSuccess ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
@@ -356,12 +449,12 @@ export default function SettingsPage() {
         {/* SEÇÃO 1: Dados da Empresa */}
         <section>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2.5 rounded-full bg-[#323232]">
-              <Building2 className="w-5 h-5 text-[#BAFF1A]" />
+            <div className="p-2.5 rounded-full bg-surface-2">
+              <Building2 className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h2 className="text-[28px] font-semibold text-[#f5f5f5]">Dados da Empresa</h2>
-              <p className="text-[13px] text-[#9e9e9e]">
+              <h2 className="text-[28px] font-semibold text-fg">Dados da Empresa</h2>
+              <p className="text-[13px] text-fg-mute">
                 Informações que aparecerão em contratos e relatórios.
               </p>
             </div>
@@ -371,8 +464,8 @@ export default function SettingsPage() {
             {isLoadingCompany ? (
               /* Estado de carregamento: exibe spinner centralizado */
               <div className="flex flex-col items-center justify-center py-12 gap-3">
-                <Loader2 className="animate-spin text-[#BAFF1A]" size={32} />
-                <p className="text-[#9e9e9e] text-[13px]">Carregando dados da empresa...</p>
+                <Loader2 className="animate-spin text-primary" size={32} />
+                <p className="text-fg-mute text-[13px]">Carregando dados da empresa...</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -436,15 +529,96 @@ export default function SettingsPage() {
           </Card>
         </section>
 
+        {/* SEÇÃO 1.5: Aparência (ADR 0019) */}
+        <section>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2.5 rounded-full bg-primary-tint">
+              <Palette className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-[28px] font-semibold text-fg">Aparência</h2>
+              <p className="text-[13px] text-fg-mute">
+                Escolha a identidade visual e o modo de cor do sistema — vale só pra você, não muda pros outros operadores.
+              </p>
+            </div>
+          </div>
+
+          <Card>
+            <div className="space-y-5">
+              <div>
+                <p className="text-[13px] text-fg-soft mb-2">Tema</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {THEME_BRANDS.map((brand) => (
+                    <button
+                      key={brand.value}
+                      type="button"
+                      onClick={() => handleSelectThemeBrand(brand.value)}
+                      className={cn(
+                        'text-left rounded-xl border p-3 transition-colors',
+                        themeBrand === brand.value ? 'border-primary bg-primary-tint' : 'border-border hover:border-fg-mute',
+                      )}
+                    >
+                      <div className="flex gap-1 mb-2">
+                        {brand.swatch.map((hex) => (
+                          <span
+                            key={hex}
+                            className="w-5 h-5 rounded-full border border-black/10"
+                            style={{ backgroundColor: hex }}
+                          />
+                        ))}
+                      </div>
+                      <p className="text-[13px] font-medium text-fg">{brand.label}</p>
+                      <p className="text-[11px] text-fg-mute mt-0.5">{brand.description}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-[13px] text-fg-soft mb-2">Modo de cor</p>
+                <div className="inline-flex rounded-full border border-border p-1 gap-1">
+                  {COLOR_MODES.map((mode) => (
+                    <button
+                      key={mode.value}
+                      type="button"
+                      onClick={() => handleSelectColorMode(mode.value)}
+                      className={cn(
+                        'h-8 px-4 rounded-full text-[12px] font-medium transition-colors',
+                        colorMode === mode.value ? 'bg-primary text-primary-contrast' : 'text-fg-soft hover:text-fg',
+                      )}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 gap-4">
+                <FeedbackMessage feedback={themeFeedback} />
+                <Button
+                  variant="primary"
+                  size="md"
+                  loading={isSavingTheme}
+                  onClick={handleSaveTheme}
+                  className="ml-auto flex-shrink-0"
+                >
+                  <Save className="w-4 h-4" />
+                  Salvar Aparência
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </section>
+
         {/* SEÇÃO 2: Segurança — Alteração de Senha */}
         <section>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2.5 rounded-full bg-[#2d0363] border border-[#a880ff]">
-              <Lock className="w-5 h-5 text-[#a880ff]" />
+            <div className="p-2.5 rounded-full bg-info-bg border border-info">
+              <Lock className="w-5 h-5 text-info" />
             </div>
             <div>
-              <h2 className="text-[28px] font-semibold text-[#f5f5f5]">Segurança</h2>
-              <p className="text-[13px] text-[#9e9e9e]">Altere sua senha de acesso ao painel.</p>
+              <h2 className="text-[28px] font-semibold text-fg">Segurança</h2>
+              <p className="text-[13px] text-fg-mute">Altere sua senha de acesso ao painel.</p>
             </div>
           </div>
 
@@ -462,7 +636,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-[38px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors focus:outline-none"
+                  className="absolute right-3 top-[38px] text-fg-mute hover:text-fg transition-colors focus:outline-none"
                   title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -500,12 +674,12 @@ export default function SettingsPage() {
         {/* SEÇÃO 3: Integração de Pagamento */}
         <section>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2.5 rounded-full bg-[#0d2240] border border-[#3b82f6]">
-              <CreditCard className="w-5 h-5 text-[#3b82f6]" />
+            <div className="p-2.5 rounded-full bg-info-bg border border-info">
+              <CreditCard className="w-5 h-5 text-info" />
             </div>
             <div>
-              <h2 className="text-[28px] font-semibold text-[#f5f5f5]">Integração de Pagamento</h2>
-              <p className="text-[13px] text-[#9e9e9e]">
+              <h2 className="text-[28px] font-semibold text-fg">Integração de Pagamento</h2>
+              <p className="text-[13px] text-fg-mute">
                 Conecte a conta Mercado Pago para gerar cobranças Pix automaticamente.
               </p>
             </div>
@@ -514,17 +688,17 @@ export default function SettingsPage() {
           <Card>
             {paymentConnectionQuery.isLoading ? (
               <div className="flex items-center gap-3 py-2">
-                <Loader2 className="animate-spin text-[#9e9e9e]" size={20} />
-                <p className="text-[13px] text-[#9e9e9e]">Verificando integração...</p>
+                <Loader2 className="animate-spin text-fg-mute" size={20} />
+                <p className="text-[13px] text-fg-mute">Verificando integração...</p>
               </div>
             ) : paymentConnectionQuery.data?.is_connected ? (
               <div className="space-y-4">
-                <div className="flex items-center gap-3 p-4 rounded-xl bg-[#0e2f13] border border-[#229731]">
-                  <CheckCircle2 className="w-5 h-5 text-[#229731] shrink-0" />
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-success-bg border border-success">
+                  <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-[#229731]">Mercado Pago conectado</p>
+                    <p className="text-[13px] font-medium text-success">Mercado Pago conectado</p>
                     {paymentConnectionQuery.data.mp_account_email && (
-                      <p className="text-[12px] text-[#9e9e9e] mt-0.5 truncate">
+                      <p className="text-[12px] text-fg-mute mt-0.5 truncate">
                         {paymentConnectionQuery.data.mp_account_email}
                       </p>
                     )}
@@ -538,11 +712,11 @@ export default function SettingsPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="flex items-center gap-3 p-4 rounded-xl bg-[#1a1a1a] border border-[#474747]">
-                  <Link2 className="w-5 h-5 text-[#9e9e9e] shrink-0" />
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-surface border border-border">
+                  <Link2 className="w-5 h-5 text-fg-mute shrink-0" />
                   <div className="flex-1">
-                    <p className="text-[13px] font-medium text-[#f5f5f5]">Nenhuma conta conectada</p>
-                    <p className="text-[12px] text-[#9e9e9e] mt-0.5">
+                    <p className="text-[13px] font-medium text-fg">Nenhuma conta conectada</p>
+                    <p className="text-[12px] text-fg-mute mt-0.5">
                       Conecte a conta Mercado Pago da locadora para gerar cobranças Pix.
                     </p>
                   </div>
@@ -560,12 +734,12 @@ export default function SettingsPage() {
         {/* SEÇÃO 4: Informações da Conta */}
         <section>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2.5 rounded-full bg-[#3a180f] border border-[#e65e24]">
-              <User className="w-5 h-5 text-[#e65e24]" />
+            <div className="p-2.5 rounded-full bg-warning-bg border border-warning">
+              <User className="w-5 h-5 text-warning" />
             </div>
             <div>
-              <h2 className="text-[28px] font-semibold text-[#f5f5f5]">Informações da Conta</h2>
-              <p className="text-[13px] text-[#9e9e9e]">Detalhes do usuário autenticado no sistema.</p>
+              <h2 className="text-[28px] font-semibold text-fg">Informações da Conta</h2>
+              <p className="text-[13px] text-fg-mute">Detalhes do usuário autenticado no sistema.</p>
             </div>
           </div>
 
@@ -573,25 +747,25 @@ export default function SettingsPage() {
             {isLoadingUser ? (
               /* Estado de carregamento do usuário */
               <div className="flex justify-center py-6">
-                <Loader2 className="animate-spin text-[#9e9e9e]" size={28} />
+                <Loader2 className="animate-spin text-fg-mute" size={28} />
               </div>
             ) : userData ? (
               /* Exibe os dados do usuário logado */
               <div className="space-y-4">
                 <div>
-                  <p className="text-[13px] text-[#9e9e9e] mb-1">E-mail de Acesso</p>
-                  <p className="text-[#f5f5f5] font-medium">{userData.email}</p>
+                  <p className="text-[13px] text-fg-mute mb-1">E-mail de Acesso</p>
+                  <p className="text-fg font-medium">{userData.email}</p>
                 </div>
-                <div className="border-t border-[#323232]" />
+                <div className="border-t border-border" />
                 <div>
-                  <p className="text-[13px] text-[#9e9e9e] mb-1">Membro desde</p>
-                  <p className="text-[#f5f5f5] font-medium">{userData.createdAt}</p>
+                  <p className="text-[13px] text-fg-mute mb-1">Membro desde</p>
+                  <p className="text-fg font-medium">{userData.createdAt}</p>
                 </div>
               </div>
             ) : (
               /* Fallback quando os dados do usuário não puderam ser carregados */
               <div className="py-4 text-center">
-                <p className="text-[#ff9c9a] text-[13px]">
+                <p className="text-danger text-[13px]">
                   Não foi possível carregar as informações do usuário.
                 </p>
               </div>
@@ -602,7 +776,7 @@ export default function SettingsPage() {
 
       <Modal open={disconnectModalOpen} onClose={() => setDisconnectModalOpen(false)} title="Desconectar Mercado Pago" size="sm">
         <div className="space-y-4">
-          <p className="text-[13px] text-[#9e9e9e]">
+          <p className="text-[13px] text-fg-mute">
             Ao desconectar, o sistema não poderá gerar novos Pix de cobrança. Pix já gerados continuam válidos até o vencimento.
           </p>
           <div className="flex gap-3 justify-end">
