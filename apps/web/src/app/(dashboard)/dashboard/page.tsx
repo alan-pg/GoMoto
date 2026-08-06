@@ -59,9 +59,9 @@ const MAINTENANCE_TYPE_LABELS: Record<string, string> = {
 }
 
 const MAINTENANCE_TYPE_COLORS: Record<string, string> = {
-  preventive: 'text-[#BAFF1A]',
-  corrective: 'text-[#ff9c9a]',
-  inspection: 'text-[#a880ff]',
+  preventive: 'text-primary',
+  corrective: 'text-danger',
+  inspection: 'text-info',
 }
 
 function daysOverdue(dueDateStr: string): number {
@@ -74,9 +74,9 @@ function daysOverdue(dueDateStr: string): number {
 }
 
 function overdueAgeColor(days: number): string {
-  if (days >= 30) return 'text-[#c41e1e]'
-  if (days >= 7) return 'text-[#ff9c9a]'
-  return 'text-[#ffba49]'
+  if (days >= 30) return 'text-critical'
+  if (days >= 7) return 'text-danger'
+  return 'text-pending'
 }
 
 async function getDashboardData() {
@@ -316,22 +316,22 @@ export default async function DashboardPage() {
 
   const attentionColorMap = {
     red: {
-      bg: 'bg-[#3a180f]',
-      border: 'border-[#ff9c9a]/50',
-      dot: 'bg-[#ff9c9a]',
-      text: 'text-[#ff9c9a]',
+      bg: 'bg-warning-bg',
+      border: 'border-danger',
+      dot: 'bg-danger',
+      text: 'text-danger',
     },
     orange: {
       bg: 'bg-[#3a2400]',
-      border: 'border-[#ffba49]/50',
-      dot: 'bg-[#ffba49]',
-      text: 'text-[#ffba49]',
+      border: 'border-pending/50',
+      dot: 'bg-pending',
+      text: 'text-pending',
     },
     yellow: {
       bg: 'bg-[#2a2c00]',
-      border: 'border-[#BAFF1A]/40',
-      dot: 'bg-[#BAFF1A]',
-      text: 'text-[#BAFF1A]',
+      border: 'border-primary',
+      dot: 'bg-primary',
+      text: 'text-primary',
     },
   }
 
@@ -350,10 +350,10 @@ export default async function DashboardPage() {
             {data.idleVehicles.map((v) => (
               <div
                 key={v.license_plate}
-                className="flex items-center gap-2 rounded-full border border-[#e65e24] bg-[#3a180f] px-3 py-2"
+                className="flex items-center gap-2 rounded-full border border-warning bg-warning-bg px-3 py-2"
               >
-                <div className="w-1.5 h-1.5 bg-[#e65e24] rounded-full shrink-0" />
-                <span className="text-[12px] text-[#e65e24] font-medium">
+                <div className="w-1.5 h-1.5 bg-warning rounded-full shrink-0" />
+                <span className="text-[12px] text-warning font-medium">
                   {v.license_plate} parada há 7+ dias
                 </span>
               </div>
@@ -361,10 +361,10 @@ export default async function DashboardPage() {
             {data.multipleOverdueCustomers.map((c) => (
               <div
                 key={c.name}
-                className="flex items-center gap-2 rounded-full border border-[#ff9c9a] bg-[#7c1c1c] px-3 py-2"
+                className="flex items-center gap-2 rounded-full border border-danger bg-danger-bg px-3 py-2"
               >
-                <div className="w-1.5 h-1.5 bg-[#ff9c9a] rounded-full shrink-0" />
-                <span className="text-[12px] text-[#ff9c9a] font-medium">
+                <div className="w-1.5 h-1.5 bg-danger rounded-full shrink-0" />
+                <span className="text-[12px] text-danger font-medium">
                   {c.name} — 2+ cobranças vencidas
                 </span>
               </div>
@@ -374,26 +374,26 @@ export default async function DashboardPage() {
 
         {/* Fleet KPIs */}
         <div>
-          <p className="text-[11px] font-semibold text-[#9e9e9e] uppercase tracking-widest px-1 mb-2">
+          <p className="text-[11px] font-semibold text-fg-mute uppercase tracking-widest px-1 mb-2">
             Frota
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {/* Utilization — custom card */}
-            <div className="flex items-center justify-between rounded-2xl border border-[#474747] bg-[#202020] px-6 py-4">
+            <div className="flex items-center justify-between rounded-2xl border border-border bg-surface px-6 py-4">
               <div className="flex-1 min-w-0">
-                <p className="text-[14px] font-normal text-[#9e9e9e]">Utilização</p>
-                <p className="text-[28px] font-bold text-[#f5f5f5]">{data.utilizationPct}%</p>
-                <div className="mt-2 w-full max-w-[100px] h-1.5 bg-[#323232] rounded-full overflow-hidden">
+                <p className="text-[14px] font-normal text-fg-mute">Utilização</p>
+                <p className="text-[28px] font-bold text-fg">{data.utilizationPct}%</p>
+                <div className="mt-2 w-full max-w-[100px] h-1.5 bg-surface-2 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-[#BAFF1A] rounded-full"
+                    className="h-full bg-primary rounded-full"
                     style={{ width: `${Math.min(data.utilizationPct, 100)}%` }}
                   />
                 </div>
-                <p className="text-[12px] mt-1 text-[#9e9e9e]">
+                <p className="text-[12px] mt-1 text-fg-mute">
                   {data.rentedVehicles} de {data.totalVehicles} motos
                 </p>
               </div>
-              <div className="rounded-full bg-[#323232] p-3 text-[#BAFF1A] ml-4 shrink-0">
+              <div className="rounded-full bg-surface-2 p-3 text-primary ml-4 shrink-0">
                 <TrendingUp className="h-6 w-6" />
               </div>
             </div>
@@ -421,7 +421,7 @@ export default async function DashboardPage() {
 
         {/* Financial KPIs */}
         <div>
-          <p className="text-[11px] font-semibold text-[#9e9e9e] uppercase tracking-widest px-1 mb-2">
+          <p className="text-[11px] font-semibold text-fg-mute uppercase tracking-widest px-1 mb-2">
             Financeiro
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -457,10 +457,10 @@ export default async function DashboardPage() {
         </div>
 
         {/* Attention Now */}
-        <div className="rounded-2xl border border-[#474747] bg-[#202020] px-5 py-4">
+        <div className="rounded-2xl border border-border bg-surface px-5 py-4">
           <div className="flex items-center gap-2 mb-3">
-            <Zap className="w-4 h-4 text-[#BAFF1A]" />
-            <h3 className="text-[13px] font-semibold text-[#f5f5f5]">Atenção Agora</h3>
+            <Zap className="w-4 h-4 text-primary" />
+            <h3 className="text-[13px] font-semibold text-fg">Atenção Agora</h3>
           </div>
           {attentionItems.length === 0 ? (
             <p className="text-[13px] text-[#28b438]">Tudo em dia — nenhuma pendência crítica.</p>
@@ -493,31 +493,31 @@ export default async function DashboardPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
           {/* Active Rentals */}
-          <div className="bg-[#202020] rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-[#323232] flex items-center justify-between">
-              <h3 className="text-[14px] font-semibold text-[#f5f5f5]">Locações Ativas</h3>
-              <a href="/locacoes" className="text-[12px] text-[#BAFF1A] font-bold">
+          <div className="bg-surface rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-surface-2 flex items-center justify-between">
+              <h3 className="text-[14px] font-semibold text-fg">Locações Ativas</h3>
+              <a href="/locacoes" className="text-[12px] text-primary font-bold">
                 Ver todas
               </a>
             </div>
             {data.activeRentals.length === 0 ? (
-              <div className="px-4 py-6 text-center text-[12px] text-[#9e9e9e]">
+              <div className="px-4 py-6 text-center text-[12px] text-fg-mute">
                 Nenhuma locação ativa.
               </div>
             ) : (
               data.activeRentals.slice(0, 4).map((rental, index, items) => (
                 <div
                   key={rental.id}
-                  className={`px-4 py-2.5 hover:bg-[#323232] transition-colors${index < items.length - 1 ? ' border-b border-[#323232]' : ''}`}
+                  className={`px-4 py-2.5 hover:bg-surface-2 transition-colors${index < items.length - 1 ? ' border-b border-surface-2' : ''}`}
                 >
-                  <p className="text-[12px] font-medium text-[#f5f5f5] truncate">
+                  <p className="text-[12px] font-medium text-fg truncate">
                     {rental.customers?.name ?? 'Cliente'}
                   </p>
                   <div className="mt-1 flex items-center justify-between gap-2">
-                    <p className="text-[12px] text-[#9e9e9e] truncate">
+                    <p className="text-[12px] text-fg-mute truncate">
                       {rental.vehicles?.license_plate ?? '—'}
                     </p>
-                    <p className="text-[12px] text-[#9e9e9e]">
+                    <p className="text-[12px] text-fg-mute">
                       {rental.cycle_amount != null ? formatCurrency(rental.cycle_amount) : '—'}
                     </p>
                   </div>
@@ -527,15 +527,15 @@ export default async function DashboardPage() {
           </div>
 
           {/* Overdue billings with aging */}
-          <div className="bg-[#202020] rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-[#323232] flex items-center justify-between">
-              <h3 className="text-[14px] font-semibold text-[#f5f5f5]">Cobranças Vencidas</h3>
-              <a href="/cobrancas" className="text-[12px] text-[#BAFF1A] font-bold">
+          <div className="bg-surface rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-surface-2 flex items-center justify-between">
+              <h3 className="text-[14px] font-semibold text-fg">Cobranças Vencidas</h3>
+              <a href="/cobrancas" className="text-[12px] text-primary font-bold">
                 Ver todas
               </a>
             </div>
             {data.overduePaymentsList.length === 0 ? (
-              <div className="px-4 py-6 text-center text-[12px] text-[#9e9e9e]">Tudo em dia!</div>
+              <div className="px-4 py-6 text-center text-[12px] text-fg-mute">Tudo em dia!</div>
             ) : (
               data.overduePaymentsList.slice(0, 4).map((payment, index, items) => {
                 const days = daysOverdue(payment.due_date)
@@ -543,9 +543,9 @@ export default async function DashboardPage() {
                 return (
                   <div
                     key={payment.id}
-                    className={`px-4 py-2.5 hover:bg-[#323232] transition-colors${index < items.length - 1 ? ' border-b border-[#323232]' : ''}`}
+                    className={`px-4 py-2.5 hover:bg-surface-2 transition-colors${index < items.length - 1 ? ' border-b border-surface-2' : ''}`}
                   >
-                    <p className="text-[12px] font-medium text-[#f5f5f5] truncate">
+                    <p className="text-[12px] font-medium text-fg truncate">
                       {payment.customers?.name ?? 'Cliente'}
                     </p>
                     <div className="mt-1 flex items-center justify-between gap-2">
@@ -561,33 +561,33 @@ export default async function DashboardPage() {
           </div>
 
           {/* Upcoming maintenances (7 days) */}
-          <div className="bg-[#202020] rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-[#323232] flex items-center justify-between">
-              <h3 className="text-[14px] font-semibold text-[#f5f5f5]">Manutenções</h3>
-              <a href="/manutencao" className="text-[12px] text-[#BAFF1A] font-bold">
+          <div className="bg-surface rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-surface-2 flex items-center justify-between">
+              <h3 className="text-[14px] font-semibold text-fg">Manutenções</h3>
+              <a href="/manutencao" className="text-[12px] text-primary font-bold">
                 Ver todas
               </a>
             </div>
             {data.upcomingMaintenances.length === 0 ? (
-              <div className="px-4 py-6 text-center text-[12px] text-[#9e9e9e]">
+              <div className="px-4 py-6 text-center text-[12px] text-fg-mute">
                 Nenhuma nos próximos 7 dias
               </div>
             ) : (
               data.upcomingMaintenances.slice(0, 4).map((m, index, items) => (
                 <div
                   key={m.id}
-                  className={`px-4 py-2.5 hover:bg-[#323232] transition-colors${index < items.length - 1 ? ' border-b border-[#323232]' : ''}`}
+                  className={`px-4 py-2.5 hover:bg-surface-2 transition-colors${index < items.length - 1 ? ' border-b border-surface-2' : ''}`}
                 >
-                  <p className="text-[12px] font-medium text-[#f5f5f5] truncate">
+                  <p className="text-[12px] font-medium text-fg truncate">
                     {m.vehicles?.license_plate ?? '—'}
                   </p>
                   <div className="mt-1 flex items-center justify-between gap-2">
                     <p
-                      className={`text-[12px] ${MAINTENANCE_TYPE_COLORS[m.type] ?? 'text-[#9e9e9e]'}`}
+                      className={`text-[12px] ${MAINTENANCE_TYPE_COLORS[m.type] ?? 'text-fg-mute'}`}
                     >
                       {MAINTENANCE_TYPE_LABELS[m.type] ?? m.type}
                     </p>
-                    <p className="text-[12px] text-[#9e9e9e]">{formatDate(m.scheduled_date)}</p>
+                    <p className="text-[12px] text-fg-mute">{formatDate(m.scheduled_date)}</p>
                   </div>
                 </div>
               ))
@@ -595,15 +595,15 @@ export default async function DashboardPage() {
           </div>
 
           {/* Queue */}
-          <div className="bg-[#202020] rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-[#323232] flex items-center justify-between">
-              <h3 className="text-[14px] font-semibold text-[#f5f5f5]">Fila de Espera</h3>
-              <a href="/locacoes/fila" className="text-[12px] text-[#BAFF1A] font-bold">
+          <div className="bg-surface rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-surface-2 flex items-center justify-between">
+              <h3 className="text-[14px] font-semibold text-fg">Fila de Espera</h3>
+              <a href="/locacoes/fila" className="text-[12px] text-primary font-bold">
                 Ver fila
               </a>
             </div>
             {data.queueEntries.length === 0 ? (
-              <div className="px-4 py-6 text-center text-[12px] text-[#9e9e9e]">Fila vazia</div>
+              <div className="px-4 py-6 text-center text-[12px] text-fg-mute">Fila vazia</div>
             ) : (
               data.queueEntries.slice(0, 4).map((entry, index, items) => {
                 const waitDays = Math.floor(
@@ -613,19 +613,19 @@ export default async function DashboardPage() {
                 return (
                   <div
                     key={entry.id}
-                    className={`px-4 py-2.5 hover:bg-[#323232] transition-colors${index < items.length - 1 ? ' border-b border-[#323232]' : ''}`}
+                    className={`px-4 py-2.5 hover:bg-surface-2 transition-colors${index < items.length - 1 ? ' border-b border-surface-2' : ''}`}
                   >
                     <div className="flex items-center gap-2">
-                      <span className="bg-[#BAFF1A] text-[#121212] rounded-full w-5 h-5 inline-flex items-center justify-center text-[11px] font-bold shrink-0">
+                      <span className="bg-primary text-bg rounded-full w-5 h-5 inline-flex items-center justify-center text-[11px] font-bold shrink-0">
                         {entry.position}
                       </span>
-                      <p className="text-[12px] font-medium text-[#f5f5f5] truncate">
+                      <p className="text-[12px] font-medium text-fg truncate">
                         {entry.customers?.name ?? 'Cliente'}
                       </p>
                     </div>
                     <div className="mt-1 flex items-center gap-1.5">
-                      <Clock className={`w-3 h-3 shrink-0 ${isLongWait ? 'text-[#ffba49]' : 'text-[#9e9e9e]'}`} />
-                      <p className={`text-[12px] ${isLongWait ? 'text-[#ffba49]' : 'text-[#9e9e9e]'}`}>
+                      <Clock className={`w-3 h-3 shrink-0 ${isLongWait ? 'text-pending' : 'text-fg-mute'}`} />
+                      <p className={`text-[12px] ${isLongWait ? 'text-pending' : 'text-fg-mute'}`}>
                         {waitDays} dias na fila
                       </p>
                     </div>

@@ -18,9 +18,9 @@ function fmt(d: string | null | undefined) {
 
 function Row({ label, value, mono = false }: { label: string; value?: string | null; mono?: boolean }) {
   return (
-    <tr className="border-b border-[#323232] last:border-0">
-      <td className="h-9 px-4 text-[#9e9e9e] w-48 shrink-0 text-[13px]">{label}</td>
-      <td className={`h-9 px-4 text-[13px] ${mono ? 'font-mono' : ''} ${value ? 'text-[#f5f5f5]' : 'text-[#616161] italic'}`}>
+    <tr className="border-b border-surface-2 last:border-0">
+      <td className="h-9 px-4 text-fg-mute w-48 shrink-0 text-[13px]">{label}</td>
+      <td className={`h-9 px-4 text-[13px] ${mono ? 'font-mono' : ''} ${value ? 'text-fg' : 'text-fg-mute italic'}`}>
         {value ?? '—'}
       </td>
     </tr>
@@ -116,15 +116,15 @@ export default async function CustomerDetailPage({
   ].filter(Boolean).join(', ')
 
   return (
-    <div className="min-h-screen bg-[#121212]">
+    <div className="min-h-screen bg-bg">
 
       {/* ── Header ───────────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-10 bg-[#121212] border-b border-[#323232] px-6 h-16 flex items-center gap-4">
-        <Link href="/clientes" className="text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors">
+      <div className="sticky top-0 z-10 bg-bg border-b border-surface-2 px-6 h-16 flex items-center gap-4">
+        <Link href="/clientes" className="text-[13px] text-fg-mute hover:text-fg transition-colors">
           ← Clientes
         </Link>
-        <span className="text-[#474747]">/</span>
-        <h1 className="text-[18px] font-bold text-[#f5f5f5] flex-1 truncate">
+        <span className="text-border">/</span>
+        <h1 className="text-[18px] font-bold text-fg flex-1 truncate">
           {isCompany ? (customer.company_name ?? customer.name) : customer.name}
         </h1>
         <div className="ml-auto flex items-center gap-3">
@@ -133,7 +133,7 @@ export default async function CustomerDetailPage({
               href={whatsappHref}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-[#1a3a1a] text-[#4ade80] text-[13px] font-medium hover:bg-[#1f4a1f] transition-colors"
+              className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-[#1a3a1a] text-success text-[13px] font-medium hover:bg-[#1f4a1f] transition-colors"
             >
               <MessageCircle className="w-4 h-4" />
               WhatsApp
@@ -141,7 +141,7 @@ export default async function CustomerDetailPage({
           )}
           <Link
             href={`/clientes/${id}/editar`}
-            className="inline-flex items-center h-9 px-4 rounded-full bg-[#323232] text-[#f5f5f5] text-[13px] font-medium hover:bg-[#474747] transition-colors"
+            className="inline-flex items-center h-9 px-4 rounded-full bg-surface-2 text-fg text-[13px] font-medium hover:bg-border transition-colors"
           >
             Editar
           </Link>
@@ -154,46 +154,46 @@ export default async function CustomerDetailPage({
         <div className="flex items-center gap-3 flex-wrap">
           <span className={`inline-flex items-center h-7 px-3 rounded-full text-[13px] font-medium border ${
             isActive
-              ? 'bg-[#0e2f13] text-[#229731] border-[#229731]/30'
+              ? 'bg-success-bg text-success border-success'
               : 'bg-[#3a0000] text-[#f87171] border-[#f87171]/30'
           }`}>
             {isActive ? 'Ativo' : 'Ex-Cliente'}
           </span>
           <span className={`inline-flex items-center h-7 px-3 rounded-full text-[13px] font-medium border ${
             isCompany
-              ? 'bg-[#1a1a3e] text-[#818cf8] border-[#818cf8]/30'
-              : 'bg-[#1a2600] text-[#BAFF1A] border-[#BAFF1A]/30'
+              ? 'bg-[#1a1a3e] text-info border-info'
+              : 'bg-[#1a2600] text-primary border-primary'
           }`}>
             {isCompany ? 'Pessoa Jurídica' : 'Pessoa Física'}
           </span>
           {customer.payment_status && (
-            <span className="text-[13px] text-[#9e9e9e]">{customer.payment_status}</span>
+            <span className="text-[13px] text-fg-mute">{customer.payment_status}</span>
           )}
         </div>
 
         {/* ── Contrato Ativo ───────────────────────────────────────────────── */}
         {rental && (
           <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Contrato Ativo</h2>
-            <div className="bg-[#202020] rounded-xl p-4 flex items-center gap-6 flex-wrap">
+            <h2 className="text-[14px] font-bold text-primary mb-3">Contrato Ativo</h2>
+            <div className="bg-surface rounded-xl p-4 flex items-center gap-6 flex-wrap">
               <div>
-                <p className="text-[12px] text-[#9e9e9e] uppercase tracking-wide font-medium mb-1">Veículo</p>
-                <p className="text-[18px] font-bold font-mono text-[#BAFF1A]">{rental.vehicle?.license_plate}</p>
-                <p className="text-[13px] text-[#f5f5f5]">{rental.vehicle?.make} {rental.vehicle?.model}</p>
+                <p className="text-[12px] text-fg-mute uppercase tracking-wide font-medium mb-1">Veículo</p>
+                <p className="text-[18px] font-bold font-mono text-primary">{rental.vehicle?.license_plate}</p>
+                <p className="text-[13px] text-fg">{rental.vehicle?.make} {rental.vehicle?.model}</p>
               </div>
               {rental.cycle_amount != null && (
-                <div className="border-l border-[#323232] pl-6">
-                  <p className="text-[12px] text-[#9e9e9e] uppercase tracking-wide font-medium mb-1">
+                <div className="border-l border-surface-2 pl-6">
+                  <p className="text-[12px] text-fg-mute uppercase tracking-wide font-medium mb-1">
                     Valor {rental.cycle === 'weekly' ? 'Semanal' : 'Mensal'}
                   </p>
-                  <p className="text-[18px] font-bold text-[#f5f5f5]">{formatCurrency(rental.cycle_amount)}</p>
+                  <p className="text-[18px] font-bold text-fg">{formatCurrency(rental.cycle_amount)}</p>
                 </div>
               )}
               <div className="ml-auto">
                 {rental.vehicle_id && (
                   <Link
                     href={`/veiculos/${rental.vehicle_id}`}
-                    className="h-8 px-3 rounded-lg bg-[#323232] text-[#f5f5f5] text-[12px] font-medium hover:bg-[#474747] transition-colors flex items-center"
+                    className="h-8 px-3 rounded-lg bg-surface-2 text-fg text-[12px] font-medium hover:bg-border transition-colors flex items-center"
                   >
                     Ver veículo →
                   </Link>
@@ -206,8 +206,8 @@ export default async function CustomerDetailPage({
         {/* ── Dados da Empresa (PJ) ────────────────────────────────────────── */}
         {isCompany && (
           <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Dados da Empresa</h2>
-            <div className="bg-[#202020] rounded-xl overflow-hidden">
+            <h2 className="text-[14px] font-bold text-primary mb-3">Dados da Empresa</h2>
+            <div className="bg-surface rounded-xl overflow-hidden">
               <table className="w-full text-[13px]">
                 <tbody>
                   <Row label="Razão Social" value={customer.company_name} />
@@ -223,8 +223,8 @@ export default async function CustomerDetailPage({
         {/* ── Dados Pessoais (PF) ──────────────────────────────────────────── */}
         {!isCompany && (
           <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Dados Pessoais</h2>
-            <div className="bg-[#202020] rounded-xl overflow-hidden">
+            <h2 className="text-[14px] font-bold text-primary mb-3">Dados Pessoais</h2>
+            <div className="bg-surface rounded-xl overflow-hidden">
               <table className="w-full text-[13px]">
                 <tbody>
                   <Row label="CPF" value={customer.cpf ? applyCpfMask(customer.cpf) : null} mono />
@@ -238,28 +238,28 @@ export default async function CustomerDetailPage({
 
         {/* ── Contato ──────────────────────────────────────────────────────── */}
         <section>
-          <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Contato</h2>
-          <div className="bg-[#202020] rounded-xl overflow-hidden">
+          <h2 className="text-[14px] font-bold text-primary mb-3">Contato</h2>
+          <div className="bg-surface rounded-xl overflow-hidden">
             <table className="w-full text-[13px]">
               <tbody>
-                <tr className="border-b border-[#323232]">
-                  <td className="h-9 px-4 text-[#9e9e9e] w-48 text-[13px]">Telefone 1</td>
+                <tr className="border-b border-surface-2">
+                  <td className="h-9 px-4 text-fg-mute w-48 text-[13px]">Telefone 1</td>
                   <td className="h-9 px-4 text-[13px]">
                     {customer.phone ? (
                       <a href={whatsappHref!} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 text-[#f5f5f5] hover:text-[#BAFF1A] transition-colors w-fit">
+                        className="flex items-center gap-1.5 text-fg hover:text-primary transition-colors w-fit">
                         <MessageCircle className="w-3.5 h-3.5 shrink-0" />
                         {applyPhoneMask(customer.phone)}
                       </a>
-                    ) : <span className="text-[#616161] italic">—</span>}
+                    ) : <span className="text-fg-mute italic">—</span>}
                   </td>
                 </tr>
                 {customer.phone2 && (
-                  <tr className="border-b border-[#323232]">
-                    <td className="h-9 px-4 text-[#9e9e9e] w-48 text-[13px]">Telefone 2</td>
+                  <tr className="border-b border-surface-2">
+                    <td className="h-9 px-4 text-fg-mute w-48 text-[13px]">Telefone 2</td>
                     <td className="h-9 px-4 text-[13px]">
                       <a href={`https://wa.me/55${customer.phone2.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 text-[#f5f5f5] hover:text-[#BAFF1A] transition-colors w-fit">
+                        className="flex items-center gap-1.5 text-fg hover:text-primary transition-colors w-fit">
                         <MessageCircle className="w-3.5 h-3.5 shrink-0" />
                         {applyPhoneMask(customer.phone2)}
                       </a>
@@ -281,8 +281,8 @@ export default async function CustomerDetailPage({
         {/* ── Endereço ─────────────────────────────────────────────────────── */}
         {(customer.street || customer.city || customer.address) && (
           <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Endereço</h2>
-            <div className="bg-[#202020] rounded-xl overflow-hidden">
+            <h2 className="text-[14px] font-bold text-primary mb-3">Endereço</h2>
+            <div className="bg-surface rounded-xl overflow-hidden">
               <table className="w-full text-[13px]">
                 <tbody>
                   {customer.street ? (
@@ -305,21 +305,21 @@ export default async function CustomerDetailPage({
         {/* ── Habilitação (PF) ─────────────────────────────────────────────── */}
         {!isCompany && (
           <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Habilitação (CNH)</h2>
-            <div className="bg-[#202020] rounded-xl overflow-hidden">
+            <h2 className="text-[14px] font-bold text-primary mb-3">Habilitação (CNH)</h2>
+            <div className="bg-surface rounded-xl overflow-hidden">
               <table className="w-full text-[13px]">
                 <tbody>
                   <Row label="Número" value={customer.drivers_license} mono />
                   <Row label="Categoria" value={customer.drivers_license_category} />
-                  <tr className="border-b border-[#323232] last:border-0">
-                    <td className="h-9 px-4 text-[#9e9e9e] w-48 text-[13px]">Validade</td>
-                    <td className={`h-9 px-4 text-[13px] ${cnhExpired ? 'text-[#f87171]' : 'text-[#f5f5f5]'}`}>
+                  <tr className="border-b border-surface-2 last:border-0">
+                    <td className="h-9 px-4 text-fg-mute w-48 text-[13px]">Validade</td>
+                    <td className={`h-9 px-4 text-[13px] ${cnhExpired ? 'text-[#f87171]' : 'text-fg'}`}>
                       {customer.drivers_license_validity ? (
                         <>
                           {fmt(customer.drivers_license_validity)}
                           {cnhExpired && <span className="ml-2 text-[11px] font-medium text-[#f87171]">(Vencida)</span>}
                         </>
-                      ) : <span className="text-[#616161] italic">—</span>}
+                      ) : <span className="text-fg-mute italic">—</span>}
                     </td>
                   </tr>
                 </tbody>
@@ -331,7 +331,7 @@ export default async function CustomerDetailPage({
         {/* ── Acesso ao App (somente PF com email) ─────────────────────────── */}
         {!isCompany && (
           <section>
-            <div className="bg-[#202020] rounded-xl p-4">
+            <div className="bg-surface rounded-xl p-4">
               <CustomerAppAccess
                 customerId={id}
                 customerEmail={customer.email}
@@ -344,7 +344,7 @@ export default async function CustomerDetailPage({
         {/* ── Documentos ───────────────────────────────────────────────────── */}
         {(cnhSignedUrl || residencySignedUrl) && (
           <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Documentos</h2>
+            <h2 className="text-[14px] font-bold text-primary mb-3">Documentos</h2>
             <div className="grid grid-cols-2 gap-4">
               {cnhSignedUrl && (
                 <DocumentThumb url={cnhSignedUrl} label="Foto da CNH" alt="CNH do cliente" />
@@ -363,8 +363,8 @@ export default async function CustomerDetailPage({
         {/* ── Encerramento (ex-clientes) ───────────────────────────────────── */}
         {!isActive && (customer.departure_date || customer.departure_reason) && (
           <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Encerramento</h2>
-            <div className="bg-[#202020] rounded-xl overflow-hidden">
+            <h2 className="text-[14px] font-bold text-primary mb-3">Encerramento</h2>
+            <div className="bg-surface rounded-xl overflow-hidden">
               <table className="w-full text-[13px]">
                 <tbody>
                   <Row label="Data de Saída" value={fmt(customer.departure_date)} />
@@ -378,54 +378,54 @@ export default async function CustomerDetailPage({
         {/* ── Inadimplência ────────────────────────────────────────────────── */}
         <section>
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-[14px] font-bold text-[#BAFF1A]">
+            <h2 className="text-[14px] font-bold text-primary">
               Situação financeira
               {isBlocked && (
-                <span className="ml-2 rounded-full bg-[#7c1c1c] px-2 py-0.5 text-[11px] font-semibold text-[#ff9c9a]">Bloqueado</span>
+                <span className="ml-2 rounded-full bg-danger-bg px-2 py-0.5 text-[11px] font-semibold text-danger">Bloqueado</span>
               )}
             </h2>
           </div>
-          <div className="rounded-xl bg-[#202020] overflow-hidden">
+          <div className="rounded-xl bg-surface overflow-hidden">
             <table className="w-full text-[13px]">
               <tbody>
-                <tr className="border-b border-[#323232] last:border-0">
-                  <td className="h-9 w-48 px-4 text-[#9e9e9e]">Status</td>
-                  <td className="h-9 px-4 text-[#f5f5f5]">
+                <tr className="border-b border-surface-2 last:border-0">
+                  <td className="h-9 w-48 px-4 text-fg-mute">Status</td>
+                  <td className="h-9 px-4 text-fg">
                     {isBlocked
-                      ? <span className="text-[#ff9c9a] font-medium">Bloqueado para novas locações</span>
-                      : <span className="text-[#229731]">Regular</span>}
+                      ? <span className="text-danger font-medium">Bloqueado para novas locações</span>
+                      : <span className="text-success">Regular</span>}
                   </td>
                 </tr>
-                <tr className="border-b border-[#323232] last:border-0">
-                  <td className="h-9 w-48 px-4 text-[#9e9e9e]">Créditos disponíveis</td>
-                  <td className="h-9 px-4 font-mono text-[#f5f5f5]">
+                <tr className="border-b border-surface-2 last:border-0">
+                  <td className="h-9 w-48 px-4 text-fg-mute">Créditos disponíveis</td>
+                  <td className="h-9 px-4 font-mono text-fg">
                     {formatCurrency(credits.reduce((s, c) => s + c.available_balance, 0))}
-                    <span className="ml-2 text-[12px] text-[#616161]">({credits.filter(c => c.available_balance > 0).length} ativos)</span>
+                    <span className="ml-2 text-[12px] text-fg-mute">({credits.filter(c => c.available_balance > 0).length} ativos)</span>
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
           {delinquencyBlocks.length > 0 && (
-            <div className="mt-3 overflow-hidden rounded-xl border border-[#323232]">
+            <div className="mt-3 overflow-hidden rounded-xl border border-surface-2">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-[#323232] bg-[#1a1a1a]">
-                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Ação</th>
-                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Data</th>
-                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Motivo</th>
+                  <tr className="border-b border-surface-2 bg-surface">
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Ação</th>
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Motivo</th>
                   </tr>
                 </thead>
                 <tbody>
                   {delinquencyBlocks.map((b, i) => (
-                    <tr key={i} className="border-b border-[#1e1e1e] last:border-0">
-                      <td className={`h-9 px-4 font-medium ${b.action === 'block' ? 'text-[#ff9c9a]' : 'text-[#229731]'}`}>
+                    <tr key={i} className="border-b border-border last:border-0">
+                      <td className={`h-9 px-4 font-medium ${b.action === 'block' ? 'text-danger' : 'text-success'}`}>
                         {DELINQUENCY_ACTION_LABELS[b.action] ?? b.action}
                       </td>
-                      <td className="h-9 px-4 text-[#9e9e9e]">
+                      <td className="h-9 px-4 text-fg-mute">
                         {new Date(b.created_at).toLocaleDateString('pt-BR')}
                       </td>
-                      <td className="h-9 max-w-[240px] truncate px-4 text-[#9e9e9e]">{b.reason}</td>
+                      <td className="h-9 max-w-[240px] truncate px-4 text-fg-mute">{b.reason}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -437,27 +437,27 @@ export default async function CustomerDetailPage({
         {/* ── Créditos do cliente ───────────────────────────────────────────── */}
         {credits.length > 0 && (
           <section>
-            <h2 className="mb-3 text-[14px] font-bold text-[#BAFF1A]">
+            <h2 className="mb-3 text-[14px] font-bold text-primary">
               Créditos
-              <span className="ml-2 text-[12px] font-normal text-[#9e9e9e]">({credits.length})</span>
+              <span className="ml-2 text-[12px] font-normal text-fg-mute">({credits.length})</span>
             </h2>
-            <div className="overflow-hidden rounded-xl border border-[#323232]">
+            <div className="overflow-hidden rounded-xl border border-surface-2">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-[#323232] bg-[#1a1a1a]">
-                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Origem</th>
-                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Data</th>
-                    <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Total</th>
-                    <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Saldo</th>
+                  <tr className="border-b border-surface-2 bg-surface">
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Origem</th>
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
+                    <th className="h-9 px-4 text-right font-medium text-fg-mute">Total</th>
+                    <th className="h-9 px-4 text-right font-medium text-fg-mute">Saldo</th>
                   </tr>
                 </thead>
                 <tbody>
                   {credits.map(c => (
-                    <tr key={c.id} className="border-b border-[#1e1e1e] last:border-0 hover:bg-[#222222]">
-                      <td className="h-9 px-4 text-[#c7c7c7]">{CREDIT_ORIGIN_LABELS[c.origin] ?? c.origin}</td>
-                      <td className="h-9 px-4 text-[#9e9e9e]">{new Date(c.created_at).toLocaleDateString('pt-BR')}</td>
-                      <td className="h-9 px-4 text-right font-mono text-[#f5f5f5]">{formatCurrency(c.amount)}</td>
-                      <td className={`h-9 px-4 text-right font-mono font-semibold ${c.available_balance > 0 ? 'text-[#BAFF1A]' : 'text-[#616161]'}`}>
+                    <tr key={c.id} className="border-b border-border last:border-0 hover:bg-surface-2">
+                      <td className="h-9 px-4 text-fg-soft">{CREDIT_ORIGIN_LABELS[c.origin] ?? c.origin}</td>
+                      <td className="h-9 px-4 text-fg-mute">{new Date(c.created_at).toLocaleDateString('pt-BR')}</td>
+                      <td className="h-9 px-4 text-right font-mono text-fg">{formatCurrency(c.amount)}</td>
+                      <td className={`h-9 px-4 text-right font-mono font-semibold ${c.available_balance > 0 ? 'text-primary' : 'text-fg-mute'}`}>
                         {formatCurrency(c.available_balance)}
                       </td>
                     </tr>
@@ -471,9 +471,9 @@ export default async function CustomerDetailPage({
         {/* ── Observações ──────────────────────────────────────────────────── */}
         {customer.observations && (
           <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Observações</h2>
-            <div className="bg-[#202020] rounded-xl px-4 py-3">
-              <p className="text-[13px] text-[#9e9e9e] whitespace-pre-wrap">{customer.observations}</p>
+            <h2 className="text-[14px] font-bold text-primary mb-3">Observações</h2>
+            <div className="bg-surface rounded-xl px-4 py-3">
+              <p className="text-[13px] text-fg-mute whitespace-pre-wrap">{customer.observations}</p>
             </div>
           </section>
         )}
@@ -487,13 +487,13 @@ function DocumentThumb({ url, label, alt }: { url: string; label: string; alt: s
   const isPdf = url.includes('.pdf') || url.includes('application%2Fpdf')
   return (
     <div className="space-y-2">
-      <p className="text-[12px] font-medium text-[#9e9e9e]">{label}</p>
+      <p className="text-[12px] font-medium text-fg-mute">{label}</p>
       <a href={url} target="_blank" rel="noopener noreferrer"
-        className="block relative group rounded-xl overflow-hidden border border-[#323232] bg-[#202020]">
+        className="block relative group rounded-xl overflow-hidden border border-surface-2 bg-surface">
         {isPdf ? (
           <div className="flex flex-col items-center justify-center h-40 gap-3">
-            <div className="w-12 h-12 rounded-xl bg-[#323232] flex items-center justify-center text-[#9e9e9e] text-[12px] font-bold">PDF</div>
-            <span className="text-[12px] text-[#616161] group-hover:text-[#BAFF1A] transition-colors">Abrir PDF →</span>
+            <div className="w-12 h-12 rounded-xl bg-surface-2 flex items-center justify-center text-fg-mute text-[12px] font-bold">PDF</div>
+            <span className="text-[12px] text-fg-mute group-hover:text-primary transition-colors">Abrir PDF →</span>
           </div>
         ) : (
           <>

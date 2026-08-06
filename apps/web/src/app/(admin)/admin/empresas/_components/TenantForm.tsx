@@ -106,15 +106,15 @@ function tenantPayload(f: TenantFields) {
 
 // ─── Primitivas de estilo ─────────────────────────────────────────────────────
 
-const labelCls = 'block text-[13px] text-[#9e9e9e] mb-1.5'
+const labelCls = 'block text-[13px] text-fg-mute mb-1.5'
 const inputCls =
-  'w-full h-9 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all disabled:opacity-50'
+  'w-full h-9 px-3 rounded-lg bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all disabled:opacity-50'
 
 function SectionHeader({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="flex items-baseline gap-3 mb-5">
-      <h2 className="text-[15px] font-bold text-[#f5f5f5]">{title}</h2>
-      {hint && <span className="text-[12px] text-[#616161]">{hint}</span>}
+      <h2 className="text-[15px] font-bold text-fg">{title}</h2>
+      {hint && <span className="text-[12px] text-fg-mute">{hint}</span>}
     </div>
   )
 }
@@ -136,8 +136,8 @@ function Field({
     <div className={className}>
       <label className={labelCls}>{label}</label>
       {children}
-      {hint && !error && <p className="mt-1 text-[12px] text-[#616161]">{hint}</p>}
-      {error && <p className="mt-1 text-[12px] text-[#ff9c9a]">{error}</p>}
+      {hint && !error && <p className="mt-1 text-[12px] text-fg-mute">{hint}</p>}
+      {error && <p className="mt-1 text-[12px] text-danger">{error}</p>}
     </div>
   )
 }
@@ -248,29 +248,29 @@ export function TenantForm({ mode, initialData, tenantId }: Props) {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-full bg-[#121212]">
+    <div className="min-h-full bg-bg">
 
       {/* Header fixo */}
-      <div className="sticky top-0 z-10 bg-[#121212] border-b border-[#323232] px-6 h-16 flex items-center gap-4">
+      <div className="sticky top-0 z-10 bg-bg border-b border-surface-2 px-6 h-16 flex items-center gap-4">
         <Link
           href={backHref}
-          className="text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors"
+          className="text-[13px] text-fg-mute hover:text-fg transition-colors"
         >
           {mode === 'edit' ? `← ${tenant.name || 'Empresa'}` : '← Empresas'}
         </Link>
-        <span className="text-[#474747]">/</span>
-        <h1 className="text-[18px] font-bold text-[#f5f5f5]">{title}</h1>
+        <span className="text-border">/</span>
+        <h1 className="text-[18px] font-bold text-fg">{title}</h1>
         <div className="ml-auto flex items-center gap-3">
           <Link
             href={backHref}
-            className="inline-flex items-center h-9 px-4 rounded-full bg-[#323232] text-[#f5f5f5] text-[13px] font-medium hover:bg-[#474747] transition-colors"
+            className="inline-flex items-center h-9 px-4 rounded-full bg-surface-2 text-fg text-[13px] font-medium hover:bg-border transition-colors"
           >
             Cancelar
           </Link>
           <button
             onClick={handleSubmit}
             disabled={isPending}
-            className="inline-flex items-center h-9 px-4 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e818] transition-colors disabled:opacity-50"
+            className="inline-flex items-center h-9 px-4 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors disabled:opacity-50"
           >
             {isPending
               ? mode === 'create' ? 'Criando…' : 'Salvando…'
@@ -288,7 +288,7 @@ export function TenantForm({ mode, initialData, tenantId }: Props) {
               <li key={item.id}>
                 <a
                   href={`#${item.id}`}
-                  className="block px-3 py-1.5 rounded-lg text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] hover:bg-[#323232] transition-colors"
+                  className="block px-3 py-1.5 rounded-lg text-[13px] text-fg-mute hover:text-fg hover:bg-surface-2 transition-colors"
                 >
                   {item.label}
                 </a>
@@ -302,14 +302,14 @@ export function TenantForm({ mode, initialData, tenantId }: Props) {
 
           {/* Erro global */}
           {formError && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-[#7c1c1c] border border-[#ff9c9a] rounded-xl">
-              <AlertCircle className="w-4 h-4 text-[#ff9c9a] shrink-0" />
-              <p className="text-[13px] text-[#ff9c9a]">{formError}</p>
+            <div className="flex items-center gap-3 px-4 py-3 bg-danger-bg border border-danger rounded-xl">
+              <AlertCircle className="w-4 h-4 text-danger shrink-0" />
+              <p className="text-[13px] text-danger">{formError}</p>
             </div>
           )}
 
           {/* ── Identidade ──────────────────────────────────────────────────── */}
-          <section id="sec-identity" className="bg-[#1a1a1a] rounded-2xl p-6">
+          <section id="sec-identity" className="bg-surface rounded-2xl p-6">
             <SectionHeader
               title="Identidade"
               hint="Nome fantasia, razão social e identificador único."
@@ -363,7 +363,7 @@ export function TenantForm({ mode, initialData, tenantId }: Props) {
           </section>
 
           {/* ── Contato ─────────────────────────────────────────────────────── */}
-          <section id="sec-contact" className="bg-[#1a1a1a] rounded-2xl p-6">
+          <section id="sec-contact" className="bg-surface rounded-2xl p-6">
             <SectionHeader
               title="Contato"
               hint="Canais oficiais para comunicação institucional."
@@ -392,7 +392,7 @@ export function TenantForm({ mode, initialData, tenantId }: Props) {
           </section>
 
           {/* ── Endereço ────────────────────────────────────────────────────── */}
-          <section id="sec-address" className="bg-[#1a1a1a] rounded-2xl p-6">
+          <section id="sec-address" className="bg-surface rounded-2xl p-6">
             <SectionHeader
               title="Endereço"
               hint="Endereço fiscal usado em contratos e documentos."
@@ -427,16 +427,16 @@ export function TenantForm({ mode, initialData, tenantId }: Props) {
                   />
                   <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
                     {cepLookup.loading
-                      ? <Loader2 className="w-4 h-4 text-[#BAFF1A] animate-spin" />
-                      : <MapPin className="w-4 h-4 text-[#616161]" />
+                      ? <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                      : <MapPin className="w-4 h-4 text-fg-mute" />
                     }
                   </div>
                 </div>
                 {cepLookup.error && (
-                  <p className="mt-1 text-[12px] text-[#ff9c9a]">{cepLookup.error}</p>
+                  <p className="mt-1 text-[12px] text-danger">{cepLookup.error}</p>
                 )}
                 {fe('address_zip') && (
-                  <p className="mt-1 text-[12px] text-[#ff9c9a]">{fe('address_zip')}</p>
+                  <p className="mt-1 text-[12px] text-danger">{fe('address_zip')}</p>
                 )}
               </div>
               <Field label="Logradouro" error={fe('address_street')} className="col-span-4">
@@ -499,7 +499,7 @@ export function TenantForm({ mode, initialData, tenantId }: Props) {
 
           {/* ── Responsável (somente criação) ────────────────────────────────── */}
           {mode === 'create' && (
-            <section id="sec-owner" className="bg-[#1a1a1a] rounded-2xl p-6">
+            <section id="sec-owner" className="bg-surface rounded-2xl p-6">
               <SectionHeader
                 title="Responsável"
                 hint="Recebe role owner e convida os demais membros."

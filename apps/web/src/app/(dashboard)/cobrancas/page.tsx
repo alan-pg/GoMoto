@@ -431,22 +431,22 @@ export default function CobrancasPage() {
 
         {/* Status da integração MP */}
         {!paymentConnection.isLoading && !isConnected && (
-          <div className="rounded-xl border border-[#474747] bg-[#1a1a1a] px-4 py-3 flex items-center gap-3">
-            <QrCode className="w-5 h-5 text-[#9e9e9e] shrink-0" />
-            <p className="text-[13px] text-[#9e9e9e] flex-1">
+          <div className="rounded-xl border border-border bg-surface px-4 py-3 flex items-center gap-3">
+            <QrCode className="w-5 h-5 text-fg-mute shrink-0" />
+            <p className="text-[13px] text-fg-mute flex-1">
               Para gerar Pix de cobranças, conecte a conta Mercado Pago nas{' '}
-              <a href="/configuracoes" className="text-[#BAFF1A] underline underline-offset-2">Configurações</a>.
+              <a href="/configuracoes" className="text-primary underline underline-offset-2">Configurações</a>.
             </p>
           </div>
         )}
 
         {/* Mensagem de erro no carregamento */}
         {fetchError && (
-          <div className="rounded-xl border border-[#ff9c9a] bg-[#7c1c1c] px-4 py-3 flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 text-[#ff9c9a] shrink-0" />
+          <div className="rounded-xl border border-danger bg-danger-bg px-4 py-3 flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-danger shrink-0" />
             <div className="flex-1">
-              <p className="text-[13px] font-medium text-[#ff9c9a]">Erro ao carregar cobranças</p>
-              <p className="text-[12px] text-[#9e9e9e] mt-0.5">{fetchError}</p>
+              <p className="text-[13px] font-medium text-danger">Erro ao carregar cobranças</p>
+              <p className="text-[12px] text-fg-mute mt-0.5">{fetchError}</p>
             </div>
             <Button variant="outline" size="sm" onClick={() => billingsQuery.refetch()}>
               Tentar novamente
@@ -484,20 +484,20 @@ export default function CobrancasPage() {
 
         {/* Barra de Filtros e Busca */}
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex flex-wrap border-b border-[#616161]">
+          <div className="flex flex-wrap border-b border-fg-mute">
             {tabs.map((tab) => (
               <button
                 key={tab.value}
                 onClick={() => setActiveTab(tab.value)}
                 className={`px-3 py-2 text-[16px] font-medium transition-all border-b-2 ${
                   activeTab === tab.value
-                    ? 'border-[#BAFF1A] text-[#f5f5f5]'
-                    : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
+                    ? 'border-primary text-fg'
+                    : 'border-transparent text-fg-mute hover:text-fg'
                 }`}
               >
                 {tab.label}
                 {tab.value !== 'all' && (
-                  <span className="ml-1.5 text-[#616161]">
+                  <span className="ml-1.5 text-fg-mute">
                     ({tab.value === 'relevant'
                       ? getRelevantBillings(charges).length
                       : charges.filter((c) => c.status === tab.value).length})
@@ -507,46 +507,46 @@ export default function CobrancasPage() {
             ))}
           </div>
           <div className="ml-auto relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9e9e9e]" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-mute" />
             <input
               type="text"
               placeholder="Buscar por cliente ou descrição..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-10 pl-9 pr-4 rounded-full bg-[#323232] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder-[#616161] focus:outline-none focus:border-[#BAFF1A] w-72"
+              className="h-10 pl-9 pr-4 rounded-full bg-surface-2 border border-border text-[13px] text-fg placeholder-fg-mute focus:outline-none focus:border-primary w-72"
             />
           </div>
         </div>
 
         {/* Tabela de Cobranças */}
-        <div className="overflow-hidden rounded-xl bg-[#202020]">
+        <div className="overflow-hidden rounded-xl bg-surface">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="flex flex-col items-center gap-3">
-                <svg className="animate-spin h-8 w-8 text-[#BAFF1A]" viewBox="0 0 24 24" fill="none">
+                <svg className="animate-spin h-8 w-8 text-primary" viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                <p className="text-[13px] text-[#c7c7c7]">Carregando cobranças...</p>
+                <p className="text-[13px] text-fg-soft">Carregando cobranças...</p>
               </div>
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex items-center justify-center py-12">
-              <p className="text-[#c7c7c7] text-[13px] italic">Nenhuma cobrança encontrada</p>
+              <p className="text-fg-soft text-[13px] italic">Nenhuma cobrança encontrada</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-[13px] text-[#f5f5f5]">
-                <thead className="text-[#9e9e9e]">
-                  <tr className="border-b border-[#323232]">
-                    <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Cliente</th>
-                    <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Descrição</th>
-                    <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Valor</th>
-                    <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Vencimento</th>
-                    <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Status</th>
-                    <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Pix</th>
-                    <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Dt. Pagamento</th>
-                    <th className="h-9 px-4 text-right text-[13px] font-medium text-[#9e9e9e]">Ações</th>
+              <table className="w-full text-left text-[13px] text-fg">
+                <thead className="text-fg-mute">
+                  <tr className="border-b border-surface-2">
+                    <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Cliente</th>
+                    <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Descrição</th>
+                    <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Valor</th>
+                    <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Vencimento</th>
+                    <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Status</th>
+                    <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Pix</th>
+                    <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Dt. Pagamento</th>
+                    <th className="h-9 px-4 text-right text-[13px] font-medium text-fg-mute">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -554,17 +554,17 @@ export default function CobrancasPage() {
                     const phone = row.customers?.phone
                     const wpLink = phone ? `https://wa.me/55${phone.replace(/\D/g, '')}` : null
                     return (
-                      <tr key={row.id} className="h-9 border-b border-[#323232] transition-colors hover:bg-[#323232]">
+                      <tr key={row.id} className="h-9 border-b border-surface-2 transition-colors hover:bg-surface-2">
                         <td className="px-4 text-[13px]">
                           <div className="flex items-center gap-2">
-                            <span className="text-[#f5f5f5]">{row.customers?.name ?? '—'}</span>
+                            <span className="text-fg">{row.customers?.name ?? '—'}</span>
                             {wpLink && (
                               <a
                                 href={wpLink}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 title="Abrir WhatsApp"
-                                className="text-[#9e9e9e] hover:text-[#229731] transition-colors"
+                                className="text-fg-mute hover:text-success transition-colors"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <MessageCircle className="w-3.5 h-3.5" />
@@ -573,17 +573,17 @@ export default function CobrancasPage() {
                           </div>
                         </td>
                         <td className="px-4 text-[13px]">{row.description}</td>
-                        <td className="whitespace-nowrap px-4 text-[13px] font-medium text-[#f5f5f5]">{formatCurrency(row.original_amount ?? 0)}</td>
+                        <td className="whitespace-nowrap px-4 text-[13px] font-medium text-fg">{formatCurrency(row.original_amount ?? 0)}</td>
                         <td className="whitespace-nowrap px-4 text-[13px]">{formatDate(row.due_date)}</td>
                         <td className="px-4"><StatusBadge status={row.status} /></td>
                         <td className="whitespace-nowrap px-4">
                           {(() => {
                             const ps = getPixStatus(row)
                             const colors: Record<string, string> = {
-                              none:    'text-[#616161]',
-                              active:  'text-[#3b82f6]',
-                              expired: 'text-[#9e9e9e]',
-                              paid:    'text-[#229731]',
+                              none:    'text-fg-mute',
+                              active:  'text-info',
+                              expired: 'text-fg-mute',
+                              paid:    'text-success',
                             }
                             const labels: Record<string, string> = {
                               none: '—', active: 'Ativo', expired: 'Expirado', paid: 'Pago',
@@ -591,12 +591,12 @@ export default function CobrancasPage() {
                             return <span className={`text-[13px] ${colors[ps]}`}>{labels[ps]}</span>
                           })()}
                         </td>
-                        <td className="whitespace-nowrap px-4 text-[13px] text-[#9e9e9e]">
+                        <td className="whitespace-nowrap px-4 text-[13px] text-fg-mute">
                           {row.paid_at ? formatDate(row.paid_at) : row.payment_date ? formatDate(row.payment_date) : '—'}
                         </td>
                         <td className="whitespace-nowrap px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            <Link href={`/cobrancas/${row.id}`} className="inline-flex h-8 w-8 items-center justify-center rounded bg-[#323232] text-[#9e9e9e] transition-colors hover:bg-[#474747] hover:text-[#f5f5f5]" title="Ver detalhes">
+                            <Link href={`/cobrancas/${row.id}`} className="inline-flex h-8 w-8 items-center justify-center rounded bg-surface-2 text-fg-mute transition-colors hover:bg-border hover:text-fg" title="Ver detalhes">
                               <Eye className="h-4 w-4" />
                             </Link>
                             {row.status !== 'paid' && (
@@ -618,7 +618,7 @@ export default function CobrancasPage() {
                             )}
                             {(row.status === 'pending' || row.status === 'overdue') && !isConnected && (
                               <button
-                                className="h-8 w-8 p-0 rounded flex items-center justify-center text-[#474747] cursor-not-allowed"
+                                className="h-8 w-8 p-0 rounded flex items-center justify-center text-border cursor-not-allowed"
                                 title="Configure a integração de pagamento nas Configurações"
                                 disabled
                               >
@@ -731,13 +731,13 @@ export default function CobrancasPage() {
       {/* Modal: Confirmar recebimento de pagamento */}
       <Modal open={!!confirmingPaid} onClose={() => setConfirmingPaid(null)} title="Confirmar Pagamento" size="sm">
         <div className="space-y-4">
-          <div className="p-4 bg-[#0e2f13] border border-[#28b438] rounded-xl space-y-2">
-            <p className="text-[13px] text-[#f5f5f5] font-medium">Confirmar recebimento desta cobrança?</p>
+          <div className="p-4 bg-success-bg border border-[#28b438] rounded-xl space-y-2">
+            <p className="text-[13px] text-fg font-medium">Confirmar recebimento desta cobrança?</p>
             {confirmingPaid && (
               <div className="space-y-0.5">
-                <p className="text-[12px] text-[#9e9e9e]">{confirmingPaid.customers?.name ?? '—'}</p>
-                <p className="text-[12px] text-[#9e9e9e]">{confirmingPaid.description}</p>
-                <p className="text-[13px] font-medium text-[#229731]">{formatCurrency(confirmingPaid.original_amount ?? 0)}</p>
+                <p className="text-[12px] text-fg-mute">{confirmingPaid.customers?.name ?? '—'}</p>
+                <p className="text-[12px] text-fg-mute">{confirmingPaid.description}</p>
+                <p className="text-[13px] font-medium text-success">{formatCurrency(confirmingPaid.original_amount ?? 0)}</p>
               </div>
             )}
           </div>
@@ -755,7 +755,7 @@ export default function CobrancasPage() {
             onChange={(e) => setPaymentMethod(e.target.value)}
             required
           />
-          <p className="text-[12px] text-[#9e9e9e]">A data de pagamento será registrada como hoje.</p>
+          <p className="text-[12px] text-fg-mute">A data de pagamento será registrada como hoje.</p>
           <div className="flex gap-3 justify-end">
             <Button variant="ghost" onClick={() => setConfirmingPaid(null)}>Cancelar</Button>
             <Button onClick={confirmPaid} loading={saving} disabled={!paymentMethod}>
@@ -769,17 +769,17 @@ export default function CobrancasPage() {
       {/* Modal: Contabilizar cobrança como prejuízo */}
       <Modal open={!!confirmingLoss} onClose={() => setConfirmingLoss(null)} title="Registrar como Prejuízo" size="sm">
         <div className="space-y-4">
-          <div className="p-4 bg-[#7c1c1c] border border-[#ff9c9a] rounded-xl space-y-2">
-            <p className="text-[13px] text-[#f5f5f5] font-medium">Tem certeza que deseja contabilizar esta cobrança como prejuízo?</p>
+          <div className="p-4 bg-danger-bg border border-danger rounded-xl space-y-2">
+            <p className="text-[13px] text-fg font-medium">Tem certeza que deseja contabilizar esta cobrança como prejuízo?</p>
             {confirmingLoss && (
               <div className="space-y-0.5">
-                <p className="text-[12px] text-[#9e9e9e]">{confirmingLoss.customers?.name ?? '—'}</p>
-                <p className="text-[12px] text-[#9e9e9e]">{confirmingLoss.description}</p>
-                <p className="text-[13px] font-medium text-[#ff9c9a]">{formatCurrency(confirmingLoss.original_amount ?? 0)}</p>
+                <p className="text-[12px] text-fg-mute">{confirmingLoss.customers?.name ?? '—'}</p>
+                <p className="text-[12px] text-fg-mute">{confirmingLoss.description}</p>
+                <p className="text-[13px] font-medium text-danger">{formatCurrency(confirmingLoss.original_amount ?? 0)}</p>
               </div>
             )}
           </div>
-          <p className="text-[12px] text-[#ff9c9a]">Esta ação indica que a dívida é irrecuperável. Não pode ser desfeita facilmente.</p>
+          <p className="text-[12px] text-danger">Esta ação indica que a dívida é irrecuperável. Não pode ser desfeita facilmente.</p>
           <div className="flex gap-3 justify-end">
             <Button variant="ghost" onClick={() => setConfirmingLoss(null)}>Cancelar</Button>
             <Button variant="danger" onClick={confirmLoss} loading={saving}>
@@ -796,14 +796,14 @@ export default function CobrancasPage() {
           <div className="space-y-4">
             {pixPaid ? (
               <div className="flex flex-col items-center gap-3 py-6">
-                <CheckCircle2 className="w-16 h-16 text-[#229731]" />
-                <p className="text-[15px] font-medium text-[#f5f5f5]">Pagamento confirmado!</p>
-                <p className="text-[13px] text-[#9e9e9e]">O Pix foi recebido via Mercado Pago.</p>
+                <CheckCircle2 className="w-16 h-16 text-success" />
+                <p className="text-[15px] font-medium text-fg">Pagamento confirmado!</p>
+                <p className="text-[13px] text-fg-mute">O Pix foi recebido via Mercado Pago.</p>
               </div>
             ) : (
               <>
                 {pixModal.result.is_reused && (
-                  <p className="text-[12px] text-[#9e9e9e] text-center">Pix ativo reutilizado — mesmo código gerado anteriormente.</p>
+                  <p className="text-[12px] text-fg-mute text-center">Pix ativo reutilizado — mesmo código gerado anteriormente.</p>
                 )}
                 <div className="flex flex-col items-center gap-2">
                   <img
@@ -812,19 +812,19 @@ export default function CobrancasPage() {
                     className="w-48 h-48 rounded-xl bg-white p-2"
                   />
                   <div className="text-center">
-                    <p className="text-[13px] text-[#9e9e9e]">
+                    <p className="text-[13px] text-fg-mute">
                       {pixModal.billing.customers?.name ?? '—'} — {formatCurrency(
                         (pixModal.billing.original_amount ?? 0) - (pixModal.billing.discount_amount ?? 0)
                       )}
                     </p>
-                    <p className="text-[12px] text-[#616161] mt-0.5">
+                    <p className="text-[12px] text-fg-mute mt-0.5">
                       Vence em {formatDate(pixModal.result.expires_at.slice(0, 10))}
                     </p>
                   </div>
                 </div>
-                <div className="rounded-xl bg-[#1a1a1a] border border-[#323232] p-3">
-                  <p className="text-[11px] text-[#9e9e9e] mb-1">Copia e Cola</p>
-                  <p className="text-[12px] text-[#f5f5f5] break-all font-mono leading-relaxed select-all">
+                <div className="rounded-xl bg-surface border border-surface-2 p-3">
+                  <p className="text-[11px] text-fg-mute mb-1">Copia e Cola</p>
+                  <p className="text-[12px] text-fg break-all font-mono leading-relaxed select-all">
                     {pixModal.result.qr_code}
                   </p>
                 </div>
@@ -836,7 +836,7 @@ export default function CobrancasPage() {
                     {copied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                     {copied ? 'Copiado!' : 'Copiar Código'}
                   </Button>
-                  <div className="flex items-center gap-1.5 text-[12px] text-[#616161]">
+                  <div className="flex items-center gap-1.5 text-[12px] text-fg-mute">
                     <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -856,9 +856,9 @@ export default function CobrancasPage() {
       {/* Modal: Exclusão definitiva de cobrança */}
       <Modal open={!!deleting} onClose={() => setDeleting(null)} title="Excluir Cobrança" size="sm">
         <div className="space-y-4">
-          <p className="text-[#9e9e9e] text-[13px]">
+          <p className="text-fg-mute text-[13px]">
             Tem certeza que deseja excluir a cobrança{' '}
-            <span className="text-[#f5f5f5] font-medium">{deleting?.description}</span>?
+            <span className="text-fg font-medium">{deleting?.description}</span>?
             Esta ação não poderá ser desfeita.
           </p>
           <div className="flex gap-3 justify-end">

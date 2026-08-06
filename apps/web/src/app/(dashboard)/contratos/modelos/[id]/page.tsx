@@ -35,21 +35,21 @@ export default async function ModeloDetailPage({
 
   return (
     // h-full preenche o <main> do LayoutShell sem vazar
-    <div className="h-full flex flex-col bg-[#121212] overflow-hidden">
+    <div className="h-full flex flex-col bg-bg overflow-hidden">
 
       {/* Header com metadados */}
-      <div className="shrink-0 bg-[#121212] border-b border-[#323232] px-6 py-3 space-y-2">
+      <div className="shrink-0 bg-bg border-b border-surface-2 px-6 py-3 space-y-2">
         {/* Linha 1: nav + ações */}
         <div className="flex items-center gap-2 min-w-0">
           <Link
             href="/contratos/modelos"
-            className="flex items-center gap-1.5 text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors shrink-0"
+            className="flex items-center gap-1.5 text-[13px] text-fg-mute hover:text-fg transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
             Modelos
           </Link>
-          <span className="text-[#474747] shrink-0">/</span>
-          <span className="text-[14px] font-semibold text-[#f5f5f5] truncate flex-1">{template.name}</span>
+          <span className="text-border shrink-0">/</span>
+          <span className="text-[14px] font-semibold text-fg truncate flex-1">{template.name}</span>
           <Link href={`/contratos/modelos/${id}/editar`} className="shrink-0">
             <Button variant="secondary" size="sm" className="gap-2">
               <Edit2 className="w-4 h-4" />
@@ -61,9 +61,9 @@ export default async function ModeloDetailPage({
         {/* Linha 2: meta info */}
         <div className="flex items-center gap-4">
           {template.description && (
-            <p className="text-[13px] text-[#9e9e9e] truncate flex-1">{template.description}</p>
+            <p className="text-[13px] text-fg-mute truncate flex-1">{template.description}</p>
           )}
-          <div className="flex items-center gap-1.5 text-[12px] text-[#616161] shrink-0 ml-auto">
+          <div className="flex items-center gap-1.5 text-[12px] text-fg-mute shrink-0 ml-auto">
             <Clock className="w-3.5 h-3.5" />
             {fmt(template.updated_at)}
           </div>

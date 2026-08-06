@@ -48,8 +48,8 @@ export function VehicleFinancialActions({ vehicleId, hasAcquisitionValue, alread
   return (
     <>
       {flashError && (
-        <div className="mb-3 rounded-xl border border-[#ff9c9a]/30 bg-[#7c1c1c] px-4 py-3">
-          <p className="text-[13px] text-[#ff9c9a]">{flashError}</p>
+        <div className="mb-3 rounded-xl border border-danger bg-danger-bg px-4 py-3">
+          <p className="text-[13px] text-danger">{flashError}</p>
         </div>
       )}
 
@@ -57,7 +57,7 @@ export function VehicleFinancialActions({ vehicleId, hasAcquisitionValue, alread
         <button
           onClick={() => { setFlashError(null); setAcquisitionOpen(true) }}
           disabled={isPending}
-          className="inline-flex h-9 items-center rounded-full border border-[#474747] px-4 text-[13px] text-[#9e9e9e] transition-colors hover:border-[#616161] hover:text-[#f5f5f5] disabled:opacity-50"
+          className="inline-flex h-9 items-center rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg disabled:opacity-50"
         >
           {hasAcquisitionValue ? 'Atualizar valor de aquisição' : 'Cadastrar valor de aquisição'}
         </button>
@@ -65,7 +65,7 @@ export function VehicleFinancialActions({ vehicleId, hasAcquisitionValue, alread
           <button
             onClick={() => { setFlashError(null); setSaleOpen(true) }}
             disabled={isPending}
-            className="inline-flex h-9 items-center rounded-full bg-[#BAFF1A] px-4 text-[13px] font-semibold text-[#121212] transition-colors hover:bg-[#ccff40] disabled:opacity-50"
+            className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-[13px] font-semibold text-bg transition-colors hover:bg-[#ccff40] disabled:opacity-50"
           >
             Registrar alienação
           </button>
@@ -75,7 +75,7 @@ export function VehicleFinancialActions({ vehicleId, hasAcquisitionValue, alread
       {/* ── Registrar alienação ────────────────────────────────────────── */}
       <Modal open={saleOpen} onClose={() => setSaleOpen(false)} title="Registrar alienação">
         <div className="space-y-4">
-          <p className="text-[13px] text-[#9e9e9e]">
+          <p className="text-[13px] text-fg-mute">
             Registre o valor pelo qual o veículo foi vendido. Esta ação é definitiva.
           </p>
           <Input
@@ -92,18 +92,18 @@ export function VehicleFinancialActions({ vehicleId, hasAcquisitionValue, alread
             value={soldAt}
             onChange={e => setSoldAt(e.target.value)}
           />
-          {flashError && <p className="text-[13px] text-[#ff9c9a]">{flashError}</p>}
+          {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button
               onClick={() => setSaleOpen(false)}
-              className="inline-flex h-9 items-center px-4 rounded-full border border-[#474747] text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5]"
+              className="inline-flex h-9 items-center px-4 rounded-full border border-border text-[13px] text-fg-mute hover:text-fg"
             >
               Cancelar
             </button>
             <button
               onClick={handleSale}
               disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-[#BAFF1A] text-[13px] font-semibold text-[#121212] hover:bg-[#ccff40] disabled:opacity-50"
+              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-[#ccff40] disabled:opacity-50"
             >
               {isPending ? 'Salvando…' : 'Confirmar alienação'}
             </button>
@@ -122,18 +122,18 @@ export function VehicleFinancialActions({ vehicleId, hasAcquisitionValue, alread
             value={acquisitionValue}
             onChange={e => setAcquisitionValue(e.target.value)}
           />
-          {flashError && <p className="text-[13px] text-[#ff9c9a]">{flashError}</p>}
+          {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button
               onClick={() => setAcquisitionOpen(false)}
-              className="inline-flex h-9 items-center px-4 rounded-full border border-[#474747] text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5]"
+              className="inline-flex h-9 items-center px-4 rounded-full border border-border text-[13px] text-fg-mute hover:text-fg"
             >
               Cancelar
             </button>
             <button
               onClick={handleAcquisition}
               disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-[#BAFF1A] text-[13px] font-semibold text-[#121212] hover:bg-[#ccff40] disabled:opacity-50"
+              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-[#ccff40] disabled:opacity-50"
             >
               {isPending ? 'Salvando…' : 'Salvar'}
             </button>

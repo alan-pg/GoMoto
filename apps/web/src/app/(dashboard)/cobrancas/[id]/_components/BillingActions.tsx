@@ -115,8 +115,8 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
   return (
     <>
       {flashError && (
-        <div className="rounded-xl border border-[#ff9c9a]/30 bg-[#7c1c1c] px-4 py-3">
-          <p className="text-[13px] text-[#ff9c9a]">{flashError}</p>
+        <div className="rounded-xl border border-danger bg-danger-bg px-4 py-3">
+          <p className="text-[13px] text-danger">{flashError}</p>
         </div>
       )}
 
@@ -125,7 +125,7 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
           <button
             onClick={() => { setFlashError(null); setPayAmount(amountDue > 0 ? amountDue.toFixed(2) : ''); setPayOpen(true) }}
             disabled={isPending}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#BAFF1A] px-4 text-[13px] font-semibold text-[#121212] transition-colors hover:bg-[#ccff40] disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-[13px] font-semibold text-bg transition-colors hover:bg-[#ccff40] disabled:opacity-50"
           >
             Registrar pagamento
           </button>
@@ -134,7 +134,7 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
           <button
             onClick={() => { setFlashError(null); setWaiveOpen(true) }}
             disabled={isPending}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#474747] px-4 text-[13px] text-[#9e9e9e] transition-colors hover:border-[#616161] hover:text-[#f5f5f5] disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg disabled:opacity-50"
           >
             Dispensar encargos
           </button>
@@ -143,7 +143,7 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
           <button
             onClick={() => { setFlashError(null); setCreditOpen(true) }}
             disabled={isPending}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#474747] px-4 text-[13px] text-[#9e9e9e] transition-colors hover:border-[#616161] hover:text-[#f5f5f5] disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg disabled:opacity-50"
           >
             Aplicar crédito
           </button>
@@ -152,7 +152,7 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
           <button
             onClick={() => { setFlashError(null); setCancelOpen(true) }}
             disabled={isPending}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#ff9c9a]/20 bg-[#7c1c1c]/50 px-4 text-[13px] text-[#ff9c9a] transition-colors hover:bg-[#7c1c1c] disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-danger bg-danger-bg px-4 text-[13px] text-danger transition-colors hover:bg-danger-bg disabled:opacity-50"
           >
             Cancelar cobrança
           </button>
@@ -182,18 +182,18 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
             onChange={e => setPayNotes(e.target.value)}
             rows={2}
           />
-          {flashError && <p className="text-[13px] text-[#ff9c9a]">{flashError}</p>}
+          {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button
               onClick={() => setPayOpen(false)}
-              className="inline-flex h-9 items-center px-4 rounded-full border border-[#474747] text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5]"
+              className="inline-flex h-9 items-center px-4 rounded-full border border-border text-[13px] text-fg-mute hover:text-fg"
             >
               Cancelar
             </button>
             <button
               onClick={handlePay}
               disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-[#BAFF1A] text-[13px] font-semibold text-[#121212] hover:bg-[#ccff40] disabled:opacity-50"
+              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-[#ccff40] disabled:opacity-50"
             >
               {isPending ? 'Salvando…' : 'Confirmar pagamento'}
             </button>
@@ -204,7 +204,7 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
       {/* ── Dispensar encargos ─────────────────────────────────────────────── */}
       <Modal open={waiveOpen} onClose={() => setWaiveOpen(false)} title="Dispensar encargos">
         <div className="space-y-4">
-          <p className="text-[13px] text-[#9e9e9e]">
+          <p className="text-[13px] text-fg-mute">
             Os encargos (multa e juros) desta cobrança serão zerados. Essa ação é irreversível.
           </p>
           <Textarea
@@ -214,18 +214,18 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
             rows={3}
             placeholder="Explique o motivo da dispensa…"
           />
-          {flashError && <p className="text-[13px] text-[#ff9c9a]">{flashError}</p>}
+          {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button
               onClick={() => setWaiveOpen(false)}
-              className="inline-flex h-9 items-center px-4 rounded-full border border-[#474747] text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5]"
+              className="inline-flex h-9 items-center px-4 rounded-full border border-border text-[13px] text-fg-mute hover:text-fg"
             >
               Cancelar
             </button>
             <button
               onClick={handleWaive}
               disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-[#BAFF1A] text-[13px] font-semibold text-[#121212] hover:bg-[#ccff40] disabled:opacity-50"
+              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-[#ccff40] disabled:opacity-50"
             >
               {isPending ? 'Salvando…' : 'Confirmar dispensa'}
             </button>
@@ -237,11 +237,11 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
       <Modal open={creditOpen} onClose={() => setCreditOpen(false)} title="Aplicar crédito">
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-[13px] text-[#9e9e9e]">Crédito disponível</label>
+            <label className="mb-1 block text-[13px] text-fg-mute">Crédito disponível</label>
             <select
               value={selectedCredit}
               onChange={e => setSelectedCredit(e.target.value)}
-              className="w-full rounded-lg border border-[#323232] bg-[#202020] px-3 py-2 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
+              className="w-full rounded-lg border border-surface-2 bg-surface px-3 py-2 text-[13px] text-fg focus:border-primary focus:outline-none"
             >
               {availableCredits.map(c => (
                 <option key={c.id} value={c.id}>
@@ -259,18 +259,18 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
             onChange={e => setCreditAmount(e.target.value)}
             placeholder={selectedCredit ? formatCurrency(availableCredits.find(c => c.id === selectedCredit)?.available_balance ?? 0) : ''}
           />
-          {flashError && <p className="text-[13px] text-[#ff9c9a]">{flashError}</p>}
+          {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button
               onClick={() => setCreditOpen(false)}
-              className="inline-flex h-9 items-center px-4 rounded-full border border-[#474747] text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5]"
+              className="inline-flex h-9 items-center px-4 rounded-full border border-border text-[13px] text-fg-mute hover:text-fg"
             >
               Cancelar
             </button>
             <button
               onClick={handleCredit}
               disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-[#BAFF1A] text-[13px] font-semibold text-[#121212] hover:bg-[#ccff40] disabled:opacity-50"
+              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-[#ccff40] disabled:opacity-50"
             >
               {isPending ? 'Salvando…' : 'Aplicar crédito'}
             </button>
@@ -281,21 +281,21 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
       {/* ── Cancelar cobrança ──────────────────────────────────────────────── */}
       <Modal open={cancelOpen} onClose={() => setCancelOpen(false)} title="Cancelar cobrança">
         <div className="space-y-4">
-          <p className="text-[13px] text-[#9e9e9e]">
+          <p className="text-[13px] text-fg-mute">
             Esta cobrança será cancelada e não poderá mais ser reativada. Confirma?
           </p>
-          {flashError && <p className="text-[13px] text-[#ff9c9a]">{flashError}</p>}
+          {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button
               onClick={() => setCancelOpen(false)}
-              className="inline-flex h-9 items-center px-4 rounded-full border border-[#474747] text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5]"
+              className="inline-flex h-9 items-center px-4 rounded-full border border-border text-[13px] text-fg-mute hover:text-fg"
             >
               Voltar
             </button>
             <button
               onClick={handleCancel}
               disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full border border-[#ff9c9a]/30 bg-[#7c1c1c] text-[13px] text-[#ff9c9a] hover:bg-[#9c2c2c] disabled:opacity-50"
+              className="inline-flex h-9 items-center px-4 rounded-full border border-danger bg-danger-bg text-[13px] text-danger hover:bg-[#9c2c2c] disabled:opacity-50"
             >
               {isPending ? 'Cancelando…' : 'Confirmar cancelamento'}
             </button>

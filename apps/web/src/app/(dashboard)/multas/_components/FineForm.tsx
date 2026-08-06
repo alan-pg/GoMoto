@@ -57,17 +57,17 @@ interface FineFormProps {
 
 // ─── Estilos base ─────────────────────────────────────────────────────────────
 
-const labelCls   = 'block text-[13px] text-[#9e9e9e] mb-1.5'
-const inputCls   = 'w-full h-9 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all'
-const inputErrCls = 'w-full h-9 px-3 rounded-lg bg-[#282828] border border-[#ff9c9a] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#ff9c9a] transition-all'
+const labelCls   = 'block text-[13px] text-fg-mute mb-1.5'
+const inputCls   = 'w-full h-9 px-3 rounded-lg bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all'
+const inputErrCls = 'w-full h-9 px-3 rounded-lg bg-surface-2 border border-danger text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-danger transition-all'
 
 // ─── Sub-componentes ──────────────────────────────────────────────────────────
 
 function SectionHeader({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="flex items-baseline gap-3 mb-5">
-      <h2 className="text-[15px] font-bold text-[#f5f5f5]">{title}</h2>
-      {hint && <span className="text-[12px] text-[#616161]">{hint}</span>}
+      <h2 className="text-[15px] font-bold text-fg">{title}</h2>
+      {hint && <span className="text-[12px] text-fg-mute">{hint}</span>}
     </div>
   )
 }
@@ -87,7 +87,7 @@ function Field({
     <div className={className}>
       <label className={labelCls}>{label}</label>
       {children}
-      {error && <p className="text-[12px] text-[#ff9c9a] mt-1">{error}</p>}
+      {error && <p className="text-[12px] text-danger mt-1">{error}</p>}
     </div>
   )
 }
@@ -224,20 +224,20 @@ export function FineForm({ fineId, initialData }: FineFormProps) {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-[#121212]">
+    <div className="min-h-screen bg-bg">
 
       {/* ── Sticky header ──────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-20 bg-[#121212]/95 backdrop-blur border-b border-[#2a2a2a] px-6 h-14 flex items-center gap-3">
-        <Link href="/multas" className="text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors whitespace-nowrap">
+      <div className="sticky top-0 z-20 bg-bg backdrop-blur border-b border-border px-6 h-14 flex items-center gap-3">
+        <Link href="/multas" className="text-[13px] text-fg-mute hover:text-fg transition-colors whitespace-nowrap">
           ← Multas
         </Link>
-        <span className="text-[#3a3a3a]">/</span>
-        <h1 className="text-[15px] font-bold text-[#f5f5f5] flex-1 truncate">
+        <span className="text-fg-mute">/</span>
+        <h1 className="text-[15px] font-bold text-fg flex-1 truncate">
           {isEditMode ? 'Editar multa' : 'Registrar multa'}
         </h1>
         <Link
           href="/multas"
-          className="h-8 px-4 rounded-full border border-[#474747] text-[#9e9e9e] text-[13px] font-medium hover:text-[#f5f5f5] hover:border-[#616161] transition-colors inline-flex items-center"
+          className="h-8 px-4 rounded-full border border-border text-fg-mute text-[13px] font-medium hover:text-fg hover:border-fg-mute transition-colors inline-flex items-center"
         >
           Cancelar
         </Link>
@@ -245,7 +245,7 @@ export function FineForm({ fineId, initialData }: FineFormProps) {
           type="submit"
           form="fine-form"
           disabled={isPending}
-          className="h-8 px-5 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors disabled:opacity-60"
+          className="h-8 px-5 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors disabled:opacity-60"
         >
           {isPending ? 'Salvando…' : isEditMode ? 'Salvar' : 'Registrar'}
         </button>
@@ -266,11 +266,11 @@ export function FineForm({ fineId, initialData }: FineFormProps) {
                   onClick={() => scrollTo(item.id)}
                   className={`w-full text-left px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${
                     isActive
-                      ? 'bg-[#222222] text-[#f5f5f5]'
-                      : 'text-[#616161] hover:text-[#9e9e9e] hover:bg-[#1e1e1e]'
+                      ? 'bg-surface-2 text-fg'
+                      : 'text-fg-mute hover:text-fg-mute hover:bg-border'
                   }`}
                 >
-                  <span className={`inline-block w-1.5 h-1.5 rounded-full mr-2.5 mb-0.5 transition-colors ${isActive ? 'bg-[#BAFF1A]' : 'bg-[#3a3a3a]'}`} />
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full mr-2.5 mb-0.5 transition-colors ${isActive ? 'bg-primary' : 'bg-fg-mute'}`} />
                   {item.label}
                 </button>
               )
@@ -343,7 +343,7 @@ export function FineForm({ fineId, initialData }: FineFormProps) {
               </div>
 
               {form.vehicle_id && !form.customer_id && (
-                <p className="text-[12px] text-[#616161]">
+                <p className="text-[12px] text-fg-mute">
                   Cliente pode ser vinculado após identificação do condutor. A moto já é suficiente para registrar a multa.
                 </p>
               )}
@@ -538,24 +538,24 @@ export function FineForm({ fineId, initialData }: FineFormProps) {
 
           {/* ── Erro global ─────────────────────────────────────────────────── */}
           {globalError && (
-            <div className="flex items-start gap-3 px-4 py-3 bg-[#7c1c1c] border border-[#ff9c9a]/30 rounded-xl">
-              <AlertCircle className="w-4 h-4 text-[#ff9c9a] flex-shrink-0 mt-0.5" />
-              <p className="text-[13px] text-[#ff9c9a]">{globalError}</p>
+            <div className="flex items-start gap-3 px-4 py-3 bg-danger-bg border border-danger rounded-xl">
+              <AlertCircle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
+              <p className="text-[13px] text-danger">{globalError}</p>
             </div>
           )}
 
           {/* ── Footer ──────────────────────────────────────────────────────── */}
-          <div className="flex gap-3 justify-end pt-4 pb-16 border-t border-[#2a2a2a]">
+          <div className="flex gap-3 justify-end pt-4 pb-16 border-t border-border">
             <Link
               href="/multas"
-              className="inline-flex items-center h-9 px-5 rounded-full border border-[#474747] text-[#9e9e9e] text-[13px] font-medium hover:text-[#f5f5f5] hover:border-[#616161] transition-colors"
+              className="inline-flex items-center h-9 px-5 rounded-full border border-border text-fg-mute text-[13px] font-medium hover:text-fg hover:border-fg-mute transition-colors"
             >
               Cancelar
             </Link>
             <button
               type="submit"
               disabled={isPending}
-              className="h-9 px-6 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors disabled:opacity-60"
+              className="h-9 px-6 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors disabled:opacity-60"
             >
               {isPending ? 'Salvando…' : isEditMode ? 'Salvar alterações' : 'Registrar multa'}
             </button>

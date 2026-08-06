@@ -27,10 +27,10 @@ function calcStatus(fine: { status: string; due_date?: string | null }) {
 }
 
 const STATUS_CONFIG = {
-  paid:     { label: 'Paga',     bg: 'bg-[#0e2f13]', text: 'text-[#229731]', border: 'border-[#229731]/30' },
-  overdue:  { label: 'Vencida',  bg: 'bg-[#7c1c1c]', text: 'text-[#ff9c9a]', border: 'border-[#ff9c9a]/30' },
-  due_soon: { label: 'A vencer', bg: 'bg-[#3a180f]', text: 'text-[#e65e24]', border: 'border-[#e65e24]/30' },
-  pending:  { label: 'Pendente', bg: 'bg-[#2d0363]', text: 'text-[#a880ff]', border: 'border-[#a880ff]/30' },
+  paid:     { label: 'Paga',     bg: 'bg-success-bg', text: 'text-success', border: 'border-success' },
+  overdue:  { label: 'Vencida',  bg: 'bg-danger-bg', text: 'text-danger', border: 'border-danger' },
+  due_soon: { label: 'A vencer', bg: 'bg-warning-bg', text: 'text-warning', border: 'border-warning' },
+  pending:  { label: 'Pendente', bg: 'bg-info-bg', text: 'text-info', border: 'border-info' },
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -88,20 +88,20 @@ export default async function FineDetailPage({
   )
 
   return (
-    <div className="min-h-screen bg-[#121212]">
+    <div className="min-h-screen bg-bg">
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-10 bg-[#121212] border-b border-[#323232] px-6 h-16 flex items-center gap-4">
-        <Link href="/multas" className="text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors whitespace-nowrap">
+      <div className="sticky top-0 z-10 bg-bg border-b border-surface-2 px-6 h-16 flex items-center gap-4">
+        <Link href="/multas" className="text-[13px] text-fg-mute hover:text-fg transition-colors whitespace-nowrap">
           ← Multas
         </Link>
-        <span className="text-[#474747]">/</span>
-        <h1 className="text-[15px] font-bold text-[#f5f5f5] flex-1 truncate">
+        <span className="text-border">/</span>
+        <h1 className="text-[15px] font-bold text-fg flex-1 truncate">
           {fine.description}
         </h1>
         <Link
           href={`/multas/${id}/editar`}
-          className="inline-flex items-center h-9 px-4 rounded-full bg-[#323232] text-[#f5f5f5] text-[13px] font-medium hover:bg-[#474747] transition-colors"
+          className="inline-flex items-center h-9 px-4 rounded-full bg-surface-2 text-fg text-[13px] font-medium hover:bg-border transition-colors"
         >
           Editar
         </Link>
@@ -114,11 +114,11 @@ export default async function FineDetailPage({
           <span className={`inline-flex items-center h-7 px-3 rounded-full text-[13px] font-medium border ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
             {statusCfg.label}
           </span>
-          <span className={`text-2xl font-bold ${status === 'paid' ? 'text-[#229731]' : 'text-[#ff9c9a]'}`}>
+          <span className={`text-2xl font-bold ${status === 'paid' ? 'text-success' : 'text-danger'}`}>
             {formatCurrency(Number(fine.amount))}
           </span>
           {fine.points != null && fine.points > 0 && (
-            <span className="text-[13px] text-[#9e9e9e]">
+            <span className="text-[13px] text-fg-mute">
               {fine.points} ponto{fine.points !== 1 ? 's' : ''} na CNH
             </span>
           )}
@@ -126,8 +126,8 @@ export default async function FineDetailPage({
 
         {/* ── Infração ──────────────────────────────────────────────────────── */}
         <section>
-          <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Infração</h2>
-          <div className="bg-[#202020] rounded-xl overflow-hidden">
+          <h2 className="text-[14px] font-bold text-primary mb-3">Infração</h2>
+          <div className="bg-surface rounded-xl overflow-hidden">
             <table className="w-full text-[13px]">
               <tbody>
                 {([
@@ -139,9 +139,9 @@ export default async function FineDetailPage({
                   ['Pontos na CNH',     fine.points != null ? `${fine.points} ponto${fine.points !== 1 ? 's' : ''}` : null],
                   ['Responsável',       fine.responsible === 'customer' ? 'Cliente' : 'Empresa'],
                 ] as [string, string | null | undefined][]).map(([label, value]) => (
-                  <tr key={label} className="border-b border-[#323232] last:border-0">
-                    <td className="h-9 px-4 text-[#9e9e9e] w-44 shrink-0">{label}</td>
-                    <td className="h-9 px-4 text-[#f5f5f5]">{value || '—'}</td>
+                  <tr key={label} className="border-b border-surface-2 last:border-0">
+                    <td className="h-9 px-4 text-fg-mute w-44 shrink-0">{label}</td>
+                    <td className="h-9 px-4 text-fg">{value || '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -151,8 +151,8 @@ export default async function FineDetailPage({
 
         {/* ── Datas ─────────────────────────────────────────────────────────── */}
         <section>
-          <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Datas</h2>
-          <div className="bg-[#202020] rounded-xl overflow-hidden">
+          <h2 className="text-[14px] font-bold text-primary mb-3">Datas</h2>
+          <div className="bg-surface rounded-xl overflow-hidden">
             <table className="w-full text-[13px]">
               <tbody>
                 {([
@@ -161,9 +161,9 @@ export default async function FineDetailPage({
                   ['Pago em',           fmt(fine.payment_date)],
                   ['Registrado em',     fmt(fine.created_at)],
                 ] as [string, string][]).map(([label, value]) => (
-                  <tr key={label} className="border-b border-[#323232] last:border-0">
-                    <td className="h-9 px-4 text-[#9e9e9e] w-44">{label}</td>
-                    <td className="h-9 px-4 text-[#f5f5f5]">{value}</td>
+                  <tr key={label} className="border-b border-surface-2 last:border-0">
+                    <td className="h-9 px-4 text-fg-mute w-44">{label}</td>
+                    <td className="h-9 px-4 text-fg">{value}</td>
                   </tr>
                 ))}
               </tbody>
@@ -173,54 +173,54 @@ export default async function FineDetailPage({
 
         {/* ── Vínculo ───────────────────────────────────────────────────────── */}
         <section>
-          <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Vínculo</h2>
+          <h2 className="text-[14px] font-bold text-primary mb-3">Vínculo</h2>
           <div className="grid grid-cols-2 gap-4">
 
             {/* Veículo */}
-            <div className="bg-[#202020] rounded-xl p-4 space-y-1">
-              <p className="text-[12px] text-[#9e9e9e] uppercase tracking-wide font-medium">Veículo</p>
+            <div className="bg-surface rounded-xl p-4 space-y-1">
+              <p className="text-[12px] text-fg-mute uppercase tracking-wide font-medium">Veículo</p>
               {fine.vehicles ? (
                 <>
-                  <p className="text-[15px] font-bold font-mono text-[#BAFF1A]">
+                  <p className="text-[15px] font-bold font-mono text-primary">
                     {fine.vehicles.license_plate}
                   </p>
-                  <p className="text-[13px] text-[#f5f5f5]">
+                  <p className="text-[13px] text-fg">
                     {fine.vehicles.make} {fine.vehicles.model}
                   </p>
                   <Link
                     href={`/veiculos/${fine.vehicle_id}`}
-                    className="text-[12px] text-[#616161] hover:text-[#BAFF1A] transition-colors"
+                    className="text-[12px] text-fg-mute hover:text-primary transition-colors"
                   >
                     Ver veículo →
                   </Link>
                 </>
               ) : (
-                <p className="text-[13px] text-[#616161]">Não vinculado</p>
+                <p className="text-[13px] text-fg-mute">Não vinculado</p>
               )}
             </div>
 
             {/* Cliente */}
-            <div className="bg-[#202020] rounded-xl p-4 space-y-1">
-              <p className="text-[12px] text-[#9e9e9e] uppercase tracking-wide font-medium">Cliente</p>
+            <div className="bg-surface rounded-xl p-4 space-y-1">
+              <p className="text-[12px] text-fg-mute uppercase tracking-wide font-medium">Cliente</p>
               {fine.customers ? (
                 <>
-                  <p className="text-[15px] font-bold text-[#f5f5f5]">{fine.customers.name}</p>
+                  <p className="text-[15px] font-bold text-fg">{fine.customers.name}</p>
                   {fine.customers.phone && (
-                    <p className="text-[13px] text-[#9e9e9e]">{fine.customers.phone}</p>
+                    <p className="text-[13px] text-fg-mute">{fine.customers.phone}</p>
                   )}
                   <Link
                     href={`/clientes/${fine.customer_id}`}
-                    className="text-[12px] text-[#616161] hover:text-[#BAFF1A] transition-colors"
+                    className="text-[12px] text-fg-mute hover:text-primary transition-colors"
                   >
                     Ver cliente →
                   </Link>
                 </>
               ) : (
                 <div>
-                  <p className="text-[13px] text-[#616161]">Condutor não identificado</p>
+                  <p className="text-[13px] text-fg-mute">Condutor não identificado</p>
                   <Link
                     href={`/multas/${id}/editar`}
-                    className="text-[12px] text-[#BAFF1A] hover:underline"
+                    className="text-[12px] text-primary hover:underline"
                   >
                     Vincular cliente →
                   </Link>
@@ -233,13 +233,13 @@ export default async function FineDetailPage({
         {/* ── Link do boleto ────────────────────────────────────────────────── */}
         {fine.ticket_url && (
           <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Boleto / Notificação</h2>
-            <div className="bg-[#202020] rounded-xl px-4 py-3">
+            <h2 className="text-[14px] font-bold text-primary mb-3">Boleto / Notificação</h2>
+            <div className="bg-surface rounded-xl px-4 py-3">
               <a
                 href={fine.ticket_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[13px] text-[#a880ff] hover:text-[#c4a0ff] transition-colors break-all"
+                className="text-[13px] text-info hover:text-[#c4a0ff] transition-colors break-all"
               >
                 {fine.ticket_url}
               </a>
@@ -250,28 +250,28 @@ export default async function FineDetailPage({
         {/* ── Observações ───────────────────────────────────────────────────── */}
         {fine.observations && (
           <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Observações</h2>
-            <div className="bg-[#202020] rounded-xl px-4 py-3">
-              <p className="text-[13px] text-[#9e9e9e] whitespace-pre-wrap">{fine.observations}</p>
+            <h2 className="text-[14px] font-bold text-primary mb-3">Observações</h2>
+            <div className="bg-surface rounded-xl px-4 py-3">
+              <p className="text-[13px] text-fg-mute whitespace-pre-wrap">{fine.observations}</p>
             </div>
           </section>
         )}
 
         {/* ── Documentos (client component) ─────────────────────────────────── */}
         <section>
-          <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">
+          <h2 className="text-[14px] font-bold text-primary mb-3">
             Documentos{attachments.length > 0 && (
-              <span className="ml-2 text-[12px] font-normal text-[#9e9e9e]">({attachments.length})</span>
+              <span className="ml-2 text-[12px] font-normal text-fg-mute">({attachments.length})</span>
             )}
           </h2>
 
           {/* Legenda dos tipos — contexto para o operador */}
-          <div className="mb-4 px-4 py-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl">
-            <p className="text-[12px] text-[#616161] leading-relaxed">
-              <strong className="text-[#9e9e9e]">AIT</strong> — documento original da autuação.{' '}
-              <strong className="text-[#9e9e9e]">NIP</strong> — notificação que abre prazo de defesa (30 dias).{' '}
-              <strong className="text-[#9e9e9e]">Indicação de condutor</strong> — obrigatório para veículos de empresa no prazo do DENATRAN.{' '}
-              <strong className="text-[#9e9e9e]">Comprovante</strong> — guarda sempre para contabilidade.
+          <div className="mb-4 px-4 py-3 bg-surface border border-border rounded-xl">
+            <p className="text-[12px] text-fg-mute leading-relaxed">
+              <strong className="text-fg-mute">AIT</strong> — documento original da autuação.{' '}
+              <strong className="text-fg-mute">NIP</strong> — notificação que abre prazo de defesa (30 dias).{' '}
+              <strong className="text-fg-mute">Indicação de condutor</strong> — obrigatório para veículos de empresa no prazo do DENATRAN.{' '}
+              <strong className="text-fg-mute">Comprovante</strong> — guarda sempre para contabilidade.
             </p>
           </div>
 

@@ -83,13 +83,13 @@ export default function VehiclesPage() {
   }
 
   return (
-    <div className="flex flex-col bg-[#121212]">
+    <div className="flex flex-col bg-bg">
       <PageTitle
         title="Veículos"
         actions={
           <Link
             href="/veiculos/novo"
-            className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e818] transition-colors"
+            className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors"
           >
             <Plus className="w-4 h-4" />
             Novo Veículo
@@ -98,8 +98,8 @@ export default function VehiclesPage() {
       />
 
       {/* Barra de filtros — sticky abaixo do PageTitle */}
-      <div className="sticky top-[60px] z-[9] bg-[#121212] border-b border-[#323232] px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap border-b border-[#616161]">
+      <div className="sticky top-[60px] z-[9] bg-bg border-b border-surface-2 px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap border-b border-fg-mute">
           {filterOptions.map((opt) => {
             const isActive = filter === opt.value
             const count =
@@ -110,22 +110,22 @@ export default function VehiclesPage() {
               <button
                 key={opt.value}
                 onClick={() => setFilter(opt.value)}
-                className={`px-3 py-2 text-[13px] font-medium transition-all border-b-2 ${isActive ? 'border-[#BAFF1A] text-[#f5f5f5]' : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'}`}
+                className={`px-3 py-2 text-[13px] font-medium transition-all border-b-2 ${isActive ? 'border-primary text-fg' : 'border-transparent text-fg-mute hover:text-fg'}`}
               >
                 {opt.label}
-                <span className="ml-1.5 text-[#616161]">({count})</span>
+                <span className="ml-1.5 text-fg-mute">({count})</span>
               </button>
             )
           })}
         </div>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#616161]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-mute" />
           <input
             type="text"
             placeholder="Buscar placa, modelo, marca ou cor..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-10 pl-10 pr-4 rounded-full bg-[#323232] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all"
+            className="w-full h-10 pl-10 pr-4 rounded-full bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all"
           />
         </div>
       </div>
@@ -133,53 +133,53 @@ export default function VehiclesPage() {
       {/* Conteúdo scrollável: banners + tabela */}
       <div className="p-6 space-y-4">
         {fetchError && (
-          <div className="flex items-center gap-3 px-4 py-3 bg-[#7c1c1c] border border-[#ff9c9a] rounded-xl">
-            <AlertCircle className="w-4 h-4 text-[#ff9c9a] flex-shrink-0" />
-            <p className="text-[13px] text-[#ff9c9a]">{fetchError}</p>
-            <button onClick={() => vehiclesQuery.refetch()} className="ml-auto text-[12px] text-[#BAFF1A] hover:underline font-medium">
+          <div className="flex items-center gap-3 px-4 py-3 bg-danger-bg border border-danger rounded-xl">
+            <AlertCircle className="w-4 h-4 text-danger flex-shrink-0" />
+            <p className="text-[13px] text-danger">{fetchError}</p>
+            <button onClick={() => vehiclesQuery.refetch()} className="ml-auto text-[12px] text-primary hover:underline font-medium">
               Tentar novamente
             </button>
           </div>
         )}
 
         {!loading && vehiclesWithoutPlanCount > 0 && (
-          <div className="flex items-center gap-3 px-4 py-3 bg-[#2d2300] border border-[#ffd166] rounded-xl">
-            <AlertCircle className="w-4 h-4 text-[#ffd166] flex-shrink-0" />
-            <p className="text-[13px] text-[#ffd166] flex-1">
+          <div className="flex items-center gap-3 px-4 py-3 bg-pending-bg border border-pending rounded-xl">
+            <AlertCircle className="w-4 h-4 text-pending flex-shrink-0" />
+            <p className="text-[13px] text-pending flex-1">
               <strong>{vehiclesWithoutPlanCount}</strong>{' '}
               {vehiclesWithoutPlanCount === 1 ? 'veículo está sem plano' : 'veículos estão sem plano'} de manutenção atribuído.
             </p>
-            <Link href="/planos-manutencao" className="text-[12px] text-[#ffd166] hover:underline font-medium whitespace-nowrap">
+            <Link href="/planos-manutencao" className="text-[12px] text-pending hover:underline font-medium whitespace-nowrap">
               Gerenciar planos →
             </Link>
           </div>
         )}
 
-        <div className="overflow-hidden rounded-xl bg-[#202020]">
+        <div className="overflow-hidden rounded-xl bg-surface">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-[13px] text-[#f5f5f5]">
-              <thead className="text-[#9e9e9e] border-b border-[#323232]">
+            <table className="w-full text-left text-[13px] text-fg">
+              <thead className="text-fg-mute border-b border-surface-2">
                 <tr>
-                  <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e] w-10" />
-                  <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Placa</th>
-                  <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Veículo</th>
-                  <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Status</th>
-                  <th className="h-9 px-4 text-right text-[13px] font-medium text-[#9e9e9e]">Ações</th>
+                  <th className="h-9 px-4 text-[13px] font-medium text-fg-mute w-10" />
+                  <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Placa</th>
+                  <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Veículo</th>
+                  <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Status</th>
+                  <th className="h-9 px-4 text-right text-[13px] font-medium text-fg-mute">Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={5}><div className="flex items-center justify-center py-16"><div className="w-6 h-6 border-2 border-[#BAFF1A] border-t-transparent rounded-full animate-spin" /></div></td></tr>
+                  <tr><td colSpan={5}><div className="flex items-center justify-center py-16"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div></td></tr>
                 ) : filteredVehicles.length === 0 ? (
                   <tr><td colSpan={5}>
                     <div className="flex flex-col items-center justify-center py-16 gap-3">
-                      <div className="w-12 h-12 bg-[#323232] rounded-full flex items-center justify-center">
-                        <Bike className="w-6 h-6 text-[#9e9e9e]" />
+                      <div className="w-12 h-12 bg-surface-2 rounded-full flex items-center justify-center">
+                        <Bike className="w-6 h-6 text-fg-mute" />
                       </div>
-                      <p className="text-[13px] text-[#9e9e9e]">Nenhum veículo encontrado.</p>
+                      <p className="text-[13px] text-fg-mute">Nenhum veículo encontrado.</p>
                       <button
                         onClick={() => { setFilter('active'); setSearch('') }}
-                        className="text-[13px] text-[#BAFF1A] hover:underline"
+                        className="text-[13px] text-primary hover:underline"
                       >
                         Limpar filtros
                       </button>
@@ -187,28 +187,28 @@ export default function VehiclesPage() {
                   </td></tr>
                 ) : (
                   filteredVehicles.map((vehicle) => (
-                    <tr key={vehicle.id} className="h-9 text-[13px] border-b border-[#323232] transition-colors hover:bg-[#323232]">
+                    <tr key={vehicle.id} className="h-9 text-[13px] border-b border-surface-2 transition-colors hover:bg-surface-2">
                       <td className="px-2">
                         {vehicle.photo_url ? (
                           <img src={vehicle.photo_url} alt="" className="w-7 h-7 rounded object-cover" />
                         ) : (
-                          <div className="w-7 h-7 rounded bg-[#323232] flex items-center justify-center">
-                            <Bike className="w-3.5 h-3.5 text-[#616161]" />
+                          <div className="w-7 h-7 rounded bg-surface-2 flex items-center justify-center">
+                            <Bike className="w-3.5 h-3.5 text-fg-mute" />
                           </div>
                         )}
                       </td>
                       <td className="px-4">
                         <div className="flex items-center gap-2">
                           <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: statusColorMap[vehicle.status] ?? '#9e9e9e' }} />
-                          <span className="font-mono font-bold text-[#f5f5f5]">{vehicle.license_plate}</span>
+                          <span className="font-mono font-bold text-fg">{vehicle.license_plate}</span>
                         </div>
                       </td>
                       <td className="px-4">
                         <div className="flex items-center gap-2">
-                          <p className="font-medium text-[#f5f5f5]">{vehicle.make} {vehicle.model}</p>
+                          <p className="font-medium text-fg">{vehicle.make} {vehicle.model}</p>
                           {!vehicle.maintenance_plan_id && (
                             <span
-                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium text-[#ffd166] bg-[#3a2f00] border border-[#ffd166]/40"
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium text-pending bg-pending-bg border border-pending/40"
                               title="Sem plano de manutenção atribuído"
                             >
                               Sem plano
@@ -221,14 +221,14 @@ export default function VehiclesPage() {
                         <div className="flex items-center justify-end gap-1">
                           <Link
                             href={`/veiculos/${vehicle.id}`}
-                            className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-[#323232] text-[#9e9e9e] hover:bg-[#474747] hover:text-[#f5f5f5] transition-colors"
+                            className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-surface-2 text-fg-mute hover:bg-border hover:text-fg transition-colors"
                             title="Ver detalhes"
                           >
                             <Eye className="h-4 w-4" />
                           </Link>
                           <Link
                             href={`/veiculos/${vehicle.id}/editar`}
-                            className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-[#323232] text-[#9e9e9e] hover:bg-[#474747] hover:text-[#f5f5f5] transition-colors"
+                            className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-surface-2 text-fg-mute hover:bg-border hover:text-fg transition-colors"
                             title="Editar"
                           >
                             <Edit2 className="h-4 w-4" />
@@ -256,14 +256,14 @@ export default function VehiclesPage() {
       {/* Modal: confirmação de exclusão */}
       <Modal open={!!deletingVehicle} onClose={() => setDeletingVehicle(null)} title="Confirmar Exclusão" size="sm">
         <div className="space-y-6">
-          <div className="p-4 bg-[#7c1c1c] border border-[#ff9c9a] rounded-xl">
-            <p className="text-[#9e9e9e] text-[13px] leading-relaxed text-center">
+          <div className="p-4 bg-danger-bg border border-danger rounded-xl">
+            <p className="text-fg-mute text-[13px] leading-relaxed text-center">
               Você está prestes a remover o veículo<br />
-              <strong className="text-[#f5f5f5] text-base font-bold">
+              <strong className="text-fg text-base font-bold">
                 {deletingVehicle?.make} {deletingVehicle?.model} — {deletingVehicle?.license_plate}
               </strong>
               <br /><br />
-              Esta operação <span className="text-[#ff9c9a] font-bold underline">não pode ser desfeita</span>.
+              Esta operação <span className="text-danger font-bold underline">não pode ser desfeita</span>.
             </p>
           </div>
           <div className="flex gap-3">

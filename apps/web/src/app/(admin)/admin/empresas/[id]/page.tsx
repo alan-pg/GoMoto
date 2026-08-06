@@ -29,11 +29,11 @@ function Row({
   mono?: boolean
 }) {
   return (
-    <tr className="border-b border-[#323232] last:border-0">
-      <td className="h-9 px-4 text-[#9e9e9e] w-48 shrink-0 text-[13px]">{label}</td>
+    <tr className="border-b border-surface-2 last:border-0">
+      <td className="h-9 px-4 text-fg-mute w-48 shrink-0 text-[13px]">{label}</td>
       <td
         className={`h-9 px-4 text-[13px] ${mono ? 'font-mono' : ''} ${
-          value ? 'text-[#f5f5f5]' : 'text-[#616161] italic'
+          value ? 'text-fg' : 'text-fg-mute italic'
         }`}
       >
         {value ?? '—'}
@@ -139,18 +139,18 @@ export default async function EmpresaDetailPage({
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-[#121212]">
+    <div className="min-h-screen bg-bg">
 
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-[#121212] border-b border-[#323232] px-6 h-16 flex items-center gap-4">
+      <div className="sticky top-0 z-10 bg-bg border-b border-surface-2 px-6 h-16 flex items-center gap-4">
         <Link
           href="/admin/empresas"
-          className="text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors whitespace-nowrap"
+          className="text-[13px] text-fg-mute hover:text-fg transition-colors whitespace-nowrap"
         >
           ← Empresas
         </Link>
-        <span className="text-[#474747]">/</span>
-        <h1 className="text-[18px] font-bold text-[#f5f5f5] flex-1 truncate">{tenant.name}</h1>
+        <span className="text-border">/</span>
+        <h1 className="text-[18px] font-bold text-fg flex-1 truncate">{tenant.name}</h1>
         <div className="ml-auto flex items-center gap-2">
           <SuspendActions
             tenantId={id}
@@ -159,7 +159,7 @@ export default async function EmpresaDetailPage({
           />
           <Link
             href={`/admin/empresas/${id}/editar`}
-            className="inline-flex items-center h-9 px-4 rounded-full bg-[#323232] text-[#f5f5f5] text-[13px] font-medium hover:bg-[#474747] transition-colors"
+            className="inline-flex items-center h-9 px-4 rounded-full bg-surface-2 text-fg text-[13px] font-medium hover:bg-border transition-colors"
           >
             Editar
           </Link>
@@ -174,20 +174,20 @@ export default async function EmpresaDetailPage({
             className={`inline-flex items-center h-7 px-3 rounded-full text-[13px] font-medium border ${
               isSuspended
                 ? 'bg-[#3a0000] text-[#f87171] border-[#f87171]/30'
-                : 'bg-[#0e2f13] text-[#229731] border-[#229731]/30'
+                : 'bg-success-bg text-success border-success'
             }`}
           >
             {isSuspended ? 'Suspensa' : 'Ativa'}
           </span>
-          <span className="text-[13px] text-[#616161] font-mono">{tenant.slug}</span>
+          <span className="text-[13px] text-fg-mute font-mono">{tenant.slug}</span>
         </div>
 
         {/* Aviso de suspensão */}
         {isSuspended && (
-          <div className="rounded-xl bg-[#7c1c1c]/30 border border-[#ff9c9a]/30 px-4 py-3 space-y-0.5">
-            <p className="text-[13px] font-medium text-[#ff9c9a]">Empresa suspensa</p>
+          <div className="rounded-xl bg-danger-bg border border-danger px-4 py-3 space-y-0.5">
+            <p className="text-[13px] font-medium text-danger">Empresa suspensa</p>
             {tenant.suspended_at && (
-              <p className="text-[12px] text-[#9e9e9e]">
+              <p className="text-[12px] text-fg-mute">
                 Desde {fmt(tenant.suspended_at)}
                 {tenant.suspended_reason ? ` — ${tenant.suspended_reason}` : ''}
               </p>
@@ -197,8 +197,8 @@ export default async function EmpresaDetailPage({
 
         {/* Identidade */}
         <section>
-          <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Identidade</h2>
-          <div className="bg-[#202020] rounded-xl overflow-hidden">
+          <h2 className="text-[14px] font-bold text-primary mb-3">Identidade</h2>
+          <div className="bg-surface rounded-xl overflow-hidden">
             <table className="w-full text-[13px]">
               <tbody>
                 <Row label="Nome fantasia"  value={tenant.name} />
@@ -213,8 +213,8 @@ export default async function EmpresaDetailPage({
 
         {/* Contato */}
         <section>
-          <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Contato</h2>
-          <div className="bg-[#202020] rounded-xl overflow-hidden">
+          <h2 className="text-[14px] font-bold text-primary mb-3">Contato</h2>
+          <div className="bg-surface rounded-xl overflow-hidden">
             <table className="w-full text-[13px]">
               <tbody>
                 <Row label="Email"    value={tenant.contact_email} />
@@ -227,8 +227,8 @@ export default async function EmpresaDetailPage({
         {/* Endereço */}
         {(tenant.address_street || tenant.address_city) && (
           <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Endereço</h2>
-            <div className="bg-[#202020] rounded-xl overflow-hidden">
+            <h2 className="text-[14px] font-bold text-primary mb-3">Endereço</h2>
+            <div className="bg-surface rounded-xl overflow-hidden">
               <table className="w-full text-[13px]">
                 <tbody>
                   {addressLine && <Row label="Logradouro" value={addressLine} />}
@@ -242,8 +242,8 @@ export default async function EmpresaDetailPage({
 
         {/* Acesso — owner */}
         <section>
-          <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Responsável</h2>
-          <div className="bg-[#202020] rounded-xl overflow-hidden">
+          <h2 className="text-[14px] font-bold text-primary mb-3">Responsável</h2>
+          <div className="bg-surface rounded-xl overflow-hidden">
             <table className="w-full text-[13px]">
               <tbody>
                 <Row label="Nome"      value={ownerName} />
@@ -253,7 +253,7 @@ export default async function EmpresaDetailPage({
                 )}
               </tbody>
             </table>
-            <div className="border-t border-[#323232] px-4 py-3">
+            <div className="border-t border-surface-2 px-4 py-3">
               <OwnerActions tenantId={id} />
             </div>
           </div>
@@ -261,7 +261,7 @@ export default async function EmpresaDetailPage({
 
         {/* Stats de uso */}
         <section>
-          <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Uso da plataforma</h2>
+          <h2 className="text-[14px] font-bold text-primary mb-3">Uso da plataforma</h2>
           <div className="grid grid-cols-3 gap-3">
             {[
               { label: 'Veículos',          value: vehicleCount  },
@@ -270,10 +270,10 @@ export default async function EmpresaDetailPage({
             ].map(({ label, value }) => (
               <div
                 key={label}
-                className="bg-[#202020] rounded-xl border border-[#323232] px-4 py-3 text-center"
+                className="bg-surface rounded-xl border border-surface-2 px-4 py-3 text-center"
               >
-                <p className="text-[24px] font-bold text-[#f5f5f5]">{value}</p>
-                <p className="text-[12px] text-[#9e9e9e] mt-0.5">{label}</p>
+                <p className="text-[24px] font-bold text-fg">{value}</p>
+                <p className="text-[12px] text-fg-mute mt-0.5">{label}</p>
               </div>
             ))}
           </div>
@@ -282,21 +282,21 @@ export default async function EmpresaDetailPage({
         {/* Histórico de ações */}
         {auditLogs && auditLogs.length > 0 && (
           <section>
-            <h2 className="text-[14px] font-bold text-[#BAFF1A] mb-3">Histórico de ações</h2>
-            <div className="bg-[#202020] rounded-xl overflow-hidden">
+            <h2 className="text-[14px] font-bold text-primary mb-3">Histórico de ações</h2>
+            <div className="bg-surface rounded-xl overflow-hidden">
               <table className="w-full text-[13px]">
-                <thead className="border-b border-[#323232]">
+                <thead className="border-b border-surface-2">
                   <tr>
-                    <th className="h-9 px-4 text-[#9e9e9e] font-medium text-left">Ação</th>
-                    <th className="h-9 px-4 text-[#9e9e9e] font-medium text-left hidden sm:table-cell">Detalhes</th>
-                    <th className="h-9 px-4 text-[#9e9e9e] font-medium text-right">Data</th>
+                    <th className="h-9 px-4 text-fg-mute font-medium text-left">Ação</th>
+                    <th className="h-9 px-4 text-fg-mute font-medium text-left hidden sm:table-cell">Detalhes</th>
+                    <th className="h-9 px-4 text-fg-mute font-medium text-right">Data</th>
                   </tr>
                 </thead>
                 <tbody>
                   {auditLogs.map((log) => (
-                    <tr key={log.id} className="h-9 border-b border-[#323232] last:border-0">
-                      <td className="px-4 font-mono text-[12px] text-[#9e9e9e]">{log.action}</td>
-                      <td className="px-4 text-[12px] text-[#616161] hidden sm:table-cell">
+                    <tr key={log.id} className="h-9 border-b border-surface-2 last:border-0">
+                      <td className="px-4 font-mono text-[12px] text-fg-mute">{log.action}</td>
+                      <td className="px-4 text-[12px] text-fg-mute hidden sm:table-cell">
                         {log.metadata && Object.keys(log.metadata as object).length > 0
                           ? Object.entries(log.metadata as Record<string, unknown>)
                               .filter(([, v]) => v !== null && v !== '')
@@ -304,7 +304,7 @@ export default async function EmpresaDetailPage({
                               .join(' · ')
                           : '—'}
                       </td>
-                      <td className="px-4 text-right text-[12px] text-[#616161] whitespace-nowrap">
+                      <td className="px-4 text-right text-[12px] text-fg-mute whitespace-nowrap">
                         {fmt(log.created_at as string)}
                       </td>
                     </tr>

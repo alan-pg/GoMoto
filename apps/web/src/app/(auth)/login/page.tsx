@@ -107,7 +107,7 @@ export default function LoginPage() {
 
   return (
     // Container principal: Centraliza o conteúdo vertical e horizontalmente.
-    <div className="min-h-screen bg-[#121212] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-bg flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         
         {/* 
@@ -115,12 +115,12 @@ export default function LoginPage() {
             Reforça a marca GoMoto com ícone e tipografia em negrito.
         */}
         <div className="flex flex-col items-center gap-3 mb-8">
-          <div className="w-14 h-14 bg-[#BAFF1A] rounded-2xl flex items-center justify-center">
-            <Bike className="w-7 h-7 text-[#121212]" />
+          <div className="w-14 h-14 bg-primary rounded-2xl flex items-center justify-center">
+            <Bike className="w-7 h-7 text-bg" />
           </div>
           <div className="text-center">
-            <h1 className="text-[28px] font-bold text-[#f5f5f5]">GoMoto</h1>
-            <p className="text-[20px] text-[#9e9e9e] mt-1">Sistema de Gestão</p>
+            <h1 className="text-[28px] font-bold text-fg">GoMoto</h1>
+            <p className="text-[20px] text-fg-mute mt-1">Sistema de Gestão</p>
           </div>
         </div>
 
@@ -128,8 +128,8 @@ export default function LoginPage() {
             Card de Formulário:
             Concentra os campos de interação do usuário com bordas e fundo destacados.
         */}
-        <div className="bg-[#202020] border border-[#474747] rounded-2xl p-6">
-          <h2 className="text-[20px] font-semibold text-[#f5f5f5] mb-5">Entrar na conta</h2>
+        <div className="bg-surface border border-border rounded-2xl p-6">
+          <h2 className="text-[20px] font-semibold text-fg mb-5">Entrar na conta</h2>
 
           <form onSubmit={handleLogin} className="space-y-4">
             {/* Campo de entrada para o E-mail. */}
@@ -158,8 +158,8 @@ export default function LoginPage() {
                 Renderização condicional de um alerta caso a autenticação falhe.
             */}
             {error && (
-              <div className="rounded-2xl px-4 py-3 bg-[#7c1c1c] border border-[#ff9c9a]">
-                <p className="text-[13px] text-[#ff9c9a]">{error}</p>
+              <div className="rounded-2xl px-4 py-3 bg-danger-bg border border-danger">
+                <p className="text-[13px] text-danger">{error}</p>
               </div>
             )}
 
@@ -174,7 +174,7 @@ export default function LoginPage() {
         </div>
 
         {/* Rodapé com Direitos Autorais e Ano Dinâmico. */}
-        <p className="text-center text-[12px] text-[#9e9e9e] mt-6">
+        <p className="text-center text-[12px] text-fg-mute mt-6">
           GoMoto © {new Date().getFullYear()}
         </p>
       </div>

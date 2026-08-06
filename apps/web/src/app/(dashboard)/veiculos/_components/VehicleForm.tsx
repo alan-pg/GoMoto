@@ -94,17 +94,17 @@ interface VehicleFormProps {
 function SectionHeader({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="flex items-baseline gap-3 mb-5">
-      <h2 className="text-[15px] font-bold text-[#f5f5f5]">{title}</h2>
-      {hint && <span className="text-[12px] text-[#616161]">{hint}</span>}
+      <h2 className="text-[15px] font-bold text-fg">{title}</h2>
+      {hint && <span className="text-[12px] text-fg-mute">{hint}</span>}
     </div>
   )
 }
 
 // ─── Field wrapper ───────────────────────────────────────────────────────────
 
-const labelCls = 'block text-[13px] text-[#9e9e9e] mb-1.5'
-const inputCls = 'w-full h-9 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all'
-const inputErrCls = 'w-full h-9 px-3 rounded-lg bg-[#282828] border border-[#ff9c9a] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#ff9c9a] transition-all'
+const labelCls = 'block text-[13px] text-fg-mute mb-1.5'
+const inputCls = 'w-full h-9 px-3 rounded-lg bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all'
+const inputErrCls = 'w-full h-9 px-3 rounded-lg bg-surface-2 border border-danger text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-danger transition-all'
 
 function Field({
   label,
@@ -121,7 +121,7 @@ function Field({
     <div className={className}>
       <label className={labelCls}>{label}</label>
       {children}
-      {error && <p className="text-[12px] text-[#ff9c9a] mt-1">{error}</p>}
+      {error && <p className="text-[12px] text-danger mt-1">{error}</p>}
     </div>
   )
 }
@@ -137,7 +137,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
       />
-      <div className="w-10 h-5 bg-[#323232] rounded-full peer peer-checked:bg-[#BAFF1A] transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" />
+      <div className="w-10 h-5 bg-surface-2 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" />
     </label>
   )
 }
@@ -604,18 +604,18 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
 
   if (postWarnings) {
     return (
-      <div className="min-h-screen bg-[#121212] px-6 py-8 max-w-2xl space-y-4">
-        <div className="flex items-start gap-3 px-4 py-4 bg-[#3a2f00] border border-[#ffd166] rounded-xl">
-          <AlertCircle className="w-4 h-4 text-[#ffd166] flex-shrink-0 mt-0.5" />
+      <div className="min-h-screen bg-bg px-6 py-8 max-w-2xl space-y-4">
+        <div className="flex items-start gap-3 px-4 py-4 bg-pending-bg border border-pending rounded-xl">
+          <AlertCircle className="w-4 h-4 text-pending flex-shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <p className="text-[13px] text-[#ffd166] font-medium">Veículo cadastrado, mas alguns itens não foram salvos:</p>
-            <ul className="list-disc list-inside text-[12px] text-[#ffd166] space-y-0.5">
+            <p className="text-[13px] text-pending font-medium">Veículo cadastrado, mas alguns itens não foram salvos:</p>
+            <ul className="list-disc list-inside text-[12px] text-pending space-y-0.5">
               {postWarnings.map((w, i) => <li key={i}>{w}</li>)}
             </ul>
           </div>
         </div>
         <div className="flex justify-end">
-          <button onClick={() => router.push('/veiculos')} className="h-9 px-6 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors">
+          <button onClick={() => router.push('/veiculos')} className="h-9 px-6 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors">
             Ir para a listagem
           </button>
         </div>
@@ -632,25 +632,25 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
   const navItems = NAV_ITEMS.filter((n) => !n.createOnly || !isEditMode)
 
   return (
-    <div className="min-h-screen bg-[#121212]">
+    <div className="min-h-screen bg-bg">
 
       {/* ── Sticky header ─────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-20 bg-[#121212]/95 backdrop-blur border-b border-[#2a2a2a] px-6 h-14 flex items-center gap-3">
-        <Link href={backHref} className="text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors whitespace-nowrap">
+      <div className="sticky top-0 z-20 bg-bg backdrop-blur border-b border-border px-6 h-14 flex items-center gap-3">
+        <Link href={backHref} className="text-[13px] text-fg-mute hover:text-fg transition-colors whitespace-nowrap">
           ← {backLabel}
         </Link>
-        <span className="text-[#3a3a3a]">/</span>
-        <h1 className="text-[15px] font-bold text-[#f5f5f5] flex-1 truncate">
+        <span className="text-fg-mute">/</span>
+        <h1 className="text-[15px] font-bold text-fg flex-1 truncate">
           {isEditMode ? 'Editar veículo' : 'Cadastrar veículo'}
         </h1>
-        <Link href={backHref} className="h-8 px-4 rounded-full border border-[#474747] text-[#9e9e9e] text-[13px] font-medium hover:text-[#f5f5f5] hover:border-[#616161] transition-colors inline-flex items-center">
+        <Link href={backHref} className="h-8 px-4 rounded-full border border-border text-fg-mute text-[13px] font-medium hover:text-fg hover:border-fg-mute transition-colors inline-flex items-center">
           Cancelar
         </Link>
         <button
           type="submit"
           form="vehicle-form"
           disabled={isPending}
-          className="h-8 px-5 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors disabled:opacity-60"
+          className="h-8 px-5 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors disabled:opacity-60"
         >
           {isPending ? 'Salvando…' : isEditMode ? 'Salvar' : 'Cadastrar'}
         </button>
@@ -671,11 +671,11 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                   onClick={() => scrollTo(item.id)}
                   className={`w-full text-left px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${
                     isActive
-                      ? 'bg-[#222222] text-[#f5f5f5]'
-                      : 'text-[#616161] hover:text-[#9e9e9e] hover:bg-[#1e1e1e]'
+                      ? 'bg-surface-2 text-fg'
+                      : 'text-fg-mute hover:text-fg-mute hover:bg-border'
                   }`}
                 >
-                  <span className={`inline-block w-1.5 h-1.5 rounded-full mr-2.5 mb-0.5 transition-colors ${isActive ? 'bg-[#BAFF1A]' : 'bg-[#3a3a3a]'}`} />
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full mr-2.5 mb-0.5 transition-colors ${isActive ? 'bg-primary' : 'bg-fg-mute'}`} />
                   {item.label}
                 </button>
               )
@@ -699,21 +699,21 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
 
             {/* Banner CRLV — somente criação */}
             {!isEditMode && (
-              <div className="flex items-center gap-4 px-4 py-3 bg-[#1e1030] border border-[#a880ff]/30 rounded-xl mb-5">
-                <div className="w-8 h-8 rounded-full bg-[#2d0363] flex items-center justify-center flex-shrink-0">
-                  <Upload className="w-3.5 h-3.5 text-[#a880ff]" />
+              <div className="flex items-center gap-4 px-4 py-3 bg-[#1e1030] border border-info rounded-xl mb-5">
+                <div className="w-8 h-8 rounded-full bg-info-bg flex items-center justify-center flex-shrink-0">
+                  <Upload className="w-3.5 h-3.5 text-info" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-bold text-[#f5f5f5]">Importar CRLV</p>
-                  <p className="text-[12px] text-[#9e9e9e]">Preenche placa, RENAVAM, chassi e proprietário automaticamente.</p>
+                  <p className="text-[13px] font-bold text-fg">Importar CRLV</p>
+                  <p className="text-[12px] text-fg-mute">Preenche placa, RENAVAM, chassi e proprietário automaticamente.</p>
                   {crlvMsg?.kind === 'success' && (
-                    <p className="text-[12px] text-[#BAFF1A] mt-1">✔ {crlvMsg.fileName} — {crlvMsg.found}/{crlvMsg.total} campos importados.</p>
+                    <p className="text-[12px] text-primary mt-1">✔ {crlvMsg.fileName} — {crlvMsg.found}/{crlvMsg.total} campos importados.</p>
                   )}
                   {crlvMsg?.kind === 'error' && (
-                    <p className="text-[12px] text-[#ff9c9a] mt-1">✘ {crlvMsg.text}</p>
+                    <p className="text-[12px] text-danger mt-1">✘ {crlvMsg.text}</p>
                   )}
                 </div>
-                <label className={`flex-shrink-0 h-8 px-4 rounded-full bg-[#a880ff] text-[#121212] text-[12px] font-bold cursor-pointer hover:bg-[#9166ff] transition-colors inline-flex items-center ${crlvImporting ? 'opacity-60 pointer-events-none' : ''}`}>
+                <label className={`flex-shrink-0 h-8 px-4 rounded-full bg-info text-bg text-[12px] font-bold cursor-pointer hover:bg-[#9166ff] transition-colors inline-flex items-center ${crlvImporting ? 'opacity-60 pointer-events-none' : ''}`}>
                   <input
                     type="file"
                     accept="application/pdf"
@@ -926,16 +926,16 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
 
               {/* Obrigações anuais */}
               <div className="pt-2 space-y-2.5">
-                <p className="text-[13px] font-bold text-[#f5f5f5]">
-                  Documentação anual <span className="text-[12px] font-normal text-[#616161]">(opcional)</span>
+                <p className="text-[13px] font-bold text-fg">
+                  Documentação anual <span className="text-[12px] font-normal text-fg-mute">(opcional)</span>
                 </p>
                 {([
                   { key: 'ipva'      as const, label: 'IPVA' },
                   { key: 'licensing' as const, label: 'Licenciamento' },
                   { key: 'dpvat'     as const, label: 'DPVAT' },
                 ]).map((row) => (
-                  <div key={row.key} className="grid grid-cols-[80px_1fr_1fr_130px] gap-3 items-end bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl px-4 py-3">
-                    <span className="text-[13px] font-bold text-[#f5f5f5] pb-2.5">{row.label}</span>
+                  <div key={row.key} className="grid grid-cols-[80px_1fr_1fr_130px] gap-3 items-end bg-border border border-border rounded-xl px-4 py-3">
+                    <span className="text-[13px] font-bold text-fg pb-2.5">{row.label}</span>
                     <Field label="Valor (R$)">
                       <input
                         className={inputCls}
@@ -960,17 +960,17 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
               {/* Anexo CRV — somente criação */}
               {!isEditMode && (
                 <div>
-                  <label className={labelCls}>Anexo do CRV <span className="text-[12px] text-[#616161]">PDF, JPG, PNG ou WebP · máx. 10MB</span></label>
+                  <label className={labelCls}>Anexo do CRV <span className="text-[12px] text-fg-mute">PDF, JPG, PNG ou WebP · máx. 10MB</span></label>
                   <div className="flex items-center gap-3">
-                    <label className="h-9 px-4 rounded-full bg-[#282828] border border-[#474747] text-[13px] text-[#9e9e9e] cursor-pointer hover:border-[#616161] transition-colors inline-flex items-center gap-2">
+                    <label className="h-9 px-4 rounded-full bg-surface-2 border border-border text-[13px] text-fg-mute cursor-pointer hover:border-fg-mute transition-colors inline-flex items-center gap-2">
                       <Upload className="w-3.5 h-3.5" />
                       <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => setCrvFile(e.target.files?.[0] ?? null)} />
                       {crvFile ? 'Trocar arquivo' : 'Selecionar arquivo'}
                     </label>
                     {crvFile && (
-                      <div className="flex items-center gap-2 text-[12px] text-[#a880ff]">
+                      <div className="flex items-center gap-2 text-[12px] text-info">
                         <span>{crvFile.name} ({Math.round(crvFile.size / 1024)} KB)</span>
-                        <button type="button" onClick={() => setCrvFile(null)} className="text-[#616161] hover:text-[#f5f5f5] transition-colors">
+                        <button type="button" onClick={() => setCrvFile(null)} className="text-fg-mute hover:text-fg transition-colors">
                           <X className="w-3 h-3" />
                         </button>
                       </div>
@@ -992,7 +992,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                 <div className="h-9 px-4 rounded-full text-[13px] font-medium border inline-flex items-center" style={{ background: '#2d0363', color: '#a880ff', borderColor: '#a880ff40' }}>
                   {VEHICLE_STATUS_LABELS.rented}
                 </div>
-                <p className="text-[12px] text-[#9e9e9e]">Status Locado é gerenciado automaticamente via contratos.</p>
+                <p className="text-[12px] text-fg-mute">Status Locado é gerenciado automaticamente via contratos.</p>
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
@@ -1090,7 +1090,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                   checked={form.has_tracker === 'true'}
                   onChange={(v) => set('has_tracker', v ? 'true' : 'false')}
                 />
-                <span className="text-[13px] text-[#f5f5f5]">
+                <span className="text-[13px] text-fg">
                   {form.has_tracker === 'true' ? 'Possui rastreador instalado' : 'Sem rastreador'}
                 </span>
               </div>
@@ -1129,7 +1129,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                   checked={form.has_insurance === 'true'}
                   onChange={(v) => set('has_insurance', v ? 'true' : 'false')}
                 />
-                <span className="text-[13px] text-[#f5f5f5]">
+                <span className="text-[13px] text-fg">
                   {form.has_insurance === 'true' ? 'Possui seguro ativo' : 'Sem seguro'}
                 </span>
               </div>
@@ -1165,7 +1165,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                 const slotError = fieldErrors[`photo_${slot}`]
                 return (
                   <div key={slot} className="space-y-1.5">
-                    <div className={`aspect-square rounded-xl overflow-hidden border relative group transition-colors ${slotError ? 'border-[#ff9c9a] bg-[#2a1a1a]' : 'border-[#2a2a2a] bg-[#1e1e1e] hover:border-[#3a3a3a]'}`}>
+                    <div className={`aspect-square rounded-xl overflow-hidden border relative group transition-colors ${slotError ? 'border-danger bg-[#2a1a1a]' : 'border-border bg-border hover:border-fg-mute'}`}>
                       {url ? (
                         <>
                           <Image
@@ -1186,9 +1186,9 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                           </button>
                         </>
                       ) : (
-                        <label className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer text-[#3a3a3a] hover:text-[#616161] transition-colors">
+                        <label className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer text-fg-mute hover:text-fg-mute transition-colors">
                           {isUploading
-                            ? <div className="w-4 h-4 border-2 border-[#BAFF1A] border-t-transparent rounded-full animate-spin" />
+                            ? <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                             : <Plus className="w-5 h-5" />
                           }
                           <input
@@ -1206,8 +1206,8 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                         </label>
                       )}
                     </div>
-                    <p className="text-[11px] text-center text-[#616161] leading-tight">{VEHICLE_PHOTO_SLOT_LABELS[slot]}</p>
-                    {slotError && <p className="text-[10px] text-center text-[#ff9c9a] leading-tight">{slotError}</p>}
+                    <p className="text-[11px] text-center text-fg-mute leading-tight">{VEHICLE_PHOTO_SLOT_LABELS[slot]}</p>
+                    {slotError && <p className="text-[10px] text-center text-danger leading-tight">{slotError}</p>}
                   </div>
                 )
               })}
@@ -1223,14 +1223,14 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
               <SectionHeader title="Plano de Manutenção" hint="opcional" />
               {maintenancePlansQuery.isLoading ? (
                 <div className="flex justify-center py-6">
-                  <div className="w-5 h-5 border-2 border-[#BAFF1A] border-t-transparent rounded-full animate-spin" />
+                  <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 </div>
               ) : plans.length === 0 ? (
-                <div className="flex items-start gap-3 px-4 py-3 bg-[#1e1a00] border border-[#ffd166]/30 rounded-xl">
-                  <AlertCircle className="w-4 h-4 text-[#ffd166] flex-shrink-0 mt-0.5" />
+                <div className="flex items-start gap-3 px-4 py-3 bg-[#1e1a00] border border-pending/30 rounded-xl">
+                  <AlertCircle className="w-4 h-4 text-pending flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-[13px] text-[#ffd166]">Nenhum plano cadastrado — você pode criar depois.</p>
-                    <Link href="/planos-manutencao" className="text-[12px] text-[#BAFF1A] hover:underline">Criar plano →</Link>
+                    <p className="text-[13px] text-pending">Nenhum plano cadastrado — você pode criar depois.</p>
+                    <Link href="/planos-manutencao" className="text-[12px] text-primary hover:underline">Criar plano →</Link>
                   </div>
                 </div>
               ) : (
@@ -1252,25 +1252,25 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                   {selectedPlanId && (
                     <>
                       <div className="px-3 py-2.5 bg-[#1a2000] border border-[#6b9900]/30 rounded-lg">
-                        <p className="text-[12px] text-[#9e9e9e]">
-                          Informe a <strong className="text-[#f5f5f5]">última vez</strong> que cada item foi realizado. Deixe em branco se não souber — será marcado para revisão imediata.
+                        <p className="text-[12px] text-fg-mute">
+                          Informe a <strong className="text-fg">última vez</strong> que cada item foi realizado. Deixe em branco se não souber — será marcado para revisão imediata.
                         </p>
                       </div>
                       {selectedPlanQuery.isLoading ? (
                         <div className="flex justify-center py-4">
-                          <div className="w-5 h-5 border-2 border-[#BAFF1A] border-t-transparent rounded-full animate-spin" />
+                          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                         </div>
                       ) : planItems.length === 0 ? (
-                        <p className="text-[13px] text-[#9e9e9e]">Este plano ainda não tem itens.</p>
+                        <p className="text-[13px] text-fg-mute">Este plano ainda não tem itens.</p>
                       ) : (
                         <div className="space-y-2">
                           {planItems.map((item) => {
                             const metric = planItemMetric(item)
                             return (
-                              <div key={item.id} className="flex items-center gap-4 bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl px-4 py-3">
+                              <div key={item.id} className="flex items-center gap-4 bg-border border border-border rounded-xl px-4 py-3">
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-[13px] font-bold text-[#f5f5f5] truncate">{item.name}</p>
-                                  <p className="text-[11px] text-[#616161]">{planItemHint(item)}</p>
+                                  <p className="text-[13px] font-bold text-fg truncate">{item.name}</p>
+                                  <p className="text-[11px] text-fg-mute">{planItemHint(item)}</p>
                                 </div>
                                 {metric === 'km' ? (
                                   <div className="relative flex-shrink-0">
@@ -1279,16 +1279,16 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                                       placeholder="KM da última troca"
                                       value={bootstrapItems[item.id] ?? ''}
                                       onChange={(e) => setBootstrapItems((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                                      className="w-36 h-8 px-3 pr-8 rounded-lg bg-[#282828] border border-[#474747] text-[12px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] text-right"
+                                      className="w-36 h-8 px-3 pr-8 rounded-lg bg-surface-2 border border-border text-[12px] text-fg placeholder:text-fg-mute outline-none focus:border-primary text-right"
                                     />
-                                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-[#616161] font-bold pointer-events-none">KM</span>
+                                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-fg-mute font-bold pointer-events-none">KM</span>
                                   </div>
                                 ) : (
                                   <input
                                     type="date"
                                     value={bootstrapItems[item.id] ?? ''}
                                     onChange={(e) => setBootstrapItems((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                                    className="w-36 h-8 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[12px] text-[#f5f5f5] outline-none focus:border-[#BAFF1A] flex-shrink-0"
+                                    className="w-36 h-8 px-3 rounded-lg bg-surface-2 border border-border text-[12px] text-fg outline-none focus:border-primary flex-shrink-0"
                                   />
                                 )}
                               </div>
@@ -1305,21 +1305,21 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
 
           {/* ── Erro global ────────────────────────────────────────────── */}
           {globalError && (
-            <div className="flex items-start gap-3 px-4 py-3 bg-[#7c1c1c] border border-[#ff9c9a]/30 rounded-xl">
-              <AlertCircle className="w-4 h-4 text-[#ff9c9a] flex-shrink-0 mt-0.5" />
-              <p className="text-[13px] text-[#ff9c9a]">{globalError}</p>
+            <div className="flex items-start gap-3 px-4 py-3 bg-danger-bg border border-danger rounded-xl">
+              <AlertCircle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
+              <p className="text-[13px] text-danger">{globalError}</p>
             </div>
           )}
 
           {/* ── Footer ────────────────────────────────────────────────── */}
-          <div className="flex gap-3 justify-end pt-4 pb-16 border-t border-[#2a2a2a]">
-            <Link href={backHref} className="inline-flex items-center h-9 px-5 rounded-full border border-[#474747] text-[#9e9e9e] text-[13px] font-medium hover:text-[#f5f5f5] hover:border-[#616161] transition-colors">
+          <div className="flex gap-3 justify-end pt-4 pb-16 border-t border-border">
+            <Link href={backHref} className="inline-flex items-center h-9 px-5 rounded-full border border-border text-fg-mute text-[13px] font-medium hover:text-fg hover:border-fg-mute transition-colors">
               Cancelar
             </Link>
             <button
               type="submit"
               disabled={isPending}
-              className="h-9 px-6 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors disabled:opacity-60"
+              className="h-9 px-6 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors disabled:opacity-60"
             >
               {isPending ? 'Salvando…' : isEditMode ? 'Salvar alterações' : 'Cadastrar veículo'}
             </button>

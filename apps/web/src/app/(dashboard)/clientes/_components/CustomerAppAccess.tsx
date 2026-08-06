@@ -49,17 +49,17 @@ export function CustomerAppAccess({ customerId, customerEmail, hasAppAccess }: P
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 mb-3">
-        <Smartphone className="h-4 w-4 text-[#BAFF1A]" />
-        <h2 className="text-[14px] font-bold text-[#BAFF1A]">Acesso ao App</h2>
+        <Smartphone className="h-4 w-4 text-primary" />
+        <h2 className="text-[14px] font-bold text-primary">Acesso ao App</h2>
       </div>
 
       {!customerEmail ? (
-        <p className="text-[13px] text-[#9e9e9e]">
+        <p className="text-[13px] text-fg-mute">
           Cadastre um email para liberar o acesso ao app mobile.
         </p>
       ) : hasAppAccess ? (
         <div className="space-y-3">
-          <div className="flex items-center gap-2 text-[13px] text-[#4ade80]">
+          <div className="flex items-center gap-2 text-[13px] text-success">
             <CheckCircle2 className="h-4 w-4 shrink-0" />
             <span>Cliente tem acesso ao app mobile.</span>
           </div>
@@ -86,9 +86,9 @@ export function CustomerAppAccess({ customerId, customerEmail, hasAppAccess }: P
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="text-[13px] text-[#9e9e9e]">
+          <p className="text-[13px] text-fg-mute">
             Escolha como liberar o acesso para{' '}
-            <span className="text-[#f5f5f5]">{customerEmail}</span>:
+            <span className="text-fg">{customerEmail}</span>:
           </p>
           {mode === 'password' ? (
             <PasswordForm
@@ -115,16 +115,16 @@ export function CustomerAppAccess({ customerId, customerEmail, hasAppAccess }: P
 
       {generatedLink && (
         <div className="p-3 bg-[#1a2600] border border-[#3a5200] rounded-xl space-y-2">
-          <p className="text-[12px] font-medium text-[#BAFF1A]">
+          <p className="text-[12px] font-medium text-primary">
             Link gerado — compartilhe com o cliente (ex: WhatsApp):
           </p>
           <div className="flex items-start gap-2">
-            <p className="text-[11px] text-[#9e9e9e] font-mono break-all flex-1 leading-relaxed select-all">
+            <p className="text-[11px] text-fg-mute font-mono break-all flex-1 leading-relaxed select-all">
               {generatedLink}
             </p>
             <button
               onClick={() => navigator.clipboard.writeText(generatedLink)}
-              className="shrink-0 h-8 px-3 rounded-lg bg-[#323232] text-[#f5f5f5] text-[12px] font-medium hover:bg-[#474747] transition-colors"
+              className="shrink-0 h-8 px-3 rounded-lg bg-surface-2 text-fg text-[12px] font-medium hover:bg-border transition-colors"
             >
               Copiar
             </button>
@@ -154,8 +154,8 @@ function ActionButton({
       disabled={loading}
       className={`h-8 px-3 rounded-lg text-[13px] font-medium transition-colors disabled:opacity-50 ${
         primary
-          ? 'bg-[#BAFF1A] text-[#121212] hover:bg-[#a8e818]'
-          : 'bg-[#323232] text-[#f5f5f5] hover:bg-[#474747]'
+          ? 'bg-primary text-bg hover:bg-primary-hover'
+          : 'bg-surface-2 text-fg hover:bg-border'
       }`}
     >
       {loading ? 'Aguarde…' : children}
@@ -188,26 +188,26 @@ function PasswordForm({
           value={value}
           onChange={(e) => onChangeValue(e.target.value)}
           placeholder="Mínimo 8 caracteres"
-          className="w-full h-9 rounded-lg border border-[#474747] bg-[#323232] px-3 pr-10 text-[13px] text-[#f5f5f5] placeholder:text-[#616161] focus:border-[#BAFF1A] focus:outline-none"
+          className="w-full h-9 rounded-lg border border-border bg-surface-2 px-3 pr-10 text-[13px] text-fg placeholder:text-fg-mute focus:border-primary focus:outline-none"
         />
         <button
           type="button"
           onClick={onToggleShow}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#616161] hover:text-[#f5f5f5] transition-colors"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-mute hover:text-fg transition-colors"
         >
           {showText ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </button>
       </div>
       <button
         onClick={onCancel}
-        className="h-9 px-3 rounded-lg bg-[#323232] text-[#f5f5f5] text-[13px] font-medium hover:bg-[#474747] transition-colors"
+        className="h-9 px-3 rounded-lg bg-surface-2 text-fg text-[13px] font-medium hover:bg-border transition-colors"
       >
         Cancelar
       </button>
       <button
         onClick={onConfirm}
         disabled={loading}
-        className="h-9 px-3 rounded-lg bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e818] transition-colors disabled:opacity-50"
+        className="h-9 px-3 rounded-lg bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors disabled:opacity-50"
       >
         {loading ? 'Salvando…' : 'Confirmar'}
       </button>

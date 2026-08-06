@@ -182,13 +182,13 @@ const CATEGORY_OPTIONS = [
  */
 function KpiCard({ icon: Icon, label, value, sub }: { icon: React.ElementType, label: string, value: string | number, sub?: string }) {
   return (
-    <div className="flex items-center justify-between rounded-xl bg-[#202020] px-4 py-4">
+    <div className="flex items-center justify-between rounded-xl bg-surface px-4 py-4">
       <div>
-        <p className="text-[13px] text-[#9e9e9e]">{label}</p>
-        <p className="text-2xl font-bold text-[#f5f5f5]">{value}</p>
-        {sub && <p className="text-[12px] mt-0.5 text-[#9e9e9e]">{sub}</p>}
+        <p className="text-[13px] text-fg-mute">{label}</p>
+        <p className="text-2xl font-bold text-fg">{value}</p>
+        {sub && <p className="text-[12px] mt-0.5 text-fg-mute">{sub}</p>}
       </div>
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#323232] text-[#BAFF1A]">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-2 text-primary">
         <Icon className="h-5 w-5" />
       </div>
     </div>
@@ -643,7 +643,7 @@ export default function ExpensesPage() {
   ], [vehicles])
 
   return (
-    <div className="flex flex-col min-h-full bg-[#121212]">
+    <div className="flex flex-col min-h-full bg-bg">
       <PageTitle
         title="Despesas"
         subtitle="Gerencie as saídas financeiras da sua frota"
@@ -703,19 +703,19 @@ export default function ExpensesPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
           {/* Abas pill de categoria — geradas dinamicamente pelo memo categoryTabs */}
-          <div className="flex flex-wrap border-b border-[#616161]">
+          <div className="flex flex-wrap border-b border-fg-mute">
             {categoryTabs.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setCategoryFilter(tab.id)}
                 className={`px-3 py-2 text-[16px] font-medium transition-all border-b-2 ${
                   categoryFilter === tab.id
-                    ? 'border-[#BAFF1A] text-[#f5f5f5]'
-                    : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
+                    ? 'border-primary text-fg'
+                    : 'border-transparent text-fg-mute hover:text-fg'
                 }`}
               >
                 {tab.label}
-                {tab.count > 0 && <span className="ml-1.5 text-[#616161]">({tab.count})</span>}
+                {tab.count > 0 && <span className="ml-1.5 text-fg-mute">({tab.count})</span>}
               </button>
             ))}
           </div>
@@ -728,18 +728,18 @@ export default function ExpensesPage() {
               type="month"
               value={monthFilter}
               onChange={e => setMonthFilter(e.target.value)}
-              className="h-10 rounded-lg border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
+              className="h-10 rounded-lg border border-border bg-surface-2 px-3 text-[13px] text-fg focus:border-primary focus:outline-none"
             />
 
             {/* Campo de busca com ícone — filtra em description e observations */}
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#616161]" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-fg-mute" />
               <input
                 type="text"
                 placeholder="Buscar..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="h-10 rounded-lg border border-[#474747] bg-[#323232] pl-9 pr-4 text-[13px] text-[#f5f5f5] placeholder:text-[#616161] focus:border-[#BAFF1A] focus:outline-none w-44"
+                className="h-10 rounded-lg border border-border bg-surface-2 pl-9 pr-4 text-[13px] text-fg placeholder:text-fg-mute focus:border-primary focus:outline-none w-44"
               />
             </div>
           </div>
@@ -758,15 +758,15 @@ export default function ExpensesPage() {
         {loading ? (
           // Estado 1: carregando — spinner verde-limão centralizado
           <div className="flex items-center justify-center py-20">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#BAFF1A] border-t-transparent" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
 
         ) : groupedExpenses.length === 0 ? (
           // Estado 2: sem resultados — orienta o usuário a ajustar filtros ou cadastrar
-          <div className="flex flex-col items-center justify-center rounded-xl bg-[#202020] p-16 text-center">
-            <Receipt className="mb-4 h-12 w-12 text-[#616161]" />
-            <p className="text-lg font-medium text-[#f5f5f5]">Nenhuma despesa encontrada.</p>
-            <p className="mt-1 text-[13px] text-[#9e9e9e]">Ajuste os filtros ou registre uma nova despesa.</p>
+          <div className="flex flex-col items-center justify-center rounded-xl bg-surface p-16 text-center">
+            <Receipt className="mb-4 h-12 w-12 text-fg-mute" />
+            <p className="text-lg font-medium text-fg">Nenhuma despesa encontrada.</p>
+            <p className="mt-1 text-[13px] text-fg-mute">Ajuste os filtros ou registre uma nova despesa.</p>
           </div>
 
         ) : (
@@ -777,7 +777,7 @@ export default function ExpensesPage() {
               const isExpanded = !collapsedCategories.has(category)
 
               return (
-                <div key={category} className="overflow-hidden rounded-xl bg-[#202020]">
+                <div key={category} className="overflow-hidden rounded-xl bg-surface">
 
                   {/* ── Cabeçalho do accordion (clicável) ───────────────────
                       Ao clicar, toggleCategory alterna o Set de colapsados.
@@ -785,21 +785,21 @@ export default function ExpensesPage() {
                   ────────────────────────────────────────────────────────── */}
                   <button
                     onClick={() => toggleCategory(category)}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#323232] transition-colors text-left"
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors text-left"
                   >
                     {/* Seta: rotaciona -90° quando colapsado (via classe Tailwind) */}
-                    <ChevronDown className={`w-4 h-4 text-[#9e9e9e] shrink-0 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
+                    <ChevronDown className={`w-4 h-4 text-fg-mute shrink-0 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
 
                     {/* Nome da categoria em destaque */}
-                    <span className="font-medium text-[#f5f5f5] text-[13px]">{category}</span>
+                    <span className="font-medium text-fg text-[13px]">{category}</span>
 
                     {/* Contagem de lançamentos + valor total alinhados à direita */}
                     <div className="ml-auto flex items-center gap-1.5">
-                      <span className="px-2 py-0.5 rounded-full text-[12px] font-medium bg-[#323232] text-[#9e9e9e]">
+                      <span className="px-2 py-0.5 rounded-full text-[12px] font-medium bg-surface-2 text-fg-mute">
                         {items.length} lançamento{items.length !== 1 ? 's' : ''}
                       </span>
                       {/* Total da categoria em vermelho — representa saída financeira */}
-                      <span className="text-[13px] font-bold text-[#ff9c9a] ml-1">
+                      <span className="text-[13px] font-bold text-danger ml-1">
                         {formatCurrency(total)}
                       </span>
                     </div>
@@ -811,17 +811,17 @@ export default function ExpensesPage() {
                       sem cortar o border-radius do card pai.
                   ────────────────────────────────────────────────────────── */}
                   {isExpanded && (
-                    <div className="border-t border-[#323232]">
+                    <div className="border-t border-surface-2">
                       <div className="overflow-x-auto">
-                        <table className="w-full text-left text-[13px] text-[#f5f5f5]">
+                        <table className="w-full text-left text-[13px] text-fg">
 
                           {/* Cabeçalho da tabela — padrão do design system: sem bg, uppercase, cor secundária */}
                           <thead>
-                            <tr className="border-b border-[#323232]">
-                              <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Data</th>
-                              <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Descrição</th>
-                              <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Valor</th>
-                              <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e] text-right">Ações</th>
+                            <tr className="border-b border-surface-2">
+                              <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Data</th>
+                              <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Descrição</th>
+                              <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Valor</th>
+                              <th className="h-9 px-4 text-[13px] font-medium text-fg-mute text-right">Ações</th>
                             </tr>
                           </thead>
 
@@ -830,30 +830,30 @@ export default function ExpensesPage() {
                               /* Calcula a moto vinculada uma única vez por linha (evita 3x find) */
                               const moto = vehicles.find(m => m.id === item.vehicle_id)
                               return (
-                              <tr key={item.id} className="h-9 border-b border-[#323232] transition-colors hover:bg-[#323232]">
+                              <tr key={item.id} className="h-9 border-b border-surface-2 transition-colors hover:bg-surface-2">
 
                                 {/* Data: formatada para DD/MM/AAAA via formatDate */}
                                 <td className="px-4">
-                                  <p className="text-[#f5f5f5]">{formatDate(item.date)}</p>
+                                  <p className="text-fg">{formatDate(item.date)}</p>
                                 </td>
 
                                 {/* Descrição + observações opcionais em fonte menor */}
                                 <td className="px-4 max-w-xs">
-                                  <p className="font-medium text-[#f5f5f5]">{item.description}</p>
+                                  <p className="font-medium text-fg">{item.description}</p>
                                   {item.observations && (
-                                    <p className="text-[12px] text-[#9e9e9e] mt-0.5 line-clamp-1">
+                                    <p className="text-[12px] text-fg-mute mt-0.5 line-clamp-1">
                                       {item.observations}
                                     </p>
                                   )}
                                   {/* Placa e modelo da moto vinculada, se existir */}
                                   {moto && (
-                                    <p className="text-[12px] text-[#9e9e9e] mt-0.5">
+                                    <p className="text-[12px] text-fg-mute mt-0.5">
                                       {moto.license_plate}{' — '}{moto.model}
                                     </p>
                                   )}
                                   {/* Badge de aviso: despesa sem nota fiscal */}
                                   {!item.invoice_url && (
-                                    <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3a180f] text-[#e65e24] border border-[#e65e24]">
+                                    <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-warning-bg text-warning border border-warning">
                                       <AlertCircle className="w-3 h-3" />
                                       Sem NF
                                     </span>
@@ -862,14 +862,14 @@ export default function ExpensesPage() {
                                   <div className="flex gap-2 mt-1 flex-wrap">
                                     {item.invoice_url && (
                                       <a href={item.invoice_url} target="_blank" rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#243300] text-[#BAFF1A] border border-[#6b9900] transition-colors">
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary-tint text-primary border border-[#6b9900] transition-colors">
                                         <FileText className="w-3 h-3" />
                                         Nota Fiscal
                                       </a>
                                     )}
                                     {item.attachment_url && (
                                       <a href={item.attachment_url} target="_blank" rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#2d0363] text-[#a880ff] border border-[#a880ff] transition-colors">
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-info-bg text-info border border-info transition-colors">
                                         <Paperclip className="w-3 h-3" />
                                         Anexo
                                       </a>
@@ -879,7 +879,7 @@ export default function ExpensesPage() {
 
                                 {/* Valor em vermelho — destaca o impacto financeiro */}
                                 <td className="px-4">
-                                  <span className="font-medium text-[#ff9c9a]">
+                                  <span className="font-medium text-danger">
                                     {formatCurrency(Number(item.amount))}
                                   </span>
                                 </td>
@@ -981,22 +981,22 @@ export default function ExpensesPage() {
 
           {/* Seção de documentos — dois uploads lado a lado */}
           <div className="space-y-2">
-            <p className="text-[13px] text-[#9e9e9e]">Documentos</p>
+            <p className="text-[13px] text-fg-mute">Documentos</p>
             <div className="grid grid-cols-2 gap-3">
 
             {/* Nota Fiscal */}
             <div className="space-y-1">
-              <label className="text-[13px] text-[#9e9e9e] mb-1 block">
+              <label className="text-[13px] text-fg-mute mb-1 block">
                 Nota Fiscal
-                <span className="ml-2 text-[#616161] text-[12px]">(PDF ou imagem)</span>
+                <span className="ml-2 text-fg-mute text-[12px]">(PDF ou imagem)</span>
               </label>
-              <div className={`relative flex items-center gap-3 px-4 bg-[#323232] border rounded-lg h-12 transition-colors ${
+              <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border rounded-lg h-12 transition-colors ${
                 form.invoiceFile || existingInvoiceUrl
                   ? 'border-[#6b9900]'
-                  : 'border-[#474747] hover:border-[#BAFF1A]'
+                  : 'border-border hover:border-primary'
               }`}>
-                <FileText className="w-4 h-4 text-[#9e9e9e] shrink-0" />
-                <span className="flex-1 text-[13px] truncate text-[#9e9e9e]">
+                <FileText className="w-4 h-4 text-fg-mute shrink-0" />
+                <span className="flex-1 text-[13px] truncate text-fg-mute">
                   {form.invoiceFile
                     ? form.invoiceFile.name
                     : existingInvoiceUrl
@@ -1010,7 +1010,7 @@ export default function ExpensesPage() {
                       setForm({ ...form, invoiceFile: null })
                       setExistingInvoiceUrl(null)
                     }}
-                    className="text-[#9e9e9e] hover:text-[#ff9c9a] transition-colors shrink-0"
+                    className="text-fg-mute hover:text-danger transition-colors shrink-0"
                     title="Remover"
                   >
                     <X className="w-4 h-4" />
@@ -1022,7 +1022,7 @@ export default function ExpensesPage() {
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={e => e.stopPropagation()}
-                    className="text-[#BAFF1A] hover:text-[#a8e617] transition-colors shrink-0"
+                    className="text-primary hover:text-primary-hover transition-colors shrink-0"
                     title="Ver arquivo"
                   >
                     <ExternalLink className="w-4 h-4" />
@@ -1042,17 +1042,17 @@ export default function ExpensesPage() {
 
             {/* Arquivo Adicional */}
             <div className="space-y-1">
-              <label className="text-[13px] text-[#9e9e9e] mb-1 block">
+              <label className="text-[13px] text-fg-mute mb-1 block">
                 Arquivo Adicional
-                <span className="ml-2 text-[#616161] text-[12px]">(opcional)</span>
+                <span className="ml-2 text-fg-mute text-[12px]">(opcional)</span>
               </label>
-              <div className={`relative flex items-center gap-3 px-4 bg-[#323232] border rounded-lg h-12 transition-colors ${
+              <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border rounded-lg h-12 transition-colors ${
                 form.attachmentFile || existingAttachmentUrl
-                  ? 'border-[#a880ff]'
-                  : 'border-[#474747] hover:border-[#BAFF1A]'
+                  ? 'border-info'
+                  : 'border-border hover:border-primary'
               }`}>
-                <Paperclip className="w-4 h-4 text-[#9e9e9e] shrink-0" />
-                <span className="flex-1 text-[13px] truncate text-[#9e9e9e]">
+                <Paperclip className="w-4 h-4 text-fg-mute shrink-0" />
+                <span className="flex-1 text-[13px] truncate text-fg-mute">
                   {form.attachmentFile
                     ? form.attachmentFile.name
                     : existingAttachmentUrl
@@ -1066,7 +1066,7 @@ export default function ExpensesPage() {
                       setForm({ ...form, attachmentFile: null })
                       setExistingAttachmentUrl(null)
                     }}
-                    className="text-[#9e9e9e] hover:text-[#ff9c9a] transition-colors shrink-0"
+                    className="text-fg-mute hover:text-danger transition-colors shrink-0"
                     title="Remover"
                   >
                     <X className="w-4 h-4" />
@@ -1078,7 +1078,7 @@ export default function ExpensesPage() {
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={e => e.stopPropagation()}
-                    className="text-[#a880ff] hover:text-[#c4a8ff] transition-colors shrink-0"
+                    className="text-info hover:text-[#c4a8ff] transition-colors shrink-0"
                     title="Ver arquivo"
                   >
                     <ExternalLink className="w-4 h-4" />
@@ -1097,11 +1097,11 @@ export default function ExpensesPage() {
 
           {/* Alerta: despesa sem nota fiscal — aparece acima dos botões sem aumentar o modal */}
           {noInvoiceWarning && (
-            <div className="bg-[#3a180f] border border-[#e65e24] rounded-xl p-3 flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-[#e65e24] shrink-0 mt-0.5" />
+            <div className="bg-warning-bg border border-warning rounded-xl p-3 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
               <div>
-                <p className="text-[12px] font-medium text-[#e65e24]">Despesa sem Nota Fiscal</p>
-                <p className="text-[12px] text-[#e65e24] mt-0.5 leading-tight opacity-80">
+                <p className="text-[12px] font-medium text-warning">Despesa sem Nota Fiscal</p>
+                <p className="text-[12px] text-warning mt-0.5 leading-tight opacity-80">
                   Não recomendado para controle financeiro. Deseja realmente continuar?
                 </p>
               </div>
@@ -1139,9 +1139,9 @@ export default function ExpensesPage() {
       >
         <div className="space-y-4">
           {/* Texto de confirmação: exibe o nome da despesa a ser excluída */}
-          <p className="text-[#9e9e9e] text-[13px]">
+          <p className="text-fg-mute text-[13px]">
             Tem certeza que deseja excluir a despesa{' '}
-            <span className="text-[#f5f5f5] font-medium">{deleting?.description}</span>?
+            <span className="text-fg font-medium">{deleting?.description}</span>?
             Esta ação removerá permanentemente o registro.
           </p>
           <div className="flex gap-3 justify-end">
