@@ -1,5 +1,7 @@
 import { StatusBar } from 'expo-status-bar'
+import { useMemo } from 'react'
 import { SafeAreaView, StyleSheet, Text, View, type ViewStyle } from 'react-native'
+import { useTheme, useStatusBarStyle, type ThemeTokens } from '../theme'
 
 type Props = {
   title: string
@@ -11,9 +13,12 @@ type Props = {
 // Casca padrão das telas do cliente até as regras do ADR 0003 §6 serem destrinchadas.
 // Cada placeholder lista o que entra na próxima fase pra revisão rápida do produto.
 export function PlaceholderScreen({ title, subtitle, description, footer }: Props) {
+  const theme = useTheme()
+  const statusBarStyle = useStatusBarStyle()
+  const styles = useMemo(() => createStyles(theme), [theme])
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar style="light" />
+      <StatusBar style={statusBarStyle} />
       <View style={styles.header}>
         <Text style={styles.title}>{title}</Text>
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
@@ -31,25 +36,25 @@ export function PlaceholderScreen({ title, subtitle, description, footer }: Prop
   )
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: ThemeTokens) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: theme.bg,
   },
   header: {
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 16,
-    borderBottomColor: '#323232',
+    borderBottomColor: theme.border,
     borderBottomWidth: 1,
   },
   title: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 22,
     fontWeight: '700',
   },
   subtitle: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
     marginTop: 2,
   },
@@ -58,28 +63,28 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   card: {
-    backgroundColor: '#202020',
-    borderColor: '#474747',
+    backgroundColor: theme.surface,
+    borderColor: theme.border,
     borderWidth: 1,
     borderRadius: 16,
     padding: 20,
   },
   badge: {
     alignSelf: 'flex-start',
-    backgroundColor: '#323232',
+    backgroundColor: theme.surfaceAlt,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,
     marginBottom: 12,
   },
   badgeText: {
-    color: '#BAFF1A',
+    color: theme.primary,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
   description: {
-    color: '#bdbdbd',
+    color: theme.textSoft,
     fontSize: 14,
     lineHeight: 20,
   },

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -12,6 +12,7 @@ import {
 import { StatusBar } from 'expo-status-bar'
 
 import { useAuth } from '../src/contexts/auth'
+import { useTheme, useStatusBarStyle, type ThemeTokens } from '../src/theme'
 
 export default function SetPasswordScreen() {
   const { setPassword, signOut } = useAuth()
@@ -19,6 +20,9 @@ export default function SetPasswordScreen() {
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const theme = useTheme()
+  const statusBarStyle = useStatusBarStyle()
+  const styles = useMemo(() => createStyles(theme), [theme])
 
   async function handleSubmit() {
     setError(null)
@@ -44,7 +48,7 @@ export default function SetPasswordScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <StatusBar style="light" />
+      <StatusBar style={statusBarStyle} />
       <View style={styles.card}>
         <View style={styles.logoBadge}>
           <Text style={styles.logoText}>GM</Text>
@@ -60,7 +64,7 @@ export default function SetPasswordScreen() {
           value={password}
           onChangeText={setPasswordValue}
           placeholder="Mínimo 8 caracteres"
-          placeholderTextColor="#5c5c5c"
+          placeholderTextColor={theme.textMute}
           secureTextEntry
           autoComplete="new-password"
           editable={!submitting}
@@ -72,7 +76,7 @@ export default function SetPasswordScreen() {
           value={confirm}
           onChangeText={setConfirm}
           placeholder="Repita a senha"
-          placeholderTextColor="#5c5c5c"
+          placeholderTextColor={theme.textMute}
           secureTextEntry
           autoComplete="new-password"
           editable={!submitting}
@@ -90,7 +94,7 @@ export default function SetPasswordScreen() {
           disabled={submitting}
         >
           {submitting ? (
-            <ActivityIndicator color="#121212" />
+            <ActivityIndicator color={theme.primaryContrast} />
           ) : (
             <Text style={styles.buttonText}>Salvar senha</Text>
           )}
@@ -104,10 +108,10 @@ export default function SetPasswordScreen() {
   )
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: ThemeTokens) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: theme.bg,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -115,8 +119,8 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#202020',
-    borderColor: '#474747',
+    backgroundColor: theme.surface,
+    borderColor: theme.border,
     borderWidth: 1,
     borderRadius: 16,
     padding: 24,
@@ -125,48 +129,48 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 16,
-    backgroundColor: '#BAFF1A',
+    backgroundColor: theme.primary,
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
     marginBottom: 12,
   },
   logoText: {
-    color: '#121212',
+    color: theme.primaryContrast,
     fontSize: 20,
     fontWeight: '700',
   },
   title: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 24,
     fontWeight: '700',
     textAlign: 'center',
   },
   subtitle: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 14,
     textAlign: 'center',
     marginBottom: 24,
   },
   label: {
-    color: '#bdbdbd',
+    color: theme.textSoft,
     fontSize: 13,
     marginBottom: 6,
     marginTop: 8,
   },
   input: {
-    backgroundColor: '#181818',
-    borderColor: '#474747',
+    backgroundColor: theme.bg,
+    borderColor: theme.border,
     borderWidth: 1,
     borderRadius: 12,
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 15,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
   errorBox: {
-    backgroundColor: '#7c1c1c',
-    borderColor: '#ff9c9a',
+    backgroundColor: theme.dangerBg,
+    borderColor: theme.danger,
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 14,
@@ -174,11 +178,11 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   errorText: {
-    color: '#ff9c9a',
+    color: theme.danger,
     fontSize: 13,
   },
   button: {
-    backgroundColor: '#BAFF1A',
+    backgroundColor: theme.primary,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
@@ -188,7 +192,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   buttonText: {
-    color: '#121212',
+    color: theme.primaryContrast,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -198,7 +202,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   secondaryText: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
   },
 })
