@@ -32,10 +32,10 @@ interface MobileLayoutProps {
 
 function TenantSuspendedPage({ tenantName }: { tenantName: string }) {
   return (
-    <div className="flex items-center justify-center min-h-screen bg-[#121212] px-6">
+    <div className="flex items-center justify-center min-h-screen bg-bg px-6">
       <div className="text-center max-w-sm">
-        <h1 className="text-[18px] font-semibold text-[#f5f5f5] mb-2">{tenantName}</h1>
-        <p className="text-[#9e9e9e] text-[13px]">
+        <h1 className="text-[18px] font-semibold text-fg mb-2">{tenantName}</h1>
+        <p className="text-fg-mute text-[13px]">
           Esta empresa está temporariamente indisponível. Entre em contato com o suporte.
         </p>
       </div>
@@ -73,22 +73,22 @@ export default async function MobileLayout({ children }: MobileLayoutProps) {
 
   return (
     <Providers>
-      <div className="min-h-screen bg-[#121212]">
-        <header className="sticky top-0 z-30 h-12 flex items-center justify-between gap-3 px-4 bg-[#121212]/95 backdrop-blur border-b border-[#2a2a2a]">
+      <div className="min-h-screen bg-bg">
+        <header className="sticky top-0 z-30 h-12 flex items-center justify-between gap-3 px-4 bg-bg backdrop-blur border-b border-border">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-6 h-6 flex-shrink-0 bg-[#BAFF1A] rounded-full flex items-center justify-center">
-              <Bike className="w-3.5 h-3.5 text-[#121212]" />
+            <div className="w-6 h-6 flex-shrink-0 bg-primary rounded-full flex items-center justify-center">
+              <Bike className="w-3.5 h-3.5 text-primary-contrast" />
             </div>
-            <span className="text-[13px] font-bold text-[#f5f5f5] truncate">GoMoto</span>
+            <span className="text-[13px] font-bold text-fg truncate">GoMoto</span>
           </div>
           <div className="flex items-center gap-2 min-w-0">
             {userName && (
-              <span className="text-[12px] text-[#9e9e9e] truncate max-w-[140px]">{userName}</span>
+              <span className="text-[12px] text-fg-mute truncate max-w-[140px]">{userName}</span>
             )}
             <form action="/auth/logout" method="post">
               <button
                 type="submit"
-                className="h-8 px-3 rounded-full text-[12px] text-[#9e9e9e] hover:text-[#ff9c9a] hover:bg-[#7c1c1c]/20 transition-colors flex items-center gap-1.5 flex-shrink-0"
+                className="h-8 px-3 rounded-full text-[12px] text-fg-mute hover:text-danger hover:bg-danger-bg transition-colors flex items-center gap-1.5 flex-shrink-0"
               >
                 <LogOut className="w-3.5 h-3.5" />
                 Sair

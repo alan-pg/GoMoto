@@ -15,10 +15,10 @@ interface DashboardLayoutProps {
 
 function TenantSuspendedPage({ tenantName }: { tenantName: string }) {
   return (
-    <div className="flex items-center justify-center min-h-screen bg-[#121212]">
+    <div className="flex items-center justify-center min-h-screen bg-bg">
       <div className="text-center max-w-md p-8">
-        <h1 className="text-[20px] font-semibold text-[#f5f5f5] mb-2">{tenantName}</h1>
-        <p className="text-[#9e9e9e] text-[14px] mt-2">
+        <h1 className="text-[20px] font-semibold text-fg mb-2">{tenantName}</h1>
+        <p className="text-fg-mute text-[14px] mt-2">
           Esta empresa está temporariamente indisponível. Entre em contato com o suporte.
         </p>
       </div>

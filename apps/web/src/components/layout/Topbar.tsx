@@ -53,23 +53,23 @@ export function Topbar({ userName, userEmail }: TopbarProps) {
   const [menuOpen, setMenuOpen] = useState(false)
 
   return (
-    <header className="shrink-0 z-20 h-10 flex items-center justify-between px-5 bg-[#121212] border-b border-[#2a2a2a]">
+    <header className="shrink-0 z-20 h-10 flex items-center justify-between px-5 bg-bg border-b border-border">
       {/* Breadcrumbs */}
       <nav className="flex items-center gap-0.5 text-[12px]" aria-label="Navegação">
         {breadcrumbs.map((crumb, i) => (
           <Fragment key={crumb.href}>
             {i > 0 && (
-              <ChevronRight className="w-3 h-3 text-[#3a3a3a] flex-shrink-0 mx-0.5" />
+              <ChevronRight className="w-3 h-3 text-fg-mute flex-shrink-0 mx-0.5" />
             )}
             {i < breadcrumbs.length - 1 ? (
               <Link
                 href={crumb.href}
-                className="text-[#666] hover:text-[#c7c7c7] transition-colors px-1.5 py-0.5 rounded"
+                className="text-fg-mute hover:text-fg-soft transition-colors px-1.5 py-0.5 rounded"
               >
                 {crumb.label}
               </Link>
             ) : (
-              <span className="text-[#c7c7c7] font-medium px-1.5">{crumb.label}</span>
+              <span className="text-fg-soft font-medium px-1.5">{crumb.label}</span>
             )}
           </Fragment>
         ))}
@@ -78,7 +78,7 @@ export function Topbar({ userName, userEmail }: TopbarProps) {
       {/* Global controls */}
       <div className="flex items-center gap-1">
         <button
-          className="p-1.5 rounded-full text-[#555] hover:text-[#c7c7c7] hover:bg-[#232323] transition-colors"
+          className="p-1.5 rounded-full text-fg-mute hover:text-fg-soft hover:bg-surface-2 transition-colors"
           aria-label="Notificações"
         >
           <Bell className="w-4 h-4" />
@@ -88,10 +88,10 @@ export function Topbar({ userName, userEmail }: TopbarProps) {
         <div className="relative">
           <button
             onClick={() => setMenuOpen(v => !v)}
-            className="w-7 h-7 rounded-full bg-[#2a2a2a] border border-[#3a3a3a] hover:border-[#BAFF1A] transition-colors flex items-center justify-center ml-1"
+            className="w-7 h-7 rounded-full bg-surface-2 border border-border hover:border-primary transition-colors flex items-center justify-center ml-1"
             aria-label="Menu do usuário"
           >
-            <span className="text-[#c7c7c7] text-[11px] font-bold select-none">
+            <span className="text-fg-soft text-[11px] font-bold select-none">
               {userName ? userName[0].toUpperCase() : '?'}
             </span>
           </button>
@@ -99,18 +99,18 @@ export function Topbar({ userName, userEmail }: TopbarProps) {
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-9 z-40 w-[220px] bg-[#1a1a1a] border border-[#323232] rounded-xl shadow-2xl py-1">
-                <div className="px-4 py-3 border-b border-[#2a2a2a]">
-                  <p className="text-[13px] font-medium text-[#f5f5f5] truncate">
+              <div className="absolute right-0 top-9 z-40 w-[220px] bg-surface border border-border rounded-xl shadow-2xl py-1">
+                <div className="px-4 py-3 border-b border-border">
+                  <p className="text-[13px] font-medium text-fg truncate">
                     {userName ?? userEmail ?? '—'}
                   </p>
-                  <p className="text-[11px] text-[#9e9e9e] mt-0.5 truncate">{userEmail ?? ''}</p>
+                  <p className="text-[11px] text-fg-mute mt-0.5 truncate">{userEmail ?? ''}</p>
                 </div>
                 <div className="p-1">
                   <form action="/auth/logout" method="post">
                     <button
                       type="submit"
-                      className="flex items-center gap-2 w-full px-3 h-9 rounded-lg text-[13px] text-[#c7c7c7] hover:bg-[#7c1c1c] hover:text-[#ff9c9a] transition-colors"
+                      className="flex items-center gap-2 w-full px-3 h-9 rounded-lg text-[13px] text-fg-soft hover:bg-danger-bg hover:text-danger transition-colors"
                     >
                       <LogOut className="w-4 h-4" />
                       Sair

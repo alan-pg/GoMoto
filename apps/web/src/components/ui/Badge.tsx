@@ -48,13 +48,13 @@ interface BadgeProps {
  * feita aqui e reflete em todos os Badges da aplicação.
  */
 const variants: Record<BadgeVariant, string> = {
-  success: 'bg-[#0e2f13] text-[#229731]',
-  warning: 'bg-[#3a180f] text-[#e65e24]',
-  danger: 'bg-[#7c1c1c] text-[#ff9c9a]',
-  info: 'bg-[#2d0363] text-[#a880ff]',
-  muted: 'bg-[#323232] text-[#9e9e9e]',
-  brand: 'bg-[#243300] text-[#BAFF1A]',
-  orange: 'bg-[#3a180f] text-[#e65e24]',
+  success: 'bg-success-bg text-success',
+  warning: 'bg-warning-bg text-warning',
+  danger: 'bg-danger-bg text-danger',
+  info: 'bg-info-bg text-info',
+  muted: 'bg-surface-2 text-fg-mute',
+  brand: 'bg-primary-tint text-primary',
+  orange: 'bg-warning-bg text-warning',
 }
 
 /**

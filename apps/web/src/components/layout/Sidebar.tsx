@@ -64,8 +64,8 @@ function LeafItem({
           'flex items-center gap-3 px-3 h-9 rounded-lg text-[13px] transition-colors duration-150',
           indent && 'pl-4',
           active
-            ? 'bg-[#BAFF1A] text-[#000000] font-medium'
-            : 'text-[#c7c7c7] hover:bg-[#202020] hover:text-[#f5f5f5]',
+            ? 'bg-primary text-primary-contrast font-medium'
+            : 'text-fg-soft hover:bg-surface hover:text-fg',
         )}
       >
         <Icon className="w-4 h-4 flex-shrink-0" />
@@ -73,7 +73,7 @@ function LeafItem({
         {expanded && badgeCount > 0 && (
           <span className={cn(
             'h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center flex-shrink-0',
-            active ? 'bg-[#121212] text-[#BAFF1A]' : 'bg-[#bf1d1e] text-white',
+            active ? 'bg-bg text-primary' : 'bg-danger text-white',
           )}>
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
@@ -82,18 +82,18 @@ function LeafItem({
 
       {/* Red dot badge when collapsed */}
       {!expanded && badgeCount > 0 && (
-        <span className="absolute top-1 right-1.5 w-2 h-2 rounded-full bg-[#bf1d1e] pointer-events-none" />
+        <span className="absolute top-1 right-1.5 w-2 h-2 rounded-full bg-danger pointer-events-none" />
       )}
 
       {/* Tooltip via portal — escapa do overflow:hidden do nav */}
       {!expanded && tipVisible && typeof document !== 'undefined' && createPortal(
         <div
           style={{ position: 'fixed', top: tipY, left: COLLAPSED_WIDTH + 8, transform: 'translateY(-50%)' }}
-          className="z-[100] px-2.5 py-1.5 bg-[#2a2a2a] border border-[#323232] rounded-lg shadow-xl text-[12px] text-[#f5f5f5] whitespace-nowrap pointer-events-none"
+          className="z-[100] px-2.5 py-1.5 bg-surface-2 border border-border rounded-lg shadow-xl text-[12px] text-fg whitespace-nowrap pointer-events-none"
         >
           {item.label}
           {badgeCount > 0 && (
-            <span className="ml-1.5 text-[#BAFF1A] font-bold">{badgeCount}</span>
+            <span className="ml-1.5 text-primary font-bold">{badgeCount}</span>
           )}
         </div>,
         document.body,
@@ -159,25 +159,25 @@ function BranchItem({
           className={cn(
             'flex items-center justify-center w-full h-9 rounded-lg transition-colors duration-150',
             anyChildActive
-              ? 'bg-[#202020] text-[#BAFF1A]'
-              : 'text-[#c7c7c7] hover:bg-[#202020] hover:text-[#f5f5f5]',
+              ? 'bg-surface text-primary'
+              : 'text-fg-soft hover:bg-surface hover:text-fg',
           )}
         >
           <Icon className="w-4 h-4" />
           {totalBadge > 0 && (
-            <span className="absolute top-1 right-1.5 w-2 h-2 rounded-full bg-[#bf1d1e]" />
+            <span className="absolute top-1 right-1.5 w-2 h-2 rounded-full bg-danger" />
           )}
         </button>
 
         {flyVisible && typeof document !== 'undefined' && createPortal(
           <div
             style={{ position: 'fixed', top: flyY, left: COLLAPSED_WIDTH + 8 }}
-            className="z-[100] w-[200px] bg-[#1a1a1a] border border-[#323232] rounded-xl shadow-2xl py-1"
+            className="z-[100] w-[200px] bg-surface border border-border rounded-xl shadow-2xl py-1"
             onMouseEnter={keepFly}
             onMouseLeave={closeFly}
           >
-            <div className="px-3 py-2 border-b border-[#2a2a2a]">
-              <span className="text-[11px] font-semibold text-[#9e9e9e] uppercase tracking-wider">
+            <div className="px-3 py-2 border-b border-border">
+              <span className="text-[11px] font-semibold text-fg-mute uppercase tracking-wider">
                 {item.label}
               </span>
             </div>
@@ -193,8 +193,8 @@ function BranchItem({
                   className={cn(
                     'flex items-center gap-3 mx-1 px-3 h-9 rounded-lg text-[13px] transition-colors',
                     childActive
-                      ? 'bg-[#BAFF1A] text-[#000000] font-medium'
-                      : 'text-[#c7c7c7] hover:bg-[#323232] hover:text-[#f5f5f5]',
+                      ? 'bg-primary text-primary-contrast font-medium'
+                      : 'text-fg-soft hover:bg-surface-2 hover:text-fg',
                   )}
                 >
                   <ChildIcon className="w-4 h-4 flex-shrink-0" />
@@ -202,7 +202,7 @@ function BranchItem({
                   {badge > 0 && (
                     <span className={cn(
                       'h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center',
-                      childActive ? 'bg-[#121212] text-[#BAFF1A]' : 'bg-[#bf1d1e] text-white',
+                      childActive ? 'bg-bg text-primary' : 'bg-danger text-white',
                     )}>
                       {badge > 99 ? '99+' : badge}
                     </span>
@@ -225,14 +225,14 @@ function BranchItem({
         className={cn(
           'flex items-center gap-3 px-3 h-9 w-full rounded-lg text-[13px] transition-colors duration-150',
           anyChildActive
-            ? 'text-[#BAFF1A]'
-            : 'text-[#c7c7c7] hover:bg-[#202020] hover:text-[#f5f5f5]',
+            ? 'text-primary'
+            : 'text-fg-soft hover:bg-surface hover:text-fg',
         )}
       >
         <Icon className="w-4 h-4 flex-shrink-0" />
         <span className="flex-1 truncate text-left">{item.label}</span>
         {totalBadge > 0 && !isOpen && (
-          <span className="h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center bg-[#bf1d1e] text-white flex-shrink-0">
+          <span className="h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center bg-danger text-white flex-shrink-0">
             {totalBadge > 99 ? '99+' : totalBadge}
           </span>
         )}
@@ -243,7 +243,7 @@ function BranchItem({
       </button>
 
       {isOpen && (
-        <div className="mt-0.5 ml-4 border-l border-[#2a2a2a] pl-1.5 space-y-0.5 pb-1">
+        <div className="mt-0.5 ml-4 border-l border-border pl-1.5 space-y-0.5 pb-1">
           {item.children.map(child => (
             <LeafItem
               key={child.href}
@@ -298,27 +298,27 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'fixed inset-y-0 left-0 z-50 flex flex-col bg-[#121212] border-r border-[#323232]',
+        'fixed inset-y-0 left-0 z-50 flex flex-col bg-bg border-r border-border',
         'transition-[width] duration-300 ease-in-out',
         expanded ? 'w-[256px]' : 'w-[64px]',
       )}
     >
       {/* Logo + toggle */}
-      <div className="h-10 flex items-center justify-between px-3 border-b border-[#323232] shrink-0">
+      <div className="h-10 flex items-center justify-between px-3 border-b border-border shrink-0">
         <Link
           href="/dashboard"
           className="flex items-center gap-2.5 rounded-lg outline-none overflow-hidden min-w-0"
         >
-          <div className="w-6 h-6 flex-shrink-0 bg-[#BAFF1A] rounded-full flex items-center justify-center">
-            <Bike className="w-3.5 h-3.5 text-[#121212]" />
+          <div className="w-6 h-6 flex-shrink-0 bg-primary rounded-full flex items-center justify-center">
+            <Bike className="w-3.5 h-3.5 text-primary-contrast" />
           </div>
           {expanded && (
-            <span className="text-[#f5f5f5] text-[14px] font-bold whitespace-nowrap">GoMoto</span>
+            <span className="text-fg text-[14px] font-bold whitespace-nowrap">GoMoto</span>
           )}
         </Link>
         <button
           onClick={toggle}
-          className="p-1.5 rounded-lg text-[#9e9e9e] hover:text-[#f5f5f5] hover:bg-[#323232] transition-colors flex-shrink-0"
+          className="p-1.5 rounded-lg text-fg-mute hover:text-fg hover:bg-surface-2 transition-colors flex-shrink-0"
           title={expanded ? 'Recolher menu' : 'Expandir menu'}
         >
           {expanded
@@ -335,11 +335,11 @@ export function Sidebar() {
             {section.label && (
               <div className="mb-1 px-4">
                 {expanded ? (
-                  <span className="text-[10px] font-semibold text-[#474747] uppercase tracking-widest">
+                  <span className="text-[10px] font-semibold text-fg-mute uppercase tracking-widest">
                     {section.label}
                   </span>
                 ) : (
-                  <div className="h-px bg-[#2a2a2a]" />
+                  <div className="h-px bg-surface-2" />
                 )}
               </div>
             )}
@@ -372,7 +372,7 @@ export function Sidebar() {
       </nav>
 
       {/* Bottom: Configurações */}
-      <div className="border-t border-[#323232] py-2">
+      <div className="border-t border-border py-2">
         {DASHBOARD_NAV_BOTTOM.map(item => (
           <LeafItem
             key={item.href}

@@ -83,11 +83,11 @@ export function Table<T>({
       <div className="flex items-center justify-center py-12">
         <div className="flex flex-col items-center gap-3">
           {/* Ícone de spinner animado */}
-          <svg className="animate-spin h-8 w-8 text-[#BAFF1A]" viewBox="0 0 24 24" fill="none">
+          <svg className="animate-spin h-8 w-8 text-primary" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          <p className="text-sm text-[#c7c7c7]">Carregando dados...</p>
+          <p className="text-sm text-fg-soft">Carregando dados...</p>
         </div>
       </div>
     )
@@ -99,7 +99,7 @@ export function Table<T>({
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center py-12">
-        <p className="text-[#c7c7c7] text-sm italic">{emptyMessage}</p>
+        <p className="text-fg-soft text-sm italic">{emptyMessage}</p>
       </div>
     )
   }
@@ -110,13 +110,13 @@ export function Table<T>({
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-[13px]">
         {/* Cabeçalho da Tabela */}
-        <thead className="text-[#c7c7c7]">
-          <tr className="h-9 border-b border-[#474747]">
+        <thead className="text-fg-soft">
+          <tr className="h-9 border-b border-border">
             {columns.map((column) => (
               <th
                 key={column.key}
                 className={cn(
-                  'h-9 px-4 text-left font-bold text-[#c7c7c7]',
+                  'h-9 px-4 text-left font-bold text-fg-soft',
                   column.className
                 )}
               >
@@ -133,16 +133,16 @@ export function Table<T>({
               key={keyExtractor(rowData)}
               onClick={() => onRowClick?.(rowData)}
               className={cn(
-                'h-9 transition-colors duration-100 even:bg-[#323232]',
+                'h-9 transition-colors duration-100 even:bg-surface-2',
                 // Estilo interativo (cursor e hover) aplicado apenas se a linha for clicável.
-                onRowClick && 'cursor-pointer hover:bg-[#474747]'
+                onRowClick && 'cursor-pointer hover:bg-border'
               )}
             >
               {/* Células da linha */}
               {columns.map((column) => (
                 <td
                   key={column.key}
-                  className={cn('px-4 text-[#f5f5f5]', column.className)}
+                  className={cn('px-4 text-fg', column.className)}
                 >
                   {/**
                    * Lógica de renderização da célula:

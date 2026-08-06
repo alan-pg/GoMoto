@@ -47,7 +47,7 @@ export function Card({ children, className, padding = 'md' }: CardProps) {
     <div
       className={cn(
         // Estilo base do card: cor de fundo, arredondamento e borda.
-        'bg-[#202020] rounded-2xl border border-[#474747]',
+        'bg-surface rounded-2xl border border-border',
         // Aplica o padding selecionado a partir do mapeamento.
         paddings[padding],
         // Permite que classes externas sobrescrevam ou estendam o estilo.
@@ -85,14 +85,14 @@ interface StatCardProps {
  */
 export function StatCard({ title, value, subtitle, icon: Icon, className }: StatCardProps) {
   return (
-    <div className={cn('flex items-center justify-between rounded-2xl border border-[#474747] bg-[#202020] px-6 py-4', className)}>
+    <div className={cn('flex items-center justify-between rounded-2xl border border-border bg-surface px-6 py-4', className)}>
       {/* Seção de textos: Label, Valor principal e Sub (opcional). */}
       <div>
-        <p className="text-[14px] font-normal text-[#9e9e9e]">{title}</p>
-        <p className="text-[28px] font-bold text-[#f5f5f5]">{value}</p>
-        {subtitle && <p className="text-[12px] mt-0.5 text-[#9e9e9e]">{subtitle}</p>}
+        <p className="text-[14px] font-normal text-fg-mute">{title}</p>
+        <p className="text-[28px] font-bold text-fg">{value}</p>
+        {subtitle && <p className="text-[12px] mt-0.5 text-fg-mute">{subtitle}</p>}
       </div>
-      <div className="rounded-full bg-[#323232] p-3 text-[#BAFF1A]">
+      <div className="rounded-full bg-surface-2 p-3 text-primary">
         <Icon className="h-6 w-6" />
       </div>
     </div>

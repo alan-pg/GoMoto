@@ -15,7 +15,7 @@ export function LayoutShell({ children, userName, userEmail }: LayoutShellProps)
   const { expanded } = useSidebar()
 
   return (
-    <div className="flex h-screen bg-[#121212]">
+    <div className="flex h-screen bg-bg">
       <Sidebar />
       <div
         className="flex-1 flex flex-col min-w-0 transition-[margin-left] duration-300 ease-in-out"
