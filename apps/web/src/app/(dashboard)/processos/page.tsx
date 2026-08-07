@@ -242,7 +242,7 @@ export default function ProcessesPage() {
                       </button>
 
                       {expandedId === process.id && (
-                        <div className="px-4 pb-4 border-t border-surface-2 pt-3">
+                        <div className="px-4 pb-4 border-t border-divider pt-3">
                           <p className="text-[13px] text-fg-mute leading-relaxed whitespace-pre-wrap">
                             {process.answer}
                           </p>

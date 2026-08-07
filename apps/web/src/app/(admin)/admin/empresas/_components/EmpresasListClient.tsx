@@ -107,7 +107,7 @@ export function EmpresasListClient({
     <div className="flex flex-col bg-bg">
 
       {/* Header — sticky no topo do contêiner de scroll */}
-      <div className="sticky top-0 z-10 bg-bg border-b border-surface-2 px-6 h-20 flex items-center gap-4">
+      <div className="sticky top-0 z-10 bg-bg border-b border-divider px-6 h-20 flex items-center gap-4">
         <Building2 className="w-6 h-6 text-primary shrink-0" />
         <h1 className="text-[28px] font-bold text-fg">Empresas</h1>
         <span className="text-[13px] font-normal text-fg-mute">{tenants.length} cadastradas</span>
@@ -123,7 +123,7 @@ export function EmpresasListClient({
       </div>
 
       {/* Barra de filtros — sticky abaixo do header (80px) */}
-      <div className="sticky top-[80px] z-[9] bg-bg border-b border-surface-2 px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="sticky top-[80px] z-[9] bg-bg border-b border-divider px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap border-b border-fg-mute">
           {tabs.map((tab) => (
             <button
@@ -204,7 +204,7 @@ export function EmpresasListClient({
         <div className="overflow-hidden rounded-xl bg-surface">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[13px] text-fg">
-              <thead className="border-b border-surface-2">
+              <thead className="border-b border-divider">
                 <tr>
                   <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Nome</th>
                   <th className="h-9 px-4 text-[13px] font-medium text-fg-mute hidden sm:table-cell">Slug</th>
@@ -244,7 +244,7 @@ export function EmpresasListClient({
                     return (
                       <tr
                         key={tenant.id}
-                        className="h-9 border-b border-surface-2 last:border-0 hover:bg-surface-2 transition-colors"
+                        className="h-9 border-b border-divider last:border-0 hover:bg-surface-2 transition-colors"
                       >
                         <td className="px-4 text-[13px]">
                           <Link

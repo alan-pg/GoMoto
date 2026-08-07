@@ -105,7 +105,7 @@ export default async function AdminDashboardPage() {
 
       <section>
         <h2 className="text-[16px] font-semibold text-fg mb-3">Por empresa</h2>
-        <div className="rounded-xl border border-surface-2 overflow-hidden bg-[#181818]">
+        <div className="rounded-xl border border-divider overflow-hidden bg-[#181818]">
           <table className="w-full text-left">
             <thead className="bg-surface text-[12px] uppercase tracking-wide text-fg-mute">
               <tr>
@@ -125,7 +125,7 @@ export default async function AdminDashboardPage() {
                 </tr>
               ) : (
                 rollups.map((row) => (
-                  <tr key={row.id} className="border-t border-surface-2">
+                  <tr key={row.id} className="border-t border-divider">
                     <td className="px-4 py-3 text-fg text-[14px]">
                       <div className="font-medium">{row.name}</div>
                       <div className="text-[11px] text-fg-mute font-mono">{row.slug}</div>
@@ -169,7 +169,7 @@ function KpiCard({
   sub?: string
 }) {
   return (
-    <div className="rounded-xl border border-surface-2 bg-[#181818] p-4">
+    <div className="rounded-xl border border-divider bg-[#181818] p-4">
       <div className="flex items-center gap-2 text-fg-mute text-[12px] uppercase tracking-wide">
         {icon}
         <span>{label}</span>

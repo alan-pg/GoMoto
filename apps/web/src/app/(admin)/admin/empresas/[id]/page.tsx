@@ -29,7 +29,7 @@ function Row({
   mono?: boolean
 }) {
   return (
-    <tr className="border-b border-surface-2 last:border-0">
+    <tr className="border-b border-divider last:border-0">
       <td className="h-9 px-4 text-fg-mute w-48 shrink-0 text-[13px]">{label}</td>
       <td
         className={`h-9 px-4 text-[13px] ${mono ? 'font-mono' : ''} ${
@@ -142,7 +142,7 @@ export default async function EmpresaDetailPage({
     <div className="min-h-screen bg-bg">
 
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-bg border-b border-surface-2 px-6 h-16 flex items-center gap-4">
+      <div className="sticky top-0 z-10 bg-bg border-b border-divider px-6 h-16 flex items-center gap-4">
         <Link
           href="/admin/empresas"
           className="text-[13px] text-fg-mute hover:text-fg transition-colors whitespace-nowrap"
@@ -253,7 +253,7 @@ export default async function EmpresaDetailPage({
                 )}
               </tbody>
             </table>
-            <div className="border-t border-surface-2 px-4 py-3">
+            <div className="border-t border-divider px-4 py-3">
               <OwnerActions tenantId={id} />
             </div>
           </div>
@@ -270,7 +270,7 @@ export default async function EmpresaDetailPage({
             ].map(({ label, value }) => (
               <div
                 key={label}
-                className="bg-surface rounded-xl border border-surface-2 px-4 py-3 text-center"
+                className="bg-surface rounded-xl border border-divider px-4 py-3 text-center"
               >
                 <p className="text-[24px] font-bold text-fg">{value}</p>
                 <p className="text-[12px] text-fg-mute mt-0.5">{label}</p>
@@ -285,7 +285,7 @@ export default async function EmpresaDetailPage({
             <h2 className="text-[14px] font-bold text-primary mb-3">Histórico de ações</h2>
             <div className="bg-surface rounded-xl overflow-hidden">
               <table className="w-full text-[13px]">
-                <thead className="border-b border-surface-2">
+                <thead className="border-b border-divider">
                   <tr>
                     <th className="h-9 px-4 text-fg-mute font-medium text-left">Ação</th>
                     <th className="h-9 px-4 text-fg-mute font-medium text-left hidden sm:table-cell">Detalhes</th>
@@ -294,7 +294,7 @@ export default async function EmpresaDetailPage({
                 </thead>
                 <tbody>
                   {auditLogs.map((log) => (
-                    <tr key={log.id} className="h-9 border-b border-surface-2 last:border-0">
+                    <tr key={log.id} className="h-9 border-b border-divider last:border-0">
                       <td className="px-4 font-mono text-[12px] text-fg-mute">{log.action}</td>
                       <td className="px-4 text-[12px] text-fg-mute hidden sm:table-cell">
                         {log.metadata && Object.keys(log.metadata as object).length > 0

@@ -494,7 +494,7 @@ export default async function DashboardPage() {
 
           {/* Active Rentals */}
           <div className="bg-surface rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-surface-2 flex items-center justify-between">
+            <div className="px-4 py-3 border-b border-divider flex items-center justify-between">
               <h3 className="text-[14px] font-semibold text-fg">Locações Ativas</h3>
               <a href="/locacoes" className="text-[12px] text-primary font-bold">
                 Ver todas
@@ -508,7 +508,7 @@ export default async function DashboardPage() {
               data.activeRentals.slice(0, 4).map((rental, index, items) => (
                 <div
                   key={rental.id}
-                  className={`px-4 py-2.5 hover:bg-surface-2 transition-colors${index < items.length - 1 ? ' border-b border-surface-2' : ''}`}
+                  className={`px-4 py-2.5 hover:bg-surface-2 transition-colors${index < items.length - 1 ? ' border-b border-divider' : ''}`}
                 >
                   <p className="text-[12px] font-medium text-fg truncate">
                     {rental.customers?.name ?? 'Cliente'}
@@ -528,7 +528,7 @@ export default async function DashboardPage() {
 
           {/* Overdue billings with aging */}
           <div className="bg-surface rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-surface-2 flex items-center justify-between">
+            <div className="px-4 py-3 border-b border-divider flex items-center justify-between">
               <h3 className="text-[14px] font-semibold text-fg">Cobranças Vencidas</h3>
               <a href="/cobrancas" className="text-[12px] text-primary font-bold">
                 Ver todas
@@ -543,7 +543,7 @@ export default async function DashboardPage() {
                 return (
                   <div
                     key={payment.id}
-                    className={`px-4 py-2.5 hover:bg-surface-2 transition-colors${index < items.length - 1 ? ' border-b border-surface-2' : ''}`}
+                    className={`px-4 py-2.5 hover:bg-surface-2 transition-colors${index < items.length - 1 ? ' border-b border-divider' : ''}`}
                   >
                     <p className="text-[12px] font-medium text-fg truncate">
                       {payment.customers?.name ?? 'Cliente'}
@@ -562,7 +562,7 @@ export default async function DashboardPage() {
 
           {/* Upcoming maintenances (7 days) */}
           <div className="bg-surface rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-surface-2 flex items-center justify-between">
+            <div className="px-4 py-3 border-b border-divider flex items-center justify-between">
               <h3 className="text-[14px] font-semibold text-fg">Manutenções</h3>
               <a href="/manutencao" className="text-[12px] text-primary font-bold">
                 Ver todas
@@ -576,7 +576,7 @@ export default async function DashboardPage() {
               data.upcomingMaintenances.slice(0, 4).map((m, index, items) => (
                 <div
                   key={m.id}
-                  className={`px-4 py-2.5 hover:bg-surface-2 transition-colors${index < items.length - 1 ? ' border-b border-surface-2' : ''}`}
+                  className={`px-4 py-2.5 hover:bg-surface-2 transition-colors${index < items.length - 1 ? ' border-b border-divider' : ''}`}
                 >
                   <p className="text-[12px] font-medium text-fg truncate">
                     {m.vehicles?.license_plate ?? '—'}
@@ -596,7 +596,7 @@ export default async function DashboardPage() {
 
           {/* Queue */}
           <div className="bg-surface rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-surface-2 flex items-center justify-between">
+            <div className="px-4 py-3 border-b border-divider flex items-center justify-between">
               <h3 className="text-[14px] font-semibold text-fg">Fila de Espera</h3>
               <a href="/locacoes/fila" className="text-[12px] text-primary font-bold">
                 Ver fila
@@ -613,7 +613,7 @@ export default async function DashboardPage() {
                 return (
                   <div
                     key={entry.id}
-                    className={`px-4 py-2.5 hover:bg-surface-2 transition-colors${index < items.length - 1 ? ' border-b border-surface-2' : ''}`}
+                    className={`px-4 py-2.5 hover:bg-surface-2 transition-colors${index < items.length - 1 ? ' border-b border-divider' : ''}`}
                   >
                     <div className="flex items-center gap-2">
                       <span className="bg-primary text-bg rounded-full w-5 h-5 inline-flex items-center justify-center text-[11px] font-bold shrink-0">

@@ -127,7 +127,7 @@ export default async function FinancialDashboardPage() {
     <div className="min-h-screen bg-bg">
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-10 flex h-16 items-center border-b border-surface-2 bg-bg px-6">
+      <div className="sticky top-0 z-10 flex h-16 items-center border-b border-divider bg-bg px-6">
         <h1 className="text-[15px] font-bold text-fg capitalize">{monthLabel}</h1>
         <span className="ml-2 text-[13px] text-fg-mute">— Painel financeiro</span>
       </div>
@@ -172,10 +172,10 @@ export default async function FinancialDashboardPage() {
                 Ver em cobranças →
               </Link>
             </div>
-            <div className="overflow-hidden rounded-xl border border-surface-2">
+            <div className="overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-surface-2 bg-surface">
+                  <tr className="border-b border-divider bg-surface">
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Cliente</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Veículo</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Origem</th>
@@ -224,10 +224,10 @@ export default async function FinancialDashboardPage() {
               <p className="text-[13px] text-fg-mute">Nenhuma cobrança neste mês.</p>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-surface-2">
+            <div className="overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-surface-2 bg-surface">
+                  <tr className="border-b border-divider bg-surface">
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Cliente</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Veículo</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Vencimento</th>
@@ -296,10 +296,10 @@ export default async function FinancialDashboardPage() {
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-[14px] font-bold text-primary">ROI de veículos</h2>
             </div>
-            <div className="overflow-hidden rounded-xl border border-surface-2">
+            <div className="overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-surface-2 bg-surface">
+                  <tr className="border-b border-divider bg-surface">
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Veículo</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Aquisição</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Venda</th>

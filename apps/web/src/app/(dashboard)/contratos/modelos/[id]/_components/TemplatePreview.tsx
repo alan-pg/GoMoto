@@ -33,7 +33,7 @@ export function TemplatePreview({ template }: Props) {
 
   if (!template.content) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-3 bg-surface border border-surface-2 rounded-xl">
+      <div className="h-full flex flex-col items-center justify-center gap-3 bg-surface border border-divider rounded-xl">
         <Variable className="w-8 h-8 text-border" />
         <p className="text-[14px] text-fg-mute">Este modelo ainda não possui conteúdo</p>
         <p className="text-[12px] text-fg-mute">Clique em "Editar" para redigir o contrato</p>
@@ -47,7 +47,7 @@ export function TemplatePreview({ template }: Props) {
 
       {/* Barra de controles — shrink-0 */}
       <div className="shrink-0 flex items-center justify-between">
-        <div className="flex items-center gap-1 bg-surface border border-surface-2 rounded-lg p-1">
+        <div className="flex items-center gap-1 bg-surface border border-divider rounded-lg p-1">
           <button
             type="button"
             onClick={() => setMode('template')}
@@ -88,14 +88,14 @@ export function TemplatePreview({ template }: Props) {
 
       {/* Nota sobre pré-visualização — shrink-0, condicional */}
       {mode === 'preview' && (
-        <div className="shrink-0 flex items-center gap-2 text-[12px] text-fg-mute bg-surface border border-surface-2 rounded-lg px-4 py-2.5">
+        <div className="shrink-0 flex items-center gap-2 text-[12px] text-fg-mute bg-surface border border-divider rounded-lg px-4 py-2.5">
           <Info className="w-3.5 h-3.5 shrink-0 text-fg-mute" />
           Dados de exemplo. Na utilização real, serão preenchidos com as informações da locação.
         </div>
       )}
 
       {/* Documento — flex-1 min-h-0, scroll interno */}
-      <div className="flex-1 min-h-0 rounded-xl border border-surface-2 overflow-hidden">
+      <div className="flex-1 min-h-0 rounded-xl border border-divider overflow-hidden">
         {/* Fundo cinza (mesa) — as .contract-page geradas pelo generateHTML são folhas brancas */}
         <div
           className="h-full overflow-y-auto contract-preview-canvas"

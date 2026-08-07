@@ -156,10 +156,10 @@ export default function FilaPage() {
             <p className="mt-1 text-[13px] text-fg-mute">Nenhum cliente aguardando um veículo.</p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-surface-2 bg-surface">
+          <div className="overflow-hidden rounded-xl border border-divider bg-surface">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b border-surface-2">
+                <tr className="border-b border-divider">
                   <th className="h-9 w-16 px-4 text-left font-medium text-fg-mute">Pos.</th>
                   <th className="h-9 px-4 text-left font-medium text-fg-mute">Cliente</th>
                   <th className="h-9 px-4 text-left font-medium text-fg-mute">Telefone</th>

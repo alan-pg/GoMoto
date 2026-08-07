@@ -241,7 +241,7 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
             <select
               value={selectedCredit}
               onChange={e => setSelectedCredit(e.target.value)}
-              className="w-full rounded-lg border border-surface-2 bg-surface px-3 py-2 text-[13px] text-fg focus:border-primary focus:outline-none"
+              className="w-full rounded-lg border border-divider bg-surface px-3 py-2 text-[13px] text-fg focus:border-primary focus:outline-none"
             >
               {availableCredits.map(c => (
                 <option key={c.id} value={c.id}>

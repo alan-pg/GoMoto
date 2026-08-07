@@ -46,7 +46,7 @@ export default async function MaintenancePlanDetailPage({
     <div className="min-h-screen bg-bg">
 
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-bg border-b border-surface-2 px-6 h-16 flex items-center gap-4">
+      <div className="sticky top-0 z-10 bg-bg border-b border-divider px-6 h-16 flex items-center gap-4">
         <Link
           href="/planos-manutencao"
           className="text-[13px] text-fg-mute hover:text-fg transition-colors whitespace-nowrap"
@@ -109,7 +109,7 @@ export default async function MaintenancePlanDetailPage({
               </div>
             ) : (
               <table className="w-full text-left text-[13px]">
-                <thead className="border-b border-surface-2">
+                <thead className="border-b border-divider">
                   <tr>
                     <th className="h-9 px-4 text-fg-mute font-medium w-8">#</th>
                     <th className="h-9 px-4 text-fg-mute font-medium">Item</th>
@@ -120,7 +120,7 @@ export default async function MaintenancePlanDetailPage({
                 </thead>
                 <tbody>
                   {items.map((item, idx) => (
-                    <tr key={item.id} className="h-9 border-b border-surface-2 last:border-0">
+                    <tr key={item.id} className="h-9 border-b border-divider last:border-0">
                       <td className="px-4 text-fg-mute font-mono text-[12px]">{idx + 1}</td>
                       <td className="px-4">
                         <p className="font-medium text-fg">{item.name}</p>

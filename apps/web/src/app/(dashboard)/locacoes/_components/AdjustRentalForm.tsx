@@ -272,7 +272,7 @@ export function AdjustRentalForm({ rental }: AdjustRentalFormProps) {
         )}
 
         {/* Encargos por atraso */}
-        <div className="space-y-3 rounded-xl border border-surface-2 p-4">
+        <div className="space-y-3 rounded-xl border border-divider p-4">
           <label className="flex cursor-pointer items-center gap-2 text-[13px] text-fg-soft">
             <input
               type="checkbox"

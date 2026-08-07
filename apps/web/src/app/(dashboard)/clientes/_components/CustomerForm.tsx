@@ -356,7 +356,7 @@ export function CustomerForm({ customerId, initialData }: CustomerFormProps) {
     <div className="min-h-screen bg-bg">
 
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-bg border-b border-surface-2 px-6 h-16 flex items-center gap-4">
+      <div className="sticky top-0 z-10 bg-bg border-b border-divider px-6 h-16 flex items-center gap-4">
         <Link
           href={isEditing ? `/clientes/${customerId}` : '/clientes'}
           className="text-[13px] text-fg-mute hover:text-fg transition-colors"

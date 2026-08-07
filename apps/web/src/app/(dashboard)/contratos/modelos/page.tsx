@@ -99,11 +99,11 @@ export default function ModelosPage() {
             {filtered.map(tpl => (
               <div
                 key={tpl.id}
-                className="bg-surface border border-surface-2 rounded-xl p-5 flex flex-col gap-4 hover:border-border transition-colors"
+                className="bg-surface border border-divider rounded-xl p-5 flex flex-col gap-4 hover:border-border transition-colors"
               >
                 {/* Ícone + nome */}
                 <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 bg-surface border border-surface-2 rounded-xl flex items-center justify-center shrink-0">
+                  <div className="w-10 h-10 bg-surface border border-divider rounded-xl flex items-center justify-center shrink-0">
                     <FileText className="w-5 h-5 text-primary" />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -127,7 +127,7 @@ export default function ModelosPage() {
                 </div>
 
                 {/* Ações */}
-                <div className="flex items-center gap-1.5 pt-1 border-t border-surface-2">
+                <div className="flex items-center gap-1.5 pt-1 border-t border-divider">
                   <Link href={`/contratos/modelos/${tpl.id}`} className="flex-1">
                     <Button variant="secondary" size="sm" className="w-full gap-1.5">
                       <Eye className="w-3.5 h-3.5" />

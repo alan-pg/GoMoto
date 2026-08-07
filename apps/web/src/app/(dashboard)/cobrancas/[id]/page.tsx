@@ -93,7 +93,7 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; b
   paid:      { label: 'Paga',      bg: 'bg-success-bg', text: 'text-success', border: 'border-success' },
   overdue:   { label: 'Vencida',   bg: 'bg-danger-bg', text: 'text-danger', border: 'border-danger' },
   pending:   { label: 'Pendente',  bg: 'bg-info-bg', text: 'text-info', border: 'border-info' },
-  cancelled: { label: 'Cancelada', bg: 'bg-[#32323222]', text: 'text-fg-mute', border: 'border-surface-2' },
+  cancelled: { label: 'Cancelada', bg: 'bg-[#32323222]', text: 'text-fg-mute', border: 'border-divider' },
   prejudice: { label: 'Prejuízo',  bg: 'bg-warning-bg', text: 'text-warning', border: 'border-warning' },
 }
 
@@ -207,7 +207,7 @@ export default async function BillingDetailPage({
     <div className="min-h-screen bg-bg">
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-surface-2 bg-bg px-6">
+      <div className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-divider bg-bg px-6">
         <Link href="/cobrancas" className="whitespace-nowrap text-[13px] text-fg-mute transition-colors hover:text-fg">
           ← Cobranças
         </Link>
@@ -258,13 +258,13 @@ export default async function BillingDetailPage({
                   ['Pago em',        billing.paid_at ? fmtDatetime(billing.paid_at) : null],
                   ['Forma de pag.',  billing.payment_method ? (PAYMENT_METHOD_LABELS[billing.payment_method] ?? billing.payment_method) : null],
                 ] as [string, string | null | undefined][]).filter(([, v]) => v).map(([label, value]) => (
-                  <tr key={label} className="border-b border-surface-2 last:border-0">
+                  <tr key={label} className="border-b border-divider last:border-0">
                     <td className="h-9 w-44 shrink-0 px-4 text-fg-mute">{label}</td>
                     <td className="h-9 px-4 text-fg">{value}</td>
                   </tr>
                 ))}
                 {billing.waiver_reason && (
-                  <tr className="border-b border-surface-2 last:border-0">
+                  <tr className="border-b border-divider last:border-0">
                     <td className="h-9 w-44 shrink-0 px-4 text-fg-mute">Motivo dispensa</td>
                     <td className="h-9 px-4 text-fg-mute italic">{billing.waiver_reason}</td>
                   </tr>
@@ -315,11 +315,11 @@ export default async function BillingDetailPage({
             <div className="overflow-hidden rounded-xl bg-surface">
               <table className="w-full text-[13px]">
                 <tbody>
-                  <tr className="border-b border-surface-2">
+                  <tr className="border-b border-divider">
                     <td className="h-9 w-44 px-4 text-fg-mute">Multa</td>
                     <td className="h-9 px-4 font-mono text-fg">{formatCurrency(chargesCalc.fee)}</td>
                   </tr>
-                  <tr className="border-b border-surface-2">
+                  <tr className="border-b border-divider">
                     <td className="h-9 w-44 px-4 text-fg-mute">Juros</td>
                     <td className="h-9 px-4 font-mono text-fg">{formatCurrency(chargesCalc.interest)}</td>
                   </tr>
@@ -352,10 +352,10 @@ export default async function BillingDetailPage({
               <p className="text-[13px] text-fg-mute">Nenhum pagamento registrado.</p>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-surface-2">
+            <div className="overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-surface-2 bg-surface">
+                  <tr className="border-b border-divider bg-surface">
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Forma</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Valor</th>
@@ -384,10 +384,10 @@ export default async function BillingDetailPage({
               Encargos registrados
               <span className="ml-2 text-[12px] font-normal text-fg-mute">({lateCharges.length})</span>
             </h2>
-            <div className="overflow-hidden rounded-xl border border-surface-2">
+            <div className="overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-surface-2 bg-surface">
+                  <tr className="border-b border-divider bg-surface">
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Multa</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Juros</th>
@@ -418,10 +418,10 @@ export default async function BillingDetailPage({
               Créditos aplicados
               <span className="ml-2 text-[12px] font-normal text-fg-mute">({creditApps.length})</span>
             </h2>
-            <div className="overflow-hidden rounded-xl border border-surface-2">
+            <div className="overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-surface-2 bg-surface">
+                  <tr className="border-b border-divider bg-surface">
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Origem</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Valor</th>

@@ -190,7 +190,7 @@ export default function AprovacoesPage() {
 
 function EmptyState() {
   return (
-    <div className="border border-surface-2 rounded-2xl bg-surface px-8 py-12 text-center">
+    <div className="border border-divider rounded-2xl bg-surface px-8 py-12 text-center">
       <ClipboardList className="w-8 h-8 text-fg-mute mx-auto mb-3" />
       <h2 className="text-[16px] font-medium text-fg">Nenhum registro pendente</h2>
       <p className="text-[13px] text-fg-mute mt-1">
@@ -216,7 +216,7 @@ function RecordCard({
   onReject: () => void
 }) {
   return (
-    <div className="border border-surface-2 rounded-2xl bg-surface p-4 flex flex-col gap-3">
+    <div className="border border-divider rounded-2xl bg-surface p-4 flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-[14px] font-medium text-fg">
@@ -243,7 +243,7 @@ function RecordCard({
       </div>
 
       {record.notes ? (
-        <div className="text-[13px] text-fg-soft bg-bg border border-surface-2 rounded-lg px-3 py-2">
+        <div className="text-[13px] text-fg-soft bg-bg border border-divider rounded-lg px-3 py-2">
           {record.notes}
         </div>
       ) : null}
@@ -279,7 +279,7 @@ function KV({ label, value }: { label: string; value: string }) {
 function PhotoSlot({ label, url }: { label: string; url: string | null }) {
   if (!url) {
     return (
-      <div className="border border-dashed border-surface-2 rounded-lg p-3 text-center text-[12px] text-fg-mute">
+      <div className="border border-dashed border-divider rounded-lg p-3 text-center text-[12px] text-fg-mute">
         {label}: sem foto
       </div>
     )
@@ -289,7 +289,7 @@ function PhotoSlot({ label, url }: { label: string; url: string | null }) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group block border border-surface-2 rounded-lg overflow-hidden"
+      className="group block border border-divider rounded-lg overflow-hidden"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={url} alt={label} className="w-full h-32 object-cover" />

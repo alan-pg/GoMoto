@@ -538,7 +538,7 @@ export default function CobrancasPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[13px] text-fg">
                 <thead className="text-fg-mute">
-                  <tr className="border-b border-surface-2">
+                  <tr className="border-b border-divider">
                     <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Cliente</th>
                     <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Descrição</th>
                     <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Valor</th>
@@ -554,7 +554,7 @@ export default function CobrancasPage() {
                     const phone = row.customers?.phone
                     const wpLink = phone ? `https://wa.me/55${phone.replace(/\D/g, '')}` : null
                     return (
-                      <tr key={row.id} className="h-9 border-b border-surface-2 transition-colors hover:bg-surface-2">
+                      <tr key={row.id} className="h-9 border-b border-divider transition-colors hover:bg-surface-2">
                         <td className="px-4 text-[13px]">
                           <div className="flex items-center gap-2">
                             <span className="text-fg">{row.customers?.name ?? '—'}</span>
@@ -822,7 +822,7 @@ export default function CobrancasPage() {
                     </p>
                   </div>
                 </div>
-                <div className="rounded-xl bg-surface border border-surface-2 p-3">
+                <div className="rounded-xl bg-surface border border-divider p-3">
                   <p className="text-[11px] text-fg-mute mb-1">Copia e Cola</p>
                   <p className="text-[12px] text-fg break-all font-mono leading-relaxed select-all">
                     {pixModal.result.qr_code}

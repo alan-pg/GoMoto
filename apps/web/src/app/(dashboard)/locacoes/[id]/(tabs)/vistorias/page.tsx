@@ -75,7 +75,7 @@ export default async function RentalInspectionsTab({
                 {inspectionSchedules.map((s) => {
                   const badge = SCHEDULE_STATUS_BADGE[s.status] ?? SCHEDULE_STATUS_BADGE.pending
                   return (
-                    <tr key={s.id} className="h-9 border-b border-surface-2 last:border-0">
+                    <tr key={s.id} className="h-9 border-b border-divider last:border-0">
                       <td className="px-4 text-fg-soft">{fmt(s.target_date)}</td>
                       <td className="px-4 text-right">
                         {s.latest_inspection ? (

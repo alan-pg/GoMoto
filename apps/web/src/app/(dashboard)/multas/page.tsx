@@ -448,14 +448,14 @@ export default function MultasPage() {
 
                   {/* Conteúdo expandido */}
                   {isExpanded && (
-                    <div className="border-t border-surface-2">
+                    <div className="border-t border-divider">
 
                       {/* Tabela de pendentes */}
                       {pendingItems.length > 0 ? (
                         <div className="overflow-x-auto">
                           <table className="w-full text-left text-[13px] text-fg">
                             <thead>
-                              <tr className="border-b border-surface-2">
+                              <tr className="border-b border-divider">
                                 <th className="h-9 px-4 text-fg-mute text-[13px] font-medium">Infração</th>
                                 <th className="h-9 px-4 text-fg-mute text-[13px] font-medium">Data / Vencimento</th>
                                 <th className="h-9 px-4 text-fg-mute text-[13px] font-medium">Valor</th>
@@ -468,7 +468,7 @@ export default function MultasPage() {
                               {pendingItems.map((item) => {
                                 const badge = STATUS_BADGE[item._status]
                                 return (
-                                  <tr key={item.id} className="h-9 text-[13px] border-b border-surface-2 transition-colors hover:bg-surface-2">
+                                  <tr key={item.id} className="h-9 text-[13px] border-b border-divider transition-colors hover:bg-surface-2">
 
                                     <td className="px-4 max-w-xs">
                                       <p className="font-medium text-fg">{item.description}</p>
@@ -551,7 +551,7 @@ export default function MultasPage() {
 
                       {/* Histórico de pagas */}
                       {paidItems.length > 0 && (
-                        <div className={pendingItems.length > 0 ? 'border-t border-surface-2' : ''}>
+                        <div className={pendingItems.length > 0 ? 'border-t border-divider' : ''}>
                           <button
                             onClick={() => toggleHistory(vehicle_id)}
                             className="w-full flex items-center gap-2 px-4 py-2 text-[12px] text-fg-mute hover:text-fg-mute transition-colors"
@@ -563,11 +563,11 @@ export default function MultasPage() {
                           </button>
 
                           {showHistory && (
-                            <div className="border-t border-surface-2 overflow-x-auto">
+                            <div className="border-t border-divider overflow-x-auto">
                               <table className="w-full text-left text-[13px]">
                                 <tbody>
                                   {paidItems.map((item) => (
-                                    <tr key={item.id} className="h-9 text-[13px] border-b border-surface-2 transition-colors hover:bg-surface-2 opacity-80">
+                                    <tr key={item.id} className="h-9 text-[13px] border-b border-divider transition-colors hover:bg-surface-2 opacity-80">
                                       <td className="px-4 w-1/2">
                                         <p className="text-fg-mute">{item.description}</p>
                                         {item.customers?.name && (

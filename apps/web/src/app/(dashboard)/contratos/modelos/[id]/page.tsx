@@ -38,7 +38,7 @@ export default async function ModeloDetailPage({
     <div className="h-full flex flex-col bg-bg overflow-hidden">
 
       {/* Header com metadados */}
-      <div className="shrink-0 bg-bg border-b border-surface-2 px-6 py-3 space-y-2">
+      <div className="shrink-0 bg-bg border-b border-divider px-6 py-3 space-y-2">
         {/* Linha 1: nav + ações */}
         <div className="flex items-center gap-2 min-w-0">
           <Link

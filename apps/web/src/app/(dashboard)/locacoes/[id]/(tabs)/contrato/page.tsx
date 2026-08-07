@@ -64,13 +64,13 @@ export default async function RentalContractTab({
               ['Pro rata',    rental.use_pro_rata ? 'Sim' : 'Não'],
               ...(rental.observations ? [['Observações', rental.observations]] : []),
             ] as [string, string][]).map(([label, value]) => (
-              <tr key={label} className="border-b border-surface-2 last:border-0">
+              <tr key={label} className="border-b border-divider last:border-0">
                 <td className="h-9 w-44 shrink-0 px-4 text-fg-mute">{label}</td>
                 <td className="h-9 px-4 text-fg">{value}</td>
               </tr>
             ))}
             {adjustments.length > 0 && (
-              <tr className="border-b border-surface-2 last:border-0">
+              <tr className="border-b border-divider last:border-0">
                 <td className="h-9 w-44 shrink-0 px-4 text-fg-mute">Reajustes</td>
                 <td className="h-9 px-4 text-fg">
                   {adjustments.length} · último em {fmt(adjustments[0].adjusted_at)}

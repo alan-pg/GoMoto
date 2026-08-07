@@ -161,24 +161,24 @@ export default async function RentalFinancialTab({
         <div className="overflow-hidden rounded-xl bg-surface">
           <table className="w-full text-[13px]">
             <tbody>
-              <tr className="border-b border-surface-2">
+              <tr className="border-b border-divider">
                 <td className="h-9 w-52 px-4 text-fg-mute">Valor contratado</td>
                 <td className="h-9 px-4 font-mono text-fg">
                   {deposit != null ? formatCurrency(deposit.amount) : '—'}
                 </td>
               </tr>
-              <tr className="border-b border-surface-2">
+              <tr className="border-b border-divider">
                 <td className="h-9 w-52 px-4 text-fg-mute">Recebido</td>
                 <td className="h-9 px-4 font-mono text-success">{formatCurrency(depositReceived)}</td>
               </tr>
               {depositReturned > 0 && (
-                <tr className="border-b border-surface-2">
+                <tr className="border-b border-divider">
                   <td className="h-9 w-52 px-4 text-fg-mute">Devolvido</td>
                   <td className="h-9 px-4 font-mono text-fg-mute">− {formatCurrency(depositReturned)}</td>
                 </tr>
               )}
               {depositRetained > 0 && (
-                <tr className="border-b border-surface-2">
+                <tr className="border-b border-divider">
                   <td className="h-9 w-52 px-4 text-fg-mute">Retido</td>
                   <td className="h-9 px-4 font-mono text-warning">− {formatCurrency(depositRetained)}</td>
                 </tr>
@@ -201,10 +201,10 @@ export default async function RentalFinancialTab({
             Movimentações de caução
             <span className="ml-2 text-[12px] font-normal text-fg-mute">({depositMovements.length})</span>
           </h2>
-          <div className="overflow-hidden rounded-xl border border-surface-2">
+          <div className="overflow-hidden rounded-xl border border-divider">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b border-surface-2 bg-surface">
+                <tr className="border-b border-divider bg-surface">
                   <th className="h-9 px-4 text-left font-medium text-fg-mute">Tipo</th>
                   <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
                   <th className="h-9 px-4 text-right font-medium text-fg-mute">Valor</th>
@@ -233,10 +233,10 @@ export default async function RentalFinancialTab({
             Ajustes de mensalidade
             <span className="ml-2 text-[12px] font-normal text-fg-mute">({adjustments.length})</span>
           </h2>
-          <div className="overflow-hidden rounded-xl border border-surface-2">
+          <div className="overflow-hidden rounded-xl border border-divider">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b border-surface-2 bg-surface">
+                <tr className="border-b border-divider bg-surface">
                   <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
                   <th className="h-9 px-4 text-left font-medium text-fg-mute">Motivo</th>
                   <th className="h-9 px-4 text-right font-medium text-fg-mute">Anterior</th>
@@ -274,10 +274,10 @@ export default async function RentalFinancialTab({
             <p className="text-[13px] text-fg-mute">Nenhuma cobrança.</p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-surface-2">
+          <div className="overflow-hidden rounded-xl border border-divider">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b border-surface-2 bg-surface">
+                <tr className="border-b border-divider bg-surface">
                   <th className="h-9 px-4 text-left font-medium text-fg-mute">Vencimento</th>
                   <th className="h-9 px-4 text-left font-medium text-fg-mute">Tipo</th>
                   <th className="h-9 px-4 text-left font-medium text-fg-mute">Origem</th>

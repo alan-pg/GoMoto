@@ -107,7 +107,7 @@ export default function ClientesPage() {
       />
 
       {/* Barra de filtros — sticky abaixo do PageTitle */}
-      <div className="sticky top-[60px] z-[9] bg-bg border-b border-surface-2 px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="sticky top-[60px] z-[9] bg-bg border-b border-divider px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap border-b border-fg-mute">
           {tabs.map((tab) => (
             <button
@@ -187,7 +187,7 @@ export default function ClientesPage() {
         <div className="overflow-hidden rounded-xl bg-surface">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[13px] text-fg">
-              <thead className="border-b border-surface-2">
+              <thead className="border-b border-divider">
                 <tr>
                   <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Nome</th>
                   <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Telefone</th>
@@ -231,7 +231,7 @@ export default function ClientesPage() {
                     return (
                       <tr
                         key={customer.id}
-                        className="h-9 border-b border-surface-2 transition-colors hover:bg-surface-2"
+                        className="h-9 border-b border-divider transition-colors hover:bg-surface-2"
                       >
                         <td className="px-4 text-[13px]">
                           <Link

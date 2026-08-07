@@ -30,7 +30,7 @@ export default async function RentalDetailLayout({
       <div className="sticky top-0 z-10 bg-bg">
 
         {/* ── Header: breadcrumb + título + ações ──────────────────────────── */}
-        <div className="flex h-16 items-center gap-4 border-b border-surface-2 px-6">
+        <div className="flex h-16 items-center gap-4 border-b border-divider px-6">
           <Link href="/locacoes" className="whitespace-nowrap text-[13px] text-fg-mute transition-colors hover:text-fg">
             ← Locações
           </Link>
@@ -87,7 +87,7 @@ export default async function RentalDetailLayout({
         </div>
 
         {/* ── Status + valor do ciclo ───────────────────────────────────────── */}
-        <div className="flex flex-wrap items-center gap-4 border-b border-surface-2 px-6 py-3">
+        <div className="flex flex-wrap items-center gap-4 border-b border-divider px-6 py-3">
           <span className={`inline-flex h-7 items-center rounded-full border border-transparent px-3 text-[13px] font-medium ${statusCfg.bg} ${statusCfg.text}`}>
             {statusCfg.label}
           </span>

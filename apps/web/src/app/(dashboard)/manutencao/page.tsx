@@ -1076,7 +1076,7 @@ export default function MaintenancePage() {
                     <tr
                       key={item.id}
                       onClick={onRowClick}
-                      className={`h-9 border-b border-surface-2 transition-colors hover:bg-surface-2 cursor-pointer ${isCompleted ? 'opacity-80' : ''}`}
+                      className={`h-9 border-b border-divider transition-colors hover:bg-surface-2 cursor-pointer ${isCompleted ? 'opacity-80' : ''}`}
                     >
                       <td className="px-4"><BadgeStatus status={item._status!} /></td>
                       <td className="px-4">
@@ -1301,7 +1301,7 @@ export default function MaintenancePage() {
                   <label className="text-[13px] text-fg">
                     Foto do KM <span className="text-fg-mute text-[12px]">(opcional)</span>
                   </label>
-                  <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${formData.odometer_photo_file ? 'border-[#6b9900]' : 'border-surface-2 hover:border-border'}`}>
+                  <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${formData.odometer_photo_file ? 'border-[#6b9900]' : 'border-divider hover:border-border'}`}>
                     <Camera className="w-4 h-4 text-fg-mute shrink-0" />
                     <span className="flex-1 text-[13px] truncate text-fg-mute">
                       {formData.odometer_photo_file ? formData.odometer_photo_file.name : 'Nenhum arquivo selecionado'}
@@ -1318,7 +1318,7 @@ export default function MaintenancePage() {
                   <label className="text-[13px] text-fg">
                     Nota Fiscal <span className="text-fg-mute text-[12px]">(opcional)</span>
                   </label>
-                  <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${formData.invoice_photo_file ? 'border-[#6b9900]' : 'border-surface-2 hover:border-border'}`}>
+                  <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${formData.invoice_photo_file ? 'border-[#6b9900]' : 'border-divider hover:border-border'}`}>
                     <FileText className="w-4 h-4 text-fg-mute shrink-0" />
                     <span className="flex-1 text-[13px] truncate text-fg-mute">
                       {formData.invoice_photo_file ? formData.invoice_photo_file.name : 'Nenhum arquivo selecionado'}
@@ -1349,7 +1349,7 @@ export default function MaintenancePage() {
             </div>
           )}
 
-          <div className="flex justify-end gap-3 border-t border-surface-2 pt-4">
+          <div className="flex justify-end gap-3 border-t border-divider pt-4">
             <Button variant="secondary" onClick={closeFormModal}>Cancelar</Button>
             <Button variant="primary" onClick={handleSave} loading={saving}>Salvar</Button>
           </div>
@@ -1431,13 +1431,13 @@ export default function MaintenancePage() {
             </div>
 
             {/* Miniaturas das fotos */}
-            <div className="border-t border-surface-2 pt-4 space-y-3">
+            <div className="border-t border-divider pt-4 space-y-3">
               <p className="text-[12px] text-fg-mute">Fotos anexadas</p>
               <div className="grid grid-cols-2 gap-3">
                 {/* KM */}
                 {viewingMaintenance.odometer_photo_url ? (
                   <a href={viewingMaintenance.odometer_photo_url} target="_blank" rel="noreferrer" className="group space-y-1.5">
-                    <div className="relative overflow-hidden rounded-lg border border-surface-2 bg-bg h-40">
+                    <div className="relative overflow-hidden rounded-lg border border-divider bg-bg h-40">
                       <img
                         src={viewingMaintenance.odometer_photo_url}
                         alt="Foto do KM"
@@ -1451,7 +1451,7 @@ export default function MaintenancePage() {
                   </a>
                 ) : (
                   <div className="space-y-1.5">
-                    <div className="flex items-center justify-center rounded-lg border border-dashed border-surface-2 bg-bg h-40">
+                    <div className="flex items-center justify-center rounded-lg border border-dashed border-divider bg-bg h-40">
                       <div className="text-center space-y-1">
                         <Camera className="w-6 h-6 text-border mx-auto" />
                         <p className="text-[12px] text-border">Sem foto do KM</p>
@@ -1462,7 +1462,7 @@ export default function MaintenancePage() {
                 {/* NF */}
                 {viewingMaintenance.invoice_photo_url ? (
                   <a href={viewingMaintenance.invoice_photo_url} target="_blank" rel="noreferrer" className="group space-y-1.5">
-                    <div className="relative overflow-hidden rounded-lg border border-surface-2 bg-bg h-40">
+                    <div className="relative overflow-hidden rounded-lg border border-divider bg-bg h-40">
                       <img
                         src={viewingMaintenance.invoice_photo_url}
                         alt="Nota Fiscal"
@@ -1476,7 +1476,7 @@ export default function MaintenancePage() {
                   </a>
                 ) : (
                   <div className="space-y-1.5">
-                    <div className="flex items-center justify-center rounded-lg border border-dashed border-surface-2 bg-bg h-40">
+                    <div className="flex items-center justify-center rounded-lg border border-dashed border-divider bg-bg h-40">
                       <div className="text-center space-y-1">
                         <FileText className="w-6 h-6 text-border mx-auto" />
                         <p className="text-[12px] text-border">Sem nota fiscal</p>
@@ -1487,7 +1487,7 @@ export default function MaintenancePage() {
               </div>
             </div>
 
-            <div className="flex justify-end border-t border-surface-2 pt-4">
+            <div className="flex justify-end border-t border-divider pt-4">
               <Button variant="secondary" onClick={() => setViewingMaintenance(null)}>Fechar</Button>
             </div>
           </div>
@@ -1675,7 +1675,7 @@ export default function MaintenancePage() {
                   )
                 })()}
 
-                <div className="flex justify-end gap-3 border-t border-surface-2 pt-4">
+                <div className="flex justify-end gap-3 border-t border-divider pt-4">
                   <Button variant="secondary" onClick={closeCompleteModal}>Cancelar</Button>
                   {/* Botão de Avanço, compila a matriz de finanças inicial antes de renderizar a Tela 2 */}
                   <Button
@@ -1757,7 +1757,7 @@ export default function MaintenancePage() {
                           <label className="text-[13px] text-fg">
                             Foto do KM <span className="text-fg-mute text-[12px]">(imagem)</span>
                           </label>
-                          <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${fin.odometer_photo_file ? 'border-[#6b9900]' : 'border-surface-2 hover:border-border'}`}>
+                          <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${fin.odometer_photo_file ? 'border-[#6b9900]' : 'border-divider hover:border-border'}`}>
                             <Camera className="w-4 h-4 text-fg-mute shrink-0" />
                             <span className="flex-1 text-[13px] truncate text-fg-mute">
                               {fin.odometer_photo_file ? fin.odometer_photo_file.name : 'Nenhum arquivo selecionado'}
@@ -1777,7 +1777,7 @@ export default function MaintenancePage() {
                           <label className="text-[13px] text-fg">
                             Nota Fiscal <span className="text-fg-mute text-[12px]">(imagem)</span>
                           </label>
-                          <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${fin.invoice_photo_file ? 'border-[#6b9900]' : 'border-surface-2 hover:border-border'}`}>
+                          <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${fin.invoice_photo_file ? 'border-[#6b9900]' : 'border-divider hover:border-border'}`}>
                             <FileText className="w-4 h-4 text-fg-mute shrink-0" />
                             <span className="flex-1 text-[13px] truncate text-fg-mute">
                               {fin.invoice_photo_file ? fin.invoice_photo_file.name : 'Nenhum arquivo selecionado'}
@@ -1800,7 +1800,7 @@ export default function MaintenancePage() {
                         const cliente = (c * fin.customer_payer_pct) / 100
                         const empresa = c - cliente
                         return (
-                          <p className="text-[13px] text-fg-mute border-t border-surface-2 pt-2">
+                          <p className="text-[13px] text-fg-mute border-t border-divider pt-2">
                             → Empresa: {formatCurrency(empresa)} / Cliente: {formatCurrency(cliente)}
                           </p>
                         )
@@ -1837,7 +1837,7 @@ export default function MaintenancePage() {
                       )}
                       {/* Checkbox de responsabilidade exigindo o ciente que isso afeta o boleto mensal de aluguel ou compra de quem detém a moto. */}
                       {hasSplit && activeContract && totalCliente > 0 && (
-                        <label className="flex items-start gap-2 cursor-pointer mt-2 pt-2 border-t border-surface-2">
+                        <label className="flex items-start gap-2 cursor-pointer mt-2 pt-2 border-t border-divider">
                           <input
                             type="checkbox"
                             checked={discountConfirmed}
@@ -1885,7 +1885,7 @@ export default function MaintenancePage() {
                   )
                 })()}
 
-                <div className="flex justify-between gap-3 border-t border-surface-2 pt-4">
+                <div className="flex justify-between gap-3 border-t border-divider pt-4">
                   <Button variant="secondary" onClick={() => setCompletionStep(1)}>← Voltar</Button>
                   <div className="flex gap-3">
                     <Button variant="secondary" onClick={closeCompleteModal}>Cancelar</Button>
@@ -1931,7 +1931,7 @@ export default function MaintenancePage() {
             onChange={(e) => setKmForm({ ...kmForm, km_current: e.target.value })}
             placeholder="Ex: 16500"
           />
-          <div className="flex justify-end gap-3 border-t border-surface-2 pt-4">
+          <div className="flex justify-end gap-3 border-t border-divider pt-4">
             <Button variant="secondary" onClick={() => setIsKmModalOpen(false)}>Cancelar</Button>
             <Button variant="primary" onClick={handleUpdateKm} disabled={!kmForm.vehicle_id || !kmForm.km_current}>
               <Gauge className="w-4 h-4" />
@@ -1945,7 +1945,7 @@ export default function MaintenancePage() {
       <Modal open={isDeleteModalOpen} onClose={closeDeleteModal} title="Confirmar Exclusão" size="sm">
         <div className="space-y-4">
           <p className="text-[13px] text-fg">Tem certeza que deseja excluir esta manutenção? Esta ação não pode ser desfeita.</p>
-          <div className="flex justify-end gap-3 border-t border-surface-2 pt-4">
+          <div className="flex justify-end gap-3 border-t border-divider pt-4">
             <Button variant="secondary" onClick={closeDeleteModal}>Cancelar</Button>
             <Button variant="danger" onClick={handleDelete}>Excluir</Button>
           </div>

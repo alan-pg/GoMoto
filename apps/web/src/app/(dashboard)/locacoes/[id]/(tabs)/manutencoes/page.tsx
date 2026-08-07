@@ -46,10 +46,10 @@ export default async function RentalMaintenanceTab({
 
   return (
     <section>
-      <div className="overflow-hidden rounded-xl border border-surface-2 bg-surface">
+      <div className="overflow-hidden rounded-xl border border-divider bg-surface">
         <table className="w-full text-[13px]">
           <thead>
-            <tr className="border-b border-surface-2">
+            <tr className="border-b border-divider">
               <th className="h-9 px-4 text-left font-medium text-fg-mute">Descrição</th>
               <th className="h-9 px-4 text-left font-medium text-fg-mute">Tipo</th>
               <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>

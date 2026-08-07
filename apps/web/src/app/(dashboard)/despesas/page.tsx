@@ -811,13 +811,13 @@ export default function ExpensesPage() {
                       sem cortar o border-radius do card pai.
                   ────────────────────────────────────────────────────────── */}
                   {isExpanded && (
-                    <div className="border-t border-surface-2">
+                    <div className="border-t border-divider">
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-[13px] text-fg">
 
                           {/* Cabeçalho da tabela — padrão do design system: sem bg, uppercase, cor secundária */}
                           <thead>
-                            <tr className="border-b border-surface-2">
+                            <tr className="border-b border-divider">
                               <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Data</th>
                               <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Descrição</th>
                               <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Valor</th>
@@ -830,7 +830,7 @@ export default function ExpensesPage() {
                               /* Calcula a moto vinculada uma única vez por linha (evita 3x find) */
                               const moto = vehicles.find(m => m.id === item.vehicle_id)
                               return (
-                              <tr key={item.id} className="h-9 border-b border-surface-2 transition-colors hover:bg-surface-2">
+                              <tr key={item.id} className="h-9 border-b border-divider transition-colors hover:bg-surface-2">
 
                                 {/* Data: formatada para DD/MM/AAAA via formatDate */}
                                 <td className="px-4">

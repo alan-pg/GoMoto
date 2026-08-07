@@ -18,7 +18,7 @@ function fmt(d: string | null | undefined) {
 
 function Row({ label, value, mono = false }: { label: string; value?: string | null; mono?: boolean }) {
   return (
-    <tr className="border-b border-surface-2 last:border-0">
+    <tr className="border-b border-divider last:border-0">
       <td className="h-9 px-4 text-fg-mute w-48 shrink-0 text-[13px]">{label}</td>
       <td className={`h-9 px-4 text-[13px] ${mono ? 'font-mono' : ''} ${value ? 'text-fg' : 'text-fg-mute italic'}`}>
         {value ?? '—'}
@@ -119,7 +119,7 @@ export default async function CustomerDetailPage({
     <div className="min-h-screen bg-bg">
 
       {/* ── Header ───────────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-10 bg-bg border-b border-surface-2 px-6 h-16 flex items-center gap-4">
+      <div className="sticky top-0 z-10 bg-bg border-b border-divider px-6 h-16 flex items-center gap-4">
         <Link href="/clientes" className="text-[13px] text-fg-mute hover:text-fg transition-colors">
           ← Clientes
         </Link>
@@ -182,7 +182,7 @@ export default async function CustomerDetailPage({
                 <p className="text-[13px] text-fg">{rental.vehicle?.make} {rental.vehicle?.model}</p>
               </div>
               {rental.cycle_amount != null && (
-                <div className="border-l border-surface-2 pl-6">
+                <div className="border-l border-divider pl-6">
                   <p className="text-[12px] text-fg-mute uppercase tracking-wide font-medium mb-1">
                     Valor {rental.cycle === 'weekly' ? 'Semanal' : 'Mensal'}
                   </p>
@@ -242,7 +242,7 @@ export default async function CustomerDetailPage({
           <div className="bg-surface rounded-xl overflow-hidden">
             <table className="w-full text-[13px]">
               <tbody>
-                <tr className="border-b border-surface-2">
+                <tr className="border-b border-divider">
                   <td className="h-9 px-4 text-fg-mute w-48 text-[13px]">Telefone 1</td>
                   <td className="h-9 px-4 text-[13px]">
                     {customer.phone ? (
@@ -255,7 +255,7 @@ export default async function CustomerDetailPage({
                   </td>
                 </tr>
                 {customer.phone2 && (
-                  <tr className="border-b border-surface-2">
+                  <tr className="border-b border-divider">
                     <td className="h-9 px-4 text-fg-mute w-48 text-[13px]">Telefone 2</td>
                     <td className="h-9 px-4 text-[13px]">
                       <a href={`https://wa.me/55${customer.phone2.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
@@ -311,7 +311,7 @@ export default async function CustomerDetailPage({
                 <tbody>
                   <Row label="Número" value={customer.drivers_license} mono />
                   <Row label="Categoria" value={customer.drivers_license_category} />
-                  <tr className="border-b border-surface-2 last:border-0">
+                  <tr className="border-b border-divider last:border-0">
                     <td className="h-9 px-4 text-fg-mute w-48 text-[13px]">Validade</td>
                     <td className={`h-9 px-4 text-[13px] ${cnhExpired ? 'text-[#f87171]' : 'text-fg'}`}>
                       {customer.drivers_license_validity ? (
@@ -388,7 +388,7 @@ export default async function CustomerDetailPage({
           <div className="rounded-xl bg-surface overflow-hidden">
             <table className="w-full text-[13px]">
               <tbody>
-                <tr className="border-b border-surface-2 last:border-0">
+                <tr className="border-b border-divider last:border-0">
                   <td className="h-9 w-48 px-4 text-fg-mute">Status</td>
                   <td className="h-9 px-4 text-fg">
                     {isBlocked
@@ -396,7 +396,7 @@ export default async function CustomerDetailPage({
                       : <span className="text-success">Regular</span>}
                   </td>
                 </tr>
-                <tr className="border-b border-surface-2 last:border-0">
+                <tr className="border-b border-divider last:border-0">
                   <td className="h-9 w-48 px-4 text-fg-mute">Créditos disponíveis</td>
                   <td className="h-9 px-4 font-mono text-fg">
                     {formatCurrency(credits.reduce((s, c) => s + c.available_balance, 0))}
@@ -407,10 +407,10 @@ export default async function CustomerDetailPage({
             </table>
           </div>
           {delinquencyBlocks.length > 0 && (
-            <div className="mt-3 overflow-hidden rounded-xl border border-surface-2">
+            <div className="mt-3 overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-surface-2 bg-surface">
+                  <tr className="border-b border-divider bg-surface">
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Ação</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Motivo</th>
@@ -441,10 +441,10 @@ export default async function CustomerDetailPage({
               Créditos
               <span className="ml-2 text-[12px] font-normal text-fg-mute">({credits.length})</span>
             </h2>
-            <div className="overflow-hidden rounded-xl border border-surface-2">
+            <div className="overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-surface-2 bg-surface">
+                  <tr className="border-b border-divider bg-surface">
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Origem</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Total</th>
@@ -489,7 +489,7 @@ function DocumentThumb({ url, label, alt }: { url: string; label: string; alt: s
     <div className="space-y-2">
       <p className="text-[12px] font-medium text-fg-mute">{label}</p>
       <a href={url} target="_blank" rel="noopener noreferrer"
-        className="block relative group rounded-xl overflow-hidden border border-surface-2 bg-surface">
+        className="block relative group rounded-xl overflow-hidden border border-divider bg-surface">
         {isPdf ? (
           <div className="flex flex-col items-center justify-center h-40 gap-3">
             <div className="w-12 h-12 rounded-xl bg-surface-2 flex items-center justify-center text-fg-mute text-[12px] font-bold">PDF</div>

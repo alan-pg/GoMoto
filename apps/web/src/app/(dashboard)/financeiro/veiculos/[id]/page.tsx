@@ -101,7 +101,7 @@ export default async function VehicleROIPage({
     <div className="min-h-screen bg-bg">
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-surface-2 bg-bg px-6">
+      <div className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-divider bg-bg px-6">
         <Link href="/financeiro" className="whitespace-nowrap text-[13px] text-fg-mute transition-colors hover:text-fg">
           ← Financeiro
         </Link>
@@ -168,7 +168,7 @@ export default async function VehicleROIPage({
                   ['Cor',          vehicle.color],
                   ['Cadastrado',   fmt(vehicle.created_at)],
                 ] as [string, string | number | null | undefined][]).map(([label, value]) => (
-                  <tr key={label} className="border-b border-surface-2 last:border-0">
+                  <tr key={label} className="border-b border-divider last:border-0">
                     <td className="h-9 w-44 shrink-0 px-4 text-fg-mute">{label}</td>
                     <td className="h-9 px-4 text-fg">{value ?? '—'}</td>
                   </tr>
@@ -185,7 +185,7 @@ export default async function VehicleROIPage({
             <div className="overflow-hidden rounded-xl bg-surface">
               <table className="w-full text-[13px]">
                 <tbody>
-                  <tr className="border-b border-surface-2">
+                  <tr className="border-b border-divider">
                     <td className="h-9 w-44 px-4 text-fg-mute">Valor de venda</td>
                     <td className="h-9 px-4 font-semibold text-fg">{formatCurrency(vehicle.sale_value!)}</td>
                   </tr>
@@ -207,7 +207,7 @@ export default async function VehicleROIPage({
               <table className="w-full text-[13px]">
                 <tbody>
                   {Object.entries(revenueBySource).map(([src, value]) => (
-                    <tr key={src} className="border-b border-surface-2 last:border-0">
+                    <tr key={src} className="border-b border-divider last:border-0">
                       <td className="h-9 w-56 px-4 text-fg-mute">{SOURCE_LABELS[src] ?? src}</td>
                       <td className="h-9 px-4 font-mono font-semibold text-success">{formatCurrency(value)}</td>
                     </tr>
@@ -229,10 +229,10 @@ export default async function VehicleROIPage({
               Manutenções
               <span className="ml-2 text-[12px] font-normal text-fg-mute">{formatCurrency(totalMaintenanceCost)} total</span>
             </h2>
-            <div className="overflow-hidden rounded-xl border border-surface-2">
+            <div className="overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-surface-2 bg-surface">
+                  <tr className="border-b border-divider bg-surface">
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Descrição</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Concluída</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Custo</th>
@@ -259,10 +259,10 @@ export default async function VehicleROIPage({
               Multas (empresa)
               <span className="ml-2 text-[12px] font-normal text-fg-mute">{formatCurrency(totalFineCost)} total</span>
             </h2>
-            <div className="overflow-hidden rounded-xl border border-surface-2">
+            <div className="overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-surface-2 bg-surface">
+                  <tr className="border-b border-divider bg-surface">
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Descrição</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Paga em</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Valor</th>

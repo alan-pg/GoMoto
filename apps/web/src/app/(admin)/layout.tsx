@@ -34,7 +34,7 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
   return (
     <Providers>
       <div className="flex h-screen bg-[#0d0d0d]">
-          <aside className="w-[240px] border-r border-surface-2 bg-bg p-4 flex flex-col shrink-0 overflow-y-auto">
+          <aside className="w-[240px] border-r border-divider bg-bg p-4 flex flex-col shrink-0 overflow-y-auto">
             <div className="flex items-center gap-2 mb-6">
               <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
                 <ShieldCheck className="w-5 h-5 text-bg" />
@@ -53,7 +53,7 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
               ]}
             />
 
-            <div className="border-t border-surface-2 pt-3 space-y-1">
+            <div className="border-t border-divider pt-3 space-y-1">
               <form action="/auth/logout" method="post">
                 <button
                   type="submit"

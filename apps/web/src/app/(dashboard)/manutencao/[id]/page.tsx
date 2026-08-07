@@ -66,7 +66,7 @@ export default async function MaintenanceDetailPage({
     <div className="min-h-screen bg-bg">
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-surface-2 bg-bg px-6">
+      <div className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-divider bg-bg px-6">
         <Link href="/manutencao" className="whitespace-nowrap text-[13px] text-fg-mute transition-colors hover:text-fg">
           ← Manutenção
         </Link>
@@ -119,7 +119,7 @@ export default async function MaintenanceDetailPage({
                   ['Executor',         maintenance.effective_executor ? EXECUTOR_LABELS[maintenance.effective_executor] : null],
                   ['% do cliente',     maintenance.effective_customer_payer_pct != null ? `${maintenance.effective_customer_payer_pct}%` : null],
                 ] as [string, string | null | undefined][]).filter(([, v]) => v).map(([label, value]) => (
-                  <tr key={label} className="border-b border-surface-2 last:border-0">
+                  <tr key={label} className="border-b border-divider last:border-0">
                     <td className="h-9 w-48 shrink-0 px-4 text-fg-mute">{label}</td>
                     <td className="h-9 px-4 text-fg">{value}</td>
                   </tr>

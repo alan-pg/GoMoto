@@ -57,7 +57,7 @@ export function EditTemplateForm({ template }: Props) {
     <div className="h-full flex flex-col bg-bg overflow-hidden">
 
       {/* Header com metadados integrados */}
-      <div className="shrink-0 bg-bg border-b border-surface-2 px-6 py-3 space-y-3">
+      <div className="shrink-0 bg-bg border-b border-divider px-6 py-3 space-y-3">
         {/* Linha 1: navegação + ações */}
         <div className="flex items-center gap-2 min-w-0">
           <Link
@@ -97,14 +97,14 @@ export function EditTemplateForm({ template }: Props) {
             value={name}
             onChange={e => { setName(e.target.value); setError(null) }}
             className={`h-9 flex-1 bg-surface border rounded-lg px-3 text-[14px] font-semibold text-fg placeholder:text-border focus:ring-1 outline-none transition-colors ${
-              error ? 'border-danger focus:border-danger focus:ring-danger' : 'border-surface-2 focus:border-primary focus:ring-primary'
+              error ? 'border-danger focus:border-danger focus:ring-danger' : 'border-divider focus:border-primary focus:ring-primary'
             }`}
           />
           <input
             value={description}
             onChange={e => setDescription(e.target.value)}
             placeholder="Descrição (opcional)..."
-            className="h-9 flex-1 bg-surface border border-surface-2 rounded-lg px-3 text-[13px] text-fg-soft placeholder:text-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors"
+            className="h-9 flex-1 bg-surface border border-divider rounded-lg px-3 text-[13px] text-fg-soft placeholder:text-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors"
           />
         </div>
 

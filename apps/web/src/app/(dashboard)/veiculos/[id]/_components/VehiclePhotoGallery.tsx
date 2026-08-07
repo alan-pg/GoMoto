@@ -17,7 +17,7 @@ export default function VehiclePhotoGallery({ photoUrls }: Props) {
         const url = photoUrls[slot]
         return (
           <div key={slot} className="space-y-1.5">
-            <div className="aspect-square rounded-xl overflow-hidden bg-surface border border-surface-2 flex items-center justify-center">
+            <div className="aspect-square rounded-xl overflow-hidden bg-surface border border-divider flex items-center justify-center">
               {url ? (
                 <Image
                   src={url}

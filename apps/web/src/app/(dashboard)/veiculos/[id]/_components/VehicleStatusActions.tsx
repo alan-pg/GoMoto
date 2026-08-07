@@ -81,7 +81,7 @@ export default function VehicleStatusActions({ vehicleId, currentStatus, selecta
       {/* Modal de confirmação (Vender / Desativar) */}
       {confirmStatus && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-          <div className="bg-surface border border-surface-2 rounded-2xl p-6 w-full max-w-md mx-4 space-y-4">
+          <div className="bg-surface border border-divider rounded-2xl p-6 w-full max-w-md mx-4 space-y-4">
             <h3 className="text-[16px] font-bold text-fg">
               {ACTION_LABELS[confirmStatus]}?
             </h3>

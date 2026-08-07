@@ -91,7 +91,7 @@ export default async function FineDetailPage({
     <div className="min-h-screen bg-bg">
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-10 bg-bg border-b border-surface-2 px-6 h-16 flex items-center gap-4">
+      <div className="sticky top-0 z-10 bg-bg border-b border-divider px-6 h-16 flex items-center gap-4">
         <Link href="/multas" className="text-[13px] text-fg-mute hover:text-fg transition-colors whitespace-nowrap">
           ← Multas
         </Link>
@@ -139,7 +139,7 @@ export default async function FineDetailPage({
                   ['Pontos na CNH',     fine.points != null ? `${fine.points} ponto${fine.points !== 1 ? 's' : ''}` : null],
                   ['Responsável',       fine.responsible === 'customer' ? 'Cliente' : 'Empresa'],
                 ] as [string, string | null | undefined][]).map(([label, value]) => (
-                  <tr key={label} className="border-b border-surface-2 last:border-0">
+                  <tr key={label} className="border-b border-divider last:border-0">
                     <td className="h-9 px-4 text-fg-mute w-44 shrink-0">{label}</td>
                     <td className="h-9 px-4 text-fg">{value || '—'}</td>
                   </tr>
@@ -161,7 +161,7 @@ export default async function FineDetailPage({
                   ['Pago em',           fmt(fine.payment_date)],
                   ['Registrado em',     fmt(fine.created_at)],
                 ] as [string, string][]).map(([label, value]) => (
-                  <tr key={label} className="border-b border-surface-2 last:border-0">
+                  <tr key={label} className="border-b border-divider last:border-0">
                     <td className="h-9 px-4 text-fg-mute w-44">{label}</td>
                     <td className="h-9 px-4 text-fg">{value}</td>
                   </tr>

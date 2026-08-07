@@ -98,7 +98,7 @@ export default function VehiclesPage() {
       />
 
       {/* Barra de filtros — sticky abaixo do PageTitle */}
-      <div className="sticky top-[60px] z-[9] bg-bg border-b border-surface-2 px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="sticky top-[60px] z-[9] bg-bg border-b border-divider px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap border-b border-fg-mute">
           {filterOptions.map((opt) => {
             const isActive = filter === opt.value
@@ -158,7 +158,7 @@ export default function VehiclesPage() {
         <div className="overflow-hidden rounded-xl bg-surface">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[13px] text-fg">
-              <thead className="text-fg-mute border-b border-surface-2">
+              <thead className="text-fg-mute border-b border-divider">
                 <tr>
                   <th className="h-9 px-4 text-[13px] font-medium text-fg-mute w-10" />
                   <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Placa</th>
@@ -187,7 +187,7 @@ export default function VehiclesPage() {
                   </td></tr>
                 ) : (
                   filteredVehicles.map((vehicle) => (
-                    <tr key={vehicle.id} className="h-9 text-[13px] border-b border-surface-2 transition-colors hover:bg-surface-2">
+                    <tr key={vehicle.id} className="h-9 text-[13px] border-b border-divider transition-colors hover:bg-surface-2">
                       <td className="px-2">
                         {vehicle.photo_url ? (
                           <img src={vehicle.photo_url} alt="" className="w-7 h-7 rounded object-cover" />

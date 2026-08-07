@@ -49,7 +49,7 @@ function LinkSection({ tenantId }: { tenantId: string }) {
       {error && <p className="text-[12px] text-danger">{error}</p>}
 
       {link && (
-        <div className="flex items-center gap-2 p-2 bg-bg rounded-lg border border-surface-2">
+        <div className="flex items-center gap-2 p-2 bg-bg rounded-lg border border-divider">
           <p className="text-[12px] font-mono text-fg-mute truncate flex-1">{link}</p>
           <button
             onClick={handleCopy}
@@ -182,7 +182,7 @@ export function OwnerActions({ tenantId }: { tenantId: string }) {
   return (
     <div className="space-y-3">
       <LinkSection     tenantId={tenantId} />
-      <div className="border-t border-surface-2" />
+      <div className="border-t border-divider" />
       <PasswordSection tenantId={tenantId} />
     </div>
   )

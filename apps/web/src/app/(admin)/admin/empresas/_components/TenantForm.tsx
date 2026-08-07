@@ -251,7 +251,7 @@ export function TenantForm({ mode, initialData, tenantId }: Props) {
     <div className="min-h-full bg-bg">
 
       {/* Header fixo */}
-      <div className="sticky top-0 z-10 bg-bg border-b border-surface-2 px-6 h-16 flex items-center gap-4">
+      <div className="sticky top-0 z-10 bg-bg border-b border-divider px-6 h-16 flex items-center gap-4">
         <Link
           href={backHref}
           className="text-[13px] text-fg-mute hover:text-fg transition-colors"

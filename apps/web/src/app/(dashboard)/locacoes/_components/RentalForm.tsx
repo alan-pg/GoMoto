@@ -49,7 +49,7 @@ const labelCls    = 'block text-[13px] text-fg-mute mb-1.5'
 const inputCls    = 'w-full h-9 px-3 rounded-lg bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all'
 const selectCls   = inputCls
 const inputErrCls = 'w-full h-9 px-3 rounded-lg bg-surface-2 border border-danger text-[13px] text-fg outline-none focus:border-danger transition-all'
-const readOnlyCls = 'flex h-9 w-full items-center rounded-lg border border-surface-2 bg-surface px-3 text-[13px] text-fg-soft'
+const readOnlyCls = 'flex h-9 w-full items-center rounded-lg border border-divider bg-surface px-3 text-[13px] text-fg-soft'
 
 const CONTRACT_TYPE_LABEL = { rental: 'Locação', rent_to_own: 'Compra Programada' }
 const CYCLE_LABEL         = { weekly: 'Semanal', monthly: 'Mensal' }
@@ -114,10 +114,10 @@ function ChargePreview({ charges }: { charges: CycleCharge[] }) {
       <p className="mb-2 text-[13px] font-semibold text-fg">
         {charges.length} cobrança{charges.length !== 1 ? 's' : ''} · {formatCurrency(total)} total
       </p>
-      <div className="max-h-52 overflow-y-auto rounded-lg border border-surface-2">
+      <div className="max-h-52 overflow-y-auto rounded-lg border border-divider">
         <table className="w-full text-[13px]">
           <thead>
-            <tr className="border-b border-surface-2 text-left text-fg-mute">
+            <tr className="border-b border-divider text-left text-fg-mute">
               <th className="h-8 px-3 font-normal">Vencimento</th>
               <th className="h-8 px-3 font-normal">Tipo</th>
               <th className="h-8 px-3 text-right font-normal">Valor</th>
@@ -663,7 +663,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                           type="number"
                           min="1"
                           max="120"
-                          className="h-7 w-14 rounded-md border border-surface-2 bg-surface-2 px-2 text-[12px] text-fg outline-none focus:border-primary"
+                          className="h-7 w-14 rounded-md border border-divider bg-surface-2 px-2 text-[12px] text-fg outline-none focus:border-primary"
                           value={periodQty}
                           onChange={e => handlePeriodChange(e.target.value)}
                         />
@@ -918,7 +918,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                 ))}
               </div>
               {form.observations && (
-                <div className="mt-4 border-t border-surface-2 pt-4">
+                <div className="mt-4 border-t border-divider pt-4">
                   <span className="text-fg-mute">Observações: </span>
                   <span className="text-fg-soft">{form.observations}</span>
                 </div>

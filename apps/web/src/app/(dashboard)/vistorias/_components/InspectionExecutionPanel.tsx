@@ -269,7 +269,7 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
           {isReadOnly
             ? inspection.photos.map((p) => (
                 <div key={p.item_id} className="space-y-1.5">
-                  <div className="aspect-square rounded-lg bg-surface border border-surface-2 overflow-hidden flex items-center justify-center">
+                  <div className="aspect-square rounded-lg bg-surface border border-divider overflow-hidden flex items-center justify-center">
                     {readOnlyPhotoUrls[p.storage_path] ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={readOnlyPhotoUrls[p.storage_path]} alt={p.label} className="w-full h-full object-cover" />

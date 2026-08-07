@@ -144,7 +144,7 @@ export function PlatformAdminsClient({
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-surface-2 overflow-hidden bg-[#181818]">
+      <div className="rounded-xl border border-divider overflow-hidden bg-[#181818]">
         <table className="w-full text-left">
           <thead className="bg-surface text-[12px] uppercase tracking-wide text-fg-mute">
             <tr>
@@ -166,7 +166,7 @@ export function PlatformAdminsClient({
                 const isSelf = row.user_id === currentUserId
                 const isLastOwner = row.role === 'owner' && ownerCount <= 1
                 return (
-                  <tr key={row.user_id} className="border-t border-surface-2">
+                  <tr key={row.user_id} className="border-t border-divider">
                     <td className="px-4 py-3 text-[14px] text-fg">
                       <div className="font-medium">{row.name ?? row.email}</div>
                       <div className="text-[12px] text-fg-mute">{row.email}</div>
@@ -260,7 +260,7 @@ export function PlatformAdminsClient({
                     'flex-1 h-10 rounded-lg border text-[14px] transition ' +
                     (form.role === r
                       ? 'border-primary text-primary bg-primary-tint'
-                      : 'border-surface-2 text-fg-soft hover:border-border')
+                      : 'border-divider text-fg-soft hover:border-border')
                   }
                 >
                   {r === 'owner' ? (
@@ -303,7 +303,7 @@ export function PlatformAdminsClient({
             em <code>auth.users</code> — você só está removendo o vínculo de admin.
           </p>
           {target ? (
-            <div className="rounded-lg border border-surface-2 bg-[#181818] px-3 py-2 text-[14px] text-fg">
+            <div className="rounded-lg border border-divider bg-[#181818] px-3 py-2 text-[14px] text-fg">
               <div className="font-medium">{target.name ?? target.email}</div>
               <div className="text-[12px] text-fg-mute">{target.email}</div>
             </div>

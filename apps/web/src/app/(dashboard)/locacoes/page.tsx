@@ -260,10 +260,10 @@ export default function LocacoesPage() {
             )}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-surface-2 bg-surface">
+          <div className="overflow-hidden rounded-xl border border-divider bg-surface">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b border-surface-2 text-left">
+                <tr className="border-b border-divider text-left">
                   <th className="h-9 px-4 font-medium text-fg-mute">Cliente</th>
                   <th className="h-9 px-4 font-medium text-fg-mute">Veículo</th>
                   <th className="h-9 px-4 font-medium text-fg-mute">Tipo / Ciclo</th>

@@ -16,6 +16,7 @@ const config: Config = {
         surface: "var(--surface)",
         "surface-2": "var(--surface-2)",
         border: "var(--border)",
+        divider: "var(--divider)",
         fg: "var(--fg)",
         "fg-soft": "var(--fg-soft)",
         "fg-mute": "var(--fg-mute)",
@@ -31,6 +32,11 @@ const config: Config = {
         "danger-bg": "var(--danger-bg)",
         info: "var(--info)",
         "info-bg": "var(--info-bg)",
+        // "border" (3:1 contra surface) é limite de componente de verdade —
+        // input, card, contorno de botão. "divider" (~1,4:1) é separador
+        // decorativo de linha de tabela/lista/cabeçalho sticky — visível,
+        // mas mais discreto, não deve reaproveitar "border" nem "surface-2"
+        // (fundo, não borda). Ver ADR 0019 §7.
         // ADR 0020 — tokens de urgência: pending varia por marca, critical é
         // fixo nas 4 direções (ver globals.css).
         pending: "var(--pending)",

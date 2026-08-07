@@ -150,7 +150,7 @@ export default async function VehicleDetailPage({
   return (
     <div className="min-h-screen bg-bg">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-bg border-b border-surface-2 px-6 h-16 flex items-center gap-4">
+      <div className="sticky top-0 z-10 bg-bg border-b border-divider px-6 h-16 flex items-center gap-4">
         <Link href="/veiculos" className="text-[13px] text-fg-mute hover:text-fg transition-colors">
           ← Veículos
         </Link>
@@ -214,7 +214,7 @@ export default async function VehicleDetailPage({
                   ['KM atual', moto.km_current != null ? moto.km_current.toLocaleString('pt-BR') : '—'],
                   ['Observações', moto.observations],
                 ].map(([label, value]) => (
-                  <tr key={label as string} className="border-b border-surface-2 last:border-0">
+                  <tr key={label as string} className="border-b border-divider last:border-0">
                     <td className="h-9 px-4 text-fg-mute w-48">{label}</td>
                     <td className="h-9 px-4 text-fg">{value || '—'}</td>
                   </tr>
@@ -238,7 +238,7 @@ export default async function VehicleDetailPage({
                   ['Dono anterior', moto.previous_owner],
                   ['CPF/CNPJ anterior', moto.previous_owner_cpf ? formatDocument(moto.previous_owner_cpf) : null],
                 ].map(([label, value]) => (
-                  <tr key={label as string} className="border-b border-surface-2 last:border-0">
+                  <tr key={label as string} className="border-b border-divider last:border-0">
                     <td className="h-9 px-4 text-fg-mute w-48">{label}</td>
                     <td className="h-9 px-4 text-fg">{value || '—'}</td>
                   </tr>
@@ -262,7 +262,7 @@ export default async function VehicleDetailPage({
                   ['Transferência', moto.ownership_transferred ? 'Concluída' : 'Pendente'],
                   ['Data da transferência', formatDate(moto.ownership_transfer_date)],
                 ].map(([label, value]) => (
-                  <tr key={label as string} className="border-b border-surface-2 last:border-0">
+                  <tr key={label as string} className="border-b border-divider last:border-0">
                     <td className="h-9 px-4 text-fg-mute w-48">{label}</td>
                     <td className="h-9 px-4 text-fg">{value || '—'}</td>
                   </tr>
@@ -284,7 +284,7 @@ export default async function VehicleDetailPage({
                     ['Modelo', moto.tracker_model],
                     ['IMEI', moto.tracker_imei ? formatIMEI(moto.tracker_imei) : null],
                   ].map(([label, value]) => (
-                    <tr key={label as string} className="border-b border-surface-2 last:border-0">
+                    <tr key={label as string} className="border-b border-divider last:border-0">
                       <td className="h-9 px-4 text-fg-mute w-48">{label}</td>
                       <td className="h-9 px-4 text-fg font-mono">{value || '—'}</td>
                     </tr>
@@ -308,7 +308,7 @@ export default async function VehicleDetailPage({
                     ['Valor mensal', moto.insurance_monthly_amount ? formatCurrency(moto.insurance_monthly_amount) : '—'],
                     ['Vencimento', formatDate(moto.insurance_expiry_date)],
                   ].map(([label, value]) => (
-                    <tr key={label as string} className="border-b border-surface-2 last:border-0">
+                    <tr key={label as string} className="border-b border-divider last:border-0">
                       <td className="h-9 px-4 text-fg-mute w-48">{label}</td>
                       <td className="h-9 px-4 text-fg">{value}</td>
                     </tr>
@@ -331,7 +331,7 @@ export default async function VehicleDetailPage({
               <p className="text-[13px] text-fg-mute px-4 py-3">Nenhuma transição registrada.</p>
             ) : (
               <table className="w-full text-[13px]">
-                <thead className="border-b border-surface-2">
+                <thead className="border-b border-divider">
                   <tr>
                     <th className="h-9 px-4 text-left text-fg-mute font-medium">De</th>
                     <th className="h-9 px-4 text-left text-fg-mute font-medium">Para</th>
@@ -340,7 +340,7 @@ export default async function VehicleDetailPage({
                 </thead>
                 <tbody>
                   {history.map((entry) => (
-                    <tr key={entry.id} className="border-b border-surface-2 last:border-0">
+                    <tr key={entry.id} className="border-b border-divider last:border-0">
                       <td className="h-9 px-4 text-fg-mute">
                         {entry.previous_status
                           ? VEHICLE_STATUS_LABELS[entry.previous_status as VehicleStatus]
@@ -373,7 +373,7 @@ export default async function VehicleDetailPage({
               <p className="text-[13px] text-fg-mute px-4 py-3">Nenhuma vistoria registrada para este veículo.</p>
             ) : (
               <table className="w-full text-[13px]">
-                <thead className="border-b border-surface-2">
+                <thead className="border-b border-divider">
                   <tr>
                     <th className="h-9 px-4 text-left text-fg-mute font-medium">Tipo</th>
                     <th className="h-9 px-4 text-left text-fg-mute font-medium">Cliente</th>
@@ -385,7 +385,7 @@ export default async function VehicleDetailPage({
                   {inspectionHistory.map((insp) => {
                     const badge = INSPECTION_STATUS_BADGE[insp.status] ?? INSPECTION_STATUS_BADGE.pending
                     return (
-                      <tr key={insp.id} className="border-b border-surface-2 last:border-0 hover:bg-surface-2 transition-colors">
+                      <tr key={insp.id} className="border-b border-divider last:border-0 hover:bg-surface-2 transition-colors">
                         <td className="h-9 px-4">
                           <Link href={`/vistorias/execute/${insp.id}`} className="text-fg hover:text-primary transition-colors">
                             {INSPECTION_KIND_LABEL[insp.kind] ?? insp.kind}
@@ -415,7 +415,7 @@ export default async function VehicleDetailPage({
             <h2 className="text-[14px] font-bold text-primary mb-3">Documentos Atuais</h2>
             <div className="bg-surface rounded-xl overflow-hidden">
               <table className="w-full text-[13px]">
-                <thead className="border-b border-surface-2">
+                <thead className="border-b border-divider">
                   <tr>
                     <th className="h-9 px-4 text-left text-fg-mute font-medium">Tipo</th>
                     <th className="h-9 px-4 text-left text-fg-mute font-medium">Nº</th>
@@ -425,7 +425,7 @@ export default async function VehicleDetailPage({
                 </thead>
                 <tbody>
                   {documents.map((doc) => (
-                    <tr key={doc.id} className="border-b border-surface-2 last:border-0">
+                    <tr key={doc.id} className="border-b border-divider last:border-0">
                       <td className="h-9 px-4 text-fg uppercase">{doc.type}</td>
                       <td className="h-9 px-4 text-fg-mute font-mono">{doc.document_number || '—'}</td>
                       <td className="h-9 px-4 text-fg-mute">{doc.exercise_year ?? '—'}</td>
@@ -446,7 +446,7 @@ export default async function VehicleDetailPage({
               <p className="h-9 px-4 flex items-center text-[13px] text-fg-mute">Nenhuma obrigação cadastrada</p>
             ) : (
               <table className="w-full text-[13px]">
-                <thead className="border-b border-surface-2">
+                <thead className="border-b border-divider">
                   <tr>
                     <th className="h-9 px-4 text-left text-fg-mute font-medium">Tipo</th>
                     <th className="h-9 px-4 text-left text-fg-mute font-medium">Ano ref.</th>
@@ -457,7 +457,7 @@ export default async function VehicleDetailPage({
                 </thead>
                 <tbody>
                   {obligations.map((obl) => (
-                    <tr key={obl.id} className="border-b border-surface-2 last:border-0">
+                    <tr key={obl.id} className="border-b border-divider last:border-0">
                       <td className="h-9 px-4 text-fg">{OBLIGATION_TYPE_LABELS[obl.type] ?? obl.type}</td>
                       <td className="h-9 px-4 text-fg-mute">{obl.reference_year ?? '—'}</td>
                       <td className="h-9 px-4 text-primary">{formatCurrency(obl.amount)}</td>
@@ -507,7 +507,7 @@ export default async function VehicleDetailPage({
             <h2 className="text-[14px] font-bold text-primary mb-3">Manutenções Recentes</h2>
             <div className="bg-surface rounded-xl overflow-hidden">
               <table className="w-full text-[13px]">
-                <thead className="border-b border-surface-2">
+                <thead className="border-b border-divider">
                   <tr>
                     <th className="h-9 px-4 text-left text-fg-mute font-medium">Descrição</th>
                     <th className="h-9 px-4 text-left text-fg-mute font-medium">Data prev.</th>
@@ -516,7 +516,7 @@ export default async function VehicleDetailPage({
                 </thead>
                 <tbody>
                   {maintenances.map((m) => (
-                    <tr key={m.id} className="border-b border-surface-2 last:border-0">
+                    <tr key={m.id} className="border-b border-divider last:border-0">
                       <td className="h-9 px-4 text-fg">{m.description}</td>
                       <td className="h-9 px-4 text-fg-mute">{formatDate(m.scheduled_date)}</td>
                       <td className="h-9 px-4">

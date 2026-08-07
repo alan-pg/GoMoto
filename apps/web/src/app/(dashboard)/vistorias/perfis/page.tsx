@@ -82,7 +82,7 @@ export default function InspectionProfilesPage() {
         }
       />
 
-      <div className="sticky top-[60px] z-[9] bg-bg border-b border-surface-2 px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="sticky top-[60px] z-[9] bg-bg border-b border-divider px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap border-b border-fg-mute">
           {FILTERS.map((opt) => {
             const isActive = filter === opt.value
@@ -120,7 +120,7 @@ export default function InspectionProfilesPage() {
         <div className="overflow-hidden rounded-xl bg-surface">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[13px] text-fg">
-              <thead className="border-b border-surface-2">
+              <thead className="border-b border-divider">
                 <tr>
                   <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Nome</th>
                   <th className="h-9 px-4 text-[13px] font-medium text-fg-mute hidden sm:table-cell">Descrição</th>
@@ -168,7 +168,7 @@ export default function InspectionProfilesPage() {
                     return (
                       <tr
                         key={profile.id}
-                        className="h-9 text-[13px] border-b border-surface-2 last:border-0 hover:bg-surface-2 transition-colors"
+                        className="h-9 text-[13px] border-b border-divider last:border-0 hover:bg-surface-2 transition-colors"
                       >
                         <td className="px-4">
                           <div className="flex items-center gap-2">

@@ -136,7 +136,7 @@ function VariablePickerDropdown({ editor }: { editor: Editor }) {
       {open && (
         <div className="absolute top-9 right-0 z-50 w-80 bg-surface border border-border rounded-xl shadow-xl overflow-hidden">
           {/* Categorias */}
-          <div className="flex border-b border-surface-2 overflow-x-auto">
+          <div className="flex border-b border-divider overflow-x-auto">
             {VARIABLE_CATEGORIES.map(cat => (
               <button
                 key={cat}
@@ -170,7 +170,7 @@ function VariablePickerDropdown({ editor }: { editor: Editor }) {
             ))}
           </div>
 
-          <div className="border-t border-surface-2 px-3 py-2">
+          <div className="border-t border-divider px-3 py-2">
             <p className="text-[11px] text-fg-mute">Clique para inserir no cursor</p>
           </div>
         </div>
@@ -181,7 +181,7 @@ function VariablePickerDropdown({ editor }: { editor: Editor }) {
 
 function EditorToolbar({ editor }: { editor: Editor }) {
   return (
-    <div className="flex items-center gap-0.5 flex-wrap px-3 py-2 border-b border-surface-2 bg-surface rounded-t-xl">
+    <div className="flex items-center gap-0.5 flex-wrap px-3 py-2 border-b border-divider bg-surface rounded-t-xl">
       {/* Undo / Redo */}
       <ToolbarButton
         onClick={() => editor.chain().focus().undo().run()}
@@ -364,7 +364,7 @@ export function ContractTemplateEditor({
   if (!editor) return null
 
   return (
-    <div className={`flex flex-col rounded-xl border border-surface-2 overflow-hidden ${className}`}>
+    <div className={`flex flex-col rounded-xl border border-divider overflow-hidden ${className}`}>
       {editable && <EditorToolbar editor={editor} />}
 
       {/* Canvas: fundo cinza (mesa) — cada .contract-page é uma folha branca */}

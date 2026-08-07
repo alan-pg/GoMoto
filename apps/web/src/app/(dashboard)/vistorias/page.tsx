@@ -291,7 +291,7 @@ export default function InspectionsPendingPage() {
                     <tr
                       key={`${row.kind}-${row.id}`}
                       onClick={() => router.push(row.href)}
-                      className="h-9 border-b border-surface-2 last:border-0 transition-colors hover:bg-surface-2 cursor-pointer"
+                      className="h-9 border-b border-divider last:border-0 transition-colors hover:bg-surface-2 cursor-pointer"
                     >
                       <td className="px-4">
                         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${cfg.bg} ${cfg.text}`}>

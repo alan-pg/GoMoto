@@ -21,7 +21,7 @@ export function RentalTabNav({ rentalId, showVistorias }: RentalTabNavProps) {
   ]
 
   return (
-    <nav className="flex gap-1 border-b border-surface-2 px-6">
+    <nav className="flex gap-1 border-b border-divider px-6">
       {tabs.map((tab) => {
         const active = pathname === tab.href
         return (
