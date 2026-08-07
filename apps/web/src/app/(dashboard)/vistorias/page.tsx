@@ -43,9 +43,9 @@ const KIND_LABEL: Record<Kind, string> = {
 }
 
 const URGENCY_CONFIG: Record<Urgency, { label: string; icon: typeof AlertTriangle; color: string; active: string; bg: string; text: string }> = {
-  overdue:         { label: 'Vencidas',         icon: AlertTriangle, color: 'text-danger', active: 'border-[#ff3e3c]', bg: 'bg-danger-bg', text: 'text-danger' },
+  overdue:         { label: 'Vencidas',         icon: AlertTriangle, color: 'text-danger', active: 'border-danger', bg: 'bg-danger-bg', text: 'text-danger' },
   review:          { label: 'Para revisar',     icon: ClipboardList, color: 'text-pending', active: 'border-pending', bg: 'bg-pending-bg', text: 'text-pending' },
-  pending:         { label: 'Pendentes',        icon: ClipboardCheck, color: 'text-primary', active: 'border-primary', bg: 'bg-[#233a05]', text: 'text-primary' },
+  pending:         { label: 'Pendentes',        icon: ClipboardCheck, color: 'text-primary', active: 'border-primary', bg: 'bg-primary-tint', text: 'text-primary' },
   awaiting_client: { label: 'Aguardando cliente', icon: Clock,        color: 'text-fg-mute', active: 'border-fg-mute', bg: 'bg-surface-2', text: 'text-fg-mute' },
 }
 

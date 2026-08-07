@@ -68,7 +68,7 @@ export default async function RentalDetailLayout({
                 </Link>
                 <Link
                   href={`/locacoes/${id}/encerrar`}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-full border border-danger bg-danger-bg px-3 text-[13px] text-danger transition-colors hover:bg-[#9c2c2c]"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-full border border-danger bg-danger-bg px-3 text-[13px] text-danger transition-opacity hover:opacity-80"
                   title="Encerrar"
                 >
                   <X className="h-4 w-4" />

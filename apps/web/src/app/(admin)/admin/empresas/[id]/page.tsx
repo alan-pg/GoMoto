@@ -173,7 +173,7 @@ export default async function EmpresaDetailPage({
           <span
             className={`inline-flex items-center h-7 px-3 rounded-full text-[13px] font-medium border ${
               isSuspended
-                ? 'bg-[#3a0000] text-[#f87171] border-[#f87171]/30'
+                ? 'bg-danger-bg text-danger border-danger'
                 : 'bg-success-bg text-success border-success'
             }`}
           >

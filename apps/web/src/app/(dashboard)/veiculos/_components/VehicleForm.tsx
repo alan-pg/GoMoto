@@ -1226,7 +1226,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                   <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 </div>
               ) : plans.length === 0 ? (
-                <div className="flex items-start gap-3 px-4 py-3 bg-[#1e1a00] border border-pending/30 rounded-xl">
+                <div className="flex items-start gap-3 px-4 py-3 bg-pending-bg border border-pending/30 rounded-xl">
                   <AlertCircle className="w-4 h-4 text-pending flex-shrink-0 mt-0.5" />
                   <div>
                     <p className="text-[13px] text-pending">Nenhum plano cadastrado — você pode criar depois.</p>
@@ -1251,7 +1251,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
 
                   {selectedPlanId && (
                     <>
-                      <div className="px-3 py-2.5 bg-[#1a2000] border border-[#6b9900]/30 rounded-lg">
+                      <div className="px-3 py-2.5 bg-primary-tint border border-primary/30 rounded-lg">
                         <p className="text-[12px] text-fg-mute">
                           Informe a <strong className="text-fg">última vez</strong> que cada item foi realizado. Deixe em branco se não souber — será marcado para revisão imediata.
                         </p>

@@ -93,7 +93,7 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; b
   paid:      { label: 'Paga',      bg: 'bg-success-bg', text: 'text-success', border: 'border-success' },
   overdue:   { label: 'Vencida',   bg: 'bg-danger-bg', text: 'text-danger', border: 'border-danger' },
   pending:   { label: 'Pendente',  bg: 'bg-info-bg', text: 'text-info', border: 'border-info' },
-  cancelled: { label: 'Cancelada', bg: 'bg-[#32323222]', text: 'text-fg-mute', border: 'border-divider' },
+  cancelled: { label: 'Cancelada', bg: 'bg-surface-2', text: 'text-fg-mute', border: 'border-divider' },
   prejudice: { label: 'Prejuízo',  bg: 'bg-warning-bg', text: 'text-warning', border: 'border-warning' },
 }
 

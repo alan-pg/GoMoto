@@ -25,7 +25,7 @@ const INSPECTION_KIND_LABEL: Record<string, string> = {
 }
 
 const INSPECTION_STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  pending:   { bg: 'bg-[#32323222]', text: 'text-fg-mute', label: 'Pendente'          },
+  pending:   { bg: 'bg-surface-2',   text: 'text-fg-mute', label: 'Pendente'          },
   completed: { bg: 'bg-success-bg',   text: 'text-success', label: 'Concluída'         },
   submitted: { bg: 'bg-pending-bg',   text: 'text-pending', label: 'Aguardando análise' },
   approved:  { bg: 'bg-success-bg',   text: 'text-success', label: 'Aprovada'          },
@@ -33,11 +33,11 @@ const INSPECTION_STATUS_BADGE: Record<string, { bg: string; text: string; label:
 }
 
 const STATUS_COLORS: Record<VehicleStatus, string> = {
-  available:   'bg-[#143c18] text-success border-success',
+  available:   'bg-success-bg text-success border-success',
   rented:      'bg-info-bg text-info border-info',
-  reserved:    'bg-[#1a1a3e] text-info border-info',
-  maintenance: 'bg-[#3a1800] text-[#fb923c] border-[#fb923c]/30',
-  sinister:    'bg-[#3a0000] text-[#f87171] border-[#f87171]/30',
+  reserved:    'bg-info-bg text-info border-info',
+  maintenance: 'bg-warning-bg text-warning border-warning/30',
+  sinister:    'bg-danger-bg text-danger border-danger/30',
   sold:        'bg-surface text-fg-mute border-fg-mute',
   inactive:    'bg-surface text-fg-mute border-fg-mute',
 }
@@ -463,7 +463,7 @@ export default async function VehicleDetailPage({
                       <td className="h-9 px-4 text-primary">{formatCurrency(obl.amount)}</td>
                       <td className="h-9 px-4 text-fg-mute">{formatDate(obl.due_date)}</td>
                       <td className="h-9 px-4">
-                        <span className={`text-[12px] font-medium ${obl.status === 'paid' ? 'text-success' : obl.status === 'overdue' ? 'text-[#f87171]' : obl.status === 'exempt' ? 'text-fg-mute' : 'text-warning'}`}>
+                        <span className={`text-[12px] font-medium ${obl.status === 'paid' ? 'text-success' : obl.status === 'overdue' ? 'text-danger' : obl.status === 'exempt' ? 'text-fg-mute' : 'text-warning'}`}>
                           {obl.status === 'paid' ? 'Pago' : obl.status === 'overdue' ? 'Vencido' : obl.status === 'exempt' ? 'Isento' : 'Pendente'}
                         </span>
                       </td>

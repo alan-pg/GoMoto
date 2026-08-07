@@ -135,7 +135,7 @@ export default function FilaPage() {
 
         {/* KPI */}
         <div className="flex items-center gap-4 rounded-xl bg-surface p-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#BAFF1A22] text-primary">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-tint text-primary">
             <Users className="h-6 w-6" />
           </div>
           <div>
@@ -180,7 +180,7 @@ export default function FilaPage() {
                       key={q.id}
                       style={{ transition: 'background-color 300ms ease' }}
                       className={`h-9 border-b border-border last:border-0 ${
-                        isMoving ? 'bg-[#BAFF1A18]' : 'hover:bg-surface-2'
+                        isMoving ? 'bg-primary-tint' : 'hover:bg-surface-2'
                       }`}
                     >
                       <td className="px-4">
@@ -221,7 +221,7 @@ export default function FilaPage() {
                           <Link
                             href={`/locacoes/nova?customer_id=${q.customer_id}`}
                             title="Iniciar locação para este cliente"
-                            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#BAFF1A22] px-2.5 text-[12px] font-medium text-primary transition-colors hover:bg-[#BAFF1A33]"
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary-tint px-2.5 text-[12px] font-medium text-primary transition-opacity hover:opacity-80"
                           >
                             <ArrowRight className="h-3.5 w-3.5" />
                             Nova locação

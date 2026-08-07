@@ -862,7 +862,7 @@ export default function ExpensesPage() {
                                   <div className="flex gap-2 mt-1 flex-wrap">
                                     {item.invoice_url && (
                                       <a href={item.invoice_url} target="_blank" rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary-tint text-primary border border-[#6b9900] transition-colors">
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary-tint text-primary border border-primary transition-colors">
                                         <FileText className="w-3 h-3" />
                                         Nota Fiscal
                                       </a>
@@ -992,7 +992,7 @@ export default function ExpensesPage() {
               </label>
               <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border rounded-lg h-12 transition-colors ${
                 form.invoiceFile || existingInvoiceUrl
-                  ? 'border-[#6b9900]'
+                  ? 'border-primary'
                   : 'border-border hover:border-primary'
               }`}>
                 <FileText className="w-4 h-4 text-fg-mute shrink-0" />
@@ -1078,7 +1078,7 @@ export default function ExpensesPage() {
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={e => e.stopPropagation()}
-                    className="text-info hover:text-[#c4a8ff] transition-colors shrink-0"
+                    className="text-info hover:opacity-80 transition-opacity shrink-0"
                     title="Ver arquivo"
                   >
                     <ExternalLink className="w-4 h-4" />

@@ -175,7 +175,7 @@ export default async function MaintenanceDetailPage({
                     existingBilling!.status === 'paid'
                       ? 'bg-success-bg text-success'
                       : existingBilling!.status === 'cancelled'
-                        ? 'bg-[#32323222] text-fg-mute'
+                        ? 'bg-surface-2 text-fg-mute'
                         : 'bg-info-bg text-info'
                   }`}>
                     {existingBilling!.status === 'paid' ? 'Paga' : existingBilling!.status === 'cancelled' ? 'Cancelada' : 'Pendente'}

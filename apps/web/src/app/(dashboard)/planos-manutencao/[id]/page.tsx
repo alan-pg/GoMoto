@@ -72,7 +72,7 @@ export default async function MaintenancePlanDetailPage({
         <section>
           <div className="flex flex-wrap items-center gap-2 mb-4">
             {plan.is_default && (
-              <span className="inline-flex items-center h-6 px-2.5 rounded-full text-[12px] font-medium bg-[#1a2700] text-primary border border-primary">
+              <span className="inline-flex items-center h-6 px-2.5 rounded-full text-[12px] font-medium bg-primary-tint text-primary border border-primary">
                 Padrão
               </span>
             )}

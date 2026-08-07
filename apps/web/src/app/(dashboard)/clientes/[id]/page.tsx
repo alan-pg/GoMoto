@@ -133,7 +133,7 @@ export default async function CustomerDetailPage({
               href={whatsappHref}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-[#1a3a1a] text-success text-[13px] font-medium hover:bg-[#1f4a1f] transition-colors"
+              className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-success-bg text-success text-[13px] font-medium hover:opacity-80 transition-opacity"
             >
               <MessageCircle className="w-4 h-4" />
               WhatsApp
@@ -155,14 +155,14 @@ export default async function CustomerDetailPage({
           <span className={`inline-flex items-center h-7 px-3 rounded-full text-[13px] font-medium border ${
             isActive
               ? 'bg-success-bg text-success border-success'
-              : 'bg-[#3a0000] text-[#f87171] border-[#f87171]/30'
+              : 'bg-danger-bg text-danger border-danger'
           }`}>
             {isActive ? 'Ativo' : 'Ex-Cliente'}
           </span>
           <span className={`inline-flex items-center h-7 px-3 rounded-full text-[13px] font-medium border ${
             isCompany
-              ? 'bg-[#1a1a3e] text-info border-info'
-              : 'bg-[#1a2600] text-primary border-primary'
+              ? 'bg-info-bg text-info border-info'
+              : 'bg-primary-tint text-primary border-primary'
           }`}>
             {isCompany ? 'Pessoa Jurídica' : 'Pessoa Física'}
           </span>
@@ -313,11 +313,11 @@ export default async function CustomerDetailPage({
                   <Row label="Categoria" value={customer.drivers_license_category} />
                   <tr className="border-b border-divider last:border-0">
                     <td className="h-9 px-4 text-fg-mute w-48 text-[13px]">Validade</td>
-                    <td className={`h-9 px-4 text-[13px] ${cnhExpired ? 'text-[#f87171]' : 'text-fg'}`}>
+                    <td className={`h-9 px-4 text-[13px] ${cnhExpired ? 'text-danger' : 'text-fg'}`}>
                       {customer.drivers_license_validity ? (
                         <>
                           {fmt(customer.drivers_license_validity)}
-                          {cnhExpired && <span className="ml-2 text-[11px] font-medium text-[#f87171]">(Vencida)</span>}
+                          {cnhExpired && <span className="ml-2 text-[11px] font-medium text-danger">(Vencida)</span>}
                         </>
                       ) : <span className="text-fg-mute italic">—</span>}
                     </td>

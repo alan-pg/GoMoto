@@ -125,7 +125,7 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
           <button
             onClick={() => { setFlashError(null); setPayAmount(amountDue > 0 ? amountDue.toFixed(2) : ''); setPayOpen(true) }}
             disabled={isPending}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-[13px] font-semibold text-bg transition-colors hover:bg-[#ccff40] disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-[13px] font-semibold text-bg transition-colors hover:bg-primary-hover disabled:opacity-50"
           >
             Registrar pagamento
           </button>
@@ -193,7 +193,7 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
             <button
               onClick={handlePay}
               disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-[#ccff40] disabled:opacity-50"
+              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-primary-hover disabled:opacity-50"
             >
               {isPending ? 'Salvando…' : 'Confirmar pagamento'}
             </button>
@@ -225,7 +225,7 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
             <button
               onClick={handleWaive}
               disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-[#ccff40] disabled:opacity-50"
+              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-primary-hover disabled:opacity-50"
             >
               {isPending ? 'Salvando…' : 'Confirmar dispensa'}
             </button>
@@ -270,7 +270,7 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
             <button
               onClick={handleCredit}
               disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-[#ccff40] disabled:opacity-50"
+              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-primary-hover disabled:opacity-50"
             >
               {isPending ? 'Salvando…' : 'Aplicar crédito'}
             </button>
@@ -295,7 +295,7 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
             <button
               onClick={handleCancel}
               disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full border border-danger bg-danger-bg text-[13px] text-danger hover:bg-[#9c2c2c] disabled:opacity-50"
+              className="inline-flex h-9 items-center px-4 rounded-full border border-danger bg-danger-bg text-[13px] text-danger transition-opacity hover:opacity-80 disabled:opacity-50"
             >
               {isPending ? 'Cancelando…' : 'Confirmar cancelamento'}
             </button>

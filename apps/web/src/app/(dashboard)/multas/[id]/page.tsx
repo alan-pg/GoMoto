@@ -239,7 +239,7 @@ export default async function FineDetailPage({
                 href={fine.ticket_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[13px] text-info hover:text-[#c4a0ff] transition-colors break-all"
+                className="text-[13px] text-info hover:opacity-80 transition-opacity break-all"
               >
                 {fine.ticket_url}
               </a>

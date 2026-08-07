@@ -119,8 +119,8 @@ const monthlyStats = {
  * Definido no módulo (fora do componente) para ser criado apenas uma vez.
  */
 const REPORT_COLOR_MAP: Record<ReportCard['color'], { bg: string; text: string; border: string }> = {
-  brand:   { bg: 'bg-primary-tint', text: 'text-primary', border: 'border-[#6b9900]' },
-  success: { bg: 'bg-success-bg', text: 'text-success', border: 'border-[#28b438]' },
+  brand:   { bg: 'bg-primary-tint', text: 'text-primary', border: 'border-primary' },
+  success: { bg: 'bg-success-bg', text: 'text-success', border: 'border-success' },
   warning: { bg: 'bg-warning-bg', text: 'text-warning', border: 'border-warning' },
   danger:  { bg: 'bg-danger-bg', text: 'text-danger', border: 'border-danger' },
   info:    { bg: 'bg-info-bg', text: 'text-info', border: 'border-info' },
@@ -230,7 +230,7 @@ export default function ReportsPage() {
               return (
                 <div
                   key={report.id}
-                  className="bg-surface rounded-xl p-4 flex items-start gap-4 hover:bg-[#262626] transition-colors"
+                  className="bg-surface rounded-xl p-4 flex items-start gap-4 hover:bg-divider transition-colors"
                 >
                   {/* Container do Ícone com cores dinâmicas */}
                   <div className={`p-3 rounded-full flex-shrink-0 ${styles.bg} border ${styles.border}`}>
@@ -288,7 +288,7 @@ export default function ReportsPage() {
 
       {/* NOTIFICAÇÃO (Toast): Feedback para relatórios bloqueados. */}
       {showToast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl bg-surface border border-[#6b9900] shadow-2xl animate-in fade-in slide-in-from-bottom">
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl bg-surface border border-primary shadow-2xl animate-in fade-in slide-in-from-bottom">
           <div className="w-2 h-2 rounded-full bg-primary" />
           <p className="text-[13px] text-fg">Este relatório ainda não está disponível.</p>
         </div>

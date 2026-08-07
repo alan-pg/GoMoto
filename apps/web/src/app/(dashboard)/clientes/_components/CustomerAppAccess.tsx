@@ -114,7 +114,7 @@ export function CustomerAppAccess({ customerId, customerEmail, hasAppAccess }: P
       )}
 
       {generatedLink && (
-        <div className="p-3 bg-[#1a2600] border border-[#3a5200] rounded-xl space-y-2">
+        <div className="p-3 bg-primary-tint border border-primary/30 rounded-xl space-y-2">
           <p className="text-[12px] font-medium text-primary">
             Link gerado — compartilhe com o cliente (ex: WhatsApp):
           </p>

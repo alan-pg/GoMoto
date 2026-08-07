@@ -257,13 +257,13 @@ export function AdjustRentalForm({ rental }: AdjustRentalFormProps) {
               </span>
             </div>
             {schedulePreview.discount_lost_total > 0 && (
-              <div className="flex items-start gap-2 rounded-lg border border-warning bg-[#3a1200] px-3 py-2.5 text-[13px] text-[#ffa040]">
+              <div className="flex items-start gap-2 rounded-lg border border-warning bg-warning-bg px-3 py-2.5 text-[13px] text-warning">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{formatCurrency(schedulePreview.discount_lost_total)} em desconto aplicado será perdido (cobrança cancelada).</span>
               </div>
             )}
             {schedulePreview.credit_to_restore_total > 0 && (
-              <div className="flex items-start gap-2 rounded-lg border border-warning bg-[#2a2000] px-3 py-2.5 text-[13px] text-[#fde047]">
+              <div className="flex items-start gap-2 rounded-lg border border-warning bg-warning-bg px-3 py-2.5 text-[13px] text-warning">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{formatCurrency(schedulePreview.credit_to_restore_total)} em crédito aplicado voltará a ficar disponível para o cliente.</span>
               </div>

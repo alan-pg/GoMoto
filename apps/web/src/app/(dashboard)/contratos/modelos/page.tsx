@@ -168,7 +168,7 @@ export default function ModelosPage() {
             Esta ação não pode ser desfeita.
           </p>
           {deleteError && (
-            <p className="text-[13px] text-danger bg-[#2a0a0a] border border-danger rounded-lg px-3 py-2">
+            <p className="text-[13px] text-danger bg-danger-bg border border-danger rounded-lg px-3 py-2">
               {deleteError}
             </p>
           )}

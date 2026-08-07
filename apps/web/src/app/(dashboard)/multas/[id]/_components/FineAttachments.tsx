@@ -239,7 +239,7 @@ export function FineAttachments({ fineId, attachments: initial }: Props) {
                 </span>
               </div>
               {byType[type].map((att) => (
-                <div key={att.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-border last:border-0 hover:bg-[#252525] transition-colors">
+                <div key={att.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-border last:border-0 hover:bg-divider transition-colors">
                   <FileText className="w-4 h-4 text-fg-mute flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] text-fg truncate">

@@ -78,7 +78,7 @@ export function TerminateForm({ rental }: TerminateFormProps) {
           type="button"
           onClick={handleConfirm}
           disabled={isPending || !terminationDate}
-          className="inline-flex h-8 items-center rounded-full bg-danger-bg px-5 text-[13px] font-bold text-danger transition-colors hover:bg-[#9c2c2c] disabled:opacity-60"
+          className="inline-flex h-8 items-center rounded-full bg-danger-bg px-5 text-[13px] font-bold text-danger transition-opacity hover:opacity-80 disabled:opacity-60"
         >
           {isPending ? 'Encerrando…' : 'Confirmar Encerramento'}
         </button>
@@ -112,7 +112,7 @@ export function TerminateForm({ rental }: TerminateFormProps) {
         {impact && (
           <div className="space-y-2">
             {impact.overdue_count > 0 && (
-              <div className="flex items-start gap-2 rounded-lg border border-warning bg-[#3a1200] px-3 py-2.5 text-[13px] text-[#ffa040]">
+              <div className="flex items-start gap-2 rounded-lg border border-warning bg-warning-bg px-3 py-2.5 text-[13px] text-warning">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
                   {impact.overdue_count} cobrança{impact.overdue_count !== 1 ? 's' : ''} vencida
@@ -130,7 +130,7 @@ export function TerminateForm({ rental }: TerminateFormProps) {
               </div>
             )}
             {impact.within_minimum && (
-              <div className="flex items-start gap-2 rounded-lg border border-warning bg-[#2a2000] px-3 py-2.5 text-[13px] text-[#fde047]">
+              <div className="flex items-start gap-2 rounded-lg border border-warning bg-warning-bg px-3 py-2.5 text-[13px] text-warning">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
                   Rescisão dentro da vigência mínima —{' '}
@@ -139,7 +139,7 @@ export function TerminateForm({ rental }: TerminateFormProps) {
               </div>
             )}
             {newStatus === 'transferred' && (
-              <div className="flex items-start gap-2 rounded-lg border border-info bg-[#0a1f3a] px-3 py-2.5 text-[13px] text-info">
+              <div className="flex items-start gap-2 rounded-lg border border-info bg-info-bg px-3 py-2.5 text-[13px] text-info">
                 <ChevronRight className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>Compra Programada cumprida — status será alterado para <strong>Transferida</strong>.</span>
               </div>

@@ -291,7 +291,7 @@ export function EmpresasListClient({
                                 onClick={() => handleReactivate(tenant)}
                                 disabled={isPending}
                                 title="Reativar"
-                                className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-success-bg text-success hover:bg-[#1a4a1f] transition-colors disabled:opacity-50"
+                                className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-success-bg text-success hover:opacity-80 transition-opacity disabled:opacity-50"
                               >
                                 <Play className="h-4 w-4" />
                               </button>

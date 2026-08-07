@@ -65,7 +65,7 @@ export function VehicleFinancialActions({ vehicleId, hasAcquisitionValue, alread
           <button
             onClick={() => { setFlashError(null); setSaleOpen(true) }}
             disabled={isPending}
-            className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-[13px] font-semibold text-bg transition-colors hover:bg-[#ccff40] disabled:opacity-50"
+            className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-[13px] font-semibold text-bg transition-colors hover:bg-primary-hover disabled:opacity-50"
           >
             Registrar alienação
           </button>
@@ -103,7 +103,7 @@ export function VehicleFinancialActions({ vehicleId, hasAcquisitionValue, alread
             <button
               onClick={handleSale}
               disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-[#ccff40] disabled:opacity-50"
+              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-primary-hover disabled:opacity-50"
             >
               {isPending ? 'Salvando…' : 'Confirmar alienação'}
             </button>
@@ -133,7 +133,7 @@ export function VehicleFinancialActions({ vehicleId, hasAcquisitionValue, alread
             <button
               onClick={handleAcquisition}
               disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-[#ccff40] disabled:opacity-50"
+              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-primary-hover disabled:opacity-50"
             >
               {isPending ? 'Salvando…' : 'Salvar'}
             </button>

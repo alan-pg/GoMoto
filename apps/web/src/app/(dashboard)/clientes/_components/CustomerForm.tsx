@@ -167,7 +167,7 @@ function DocumentUpload({
           <button
             type="button"
             onClick={onClear}
-            className="absolute top-2 right-2 w-7 h-7 rounded-full bg-danger-bg text-danger flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[#9c2c2c]"
+            className="absolute top-2 right-2 w-7 h-7 rounded-full bg-danger-bg text-danger flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
             title="Remover"
           >
             <X className="w-4 h-4" />
@@ -179,7 +179,7 @@ function DocumentUpload({
           )}
         </div>
       ) : (
-        <label className="flex flex-col items-center justify-center gap-2 h-32 rounded-xl border-2 border-dashed border-border bg-surface-2 cursor-pointer hover:border-primary hover:bg-[#2f2f2f] transition-all">
+        <label className="flex flex-col items-center justify-center gap-2 h-32 rounded-xl border-2 border-dashed border-border bg-surface-2 cursor-pointer hover:border-primary hover:bg-divider transition-all">
           <Upload className="w-5 h-5 text-fg-mute" />
           <span className="text-[13px] text-fg-mute">Clique para selecionar</span>
           <span className="text-[11px] text-border">JPG, PNG, WebP ou PDF — máx. 10MB</span>

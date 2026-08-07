@@ -50,7 +50,7 @@ const STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> 
   paid:      { bg: 'bg-success-bg', text: 'text-success', label: 'Paga' },
   overdue:   { bg: 'bg-danger-bg', text: 'text-danger', label: 'Vencida' },
   pending:   { bg: 'bg-info-bg', text: 'text-info', label: 'Pendente' },
-  cancelled: { bg: 'bg-[#32323222]', text: 'text-fg-mute', label: 'Cancelada' },
+  cancelled: { bg: 'bg-surface-2', text: 'text-fg-mute', label: 'Cancelada' },
   prejudice: { bg: 'bg-warning-bg', text: 'text-warning', label: 'Prejuízo' },
 }
 

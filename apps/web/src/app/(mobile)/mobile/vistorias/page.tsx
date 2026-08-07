@@ -53,12 +53,12 @@ export default function MobileInspectionsPage() {
             <Link
               key={insp.id}
               href={`/mobile/vistorias/${insp.id}`}
-              className="block rounded-xl bg-surface border border-border active:bg-[#232323] transition-colors p-4"
+              className="block rounded-xl bg-surface border border-border active:bg-divider transition-colors p-4"
             >
               <div className="flex items-center justify-between gap-2">
                 <span
                   className={`inline-flex h-6 items-center rounded-full px-2.5 text-[11px] font-semibold ${
-                    insp.kind === 'checkin' ? 'bg-[#233a05] text-primary' : 'bg-surface-2 text-fg-soft'
+                    insp.kind === 'checkin' ? 'bg-primary-tint text-primary' : 'bg-surface-2 text-fg-soft'
                   }`}
                 >
                   {KIND_LABEL[insp.kind] ?? insp.kind}

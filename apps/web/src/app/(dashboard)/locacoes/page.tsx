@@ -25,9 +25,9 @@ const CYCLE_LABEL: Record<string, string> = {
 }
 
 const STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  active:      { bg: 'bg-[#BAFF1A22]', text: 'text-primary', label: 'Ativa'       },
-  closed:      { bg: 'bg-[#32323222]', text: 'text-fg-mute', label: 'Encerrada'   },
-  transferred: { bg: 'bg-[#60a5fa22]', text: 'text-info', label: 'Transferida' },
+  active:      { bg: 'bg-primary-tint', text: 'text-primary', label: 'Ativa'       },
+  closed:      { bg: 'bg-surface-2',    text: 'text-fg-mute', label: 'Encerrada'   },
+  transferred: { bg: 'bg-info-bg',      text: 'text-info', label: 'Transferida' },
 }
 
 function daysUntil(dateStr: string | null | undefined): number | null {
@@ -148,7 +148,7 @@ export default function LocacoesPage() {
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <KpiCard
             icon={Clock}
-            iconBg="bg-[#BAFF1A22]"
+            iconBg="bg-primary-tint"
             iconColor="text-primary"
             label="Locações ativas"
             value={kpis.total}

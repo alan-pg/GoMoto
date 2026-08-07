@@ -665,7 +665,7 @@ export function PlanForm({ planId, initialPlan, initialItems }: PlanFormProps) {
                       if (!showCloneInput) setCloneNameInput(`${initialPlan?.name ?? 'Plano'} (cópia)`)
                       setShowCloneInput((p) => !p)
                     }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-[13px] text-fg hover:bg-[#222] transition-colors"
+                    className="w-full flex items-center gap-3 px-4 py-3 text-[13px] text-fg hover:bg-divider transition-colors"
                   >
                     <Copy className="h-4 w-4 text-fg-mute flex-shrink-0" />
                     <span className="flex-1 text-left">Clonar este plano</span>

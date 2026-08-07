@@ -33,7 +33,7 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
 
   return (
     <Providers>
-      <div className="flex h-screen bg-[#0d0d0d]">
+      <div className="flex h-screen bg-bg">
           <aside className="w-[240px] border-r border-divider bg-bg p-4 flex flex-col shrink-0 overflow-y-auto">
             <div className="flex items-center gap-2 mb-6">
               <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">

@@ -731,7 +731,7 @@ export default function CobrancasPage() {
       {/* Modal: Confirmar recebimento de pagamento */}
       <Modal open={!!confirmingPaid} onClose={() => setConfirmingPaid(null)} title="Confirmar Pagamento" size="sm">
         <div className="space-y-4">
-          <div className="p-4 bg-success-bg border border-[#28b438] rounded-xl space-y-2">
+          <div className="p-4 bg-success-bg border border-success rounded-xl space-y-2">
             <p className="text-[13px] text-fg font-medium">Confirmar recebimento desta cobrança?</p>
             {confirmingPaid && (
               <div className="space-y-0.5">

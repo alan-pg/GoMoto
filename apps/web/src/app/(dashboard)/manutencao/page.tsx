@@ -899,7 +899,7 @@ export default function MaintenancePage() {
             O quinto card (Custo do Mês) é informativo, não filtra. */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
           {([
-            { key: 'overdue',   label: 'Vencidas',      count: totals.overdue,   icon: AlertTriangle, color: 'text-danger', active: 'border-[#ff3e3c]' },
+            { key: 'overdue',   label: 'Vencidas',      count: totals.overdue,   icon: AlertTriangle, color: 'text-danger', active: 'border-danger' },
             { key: 'upcoming',  label: 'Próximas',      count: totals.upcoming,  icon: Clock,         color: 'text-warning', active: 'border-warning' },
             { key: 'scheduled', label: 'Agendadas',     count: totals.scheduled, icon: Wrench,        color: 'text-info', active: 'border-info' },
             { key: 'completed', label: 'Concluídas mês', count: totals.completed, icon: CheckCircle2,  color: 'text-success', active: 'border-success' },
@@ -1301,7 +1301,7 @@ export default function MaintenancePage() {
                   <label className="text-[13px] text-fg">
                     Foto do KM <span className="text-fg-mute text-[12px]">(opcional)</span>
                   </label>
-                  <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${formData.odometer_photo_file ? 'border-[#6b9900]' : 'border-divider hover:border-border'}`}>
+                  <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${formData.odometer_photo_file ? 'border-primary' : 'border-divider hover:border-border'}`}>
                     <Camera className="w-4 h-4 text-fg-mute shrink-0" />
                     <span className="flex-1 text-[13px] truncate text-fg-mute">
                       {formData.odometer_photo_file ? formData.odometer_photo_file.name : 'Nenhum arquivo selecionado'}
@@ -1318,7 +1318,7 @@ export default function MaintenancePage() {
                   <label className="text-[13px] text-fg">
                     Nota Fiscal <span className="text-fg-mute text-[12px]">(opcional)</span>
                   </label>
-                  <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${formData.invoice_photo_file ? 'border-[#6b9900]' : 'border-divider hover:border-border'}`}>
+                  <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${formData.invoice_photo_file ? 'border-primary' : 'border-divider hover:border-border'}`}>
                     <FileText className="w-4 h-4 text-fg-mute shrink-0" />
                     <span className="flex-1 text-[13px] truncate text-fg-mute">
                       {formData.invoice_photo_file ? formData.invoice_photo_file.name : 'Nenhum arquivo selecionado'}
@@ -1604,7 +1604,7 @@ export default function MaintenancePage() {
                   if (nextItems.length === 0) return null
 
                   return (
-                    <div className="rounded-xl border border-[#154f1d] bg-success-bg px-4 py-3 space-y-2">
+                    <div className="rounded-xl border border-success/30 bg-success-bg px-4 py-3 space-y-2">
                       <p className="text-[13px] font-medium text-success">
                         Próximas manutenções agendadas
                       </p>
@@ -1619,7 +1619,7 @@ export default function MaintenancePage() {
                           </span>
                         </div>
                       ))}
-                      <p className="text-[13px] text-success border-t border-[#154f1d] pt-2">
+                      <p className="text-[13px] text-success border-t border-success/30 pt-2">
                         Próxima ida à oficina: {nextItems[0].description}
                       </p>
                     </div>
@@ -1757,7 +1757,7 @@ export default function MaintenancePage() {
                           <label className="text-[13px] text-fg">
                             Foto do KM <span className="text-fg-mute text-[12px]">(imagem)</span>
                           </label>
-                          <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${fin.odometer_photo_file ? 'border-[#6b9900]' : 'border-divider hover:border-border'}`}>
+                          <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${fin.odometer_photo_file ? 'border-primary' : 'border-divider hover:border-border'}`}>
                             <Camera className="w-4 h-4 text-fg-mute shrink-0" />
                             <span className="flex-1 text-[13px] truncate text-fg-mute">
                               {fin.odometer_photo_file ? fin.odometer_photo_file.name : 'Nenhum arquivo selecionado'}
@@ -1777,7 +1777,7 @@ export default function MaintenancePage() {
                           <label className="text-[13px] text-fg">
                             Nota Fiscal <span className="text-fg-mute text-[12px]">(imagem)</span>
                           </label>
-                          <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${fin.invoice_photo_file ? 'border-[#6b9900]' : 'border-divider hover:border-border'}`}>
+                          <div className={`relative flex items-center gap-3 px-4 bg-surface-2 border-2 rounded-lg h-12 transition-colors ${fin.invoice_photo_file ? 'border-primary' : 'border-divider hover:border-border'}`}>
                             <FileText className="w-4 h-4 text-fg-mute shrink-0" />
                             <span className="flex-1 text-[13px] truncate text-fg-mute">
                               {fin.invoice_photo_file ? fin.invoice_photo_file.name : 'Nenhum arquivo selecionado'}

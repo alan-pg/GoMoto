@@ -18,9 +18,9 @@ const ACTION_LABELS: Partial<Record<VehicleStatus, string>> = {
 }
 
 const ACTION_COLORS: Partial<Record<VehicleStatus, string>> = {
-  sold:      'bg-danger-bg text-danger hover:bg-[#9c2c2c] border border-danger',
+  sold:      'bg-danger-bg text-danger hover:opacity-80 border border-danger',
   inactive:  'bg-surface-2 text-fg-mute hover:bg-divider border border-border',
-  available: 'bg-[#143c18] text-success hover:bg-[#1a5020] border border-success',
+  available: 'bg-success-bg text-success hover:opacity-80 border border-success',
 }
 
 const CONFIRM_MESSAGES: Partial<Record<VehicleStatus, string>> = {
@@ -67,7 +67,7 @@ export default function VehicleStatusActions({ vehicleId, currentStatus, selecta
             key={status}
             onClick={() => handleClick(status)}
             disabled={isPending}
-            className={`h-8 px-4 rounded-full text-[13px] font-medium transition-colors disabled:opacity-60 ${ACTION_COLORS[status] ?? 'bg-surface-2 text-fg'}`}
+            className={`h-8 px-4 rounded-full text-[13px] font-medium transition-all disabled:opacity-60 ${ACTION_COLORS[status] ?? 'bg-surface-2 text-fg'}`}
           >
             {ACTION_LABELS[status] ?? VEHICLE_STATUS_LABELS[status]}
           </button>
@@ -98,7 +98,7 @@ export default function VehicleStatusActions({ vehicleId, currentStatus, selecta
               <button
                 onClick={() => execute(confirmStatus)}
                 disabled={isPending}
-                className={`h-9 px-4 rounded-full text-[13px] font-medium transition-colors disabled:opacity-60 ${ACTION_COLORS[confirmStatus] ?? ''}`}
+                className={`h-9 px-4 rounded-full text-[13px] font-medium transition-all disabled:opacity-60 ${ACTION_COLORS[confirmStatus] ?? ''}`}
               >
                 {isPending ? 'Aguarde...' : `Confirmar ${ACTION_LABELS[confirmStatus]}`}
               </button>

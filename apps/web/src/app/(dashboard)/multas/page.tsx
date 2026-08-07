@@ -60,9 +60,9 @@ const STATUS_BADGE: Record<FineStatus, { bg: string; text: string; label: string
 }
 
 const STATUS_DOT: Record<'overdue' | 'due_soon' | 'ok', string> = {
-  overdue:  'bg-[#ff3e3c]',
+  overdue:  'bg-danger',
   due_soon: 'bg-warning',
-  ok:       'bg-[#28b438]',
+  ok:       'bg-success',
 }
 
 // ─── Auxiliar de status dinâmico ──────────────────────────────────────────────

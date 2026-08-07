@@ -55,7 +55,7 @@ export function SuspendActions({
         <button
           onClick={handleReactivate}
           disabled={isPending}
-          className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-success-bg text-success text-[13px] font-medium hover:bg-[#1a4a1f] transition-colors disabled:opacity-50"
+          className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-success-bg text-success text-[13px] font-medium hover:opacity-80 transition-opacity disabled:opacity-50"
         >
           <Play className="w-4 h-4" />
           {isPending ? 'Reativando…' : 'Reativar'}

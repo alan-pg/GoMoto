@@ -322,13 +322,13 @@ export default async function DashboardPage() {
       text: 'text-danger',
     },
     orange: {
-      bg: 'bg-[#3a2400]',
+      bg: 'bg-pending-bg',
       border: 'border-pending/50',
       dot: 'bg-pending',
       text: 'text-pending',
     },
     yellow: {
-      bg: 'bg-[#2a2c00]',
+      bg: 'bg-primary-tint',
       border: 'border-primary',
       dot: 'bg-primary',
       text: 'text-primary',
@@ -463,7 +463,7 @@ export default async function DashboardPage() {
             <h3 className="text-[13px] font-semibold text-fg">Atenção Agora</h3>
           </div>
           {attentionItems.length === 0 ? (
-            <p className="text-[13px] text-[#28b438]">Tudo em dia — nenhuma pendência crítica.</p>
+            <p className="text-[13px] text-success">Tudo em dia — nenhuma pendência crítica.</p>
           ) : (
             <div className="flex flex-wrap gap-2">
               {attentionItems.map((item) => {

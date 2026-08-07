@@ -105,7 +105,7 @@ export default async function AdminDashboardPage() {
 
       <section>
         <h2 className="text-[16px] font-semibold text-fg mb-3">Por empresa</h2>
-        <div className="rounded-xl border border-divider overflow-hidden bg-[#181818]">
+        <div className="rounded-xl border border-divider overflow-hidden bg-surface">
           <table className="w-full text-left">
             <thead className="bg-surface text-[12px] uppercase tracking-wide text-fg-mute">
               <tr>
@@ -169,7 +169,7 @@ function KpiCard({
   sub?: string
 }) {
   return (
-    <div className="rounded-xl border border-divider bg-[#181818] p-4">
+    <div className="rounded-xl border border-divider bg-surface p-4">
       <div className="flex items-center gap-2 text-fg-mute text-[12px] uppercase tracking-wide">
         {icon}
         <span>{label}</span>

@@ -355,7 +355,7 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
                   type="button"
                   disabled={reviewing}
                   onClick={handleReject}
-                  className="h-9 px-5 rounded-full bg-danger text-danger-bg text-[13px] font-bold hover:bg-[#ffb3b1] transition-colors disabled:opacity-60"
+                  className="h-9 px-5 rounded-full bg-danger text-danger-bg text-[13px] font-bold hover:opacity-80 transition-opacity disabled:opacity-60"
                 >
                   {reviewing ? 'Rejeitando…' : 'Confirmar rejeição'}
                 </button>
