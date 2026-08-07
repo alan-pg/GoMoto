@@ -118,7 +118,19 @@ Pedido do stakeholder: avaliar os 4 temas × claro/escuro contra 21 critérios d
 
 Perguntado ao stakeholder se valia corrigir: reaproveitar `--border` (3:1, agora forte de propósito — é limite de componente de verdade) deixaria cabeçalho sticky, tab nav e toda linha de tabela "mais quadriculados" de uma vez, uma mudança de densidade visual ampla demais pra ser side-effect de um ajuste de contraste. Decisão: **novo token `--divider`**, calculado a partir do matiz do `--border` original (antes da correção — mesma família de cinza, só menos escurecida), mapeado em `tailwind.config.ts` (`divider: "var(--divider)"`) e aplicado nas 194 ocorrências de `border-surface-2` trocadas mecanicamente por `border-divider` (substring exata, não confunde com `bg-surface-2`, que continua intacto — 214 ocorrências, é uso legítimo de fundo).
 
-Primeira rodada em ~1,75:1 — visível, mas o stakeholder pediu pra ver mais suave antes de fechar. Segunda rodada em ~1,4:1 (aprovada): mesma direção de matiz, só menos escurecida/clareada — ainda bem acima do `border-surface-2` original (~1,1:1, quase invisível) mas notavelmente mais discreta que a primeira tentativa. Confirmado visualmente em `/veiculos` (claro e escuro) e `/dashboard`: divisórias de linha aparecem, sem ficar pesadas.
+Três rodadas de calibração visual até fechar, todas na mesma direção de matiz do `--border` original, só variando o quanto escurece/clareia:
+
+| Rodada | Contraste | Resultado |
+|---|---|---|
+| 1ª | ~1,75:1 | Visível, mas pedido pra suavizar antes de fechar |
+| 2ª | ~1,4:1 | Aprovada nesse momento, mas na comparação seguinte o stakeholder não percebeu diferença nenhuma frente à 1ª — o degrau era pequeno demais pra registrar a olho |
+| 3ª | ~1,15–1,3:1 (varia por marca — 6 das 8 paletas ficam matematicamente idênticas ao `border-surface-2` original) | Aprovada — mesmo sendo, pra maioria das marcas, o nível "quase invisível" que gerou a queixa original, é isso que o stakeholder queria pra linha de tabela |
+
+Confirmado visualmente em `/veiculos` (claro e escuro) e `/dashboard`.
+
+**Divisor de chrome estrutural (sidebar/topbar) é um caso à parte** — só descoberto depois, ao pedir pra suavizar "mais": a borda direita da sidebar, a linha sob o header (`Topbar.tsx`), e os divisores internos dos menus suspensos (`Sidebar.tsx`, `Modal.tsx`) usavam `border-border` — o token forte (3:1), não `--divider`. Diferente do `border-surface-2` (que nunca tinha token nenhum, ficava invisível por acidente), aqui o token usado sempre foi semanticamente "border" — só que antes da correção do §7 ele também era pálido (~1,2:1), então ninguém notava. Depois da correção pra 3:1 (proposital, pra limite de componente de verdade — contorno de input/card/botão), esse mesmo token passou a deixar a sidebar/header visualmente mais fortes do que antes, um efeito colateral que só apareceu quando comparado lado a lado.
+
+Resolvido com o mesmo princípio do §7 original: nem todo uso de "border" é limite de componente. Contorno de elemento flutuante (menu suspenso, tooltip, modal — que precisa se destacar do que está atrás) continua `border-border`. Divisor estrutural interno/de layout (borda da sidebar, linha sob o header, divisor dentro de um menu já aberto, linha sob o título de um modal) virou `border-divider` — 8 ocorrências em `Sidebar.tsx`, `Topbar.tsx` e `Modal.tsx`. Não mexeu nos outros ~215 usos de `border-border` no app (inputs, cards, botões — esses são literalmente o caso de uso que motivou fortalecer o token, ficam como estão).
 
 ### 7.1 Regressão descoberta a partir de `/veiculos/novo`: `bg-border` usado como preenchimento neutro
 

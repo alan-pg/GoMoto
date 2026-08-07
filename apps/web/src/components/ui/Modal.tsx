@@ -114,7 +114,7 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
       >
         {/* Cabeçalho da Modal: Renderizado apenas se um `title` for fornecido. */}
         {title && (
-          <div className="flex items-center justify-between p-5 border-b border-border sticky top-0 bg-surface z-10">
+          <div className="flex items-center justify-between p-5 border-b border-divider sticky top-0 bg-surface z-10">
             <h2 className="text-lg font-medium text-fg">{title}</h2>
             <button
               onClick={onClose}

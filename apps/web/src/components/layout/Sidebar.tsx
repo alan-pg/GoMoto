@@ -176,7 +176,7 @@ function BranchItem({
             onMouseEnter={keepFly}
             onMouseLeave={closeFly}
           >
-            <div className="px-3 py-2 border-b border-border">
+            <div className="px-3 py-2 border-b border-divider">
               <span className="text-[11px] font-semibold text-fg-mute uppercase tracking-wider">
                 {item.label}
               </span>
@@ -243,7 +243,7 @@ function BranchItem({
       </button>
 
       {isOpen && (
-        <div className="mt-0.5 ml-4 border-l border-border pl-1.5 space-y-0.5 pb-1">
+        <div className="mt-0.5 ml-4 border-l border-divider pl-1.5 space-y-0.5 pb-1">
           {item.children.map(child => (
             <LeafItem
               key={child.href}
@@ -298,13 +298,13 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'fixed inset-y-0 left-0 z-50 flex flex-col bg-bg border-r border-border',
+        'fixed inset-y-0 left-0 z-50 flex flex-col bg-bg border-r border-divider',
         'transition-[width] duration-300 ease-in-out',
         expanded ? 'w-[256px]' : 'w-[64px]',
       )}
     >
       {/* Logo + toggle */}
-      <div className="h-10 flex items-center justify-between px-3 border-b border-border shrink-0">
+      <div className="h-10 flex items-center justify-between px-3 border-b border-divider shrink-0">
         <Link
           href="/dashboard"
           className="flex items-center gap-2.5 rounded-lg outline-none overflow-hidden min-w-0"
@@ -372,7 +372,7 @@ export function Sidebar() {
       </nav>
 
       {/* Bottom: Configurações */}
-      <div className="border-t border-border py-2">
+      <div className="border-t border-divider py-2">
         {DASHBOARD_NAV_BOTTOM.map(item => (
           <LeafItem
             key={item.href}

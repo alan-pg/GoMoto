@@ -53,7 +53,7 @@ export function Topbar({ userName, userEmail }: TopbarProps) {
   const [menuOpen, setMenuOpen] = useState(false)
 
   return (
-    <header className="shrink-0 z-20 h-10 flex items-center justify-between px-5 bg-bg border-b border-border">
+    <header className="shrink-0 z-20 h-10 flex items-center justify-between px-5 bg-bg border-b border-divider">
       {/* Breadcrumbs */}
       <nav className="flex items-center gap-0.5 text-[12px]" aria-label="Navegação">
         {breadcrumbs.map((crumb, i) => (
@@ -100,7 +100,7 @@ export function Topbar({ userName, userEmail }: TopbarProps) {
             <>
               <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
               <div className="absolute right-0 top-9 z-40 w-[220px] bg-surface border border-border rounded-xl shadow-2xl py-1">
-                <div className="px-4 py-3 border-b border-border">
+                <div className="px-4 py-3 border-b border-divider">
                   <p className="text-[13px] font-medium text-fg truncate">
                     {userName ?? userEmail ?? '—'}
                   </p>

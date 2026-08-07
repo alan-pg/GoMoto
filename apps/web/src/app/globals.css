@@ -30,7 +30,7 @@
    0019-sistema-multi-tema-web.md §7 para a tabela antes/depois.
 
    "border" (~3:1) é limite de componente de verdade — contorno de input,
-   card, botão. "divider" (~1,4:1) é separador decorativo de linha de
+   card, botão. "divider" (~1,15-1,3:1) é separador decorativo de linha de
    tabela/lista/cabeçalho sticky: visível, mas mais discreto — não é
    "border" (pesado demais pra aparecer em toda linha de tabela) nem
    "surface-2" (é token de fundo, não de borda — por isso ficava a
@@ -40,7 +40,7 @@
 :root {
   /* Fallback antes do <html data-brand> resolver — mesmo valor do default
      'frota-confiavel' claro, nunca deveria ser visível na prática. */
-  --bg: #F8FAFC; --surface: #FFFFFF; --surface-2: #F1F5F9; --border: #7A96BA; --divider: #D1DBE7;
+  --bg: #F8FAFC; --surface: #FFFFFF; --surface-2: #F1F5F9; --border: #7A96BA; --divider: #E2E8F0;
   --fg: #0F172A; --fg-soft: #475569; --fg-mute: #627794;
   --primary: #2563EB; --primary-hover: #1D4ED8; --primary-contrast: #FFFFFF; --primary-tint: #EFF6FF;
   --success: #11803A; --success-bg: #DCFCE7;
@@ -72,7 +72,7 @@
 
 /* ── 01. Frota Confiável (default) — azul, neutros frios ── */
 :root[data-brand="frota-confiavel"] {
-  --bg: #F8FAFC; --surface: #FFFFFF; --surface-2: #F1F5F9; --border: #7A96BA; --divider: #D1DBE7;
+  --bg: #F8FAFC; --surface: #FFFFFF; --surface-2: #F1F5F9; --border: #7A96BA; --divider: #E2E8F0;
   --fg: #0F172A; --fg-soft: #475569; --fg-mute: #627794;
   --primary: #2563EB; --primary-hover: #1D4ED8; --primary-contrast: #FFFFFF; --primary-tint: #EFF6FF;
   --success: #11803A; --success-bg: #DCFCE7;
@@ -83,7 +83,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root[data-brand="frota-confiavel"] {
-    --bg: #0B1120; --surface: #111827; --surface-2: #0F172A; --border: #4E678A; --divider: #273445;
+    --bg: #0B1120; --surface: #111827; --surface-2: #0F172A; --border: #4E678A; --divider: #1F2937;
     --fg: #F1F5F9; --fg-soft: #94A3B8; --fg-mute: #72829A;
     --primary: #3B82F6; --primary-hover: #60A5FA; --primary-contrast: #0B1120; --primary-tint: rgba(59,130,246,.16);
     --success: #22C55E; --success-bg: rgba(34,197,94,.16);
@@ -94,7 +94,7 @@
   }
 }
 :root[data-brand="frota-confiavel"][data-mode="light"] {
-  --bg: #F8FAFC; --surface: #FFFFFF; --surface-2: #F1F5F9; --border: #7A96BA; --divider: #D1DBE7;
+  --bg: #F8FAFC; --surface: #FFFFFF; --surface-2: #F1F5F9; --border: #7A96BA; --divider: #E2E8F0;
   --fg: #0F172A; --fg-soft: #475569; --fg-mute: #627794;
   --primary: #2563EB; --primary-hover: #1D4ED8; --primary-contrast: #FFFFFF; --primary-tint: #EFF6FF;
   --success: #11803A; --success-bg: #DCFCE7;
@@ -104,7 +104,7 @@
   --pending: #976703; --pending-bg: #FEF9C3;
 }
 :root[data-brand="frota-confiavel"][data-mode="dark"] {
-  --bg: #0B1120; --surface: #111827; --surface-2: #0F172A; --border: #4E678A; --divider: #273445;
+  --bg: #0B1120; --surface: #111827; --surface-2: #0F172A; --border: #4E678A; --divider: #1F2937;
   --fg: #F1F5F9; --fg-soft: #94A3B8; --fg-mute: #72829A;
   --primary: #3B82F6; --primary-hover: #60A5FA; --primary-contrast: #0B1120; --primary-tint: rgba(59,130,246,.16);
   --success: #22C55E; --success-bg: rgba(34,197,94,.16);
@@ -116,7 +116,7 @@
 
 /* ── 02. Estrada — petróleo, neutros quentes ── */
 :root[data-brand="estrada"] {
-  --bg: #FAFAF9; --surface: #FFFFFF; --surface-2: #F4F4F3; --border: #9A928A; --divider: #DCD9D6;
+  --bg: #FAFAF9; --surface: #FFFFFF; --surface-2: #F4F4F3; --border: #9A928A; --divider: #E7E5E3;
   --fg: #1C1917; --fg-soft: #57534E; --fg-mute: #7C746F;
   --primary: #0C8479; --primary-hover: #0A6A61; --primary-contrast: #FFFFFF; --primary-tint: #F0FDFA;
   --success: #047D57; --success-bg: #D1FAE5;
@@ -127,7 +127,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root[data-brand="estrada"] {
-    --bg: #18181B; --surface: #212023; --surface-2: #1C1B1E; --border: #6D6A72; --divider: #3A383C;
+    --bg: #18181B; --surface: #212023; --surface-2: #1C1B1E; --border: #6D6A72; --divider: #2C2B2E;
     --fg: #FAFAF9; --fg-soft: #A8A29E; --fg-mute: #8E8781;
     --primary: #2DD4BF; --primary-hover: #5EEAD4; --primary-contrast: #0F172A; --primary-tint: rgba(45,212,191,.16);
     --success: #34D399; --success-bg: rgba(52,211,153,.16);
@@ -138,7 +138,7 @@
   }
 }
 :root[data-brand="estrada"][data-mode="light"] {
-  --bg: #FAFAF9; --surface: #FFFFFF; --surface-2: #F4F4F3; --border: #9A928A; --divider: #DCD9D6;
+  --bg: #FAFAF9; --surface: #FFFFFF; --surface-2: #F4F4F3; --border: #9A928A; --divider: #E7E5E3;
   --fg: #1C1917; --fg-soft: #57534E; --fg-mute: #7C746F;
   --primary: #0C8479; --primary-hover: #0A6A61; --primary-contrast: #FFFFFF; --primary-tint: #F0FDFA;
   --success: #047D57; --success-bg: #D1FAE5;
@@ -148,7 +148,7 @@
   --pending: #A16207; --pending-bg: #FEF9C3;
 }
 :root[data-brand="estrada"][data-mode="dark"] {
-  --bg: #18181B; --surface: #212023; --surface-2: #1C1B1E; --border: #6D6A72; --divider: #3A383C;
+  --bg: #18181B; --surface: #212023; --surface-2: #1C1B1E; --border: #6D6A72; --divider: #2C2B2E;
   --fg: #FAFAF9; --fg-soft: #A8A29E; --fg-mute: #8E8781;
   --primary: #2DD4BF; --primary-hover: #5EEAD4; --primary-contrast: #0F172A; --primary-tint: rgba(45,212,191,.16);
   --success: #34D399; --success-bg: rgba(52,211,153,.16);
@@ -160,7 +160,7 @@
 
 /* ── 03. Sinalização — laranja-ember, dark-first ── */
 :root[data-brand="sinalizacao"] {
-  --bg: #0B0C10; --surface: #15161B; --surface-2: #101116; --border: #5E6476; --divider: #2F313B;
+  --bg: #0B0C10; --surface: #15161B; --surface-2: #101116; --border: #5E6476; --divider: #24262D;
   --fg: #F4F5F7; --fg-soft: #A7ABB6; --fg-mute: #7B808C;
   --primary: #F2790A; --primary-hover: #FB8B24; --primary-contrast: #0B0C10; --primary-tint: rgba(242,121,10,.16);
   --success: #22C55E; --success-bg: rgba(34,197,94,.16);
@@ -171,7 +171,7 @@
 }
 @media (prefers-color-scheme: light) {
   :root[data-brand="sinalizacao"] {
-    --bg: #FAFAFA; --surface: #FFFFFF; --surface-2: #F2F2F3; --border: #93939B; --divider: #DADADC;
+    --bg: #FAFAFA; --surface: #FFFFFF; --surface-2: #F2F2F3; --border: #93939B; --divider: #E5E5E7;
     --fg: #111114; --fg-soft: #52525B; --fg-mute: #75757F;
     --primary: #BD5909; --primary-hover: #A54E08; --primary-contrast: #FFFFFF; --primary-tint: #FFF1E4;
     --success: #11803A; --success-bg: #DCFCE7;
@@ -182,7 +182,7 @@
   }
 }
 :root[data-brand="sinalizacao"][data-mode="light"] {
-  --bg: #FAFAFA; --surface: #FFFFFF; --surface-2: #F2F2F3; --border: #93939B; --divider: #DADADC;
+  --bg: #FAFAFA; --surface: #FFFFFF; --surface-2: #F2F2F3; --border: #93939B; --divider: #E5E5E7;
   --fg: #111114; --fg-soft: #52525B; --fg-mute: #75757F;
   --primary: #BD5909; --primary-hover: #A54E08; --primary-contrast: #FFFFFF; --primary-tint: #FFF1E4;
   --success: #11803A; --success-bg: #DCFCE7;
@@ -192,7 +192,7 @@
   --pending: #854D0E; --pending-bg: #FEF3C7;
 }
 :root[data-brand="sinalizacao"][data-mode="dark"] {
-  --bg: #0B0C10; --surface: #15161B; --surface-2: #101116; --border: #5E6476; --divider: #2F313B;
+  --bg: #0B0C10; --surface: #15161B; --surface-2: #101116; --border: #5E6476; --divider: #24262D;
   --fg: #F4F5F7; --fg-soft: #A7ABB6; --fg-mute: #7B808C;
   --primary: #F2790A; --primary-hover: #FB8B24; --primary-contrast: #0B0C10; --primary-tint: rgba(242,121,10,.16);
   --success: #22C55E; --success-bg: rgba(34,197,94,.16);
@@ -204,7 +204,7 @@
 
 /* ── 04. Clássico — verde-limão sobre preto (visual original do sistema) ── */
 :root[data-brand="classico"] {
-  --bg: #121212; --surface: #202020; --surface-2: #323232; --border: #6B6B6B; --divider: #393939;
+  --bg: #121212; --surface: #202020; --surface-2: #323232; --border: #6B6B6B; --divider: #333333;
   --fg: #FFFFFF; --fg-soft: #A0A0A0; --fg-mute: #878787;
   --primary: #BAFF1A; --primary-hover: #A8E617; --primary-contrast: #121212; --primary-tint: #243300;
   --success: #25A636; --success-bg: #0E2F13;
@@ -215,7 +215,7 @@
 }
 @media (prefers-color-scheme: light) {
   :root[data-brand="classico"] {
-    --bg: #FAFAF8; --surface: #FFFFFF; --surface-2: #F0F0EC; --border: #95957E; --divider: #DADAD2;
+    --bg: #FAFAF8; --surface: #FFFFFF; --surface-2: #F0F0EC; --border: #95957E; --divider: #E4E4DE;
     --fg: #171717; --fg-soft: #52525B; --fg-mute: #76766E;
     --primary: #608000; --primary-hover: #506B00; --primary-contrast: #FFFFFF; --primary-tint: #F1F8DC;
     --success: #11803A; --success-bg: #DCFCE7;
@@ -226,7 +226,7 @@
   }
 }
 :root[data-brand="classico"][data-mode="light"] {
-  --bg: #FAFAF8; --surface: #FFFFFF; --surface-2: #F0F0EC; --border: #95957E; --divider: #DADAD2;
+  --bg: #FAFAF8; --surface: #FFFFFF; --surface-2: #F0F0EC; --border: #95957E; --divider: #E4E4DE;
   --fg: #171717; --fg-soft: #52525B; --fg-mute: #76766E;
   --primary: #608000; --primary-hover: #506B00; --primary-contrast: #FFFFFF; --primary-tint: #F1F8DC;
   --success: #11803A; --success-bg: #DCFCE7;
@@ -236,7 +236,7 @@
   --pending: #9E6007; --pending-bg: #FEF3C7;
 }
 :root[data-brand="classico"][data-mode="dark"] {
-  --bg: #121212; --surface: #202020; --surface-2: #323232; --border: #6B6B6B; --divider: #393939;
+  --bg: #121212; --surface: #202020; --surface-2: #323232; --border: #6B6B6B; --divider: #333333;
   --fg: #FFFFFF; --fg-soft: #A0A0A0; --fg-mute: #878787;
   --primary: #BAFF1A; --primary-hover: #A8E617; --primary-contrast: #121212; --primary-tint: #243300;
   --success: #25A636; --success-bg: #0E2F13;
