@@ -29,13 +29,13 @@ const filterOptions = [
 const ACTIVE_STATUSES = ['available', 'rented', 'reserved', 'maintenance', 'sinister']
 
 const statusColorMap: Record<string, string> = {
-  available:   '#28b438',
-  rented:      '#a880ff',
-  reserved:    '#818cf8',
-  maintenance: '#e65e24',
-  sinister:    '#f87171',
-  sold:        '#9e9e9e',
-  inactive:    '#474747',
+  available:   'var(--success)',
+  rented:      'var(--info)',
+  reserved:    'var(--info)',
+  maintenance: 'var(--warning)',
+  sinister:    'var(--danger)',
+  sold:        'var(--fg-mute)',
+  inactive:    'var(--fg-mute)',
 }
 
 // ─── Componente ──────────────────────────────────────────────────────────────
@@ -199,7 +199,7 @@ export default function VehiclesPage() {
                       </td>
                       <td className="px-4">
                         <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: statusColorMap[vehicle.status] ?? '#9e9e9e' }} />
+                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: statusColorMap[vehicle.status] ?? 'var(--fg-mute)' }} />
                           <span className="font-mono font-bold text-fg">{vehicle.license_plate}</span>
                         </div>
                       </td>

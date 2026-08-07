@@ -57,11 +57,11 @@ const OBLIGATION_STATUS_OPTIONS = [
   { value: 'exempt',  label: 'Isento' },
 ]
 
-const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
-  available:   { label: 'Disponível',    bg: '#143c18', text: '#4ade80', border: '#4ade8060' },
-  reserved:    { label: 'Reservado',     bg: '#1a1a3e', text: '#818cf8', border: '#818cf860' },
-  maintenance: { label: 'Em manutenção', bg: '#3a1800', text: '#fb923c', border: '#fb923c60' },
-  sinister:    { label: 'Sinistrado',    bg: '#3a0000', text: '#f87171', border: '#f8717160' },
+const STATUS_CONFIG: Record<string, { label: string; activeCls: string }> = {
+  available:   { label: 'Disponível',    activeCls: 'bg-success-bg text-success border-success' },
+  reserved:    { label: 'Reservado',     activeCls: 'bg-info-bg text-info border-info' },
+  maintenance: { label: 'Em manutenção', activeCls: 'bg-warning-bg text-warning border-warning' },
+  sinister:    { label: 'Sinistrado',    activeCls: 'bg-danger-bg text-danger border-danger' },
 }
 
 const NAV_ITEMS = [
@@ -989,7 +989,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
             <SectionHeader title="Status na Frota" />
             {isRented ? (
               <div className="flex items-center gap-3">
-                <div className="h-9 px-4 rounded-full text-[13px] font-medium border inline-flex items-center" style={{ background: '#2d0363', color: '#a880ff', borderColor: '#a880ff40' }}>
+                <div className="h-9 px-4 rounded-full text-[13px] font-medium border inline-flex items-center bg-info-bg text-info border-info">
                   {VEHICLE_STATUS_LABELS.rented}
                 </div>
                 <p className="text-[12px] text-fg-mute">Status Locado é gerenciado automaticamente via contratos.</p>
@@ -1003,11 +1003,9 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                       key={value}
                       type="button"
                       onClick={() => set('status', value)}
-                      className="h-9 px-5 rounded-full text-[13px] font-medium border transition-all"
-                      style={isActive
-                        ? { background: cfg.bg, color: cfg.text, borderColor: cfg.border }
-                        : { background: 'transparent', color: '#616161', borderColor: '#323232' }
-                      }
+                      className={`h-9 px-5 rounded-full text-[13px] font-medium border transition-all ${
+                        isActive ? cfg.activeCls : 'bg-transparent text-fg-mute border-border'
+                      }`}
                     >
                       {cfg.label}
                     </button>
