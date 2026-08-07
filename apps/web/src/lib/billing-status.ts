@@ -27,11 +27,11 @@ export function netBillingAmount(billing: {
 }
 
 export const BILLING_STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  paid:      { bg: 'bg-[#0e2f13]', text: 'text-[#229731]', label: 'Paga' },
-  overdue:   { bg: 'bg-[#7c1c1c]', text: 'text-[#ff9c9a]', label: 'Vencida' },
-  pending:   { bg: 'bg-[#2d0363]', text: 'text-[#a880ff]', label: 'Pendente' },
-  cancelled: { bg: 'bg-[#32323222]', text: 'text-[#9e9e9e]', label: 'Cancelada' },
-  prejudice: { bg: 'bg-[#3a180f]', text: 'text-[#e65e24]', label: 'Prejuízo' },
+  paid:      { bg: 'bg-success-bg', text: 'text-success', label: 'Paga' },
+  overdue:   { bg: 'bg-danger-bg',  text: 'text-danger',  label: 'Vencida' },
+  pending:   { bg: 'bg-info-bg',    text: 'text-info',    label: 'Pendente' },
+  cancelled: { bg: 'bg-surface-2',  text: 'text-fg-mute', label: 'Cancelada' },
+  prejudice: { bg: 'bg-warning-bg', text: 'text-warning', label: 'Prejuízo' },
 }
 
 export const BILLING_TYPE_LABEL: Record<string, string> = {
@@ -39,4 +39,5 @@ export const BILLING_TYPE_LABEL: Record<string, string> = {
   one_time:      'Avulsa',
   complementary: 'Complementar',
   deposit:       'Caução',
+  down_payment:  'Entrada',
 }

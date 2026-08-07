@@ -155,6 +155,18 @@ Corrigido convertendo pra classes Tailwind (`bg-success-bg text-success border-s
 
 Busca author dedicada por esse padrão (`style={{ ... #hex ... }}`) no resto do app achou só mais dois hits, ambos no preview de contrato (`TemplatePreview.tsx`, `ContractTemplateEditor.tsx`) — `background: '#c8cdd6'` é o "tapume" cinza atrás da folha A4 branca simulando papel impresso, deliberadamente neutro e fixo independente do tema (a folha em si já é branca fixa, ver `.contract-page` em `globals.css`) — não é bug, não alterado.
 
+### 7.4 Quarto achado: hex cravado em lib `.ts` compartilhada (não `.tsx`)
+
+Stakeholder reportou `/locacoes/[id]/financeiro` com "Ativa" e "Paga" ilegíveis no claro. Causa: mais um ponto cego novo — dessa vez nem classe Tailwind num componente (§7.2) nem `style={{}}` inline (§7.3), mas hex cravado dentro de **arquivos `.ts` utilitários compartilhados**, que nenhuma busca anterior cobria porque todas eram implícita ou explicitamente escopadas a `.tsx` (onde mora o JSX que "parece" ter cor).
+
+Dois arquivos, cinco mapas de badge, todos com o mesmo padrão (par bg/text em hex, herdado do tema escuro original):
+- `apps/web/src/lib/billing-status.ts` — `BILLING_STATUS_BADGE` (paid/overdue/pending/cancelled/prejudice), consumido por `locacoes/[id]/(tabs)/financeiro/page.tsx`.
+- `apps/web/src/app/(dashboard)/locacoes/[id]/(tabs)/_lib/shared.ts` — `STATUS_BADGE` (status da locação — o "Ativa" do topo, usado em 5 arquivos: `layout.tsx`, `financeiro`, `manutencoes`, `vistorias`, `InspectionStatusCard.tsx`), `SCHEDULE_STATUS_BADGE`, `INSPECTION_STATUS_BADGE` (também importado por `veiculos/[id]/page.tsx`, fora da árvore de locações) e `MAINTENANCE_STATUS_BADGE`.
+
+`STATUS_BADGE.active` merece destaque: `{ bg: 'bg-[#BAFF1A22]', text: 'text-[#BAFF1A]' }` — o lime do Clássico cravado como cor de "ativa" pra qualquer marca, mesma classe do achado de hover do §7.2 (`#ccff40`/`#BAFF1A`), só que fixo na tela o tempo todo em vez de só no hover — um operador em Frota Confiável via a locação ativa marcada com um verde-limão sem nenhuma relação com a marca escolhida.
+
+Todos os 5 mapas remapeados pros tokens semânticos já estabelecidos (mesma regra do §7.2 — a cor ao lado no hex antigo indica o token certo): `success`/`danger`/`warning`/`info`/`pending` `-bg`/token, neutro pra `surface-2`/`fg-mute`. Confirmação: busca por `bg-\[#`/`text-\[#`/`border-\[#` em `.ts` (não `.tsx`) no app inteiro e em `packages/` não achou mais nenhuma ocorrência — esses eram os dois únicos arquivos com esse padrão.
+
 Outras melhorias da mesma auditoria, aplicadas fora do CSS:
 - Seção "Aparência" movida pra primeiro lugar em `/configuracoes` (antes ficava abaixo de "Dados da Empresa", exigindo scroll) — achado de descobribilidade.
 - Confirmação de que já existe feedback inline pós-salvar ("Aparência atualizada.") — item que a auditoria tinha marcado como "não capturado", checado no código (`configuracoes/page.tsx`, `handleSaveTheme`).
