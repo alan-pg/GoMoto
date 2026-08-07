@@ -446,7 +446,91 @@ export default function SettingsPage() {
       <PageTitle title="Configurações" subtitle="Gerencie as informações da empresa e detalhes da sua conta" />
       <div className="p-6 space-y-8 max-w-5xl">
 
-        {/* SEÇÃO 1: Dados da Empresa */}
+        {/* SEÇÃO 1: Aparência (ADR 0019) — preferência pessoal, colocada primeiro
+            para não depender de rolar a página até o fim de "Dados da Empresa"
+            para ser encontrada (achado de descobribilidade da auditoria de
+            UX/UI 2026-08-06, ver ADR 0019 §7). */}
+        <section>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2.5 rounded-full bg-primary-tint">
+              <Palette className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-[28px] font-semibold text-fg">Aparência</h2>
+              <p className="text-[13px] text-fg-mute">
+                Escolha a identidade visual e o modo de cor do sistema — vale só pra você, não muda pros outros operadores.
+              </p>
+            </div>
+          </div>
+
+          <Card>
+            <div className="space-y-5">
+              <div>
+                <p className="text-[13px] text-fg-soft mb-2">Tema</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {THEME_BRANDS.map((brand) => (
+                    <button
+                      key={brand.value}
+                      type="button"
+                      onClick={() => handleSelectThemeBrand(brand.value)}
+                      className={cn(
+                        'text-left rounded-xl border p-3 transition-colors',
+                        themeBrand === brand.value ? 'border-primary bg-primary-tint' : 'border-border hover:border-fg-mute',
+                      )}
+                    >
+                      <div className="flex gap-1 mb-2">
+                        {brand.swatch.map((hex) => (
+                          <span
+                            key={hex}
+                            className="w-5 h-5 rounded-full border border-black/10"
+                            style={{ backgroundColor: hex }}
+                          />
+                        ))}
+                      </div>
+                      <p className="text-[13px] font-medium text-fg">{brand.label}</p>
+                      <p className="text-[11px] text-fg-mute mt-0.5">{brand.description}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-[13px] text-fg-soft mb-2">Modo de cor</p>
+                <div className="inline-flex rounded-full border border-border p-1 gap-1">
+                  {COLOR_MODES.map((mode) => (
+                    <button
+                      key={mode.value}
+                      type="button"
+                      onClick={() => handleSelectColorMode(mode.value)}
+                      className={cn(
+                        'h-8 px-4 rounded-full text-[12px] font-medium transition-colors',
+                        colorMode === mode.value ? 'bg-primary text-primary-contrast' : 'text-fg-soft hover:text-fg',
+                      )}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 gap-4">
+                <FeedbackMessage feedback={themeFeedback} />
+                <Button
+                  variant="primary"
+                  size="md"
+                  loading={isSavingTheme}
+                  onClick={handleSaveTheme}
+                  className="ml-auto flex-shrink-0"
+                >
+                  <Save className="w-4 h-4" />
+                  Salvar Aparência
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </section>
+
+        {/* SEÇÃO 2: Dados da Empresa */}
         <section>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2.5 rounded-full bg-surface-2">
@@ -529,88 +613,7 @@ export default function SettingsPage() {
           </Card>
         </section>
 
-        {/* SEÇÃO 1.5: Aparência (ADR 0019) */}
-        <section>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2.5 rounded-full bg-primary-tint">
-              <Palette className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-[28px] font-semibold text-fg">Aparência</h2>
-              <p className="text-[13px] text-fg-mute">
-                Escolha a identidade visual e o modo de cor do sistema — vale só pra você, não muda pros outros operadores.
-              </p>
-            </div>
-          </div>
-
-          <Card>
-            <div className="space-y-5">
-              <div>
-                <p className="text-[13px] text-fg-soft mb-2">Tema</p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {THEME_BRANDS.map((brand) => (
-                    <button
-                      key={brand.value}
-                      type="button"
-                      onClick={() => handleSelectThemeBrand(brand.value)}
-                      className={cn(
-                        'text-left rounded-xl border p-3 transition-colors',
-                        themeBrand === brand.value ? 'border-primary bg-primary-tint' : 'border-border hover:border-fg-mute',
-                      )}
-                    >
-                      <div className="flex gap-1 mb-2">
-                        {brand.swatch.map((hex) => (
-                          <span
-                            key={hex}
-                            className="w-5 h-5 rounded-full border border-black/10"
-                            style={{ backgroundColor: hex }}
-                          />
-                        ))}
-                      </div>
-                      <p className="text-[13px] font-medium text-fg">{brand.label}</p>
-                      <p className="text-[11px] text-fg-mute mt-0.5">{brand.description}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="text-[13px] text-fg-soft mb-2">Modo de cor</p>
-                <div className="inline-flex rounded-full border border-border p-1 gap-1">
-                  {COLOR_MODES.map((mode) => (
-                    <button
-                      key={mode.value}
-                      type="button"
-                      onClick={() => handleSelectColorMode(mode.value)}
-                      className={cn(
-                        'h-8 px-4 rounded-full text-[12px] font-medium transition-colors',
-                        colorMode === mode.value ? 'bg-primary text-primary-contrast' : 'text-fg-soft hover:text-fg',
-                      )}
-                    >
-                      {mode.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-2 gap-4">
-                <FeedbackMessage feedback={themeFeedback} />
-                <Button
-                  variant="primary"
-                  size="md"
-                  loading={isSavingTheme}
-                  onClick={handleSaveTheme}
-                  className="ml-auto flex-shrink-0"
-                >
-                  <Save className="w-4 h-4" />
-                  Salvar Aparência
-                </Button>
-              </div>
-            </div>
-          </Card>
-        </section>
-
-        {/* SEÇÃO 2: Segurança — Alteração de Senha */}
+        {/* SEÇÃO 3: Segurança — Alteração de Senha */}
         <section>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2.5 rounded-full bg-info-bg border border-info">
@@ -671,7 +674,7 @@ export default function SettingsPage() {
           </Card>
         </section>
 
-        {/* SEÇÃO 3: Integração de Pagamento */}
+        {/* SEÇÃO 4: Integração de Pagamento */}
         <section>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2.5 rounded-full bg-info-bg border border-info">
@@ -731,7 +734,7 @@ export default function SettingsPage() {
           </Card>
         </section>
 
-        {/* SEÇÃO 4: Informações da Conta */}
+        {/* SEÇÃO 5: Informações da Conta */}
         <section>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2.5 rounded-full bg-warning-bg border border-warning">

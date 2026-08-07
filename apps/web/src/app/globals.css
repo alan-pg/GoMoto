@@ -21,53 +21,63 @@
    Nenhum componente deve usar hex cravado — sempre var(--token) (ou as
    classes Tailwind mapeadas em tailwind.config.ts: bg-surface, text-fg,
    border-border, bg-primary, bg-success-bg text-success, etc.).
+
+   Correção de contraste (auditoria UX/UI 2026-08-06, ver ADR 0019 §7):
+   border, fg-mute, primary-contrast (3 marcas/claro) e os pares de badge
+   success/warning/danger/info/pending que falhavam AA no claro foram
+   reescurecidos (ou reclareados, no escuro) até 4,5:1 — 3:1 para border,
+   que é limite de componente, não texto. Ver obsidian-notes/decisions/
+   0019-sistema-multi-tema-web.md §7 para a tabela antes/depois.
    ════════════════════════════════════════════════════════════════════ */
 
 :root {
   /* Fallback antes do <html data-brand> resolver — mesmo valor do default
      'frota-confiavel' claro, nunca deveria ser visível na prática. */
-  --bg: #F8FAFC; --surface: #FFFFFF; --surface-2: #F1F5F9; --border: #E2E8F0;
-  --fg: #0F172A; --fg-soft: #475569; --fg-mute: #94A3B8;
+  --bg: #F8FAFC; --surface: #FFFFFF; --surface-2: #F1F5F9; --border: #7A96BA;
+  --fg: #0F172A; --fg-soft: #475569; --fg-mute: #627794;
   --primary: #2563EB; --primary-hover: #1D4ED8; --primary-contrast: #FFFFFF; --primary-tint: #EFF6FF;
-  --success: #16A34A; --success-bg: #DCFCE7;
-  --warning: #D97706; --warning-bg: #FEF3C7;
-  --danger: #DC2626; --danger-bg: #FEE2E2;
-  --info: #0284C7; --info-bg: #E0F2FE;
-  --pending: #CA8A04; --pending-bg: #FEF9C3;
-  --critical: #B91C1C; --critical-bg: #FECACA;
+  --success: #11803A; --success-bg: #DCFCE7;
+  --warning: #A65B05; --warning-bg: #FEF3C7;
+  --danger: #CB2121; --danger-bg: #FEE2E2;
+  --info: #0272AC; --info-bg: #E0F2FE;
+  --pending: #976703; --pending-bg: #FEF9C3;
+  --critical: #B71C1C; --critical-bg: #FECACA;
 }
 
 /* ── Crítico (ADR 0020) — único token que NÃO varia por marca.
    Alarme raro e severo (ex.: 30+ dias de atraso) — fica igual nas 4
    direções de propósito, pra ser reconhecível independente do tema ativo.
-   Responde a claro/escuro como os demais, mas nunca a data-brand. ── */
+   Responde a claro/escuro como os demais, mas nunca a data-brand.
+   critical-bg no escuro usa alpha .12 (não .16 como os demais badges) —
+   com .16 o fg precisaria clarear demais para bater 4,5:1 nas 4 marcas
+   ao mesmo tempo; .12 preserva o vermelho mais próximo do original. ── */
 @media (prefers-color-scheme: dark) {
   :root {
-    --critical: #FF3B30; --critical-bg: rgba(255,59,48,.16);
+    --critical: #FF5C53; --critical-bg: rgba(255,92,83,.12);
   }
 }
 :root[data-mode="light"] {
-  --critical: #B91C1C; --critical-bg: #FECACA;
+  --critical: #B71C1C; --critical-bg: #FECACA;
 }
 :root[data-mode="dark"] {
-  --critical: #FF3B30; --critical-bg: rgba(255,59,48,.16);
+  --critical: #FF5C53; --critical-bg: rgba(255,92,83,.12);
 }
 
 /* ── 01. Frota Confiável (default) — azul, neutros frios ── */
 :root[data-brand="frota-confiavel"] {
-  --bg: #F8FAFC; --surface: #FFFFFF; --surface-2: #F1F5F9; --border: #E2E8F0;
-  --fg: #0F172A; --fg-soft: #475569; --fg-mute: #94A3B8;
+  --bg: #F8FAFC; --surface: #FFFFFF; --surface-2: #F1F5F9; --border: #7A96BA;
+  --fg: #0F172A; --fg-soft: #475569; --fg-mute: #627794;
   --primary: #2563EB; --primary-hover: #1D4ED8; --primary-contrast: #FFFFFF; --primary-tint: #EFF6FF;
-  --success: #16A34A; --success-bg: #DCFCE7;
-  --warning: #D97706; --warning-bg: #FEF3C7;
-  --danger: #DC2626; --danger-bg: #FEE2E2;
-  --info: #0284C7; --info-bg: #E0F2FE;
-  --pending: #CA8A04; --pending-bg: #FEF9C3;
+  --success: #11803A; --success-bg: #DCFCE7;
+  --warning: #A65B05; --warning-bg: #FEF3C7;
+  --danger: #CB2121; --danger-bg: #FEE2E2;
+  --info: #0272AC; --info-bg: #E0F2FE;
+  --pending: #976703; --pending-bg: #FEF9C3;
 }
 @media (prefers-color-scheme: dark) {
   :root[data-brand="frota-confiavel"] {
-    --bg: #0B1120; --surface: #111827; --surface-2: #0F172A; --border: #1F2937;
-    --fg: #F1F5F9; --fg-soft: #94A3B8; --fg-mute: #64748B;
+    --bg: #0B1120; --surface: #111827; --surface-2: #0F172A; --border: #4E678A;
+    --fg: #F1F5F9; --fg-soft: #94A3B8; --fg-mute: #72829A;
     --primary: #3B82F6; --primary-hover: #60A5FA; --primary-contrast: #0B1120; --primary-tint: rgba(59,130,246,.16);
     --success: #22C55E; --success-bg: rgba(34,197,94,.16);
     --warning: #F59E0B; --warning-bg: rgba(245,158,11,.16);
@@ -77,41 +87,41 @@
   }
 }
 :root[data-brand="frota-confiavel"][data-mode="light"] {
-  --bg: #F8FAFC; --surface: #FFFFFF; --surface-2: #F1F5F9; --border: #E2E8F0;
-  --fg: #0F172A; --fg-soft: #475569; --fg-mute: #94A3B8;
+  --bg: #F8FAFC; --surface: #FFFFFF; --surface-2: #F1F5F9; --border: #7A96BA;
+  --fg: #0F172A; --fg-soft: #475569; --fg-mute: #627794;
   --primary: #2563EB; --primary-hover: #1D4ED8; --primary-contrast: #FFFFFF; --primary-tint: #EFF6FF;
-  --success: #16A34A; --success-bg: #DCFCE7;
-  --warning: #D97706; --warning-bg: #FEF3C7;
-  --danger: #DC2626; --danger-bg: #FEE2E2;
-  --info: #0284C7; --info-bg: #E0F2FE;
-  --pending: #CA8A04; --pending-bg: #FEF9C3;
+  --success: #11803A; --success-bg: #DCFCE7;
+  --warning: #A65B05; --warning-bg: #FEF3C7;
+  --danger: #CB2121; --danger-bg: #FEE2E2;
+  --info: #0272AC; --info-bg: #E0F2FE;
+  --pending: #976703; --pending-bg: #FEF9C3;
 }
 :root[data-brand="frota-confiavel"][data-mode="dark"] {
-  --bg: #0B1120; --surface: #111827; --surface-2: #0F172A; --border: #1F2937;
-  --fg: #F1F5F9; --fg-soft: #94A3B8; --fg-mute: #64748B;
+  --bg: #0B1120; --surface: #111827; --surface-2: #0F172A; --border: #4E678A;
+  --fg: #F1F5F9; --fg-soft: #94A3B8; --fg-mute: #72829A;
   --primary: #3B82F6; --primary-hover: #60A5FA; --primary-contrast: #0B1120; --primary-tint: rgba(59,130,246,.16);
   --success: #22C55E; --success-bg: rgba(34,197,94,.16);
   --warning: #F59E0B; --warning-bg: rgba(245,158,11,.16);
   --danger: #EF4444; --danger-bg: rgba(239,68,68,.16);
   --info: #38BDF8; --info-bg: rgba(56,189,248,.16);
-    --pending: #EAB308; --pending-bg: rgba(234,179,8,.16);
+  --pending: #EAB308; --pending-bg: rgba(234,179,8,.16);
 }
 
 /* ── 02. Estrada — petróleo, neutros quentes ── */
 :root[data-brand="estrada"] {
-  --bg: #FAFAF9; --surface: #FFFFFF; --surface-2: #F4F4F3; --border: #E7E5E3;
-  --fg: #1C1917; --fg-soft: #57534E; --fg-mute: #A8A29E;
-  --primary: #0D9488; --primary-hover: #0F766E; --primary-contrast: #FFFFFF; --primary-tint: #F0FDFA;
-  --success: #059669; --success-bg: #D1FAE5;
-  --warning: #D97706; --warning-bg: #FEF3C7;
-  --danger: #DC2626; --danger-bg: #FEE2E2;
-  --info: #2563EB; --info-bg: #DBEAFE;
+  --bg: #FAFAF9; --surface: #FFFFFF; --surface-2: #F4F4F3; --border: #9A928A;
+  --fg: #1C1917; --fg-soft: #57534E; --fg-mute: #7C746F;
+  --primary: #0C8479; --primary-hover: #0A6A61; --primary-contrast: #FFFFFF; --primary-tint: #F0FDFA;
+  --success: #047D57; --success-bg: #D1FAE5;
+  --warning: #A65B05; --warning-bg: #FEF3C7;
+  --danger: #CB2121; --danger-bg: #FEE2E2;
+  --info: #1C5CEA; --info-bg: #DBEAFE;
   --pending: #A16207; --pending-bg: #FEF9C3;
 }
 @media (prefers-color-scheme: dark) {
   :root[data-brand="estrada"] {
-    --bg: #18181B; --surface: #212023; --surface-2: #1C1B1E; --border: #2A292C;
-    --fg: #FAFAF9; --fg-soft: #A8A29E; --fg-mute: #78716C;
+    --bg: #18181B; --surface: #212023; --surface-2: #1C1B1E; --border: #6D6A72;
+    --fg: #FAFAF9; --fg-soft: #A8A29E; --fg-mute: #8E8781;
     --primary: #2DD4BF; --primary-hover: #5EEAD4; --primary-contrast: #0F172A; --primary-tint: rgba(45,212,191,.16);
     --success: #34D399; --success-bg: rgba(52,211,153,.16);
     --warning: #FBBF24; --warning-bg: rgba(251,191,36,.16);
@@ -121,30 +131,30 @@
   }
 }
 :root[data-brand="estrada"][data-mode="light"] {
-  --bg: #FAFAF9; --surface: #FFFFFF; --surface-2: #F4F4F3; --border: #E7E5E3;
-  --fg: #1C1917; --fg-soft: #57534E; --fg-mute: #A8A29E;
-  --primary: #0D9488; --primary-hover: #0F766E; --primary-contrast: #FFFFFF; --primary-tint: #F0FDFA;
-  --success: #059669; --success-bg: #D1FAE5;
-  --warning: #D97706; --warning-bg: #FEF3C7;
-  --danger: #DC2626; --danger-bg: #FEE2E2;
-  --info: #2563EB; --info-bg: #DBEAFE;
+  --bg: #FAFAF9; --surface: #FFFFFF; --surface-2: #F4F4F3; --border: #9A928A;
+  --fg: #1C1917; --fg-soft: #57534E; --fg-mute: #7C746F;
+  --primary: #0C8479; --primary-hover: #0A6A61; --primary-contrast: #FFFFFF; --primary-tint: #F0FDFA;
+  --success: #047D57; --success-bg: #D1FAE5;
+  --warning: #A65B05; --warning-bg: #FEF3C7;
+  --danger: #CB2121; --danger-bg: #FEE2E2;
+  --info: #1C5CEA; --info-bg: #DBEAFE;
   --pending: #A16207; --pending-bg: #FEF9C3;
 }
 :root[data-brand="estrada"][data-mode="dark"] {
-  --bg: #18181B; --surface: #212023; --surface-2: #1C1B1E; --border: #2A292C;
-  --fg: #FAFAF9; --fg-soft: #A8A29E; --fg-mute: #78716C;
+  --bg: #18181B; --surface: #212023; --surface-2: #1C1B1E; --border: #6D6A72;
+  --fg: #FAFAF9; --fg-soft: #A8A29E; --fg-mute: #8E8781;
   --primary: #2DD4BF; --primary-hover: #5EEAD4; --primary-contrast: #0F172A; --primary-tint: rgba(45,212,191,.16);
   --success: #34D399; --success-bg: rgba(52,211,153,.16);
   --warning: #FBBF24; --warning-bg: rgba(251,191,36,.16);
   --danger: #F87171; --danger-bg: rgba(248,113,113,.16);
   --info: #60A5FA; --info-bg: rgba(96,165,250,.16);
-    --pending: #FACC15; --pending-bg: rgba(250,204,21,.16);
+  --pending: #FACC15; --pending-bg: rgba(250,204,21,.16);
 }
 
 /* ── 03. Sinalização — laranja-ember, dark-first ── */
 :root[data-brand="sinalizacao"] {
-  --bg: #0B0C10; --surface: #15161B; --surface-2: #101116; --border: #24262D;
-  --fg: #F4F5F7; --fg-soft: #A7ABB6; --fg-mute: #6B6F7B;
+  --bg: #0B0C10; --surface: #15161B; --surface-2: #101116; --border: #5E6476;
+  --fg: #F4F5F7; --fg-soft: #A7ABB6; --fg-mute: #7B808C;
   --primary: #F2790A; --primary-hover: #FB8B24; --primary-contrast: #0B0C10; --primary-tint: rgba(242,121,10,.16);
   --success: #22C55E; --success-bg: rgba(34,197,94,.16);
   --warning: #EAB308; --warning-bg: rgba(234,179,8,.16);
@@ -154,29 +164,29 @@
 }
 @media (prefers-color-scheme: light) {
   :root[data-brand="sinalizacao"] {
-    --bg: #FAFAFA; --surface: #FFFFFF; --surface-2: #F2F2F3; --border: #E5E5E7;
-    --fg: #111114; --fg-soft: #52525B; --fg-mute: #9A9AA2;
-    --primary: #D9660A; --primary-hover: #C25A08; --primary-contrast: #FFFFFF; --primary-tint: #FFF1E4;
-    --success: #16A34A; --success-bg: #DCFCE7;
+    --bg: #FAFAFA; --surface: #FFFFFF; --surface-2: #F2F2F3; --border: #93939B;
+    --fg: #111114; --fg-soft: #52525B; --fg-mute: #75757F;
+    --primary: #BD5909; --primary-hover: #A54E08; --primary-contrast: #FFFFFF; --primary-tint: #FFF1E4;
+    --success: #11803A; --success-bg: #DCFCE7;
     --warning: #B45309; --warning-bg: #FEF3C7;
-    --danger: #DC2626; --danger-bg: #FEE2E2;
-    --info: #0284C7; --info-bg: #E0F2FE;
+    --danger: #CB2121; --danger-bg: #FEE2E2;
+    --info: #0272AC; --info-bg: #E0F2FE;
     --pending: #854D0E; --pending-bg: #FEF3C7;
   }
 }
 :root[data-brand="sinalizacao"][data-mode="light"] {
-  --bg: #FAFAFA; --surface: #FFFFFF; --surface-2: #F2F2F3; --border: #E5E5E7;
-  --fg: #111114; --fg-soft: #52525B; --fg-mute: #9A9AA2;
-  --primary: #D9660A; --primary-hover: #C25A08; --primary-contrast: #FFFFFF; --primary-tint: #FFF1E4;
-  --success: #16A34A; --success-bg: #DCFCE7;
+  --bg: #FAFAFA; --surface: #FFFFFF; --surface-2: #F2F2F3; --border: #93939B;
+  --fg: #111114; --fg-soft: #52525B; --fg-mute: #75757F;
+  --primary: #BD5909; --primary-hover: #A54E08; --primary-contrast: #FFFFFF; --primary-tint: #FFF1E4;
+  --success: #11803A; --success-bg: #DCFCE7;
   --warning: #B45309; --warning-bg: #FEF3C7;
-  --danger: #DC2626; --danger-bg: #FEE2E2;
-  --info: #0284C7; --info-bg: #E0F2FE;
+  --danger: #CB2121; --danger-bg: #FEE2E2;
+  --info: #0272AC; --info-bg: #E0F2FE;
   --pending: #854D0E; --pending-bg: #FEF3C7;
 }
 :root[data-brand="sinalizacao"][data-mode="dark"] {
-  --bg: #0B0C10; --surface: #15161B; --surface-2: #101116; --border: #24262D;
-  --fg: #F4F5F7; --fg-soft: #A7ABB6; --fg-mute: #6B6F7B;
+  --bg: #0B0C10; --surface: #15161B; --surface-2: #101116; --border: #5E6476;
+  --fg: #F4F5F7; --fg-soft: #A7ABB6; --fg-mute: #7B808C;
   --primary: #F2790A; --primary-hover: #FB8B24; --primary-contrast: #0B0C10; --primary-tint: rgba(242,121,10,.16);
   --success: #22C55E; --success-bg: rgba(34,197,94,.16);
   --warning: #EAB308; --warning-bg: rgba(234,179,8,.16);
@@ -187,44 +197,44 @@
 
 /* ── 04. Clássico — verde-limão sobre preto (visual original do sistema) ── */
 :root[data-brand="classico"] {
-  --bg: #121212; --surface: #202020; --surface-2: #323232; --border: #333333;
-  --fg: #FFFFFF; --fg-soft: #A0A0A0; --fg-mute: #666666;
+  --bg: #121212; --surface: #202020; --surface-2: #323232; --border: #6B6B6B;
+  --fg: #FFFFFF; --fg-soft: #A0A0A0; --fg-mute: #878787;
   --primary: #BAFF1A; --primary-hover: #A8E617; --primary-contrast: #121212; --primary-tint: #243300;
-  --success: #229731; --success-bg: #0E2F13;
+  --success: #25A636; --success-bg: #0E2F13;
   --warning: #E65E24; --warning-bg: #3A180F;
-  --danger: #EF4444; --danger-bg: #7C1C1C;
+  --danger: #F69090; --danger-bg: #7C1C1C;
   --info: #A880FF; --info-bg: #2D0363;
   --pending: #FFBA49; --pending-bg: #3A2F00;
 }
 @media (prefers-color-scheme: light) {
   :root[data-brand="classico"] {
-    --bg: #FAFAF8; --surface: #FFFFFF; --surface-2: #F0F0EC; --border: #E4E4DE;
-    --fg: #171717; --fg-soft: #52525B; --fg-mute: #9C9C94;
-    --primary: #6B8F00; --primary-hover: #5A7A00; --primary-contrast: #FFFFFF; --primary-tint: #F1F8DC;
-    --success: #16A34A; --success-bg: #DCFCE7;
+    --bg: #FAFAF8; --surface: #FFFFFF; --surface-2: #F0F0EC; --border: #95957E;
+    --fg: #171717; --fg-soft: #52525B; --fg-mute: #76766E;
+    --primary: #608000; --primary-hover: #506B00; --primary-contrast: #FFFFFF; --primary-tint: #F1F8DC;
+    --success: #11803A; --success-bg: #DCFCE7;
     --warning: #C2410C; --warning-bg: #FFEDD5;
-    --danger: #DC2626; --danger-bg: #FEE2E2;
+    --danger: #CB2121; --danger-bg: #FEE2E2;
     --info: #7C3AED; --info-bg: #EDE9FE;
-    --pending: #A16207; --pending-bg: #FEF3C7;
+    --pending: #9E6007; --pending-bg: #FEF3C7;
   }
 }
 :root[data-brand="classico"][data-mode="light"] {
-  --bg: #FAFAF8; --surface: #FFFFFF; --surface-2: #F0F0EC; --border: #E4E4DE;
-  --fg: #171717; --fg-soft: #52525B; --fg-mute: #9C9C94;
-  --primary: #6B8F00; --primary-hover: #5A7A00; --primary-contrast: #FFFFFF; --primary-tint: #F1F8DC;
-  --success: #16A34A; --success-bg: #DCFCE7;
+  --bg: #FAFAF8; --surface: #FFFFFF; --surface-2: #F0F0EC; --border: #95957E;
+  --fg: #171717; --fg-soft: #52525B; --fg-mute: #76766E;
+  --primary: #608000; --primary-hover: #506B00; --primary-contrast: #FFFFFF; --primary-tint: #F1F8DC;
+  --success: #11803A; --success-bg: #DCFCE7;
   --warning: #C2410C; --warning-bg: #FFEDD5;
-  --danger: #DC2626; --danger-bg: #FEE2E2;
+  --danger: #CB2121; --danger-bg: #FEE2E2;
   --info: #7C3AED; --info-bg: #EDE9FE;
-  --pending: #A16207; --pending-bg: #FEF3C7;
+  --pending: #9E6007; --pending-bg: #FEF3C7;
 }
 :root[data-brand="classico"][data-mode="dark"] {
-  --bg: #121212; --surface: #202020; --surface-2: #323232; --border: #333333;
-  --fg: #FFFFFF; --fg-soft: #A0A0A0; --fg-mute: #666666;
+  --bg: #121212; --surface: #202020; --surface-2: #323232; --border: #6B6B6B;
+  --fg: #FFFFFF; --fg-soft: #A0A0A0; --fg-mute: #878787;
   --primary: #BAFF1A; --primary-hover: #A8E617; --primary-contrast: #121212; --primary-tint: #243300;
-  --success: #229731; --success-bg: #0E2F13;
+  --success: #25A636; --success-bg: #0E2F13;
   --warning: #E65E24; --warning-bg: #3A180F;
-  --danger: #EF4444; --danger-bg: #7C1C1C;
+  --danger: #F69090; --danger-bg: #7C1C1C;
   --info: #A880FF; --info-bg: #2D0363;
   --pending: #FFBA49; --pending-bg: #3A2F00;
 }

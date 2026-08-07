@@ -100,6 +100,27 @@ Como todo o resto do app (`(dashboard)`, `(admin)`, `(mobile)`) exige sessão an
 
 Esta ADR cobre `apps/web` inteiro — inclui a fatia `/mobile/*` (PWA de campo, ADR 0018), porque ela consome o mesmo `globals.css`/tokens e herda a troca automaticamente, sem trabalho extra. **`apps/mobile` (Expo) fica de fora** — é outro sistema de estilo (StyleSheet do React Native, sem CSS custom properties) e pede uma ADR própria se/quando for temizado.
 
+### 7. Correção de contraste (auditoria UX/UI 2026-08-06)
+
+Pedido do stakeholder: avaliar os 4 temas × claro/escuro contra 21 critérios de UX/UI (usabilidade, acessibilidade, hierarquia visual, etc.), entregue como artifact, seguido de "aplique todas as melhorias identificadas". A auditoria rodou um script Python (luminância relativa WCAG 2.1, `(L1+0,05)/(L2+0,05)`, com composição alpha pros tokens `rgba()` do modo escuro) contra as 8 paletas reais de `globals.css` e achou 3 padrões sistêmicos + 2 restritos ao modo claro:
+
+| Token | Problema | Escopo |
+|---|---|---|
+| `--border` vs `--surface` | 1,12–1,29:1 (mínimo de componente é 3:1, WCAG 1.4.11) — limite de UI praticamente invisível | 8/8 paletas |
+| `--fg-mute` vs `--surface` | 2,52–3,73:1 (mínimo de texto é 4,5:1) | 8/8 paletas |
+| `--primary-contrast` vs `--primary` (texto de botão) | 3,59–3,78:1 no claro de Estrada/Sinalização/Clássico (Frota Confiável já passava, 5,17:1) | 3/4 marcas, só claro |
+| Badges `success`/`warning`/`danger`/`info`/`pending` vs a própria `-bg` | 2,74–3,95:1 em várias combinações — sistemático no claro das 4 marcas, e também `success`/`danger` no escuro do Clássico | Ver commit — não uniforme, cada marca tinha faixas de falha diferentes |
+| `--critical`/`--critical-bg` (token único, ADR 0020) | 3,86–4,47:1 — nunca passava 4,5:1 com folga em nenhuma das 8 paletas | 8/8 (um único ajuste de hex resolve todas de uma vez, por ser token universal) |
+
+**Correção**: cada token com falha foi reescurecido (claro) ou reclareado (escuro) em espaço HSL, preservando matiz/saturação, até bater o limiar + margem de 0,05 (pra sobreviver ao arredondamento de 8-bit). `border`/`fg-mute` de todas as 8 paletas, `primary`+`primary-hover` das 3 marcas afetadas, os pares de badge que falhavam por marca/modo, e `--critical`/`--critical-bg` (que também teve o alpha do modo escuro reduzido de `.16` pra `.12`, porque com `.16` o vermelho precisava clarear demais pra bater 4,5:1 nas 4 marcas ao mesmo tempo). Script + valores antes/depois: `apps/web/src/app/globals.css` (comentário no topo do bloco de tokens). Verificado após a mudança: as 8 paletas re-auditadas não têm mais nenhum FAIL nos pares corrigidos (dois near-misses pré-existentes e não relacionados — `danger` no escuro de Frota Confiável e Sinalização, 4,04:1 e 4,08:1 — foram deixados como estavam, por não terem sido sinalizados como falha na auditoria original).
+
+**Descoberta não coberta pela correção**: o divisor de linha da tabela em `/veiculos` (e o mesmo padrão em outras ~48 telas) usa `border-b border-surface-2`, não `border-b border-border` — ou seja, a correção do token `--border` não resolve visualmente esse divisor específico, porque ele nunca usou esse token. `surface-2` é uma variante de fundo (pensada pra hover/stripe), não um token de borda, e o contraste dela contra `surface` é ainda mais próximo de 1:1. Trocar esse padrão exigiria revisar ~48 arquivos que usam `border-surface-2` como divisor estrutural (headers sticky, tab nav, dividers de página — não só tabelas) — escopo maior que ajuste de token de cor, decisão de UI própria, não aplicado nesta rodada.
+
+Outras melhorias da mesma auditoria, aplicadas fora do CSS:
+- Seção "Aparência" movida pra primeiro lugar em `/configuracoes` (antes ficava abaixo de "Dados da Empresa", exigindo scroll) — achado de descobribilidade.
+- Confirmação de que já existe feedback inline pós-salvar ("Aparência atualizada.") — item que a auditoria tinha marcado como "não capturado", checado no código (`configuracoes/page.tsx`, `handleSaveTheme`).
+- Responsividade (viewport mobile/tablet) e um novo passe de UI pro divisor `border-surface-2` ficaram fora do escopo desta rodada — ver "Quando reavaliar".
+
 ## Alternativas consideradas
 
 | Alternativa | Por que descartada |
@@ -132,6 +153,8 @@ Esta ADR cobre `apps/web` inteiro — inclui a fatia `/mobile/*` (PWA de campo, 
 - **Demanda de branding por tenant** (a locadora escolhe a cor, não o operador): reabrir pra adicionar `tenants.theme_brand` como default, com `tenant_members.theme_brand` como override pessoal por cima.
 - **`apps/mobile` (Expo) ganhar suporte a tema**: nova ADR — reaproveitar os mesmos quatro slugs de direção (`frota-confiavel` | `estrada` | `sinalizacao` | `classico`), mas arquitetura de tokens própria pro React Native.
 - **Modo claro do "Clássico" não agradar**: como é uma derivação nova sem referência de produção, é o candidato mais provável a pedir ajuste de tom depois do primeiro uso real — revisar os valores da tabela em §1.1 se acontecer.
+- **Divisor `border-b border-surface-2` (~48 arquivos)**: se o próximo passe de UI quiser resolver isso, decidir entre trocar pra `border-border` (ganha contraste, mas muda a densidade visual de headers/tabs/tabelas em quase todo o app — merece validação visual antes de aplicar em massa) ou aceitar que é um divisor propositalmente sutil e não um limite de componente WCAG 1.4.11 (dividers puramente decorativos, redundantes com espaçamento, não são obrigados a 3:1). Ver §7.
+- **Responsividade (mobile/tablet) das 8 combinações**: a auditoria de 2026-08-06 só cobriu desktop (~1568px) — abrir se aparecer relato de problema visual em viewport menor.
 
 ## Estado atual
 
@@ -147,6 +170,8 @@ Implementado e testado manualmente (login → troca de tema em `/configuracoes` 
 **Sweep página-a-página concluído numa segunda passada:** os ~79 arquivos restantes (`page.tsx`/`_components` de cada rota — Dashboard, Manutenção, Veículos, Clientes, Cobranças, Multas, etc., ~3.930 ocorrências de hex fora de `ui/`) foram migrados por mapeamento mecânico hex→token (script Python, `\[#hex\]` → nome do token, preservando o prefixo Tailwind — `bg-`, `hover:bg-`, `border-`, etc. — porque os tokens estão em `theme.extend.colors`, então qualquer variante funciona). `DashboardCharts.tsx` (Recharts) e `VehicleMap.tsx` (cor do pin por status) também migrados, trocando hex por `var(--token)` direto nas props — funciona porque SVG/inline style resolvem CSS custom properties normalmente. Confirmado visualmente no navegador nas 4 direções × claro/escuro em `/dashboard`, `/manutencao` e `/veiculos`.
 
 Resultado: de ~3.930 ocorrências, sobraram **196**, concentradas em: (1) o array de swatches literais em `/configuracoes` (intencional — são as cores de referência do seletor, não devem seguir o tema ativo); (2) uma paleta de status de veículo/urgência de manutenção com 5–6 tons (`VehicleForm.tsx`, `manutencao/page.tsx`, `dashboard/page.tsx` — verde/laranja/roxo/vermelho/dourado além dos 4 tokens semânticos básicos) que não foi forçada nos 4 tokens porque perderia distinção visual — precisa de uma decisão de design (tokens extras tipo `--critical`/`--urgent`), não substituição mecânica; (3) o popup do Leaflet em `VehicleMap.tsx`, que é um cartão claro autocontido (fundo branco fixo do Leaflet) e não precisa seguir o tema do app. `themeColor` do manifest da PWA de campo (`apps/web/src/app/(mobile)/layout.tsx`) continua estático — é metadata do Next, resolvida em build/request time, não CSS.
+
+**Correção de contraste aplicada em 2026-08-06** (§7): valores de `border`, `fg-mute`, `primary`/`primary-hover` (3 marcas), badges semânticos por marca/modo e `critical`/`critical-bg` ajustados nas 8 paletas — reauditado, zero FAIL nos pares corrigidos. Seção "Aparência" movida pra primeiro lugar em `/configuracoes`. `pnpm --filter web typecheck` limpo depois da mudança.
 
 ## Referências
 
