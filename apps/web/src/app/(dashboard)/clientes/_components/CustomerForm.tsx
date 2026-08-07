@@ -423,7 +423,7 @@ export function CustomerForm({ customerId, initialData }: CustomerFormProps) {
                   onClick={() => set('person_type', val)}
                   className={`flex-1 h-11 rounded-xl border text-[13px] font-medium transition-all ${
                     form.person_type === val
-                      ? 'bg-primary border-primary text-primary'
+                      ? 'bg-primary border-primary text-primary-contrast'
                       : 'bg-surface-2 border-border text-fg-mute hover:border-fg-mute'
                   }`}
                 >

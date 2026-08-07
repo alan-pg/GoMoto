@@ -125,7 +125,7 @@ function VariablePickerDropdown({ editor }: { editor: Editor }) {
         className={`h-8 flex items-center gap-1.5 px-2.5 rounded text-[12px] font-medium transition-colors ${
           open
             ? 'bg-primary text-bg'
-            : 'text-primary border border-primary hover:bg-primary'
+            : 'text-primary border border-primary hover:bg-primary hover:text-bg'
         }`}
       >
         <Variable className="w-3.5 h-3.5" />
