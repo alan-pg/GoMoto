@@ -596,7 +596,7 @@ export default function CobrancasPage() {
                         </td>
                         <td className="whitespace-nowrap px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            <Link href={`/cobrancas/${row.id}`} className="inline-flex h-8 w-8 items-center justify-center rounded bg-surface-2 text-fg-mute transition-colors hover:bg-border hover:text-fg" title="Ver detalhes">
+                            <Link href={`/cobrancas/${row.id}`} className="inline-flex h-8 w-8 items-center justify-center rounded bg-surface-2 text-fg-mute transition-colors hover:bg-divider hover:text-fg" title="Ver detalhes">
                               <Eye className="h-4 w-4" />
                             </Link>
                             {row.status !== 'paid' && (

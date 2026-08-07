@@ -370,7 +370,7 @@ export function CustomerForm({ customerId, initialData }: CustomerFormProps) {
         <div className="ml-auto flex items-center gap-3">
           <Link
             href={isEditing ? `/clientes/${customerId}` : '/clientes'}
-            className="inline-flex items-center h-9 px-4 rounded-full bg-surface-2 text-fg text-[13px] font-medium hover:bg-border transition-colors"
+            className="inline-flex items-center h-9 px-4 rounded-full bg-surface-2 text-fg text-[13px] font-medium hover:bg-divider transition-colors"
           >
             Cancelar
           </Link>

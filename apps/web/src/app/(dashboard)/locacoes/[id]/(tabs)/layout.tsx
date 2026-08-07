@@ -78,7 +78,7 @@ export default async function RentalDetailLayout({
             )}
             <Link
               href={`/locacoes/${id}/editar`}
-              className="inline-flex h-9 items-center gap-1.5 rounded-full bg-surface-2 px-3 text-[13px] text-fg transition-colors hover:bg-border"
+              className="inline-flex h-9 items-center gap-1.5 rounded-full bg-surface-2 px-3 text-[13px] text-fg transition-colors hover:bg-divider"
             >
               <Edit2 className="h-4 w-4" />
               Editar

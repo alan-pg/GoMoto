@@ -280,14 +280,14 @@ export default function ClientesPage() {
                           <div className="flex items-center justify-end gap-1">
                             <Link
                               href={`/clientes/${customer.id}`}
-                              className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-surface-2 text-fg-mute hover:bg-border hover:text-fg transition-colors"
+                              className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-surface-2 text-fg-mute hover:bg-divider hover:text-fg transition-colors"
                               title="Ver detalhes"
                             >
                               <Eye className="h-4 w-4" />
                             </Link>
                             <Link
                               href={`/clientes/${customer.id}/editar`}
-                              className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-surface-2 text-fg-mute hover:bg-border hover:text-fg transition-colors"
+                              className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-surface-2 text-fg-mute hover:bg-divider hover:text-fg transition-colors"
                               title="Editar"
                             >
                               <Edit2 className="h-4 w-4" />

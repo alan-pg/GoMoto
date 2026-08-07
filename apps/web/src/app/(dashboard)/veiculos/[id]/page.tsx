@@ -161,7 +161,7 @@ export default async function VehicleDetailPage({
         <div className="ml-auto flex items-center gap-3">
           <Link
             href={`/veiculos/${id}/editar`}
-            className="inline-flex items-center h-9 px-4 rounded-full bg-surface-2 text-fg text-[13px] font-medium hover:bg-border transition-colors"
+            className="inline-flex items-center h-9 px-4 rounded-full bg-surface-2 text-fg text-[13px] font-medium hover:bg-divider transition-colors"
           >
             Editar dados
           </Link>

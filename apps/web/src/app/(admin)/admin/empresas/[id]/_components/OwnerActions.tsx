@@ -38,7 +38,7 @@ function LinkSection({ tenantId }: { tenantId: string }) {
         <button
           onClick={handleGenerate}
           disabled={isPending}
-          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-surface-2 text-fg-mute text-[13px] font-medium hover:bg-border hover:text-fg transition-colors disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-surface-2 text-fg-mute text-[13px] font-medium hover:bg-divider hover:text-fg transition-colors disabled:opacity-50"
         >
           <Link2 className="w-3.5 h-3.5" />
           {isPending ? 'Gerando…' : 'Gerar link de acesso'}
@@ -53,7 +53,7 @@ function LinkSection({ tenantId }: { tenantId: string }) {
           <p className="text-[12px] font-mono text-fg-mute truncate flex-1">{link}</p>
           <button
             onClick={handleCopy}
-            className="shrink-0 inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-surface-2 text-fg-mute text-[12px] hover:bg-border hover:text-fg transition-colors"
+            className="shrink-0 inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-surface-2 text-fg-mute text-[12px] hover:bg-divider hover:text-fg transition-colors"
           >
             {copied
               ? <Check className="w-3.5 h-3.5 text-success" />
@@ -112,7 +112,7 @@ function PasswordSection({ tenantId }: { tenantId: string }) {
         <div className="flex items-center gap-2">
           <button
             onClick={handleOpen}
-            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-surface-2 text-fg-mute text-[13px] font-medium hover:bg-border hover:text-fg transition-colors"
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-surface-2 text-fg-mute text-[13px] font-medium hover:bg-divider hover:text-fg transition-colors"
           >
             <KeyRound className="w-3.5 h-3.5" />
             Alterar senha
@@ -159,7 +159,7 @@ function PasswordSection({ tenantId }: { tenantId: string }) {
             <button
               onClick={handleCancel}
               disabled={isPending}
-              className="inline-flex items-center h-8 px-3 rounded-lg bg-surface-2 text-fg-mute text-[13px] hover:bg-border hover:text-fg transition-colors disabled:opacity-50"
+              className="inline-flex items-center h-8 px-3 rounded-lg bg-surface-2 text-fg-mute text-[13px] hover:bg-divider hover:text-fg transition-colors disabled:opacity-50"
             >
               Cancelar
             </button>

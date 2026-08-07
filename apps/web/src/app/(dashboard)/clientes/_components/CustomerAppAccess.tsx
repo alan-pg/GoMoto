@@ -124,7 +124,7 @@ export function CustomerAppAccess({ customerId, customerEmail, hasAppAccess }: P
             </p>
             <button
               onClick={() => navigator.clipboard.writeText(generatedLink)}
-              className="shrink-0 h-8 px-3 rounded-lg bg-surface-2 text-fg text-[12px] font-medium hover:bg-border transition-colors"
+              className="shrink-0 h-8 px-3 rounded-lg bg-surface-2 text-fg text-[12px] font-medium hover:bg-divider transition-colors"
             >
               Copiar
             </button>
@@ -155,7 +155,7 @@ function ActionButton({
       className={`h-8 px-3 rounded-lg text-[13px] font-medium transition-colors disabled:opacity-50 ${
         primary
           ? 'bg-primary text-bg hover:bg-primary-hover'
-          : 'bg-surface-2 text-fg hover:bg-border'
+          : 'bg-surface-2 text-fg hover:bg-divider'
       }`}
     >
       {loading ? 'Aguarde…' : children}
@@ -200,7 +200,7 @@ function PasswordForm({
       </div>
       <button
         onClick={onCancel}
-        className="h-9 px-3 rounded-lg bg-surface-2 text-fg text-[13px] font-medium hover:bg-border transition-colors"
+        className="h-9 px-3 rounded-lg bg-surface-2 text-fg text-[13px] font-medium hover:bg-divider transition-colors"
       >
         Cancelar
       </button>

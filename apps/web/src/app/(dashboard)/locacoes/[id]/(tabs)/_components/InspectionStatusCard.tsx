@@ -29,7 +29,7 @@ export function InspectionStatusCard({
         ) : (
           <Link
             href={`/vistorias/execute/${inspection.id}`}
-            className="inline-flex items-center h-8 px-3 rounded-full bg-surface-2 text-[12px] font-medium text-fg hover:bg-border transition-colors"
+            className="inline-flex items-center h-8 px-3 rounded-full bg-surface-2 text-[12px] font-medium text-fg hover:bg-divider transition-colors"
           >
             Executar vistoria
           </Link>

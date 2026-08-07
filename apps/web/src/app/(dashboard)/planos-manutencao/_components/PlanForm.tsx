@@ -542,7 +542,7 @@ export function PlanForm({ planId, initialPlan, initialItems }: PlanFormProps) {
                       onClick={() => scrollTo(id)}
                       title={label}
                       className={`w-full text-left pl-5 pr-3 py-1.5 rounded-lg text-[12px] transition-colors flex items-center gap-2 ${
-                        isActive ? 'bg-surface-2 text-fg' : 'text-fg-mute hover:text-fg-mute hover:bg-border'
+                        isActive ? 'bg-surface-2 text-fg' : 'text-fg-mute hover:text-fg-mute hover:bg-divider'
                       }`}
                     >
                       <span className={`inline-block w-1 h-1 rounded-full flex-shrink-0 transition-colors ${isActive ? 'bg-primary' : 'bg-fg-mute'}`} />
@@ -784,7 +784,7 @@ function NavButton({ id, label, activeSection, onScrollTo }: {
       type="button"
       onClick={() => onScrollTo(id)}
       className={`w-full text-left px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${
-        isActive ? 'bg-surface-2 text-fg' : 'text-fg-mute hover:text-fg-mute hover:bg-border'
+        isActive ? 'bg-surface-2 text-fg' : 'text-fg-mute hover:text-fg-mute hover:bg-divider'
       }`}
     >
       <span className={`inline-block w-1.5 h-1.5 rounded-full mr-2.5 mb-0.5 transition-colors ${isActive ? 'bg-primary' : 'bg-fg-mute'}`} />

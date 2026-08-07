@@ -135,7 +135,7 @@ export function Table<T>({
               className={cn(
                 'h-9 transition-colors duration-100 even:bg-surface-2',
                 // Estilo interativo (cursor e hover) aplicado apenas se a linha for clicável.
-                onRowClick && 'cursor-pointer hover:bg-border'
+                onRowClick && 'cursor-pointer hover:bg-divider'
               )}
             >
               {/* Células da linha */}

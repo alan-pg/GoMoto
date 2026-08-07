@@ -1140,7 +1140,7 @@ export default function MaintenancePage() {
                         <div className="flex items-center justify-end gap-1">
                           {isCompleted ? (
                             <>
-                              <Link href={`/manutencao/${item.id}`} className="inline-flex h-8 w-8 items-center justify-center rounded bg-surface-2 text-fg-mute transition-colors hover:bg-border hover:text-fg" title="Ver detalhes">
+                              <Link href={`/manutencao/${item.id}`} className="inline-flex h-8 w-8 items-center justify-center rounded bg-surface-2 text-fg-mute transition-colors hover:bg-divider hover:text-fg" title="Ver detalhes">
                                 <Eye className="h-4 w-4" />
                               </Link>
                               <Button variant="danger" size="sm" className="h-8 w-8 p-0" title="Excluir" onClick={() => handleOpenDelete(item.id)}>

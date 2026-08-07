@@ -76,7 +76,7 @@ export default async function MaintenanceDetailPage({
         </h1>
         <Link
           href={`/manutencao/${id}/editar`}
-          className="inline-flex h-9 items-center rounded-full bg-surface-2 px-4 text-[13px] text-fg transition-colors hover:bg-border"
+          className="inline-flex h-9 items-center rounded-full bg-surface-2 px-4 text-[13px] text-fg transition-colors hover:bg-divider"
         >
           Editar
         </Link>

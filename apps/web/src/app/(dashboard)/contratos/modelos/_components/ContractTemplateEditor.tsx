@@ -94,7 +94,7 @@ function ToolbarButton({
 }
 
 function Divider() {
-  return <div className="w-px h-5 bg-border mx-0.5" />
+  return <div className="w-px h-5 bg-divider mx-0.5" />
 }
 
 function VariablePickerDropdown({ editor }: { editor: Editor }) {

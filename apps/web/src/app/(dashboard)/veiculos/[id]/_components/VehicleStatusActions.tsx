@@ -19,7 +19,7 @@ const ACTION_LABELS: Partial<Record<VehicleStatus, string>> = {
 
 const ACTION_COLORS: Partial<Record<VehicleStatus, string>> = {
   sold:      'bg-danger-bg text-danger hover:bg-[#9c2c2c] border border-danger',
-  inactive:  'bg-surface-2 text-fg-mute hover:bg-border border border-border',
+  inactive:  'bg-surface-2 text-fg-mute hover:bg-divider border border-border',
   available: 'bg-[#143c18] text-success hover:bg-[#1a5020] border border-success',
 }
 
@@ -91,7 +91,7 @@ export default function VehicleStatusActions({ vehicleId, currentStatus, selecta
             <div className="flex gap-3 justify-end pt-2">
               <button
                 onClick={() => setConfirmStatus(null)}
-                className="h-9 px-4 rounded-full bg-surface-2 text-fg text-[13px] font-medium hover:bg-border transition-colors"
+                className="h-9 px-4 rounded-full bg-surface-2 text-fg text-[13px] font-medium hover:bg-divider transition-colors"
               >
                 Cancelar
               </button>

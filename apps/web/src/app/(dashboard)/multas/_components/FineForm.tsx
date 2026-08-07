@@ -267,7 +267,7 @@ export function FineForm({ fineId, initialData }: FineFormProps) {
                   className={`w-full text-left px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${
                     isActive
                       ? 'bg-surface-2 text-fg'
-                      : 'text-fg-mute hover:text-fg-mute hover:bg-border'
+                      : 'text-fg-mute hover:text-fg-mute hover:bg-divider'
                   }`}
                 >
                   <span className={`inline-block w-1.5 h-1.5 rounded-full mr-2.5 mb-0.5 transition-colors ${isActive ? 'bg-primary' : 'bg-fg-mute'}`} />

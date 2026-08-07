@@ -672,7 +672,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                   className={`w-full text-left px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${
                     isActive
                       ? 'bg-surface-2 text-fg'
-                      : 'text-fg-mute hover:text-fg-mute hover:bg-border'
+                      : 'text-fg-mute hover:text-fg-mute hover:bg-divider'
                   }`}
                 >
                   <span className={`inline-block w-1.5 h-1.5 rounded-full mr-2.5 mb-0.5 transition-colors ${isActive ? 'bg-primary' : 'bg-fg-mute'}`} />
@@ -699,7 +699,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
 
             {/* Banner CRLV — somente criação */}
             {!isEditMode && (
-              <div className="flex items-center gap-4 px-4 py-3 bg-[#1e1030] border border-info rounded-xl mb-5">
+              <div className="flex items-center gap-4 px-4 py-3 bg-info-bg border border-info rounded-xl mb-5">
                 <div className="w-8 h-8 rounded-full bg-info-bg flex items-center justify-center flex-shrink-0">
                   <Upload className="w-3.5 h-3.5 text-info" />
                 </div>
@@ -713,7 +713,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                     <p className="text-[12px] text-danger mt-1">✘ {crlvMsg.text}</p>
                   )}
                 </div>
-                <label className={`flex-shrink-0 h-8 px-4 rounded-full bg-info text-bg text-[12px] font-bold cursor-pointer hover:bg-[#9166ff] transition-colors inline-flex items-center ${crlvImporting ? 'opacity-60 pointer-events-none' : ''}`}>
+                <label className={`flex-shrink-0 h-8 px-4 rounded-full bg-info text-bg text-[12px] font-bold cursor-pointer hover:opacity-90 transition-opacity inline-flex items-center ${crlvImporting ? 'opacity-60 pointer-events-none' : ''}`}>
                   <input
                     type="file"
                     accept="application/pdf"
@@ -934,7 +934,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                   { key: 'licensing' as const, label: 'Licenciamento' },
                   { key: 'dpvat'     as const, label: 'DPVAT' },
                 ]).map((row) => (
-                  <div key={row.key} className="grid grid-cols-[80px_1fr_1fr_130px] gap-3 items-end bg-border border border-border rounded-xl px-4 py-3">
+                  <div key={row.key} className="grid grid-cols-[80px_1fr_1fr_130px] gap-3 items-end bg-divider border border-border rounded-xl px-4 py-3">
                     <span className="text-[13px] font-bold text-fg pb-2.5">{row.label}</span>
                     <Field label="Valor (R$)">
                       <input
@@ -1165,7 +1165,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                 const slotError = fieldErrors[`photo_${slot}`]
                 return (
                   <div key={slot} className="space-y-1.5">
-                    <div className={`aspect-square rounded-xl overflow-hidden border relative group transition-colors ${slotError ? 'border-danger bg-[#2a1a1a]' : 'border-border bg-border hover:border-fg-mute'}`}>
+                    <div className={`aspect-square rounded-xl overflow-hidden border relative group transition-colors ${slotError ? 'border-danger bg-danger-bg' : 'border-border bg-divider hover:border-fg-mute'}`}>
                       {url ? (
                         <>
                           <Image
@@ -1267,7 +1267,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
                           {planItems.map((item) => {
                             const metric = planItemMetric(item)
                             return (
-                              <div key={item.id} className="flex items-center gap-4 bg-border border border-border rounded-xl px-4 py-3">
+                              <div key={item.id} className="flex items-center gap-4 bg-divider border border-border rounded-xl px-4 py-3">
                                 <div className="flex-1 min-w-0">
                                   <p className="text-[13px] font-bold text-fg truncate">{item.name}</p>
                                   <p className="text-[11px] text-fg-mute">{planItemHint(item)}</p>

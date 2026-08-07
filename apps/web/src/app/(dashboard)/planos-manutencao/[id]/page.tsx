@@ -59,7 +59,7 @@ export default async function MaintenancePlanDetailPage({
           <CloneButton planId={id} planName={plan.name} />
           <Link
             href={`/planos-manutencao/${id}/editar`}
-            className="inline-flex items-center h-9 px-4 rounded-full bg-surface-2 text-fg text-[13px] font-medium hover:bg-border transition-colors"
+            className="inline-flex items-center h-9 px-4 rounded-full bg-surface-2 text-fg text-[13px] font-medium hover:bg-divider transition-colors"
           >
             Editar plano
           </Link>
