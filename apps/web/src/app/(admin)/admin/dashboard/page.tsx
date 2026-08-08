@@ -73,41 +73,41 @@ export default async function AdminDashboardPage() {
   return (
     <div className="p-8 max-w-6xl mx-auto">
       <header className="mb-6">
-        <h1 className="text-[24px] font-semibold text-[#f5f5f5]">Dashboard da plataforma</h1>
-        <p className="text-[13px] text-[#9e9e9e] mt-1">
+        <h1 className="text-[24px] font-semibold text-fg">Dashboard da plataforma</h1>
+        <p className="text-[13px] text-fg-mute mt-1">
           Visão consolidada das locadoras cadastradas. Números agregam todas as empresas.
         </p>
       </header>
 
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <KpiCard
-          icon={<Building2 className="w-5 h-5 text-[#BAFF1A]" />}
+          icon={<Building2 className="w-5 h-5 text-primary" />}
           label="Empresas ativas"
           value={kpis.tenants_active}
           sub={kpis.tenants_suspended > 0 ? `+ ${kpis.tenants_suspended} suspensas` : 'nenhuma suspensa'}
         />
         <KpiCard
-          icon={<Users className="w-5 h-5 text-[#BAFF1A]" />}
+          icon={<Users className="w-5 h-5 text-primary" />}
           label="Clientes na plataforma"
           value={kpis.customers_total}
         />
         <KpiCard
-          icon={<FileText className="w-5 h-5 text-[#BAFF1A]" />}
+          icon={<FileText className="w-5 h-5 text-primary" />}
           label="Contratos ativos"
           value={kpis.contracts_active}
         />
         <KpiCard
-          icon={<Bike className="w-5 h-5 text-[#BAFF1A]" />}
+          icon={<Bike className="w-5 h-5 text-primary" />}
           label="Motos cadastradas"
           value={kpis.vehicles_total}
         />
       </section>
 
       <section>
-        <h2 className="text-[16px] font-semibold text-[#f5f5f5] mb-3">Por empresa</h2>
-        <div className="rounded-xl border border-[#323232] overflow-hidden bg-[#181818]">
+        <h2 className="text-[16px] font-semibold text-fg mb-3">Por empresa</h2>
+        <div className="rounded-xl border border-divider overflow-hidden bg-surface">
           <table className="w-full text-left">
-            <thead className="bg-[#202020] text-[12px] uppercase tracking-wide text-[#9e9e9e]">
+            <thead className="bg-surface text-[12px] uppercase tracking-wide text-fg-mute">
               <tr>
                 <th className="px-4 py-3 font-medium">Empresa</th>
                 <th className="px-4 py-3 font-medium">Status</th>
@@ -119,16 +119,16 @@ export default async function AdminDashboardPage() {
             <tbody>
               {rollups.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-[#9e9e9e] text-[14px]">
+                  <td colSpan={5} className="px-4 py-8 text-center text-fg-mute text-[14px]">
                     Nenhuma empresa cadastrada.
                   </td>
                 </tr>
               ) : (
                 rollups.map((row) => (
-                  <tr key={row.id} className="border-t border-[#323232]">
-                    <td className="px-4 py-3 text-[#f5f5f5] text-[14px]">
+                  <tr key={row.id} className="border-t border-divider">
+                    <td className="px-4 py-3 text-fg text-[14px]">
                       <div className="font-medium">{row.name}</div>
-                      <div className="text-[11px] text-[#9e9e9e] font-mono">{row.slug}</div>
+                      <div className="text-[11px] text-fg-mute font-mono">{row.slug}</div>
                     </td>
                     <td className="px-4 py-3">
                       {row.suspended_at ? (
@@ -137,13 +137,13 @@ export default async function AdminDashboardPage() {
                         <Badge variant="success">Ativa</Badge>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right text-[#f5f5f5] text-[14px]">
+                    <td className="px-4 py-3 text-right text-fg text-[14px]">
                       {row.customers}
                     </td>
-                    <td className="px-4 py-3 text-right text-[#f5f5f5] text-[14px]">
+                    <td className="px-4 py-3 text-right text-fg text-[14px]">
                       {row.contracts_active}
                     </td>
-                    <td className="px-4 py-3 text-right text-[#f5f5f5] text-[14px]">
+                    <td className="px-4 py-3 text-right text-fg text-[14px]">
                       {row.vehicles}
                     </td>
                   </tr>
@@ -169,15 +169,15 @@ function KpiCard({
   sub?: string
 }) {
   return (
-    <div className="rounded-xl border border-[#323232] bg-[#181818] p-4">
-      <div className="flex items-center gap-2 text-[#9e9e9e] text-[12px] uppercase tracking-wide">
+    <div className="rounded-xl border border-divider bg-surface p-4">
+      <div className="flex items-center gap-2 text-fg-mute text-[12px] uppercase tracking-wide">
         {icon}
         <span>{label}</span>
       </div>
-      <div className="mt-2 text-[28px] font-semibold text-[#f5f5f5] leading-none">
+      <div className="mt-2 text-[28px] font-semibold text-fg leading-none">
         {value}
       </div>
-      {sub ? <div className="mt-1 text-[12px] text-[#9e9e9e]">{sub}</div> : null}
+      {sub ? <div className="mt-1 text-[12px] text-fg-mute">{sub}</div> : null}
     </div>
   )
 }

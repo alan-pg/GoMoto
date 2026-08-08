@@ -16,8 +16,8 @@ interface AdjustRentalFormProps {
   rental: Rental
 }
 
-const labelCls = 'block text-[13px] text-[#9e9e9e] mb-1.5'
-const inputCls = 'w-full h-9 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all'
+const labelCls = 'block text-[13px] text-fg-mute mb-1.5'
+const inputCls = 'w-full h-9 px-3 rounded-lg bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all'
 
 export function AdjustRentalForm({ rental }: AdjustRentalFormProps) {
   const router = useRouter()
@@ -128,18 +128,18 @@ export function AdjustRentalForm({ rental }: AdjustRentalFormProps) {
   }
 
   return (
-    <div className="min-h-screen bg-[#121212]">
+    <div className="min-h-screen bg-bg">
 
       {/* Header */}
-      <div className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-[#2a2a2a] bg-[#121212]/95 px-6 backdrop-blur">
-        <Link href={`/locacoes/${rental.id}`} className="text-[13px] text-[#9e9e9e] transition-colors hover:text-[#f5f5f5]">
+      <div className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-border bg-bg px-6 backdrop-blur">
+        <Link href={`/locacoes/${rental.id}`} className="text-[13px] text-fg-mute transition-colors hover:text-fg">
           ← {rental.vehicle?.license_plate ?? 'Locação'}
         </Link>
-        <span className="text-[#3a3a3a]">/</span>
-        <h1 className="flex-1 text-[15px] font-bold text-[#f5f5f5]">Reajustar locação</h1>
+        <span className="text-fg-mute">/</span>
+        <h1 className="flex-1 text-[15px] font-bold text-fg">Reajustar locação</h1>
         <Link
           href={`/locacoes/${rental.id}`}
-          className="inline-flex h-8 items-center rounded-full border border-[#474747] px-4 text-[13px] text-[#9e9e9e] transition-colors hover:border-[#616161] hover:text-[#f5f5f5]"
+          className="inline-flex h-8 items-center rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg"
         >
           Cancelar
         </Link>
@@ -147,7 +147,7 @@ export function AdjustRentalForm({ rental }: AdjustRentalFormProps) {
           type="button"
           onClick={handleConfirm}
           disabled={isPending || !isReady}
-          className="inline-flex h-8 items-center rounded-full bg-[#BAFF1A] px-5 text-[13px] font-bold text-[#121212] transition-colors hover:bg-[#a8e616] disabled:opacity-60"
+          className="inline-flex h-8 items-center rounded-full bg-primary px-5 text-[13px] font-bold text-bg transition-colors hover:bg-primary-hover disabled:opacity-60"
         >
           {isPending ? 'Reajustando…' : 'Confirmar Reajuste'}
         </button>
@@ -156,13 +156,13 @@ export function AdjustRentalForm({ rental }: AdjustRentalFormProps) {
       <div className="mx-auto max-w-xl space-y-6 px-6 py-8">
 
         {/* Resumo */}
-        <div className="rounded-xl bg-[#202020] p-4 text-[13px]">
-          <p className="font-semibold text-[#f5f5f5]">
+        <div className="rounded-xl bg-surface p-4 text-[13px]">
+          <p className="font-semibold text-fg">
             {rental.vehicle?.license_plate} — {rental.vehicle?.make} {rental.vehicle?.model}
           </p>
-          <p className="mt-0.5 text-[#9e9e9e]">{rental.customer?.name}</p>
-          <p className="mt-1.5 text-[#9e9e9e]">
-            Valor atual: <span className="font-medium text-[#f5f5f5]">
+          <p className="mt-0.5 text-fg-mute">{rental.customer?.name}</p>
+          <p className="mt-1.5 text-fg-mute">
+            Valor atual: <span className="font-medium text-fg">
               {rental.cycle_amount != null ? formatCurrency(rental.cycle_amount) : '—'}
             </span>
           </p>
@@ -207,12 +207,12 @@ export function AdjustRentalForm({ rental }: AdjustRentalFormProps) {
             )}
           </div>
         </div>
-        <label className="flex cursor-pointer items-center gap-2 text-[13px] text-[#c7c7c7]">
+        <label className="flex cursor-pointer items-center gap-2 text-[13px] text-fg-soft">
           <input
             type="checkbox"
             checked={useProRata}
             onChange={e => setUseProRata(e.target.checked)}
-            className="rounded accent-[#BAFF1A]"
+            className="rounded accent-primary"
           />
           Calcular pro rata na primeira e última cobranças
         </label>
@@ -220,8 +220,8 @@ export function AdjustRentalForm({ rental }: AdjustRentalFormProps) {
         {/* Prévia de impacto */}
         {valuePreview && (
           valuePreview.affected_count > 0 ? (
-            <div className="flex items-start gap-2 rounded-lg border border-[#474747] bg-[#202020] px-3 py-2.5 text-[13px] text-[#c7c7c7]">
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#9e9e9e]" />
+            <div className="flex items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-[13px] text-fg-soft">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-fg-mute" />
               <span>
                 <strong>{valuePreview.affected_count}</strong> cobrança{valuePreview.affected_count !== 1 ? 's' : ''} pendente
                 {valuePreview.affected_count !== 1 ? 's' : ''} ser{valuePreview.affected_count !== 1 ? 'ão' : 'á'} atualizada
@@ -230,7 +230,7 @@ export function AdjustRentalForm({ rental }: AdjustRentalFormProps) {
               </span>
             </div>
           ) : (
-            <div className="flex items-start gap-2 rounded-lg border border-[#474747] bg-[#202020] px-3 py-2.5 text-[13px] text-[#9e9e9e]">
+            <div className="flex items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-[13px] text-fg-mute">
               <Info className="mt-0.5 h-4 w-4 shrink-0" />
               <span>Não há cobranças pendentes. O novo valor e encargos valem a partir da próxima renovação.</span>
             </div>
@@ -239,8 +239,8 @@ export function AdjustRentalForm({ rental }: AdjustRentalFormProps) {
 
         {schedulePreview && (
           <div className="space-y-2">
-            <div className="flex items-start gap-2 rounded-lg border border-[#474747] bg-[#202020] px-3 py-2.5 text-[13px] text-[#c7c7c7]">
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#9e9e9e]" />
+            <div className="flex items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-[13px] text-fg-soft">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-fg-mute" />
               <span>
                 {schedulePreview.cancelled_count > 0 ? (
                   <>
@@ -257,13 +257,13 @@ export function AdjustRentalForm({ rental }: AdjustRentalFormProps) {
               </span>
             </div>
             {schedulePreview.discount_lost_total > 0 && (
-              <div className="flex items-start gap-2 rounded-lg border border-[#e65e24] bg-[#3a1200] px-3 py-2.5 text-[13px] text-[#ffa040]">
+              <div className="flex items-start gap-2 rounded-lg border border-warning bg-warning-bg px-3 py-2.5 text-[13px] text-warning">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{formatCurrency(schedulePreview.discount_lost_total)} em desconto aplicado será perdido (cobrança cancelada).</span>
               </div>
             )}
             {schedulePreview.credit_to_restore_total > 0 && (
-              <div className="flex items-start gap-2 rounded-lg border border-[#eab308] bg-[#2a2000] px-3 py-2.5 text-[13px] text-[#fde047]">
+              <div className="flex items-start gap-2 rounded-lg border border-warning bg-warning-bg px-3 py-2.5 text-[13px] text-warning">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{formatCurrency(schedulePreview.credit_to_restore_total)} em crédito aplicado voltará a ficar disponível para o cliente.</span>
               </div>
@@ -272,18 +272,18 @@ export function AdjustRentalForm({ rental }: AdjustRentalFormProps) {
         )}
 
         {/* Encargos por atraso */}
-        <div className="space-y-3 rounded-xl border border-[#323232] p-4">
-          <label className="flex cursor-pointer items-center gap-2 text-[13px] text-[#c7c7c7]">
+        <div className="space-y-3 rounded-xl border border-divider p-4">
+          <label className="flex cursor-pointer items-center gap-2 text-[13px] text-fg-soft">
             <input
               type="checkbox"
               checked={customizeCharges}
               onChange={e => setCustomizeCharges(e.target.checked)}
-              className="rounded accent-[#BAFF1A]"
+              className="rounded accent-primary"
             />
             Personalizar encargos por atraso desta locação
           </label>
           {!customizeCharges && (
-            <p className="text-[12px] text-[#616161]">
+            <p className="text-[12px] text-fg-mute">
               {rental.late_charge_config
                 ? 'Esta locação já tem encargos personalizados.'
                 : 'Esta locação usa os encargos padrão do tenant.'}
@@ -340,9 +340,9 @@ export function AdjustRentalForm({ rental }: AdjustRentalFormProps) {
         </div>
 
         {error && (
-          <div className="flex items-start gap-3 rounded-xl border border-[#ff9c9a]/30 bg-[#7c1c1c] px-4 py-3">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#ff9c9a]" />
-            <p className="text-[13px] text-[#ff9c9a]">{error}</p>
+          <div className="flex items-start gap-3 rounded-xl border border-danger bg-danger-bg px-4 py-3">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+            <p className="text-[13px] text-danger">{error}</p>
           </div>
         )}
       </div>

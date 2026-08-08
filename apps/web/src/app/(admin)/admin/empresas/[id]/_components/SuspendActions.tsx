@@ -51,11 +51,11 @@ export function SuspendActions({
   if (isSuspended) {
     return (
       <>
-        {error && <p className="text-[12px] text-[#ff9c9a]">{error}</p>}
+        {error && <p className="text-[12px] text-danger">{error}</p>}
         <button
           onClick={handleReactivate}
           disabled={isPending}
-          className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-[#0e2f13] text-[#229731] text-[13px] font-medium hover:bg-[#1a4a1f] transition-colors disabled:opacity-50"
+          className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-success-bg text-success text-[13px] font-medium hover:opacity-80 transition-opacity disabled:opacity-50"
         >
           <Play className="w-4 h-4" />
           {isPending ? 'Reativando…' : 'Reativar'}
@@ -69,7 +69,7 @@ export function SuspendActions({
       <button
         onClick={() => { setShowModal(true); setReason(''); setError(null) }}
         disabled={isPending}
-        className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-[#7c1c1c]/40 text-[#ff9c9a] text-[13px] font-medium hover:bg-[#7c1c1c] transition-colors disabled:opacity-50"
+        className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-danger-bg text-danger text-[13px] font-medium hover:bg-danger-bg transition-colors disabled:opacity-50"
       >
         <Pause className="w-4 h-4" />
         Suspender
@@ -82,8 +82,8 @@ export function SuspendActions({
         size="sm"
       >
         <div className="space-y-4">
-          <div className="p-3 bg-[#7c1c1c]/40 border border-[#ff9c9a]/30 rounded-xl">
-            <p className="text-[13px] text-[#c7c7c7] leading-relaxed">
+          <div className="p-3 bg-danger-bg border border-danger rounded-xl">
+            <p className="text-[13px] text-fg-soft leading-relaxed">
               A empresa não conseguirá acessar dados enquanto suspensa. O time interno
               continua vendo o login com a mensagem de suspensão.
             </p>
@@ -95,7 +95,7 @@ export function SuspendActions({
             placeholder="Ex.: inadimplência da mensalidade"
             disabled={isPending}
           />
-          {error && <p className="text-[13px] text-[#ff9c9a]">{error}</p>}
+          {error && <p className="text-[13px] text-danger">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="ghost" onClick={() => setShowModal(false)} disabled={isPending}>
               Cancelar

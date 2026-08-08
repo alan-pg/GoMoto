@@ -15,27 +15,27 @@ export const CYCLE_LABEL: Record<string, string> = {
 }
 
 export const STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  active:      { bg: 'bg-[#BAFF1A22]', text: 'text-[#BAFF1A]', label: 'Ativa'       },
-  closed:      { bg: 'bg-[#32323222]', text: 'text-[#9e9e9e]', label: 'Encerrada'   },
-  transferred: { bg: 'bg-[#60a5fa22]', text: 'text-[#60a5fa]', label: 'Transferida' },
+  active:      { bg: 'bg-success-bg', text: 'text-success', label: 'Ativa'       },
+  closed:      { bg: 'bg-surface-2',  text: 'text-fg-mute', label: 'Encerrada'   },
+  transferred: { bg: 'bg-info-bg',    text: 'text-info',    label: 'Transferida' },
 }
 
 export const SCHEDULE_STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  pending:   { bg: 'bg-[#32323222]', text: 'text-[#9e9e9e]', label: 'Pendente'          },
-  overdue:   { bg: 'bg-[#7c1c1c]',   text: 'text-[#ff9c9a]', label: 'Atrasada'          },
-  submitted: { bg: 'bg-[#5e3a00]',   text: 'text-[#ffba49]', label: 'Aguardando análise' },
-  approved:  { bg: 'bg-[#0e2f13]',   text: 'text-[#229731]', label: 'Aprovada'          },
-  rejected:  { bg: 'bg-[#7c1c1c]',   text: 'text-[#ff9c9a]', label: 'Rejeitada'         },
+  pending:   { bg: 'bg-surface-2',  text: 'text-fg-mute', label: 'Pendente'          },
+  overdue:   { bg: 'bg-danger-bg',  text: 'text-danger',  label: 'Atrasada'          },
+  submitted: { bg: 'bg-pending-bg', text: 'text-pending', label: 'Aguardando análise' },
+  approved:  { bg: 'bg-success-bg', text: 'text-success', label: 'Aprovada'          },
+  rejected:  { bg: 'bg-danger-bg',  text: 'text-danger',  label: 'Rejeitada'         },
 }
 
 export const INSPECTION_STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  pending:   { bg: 'bg-[#32323222]', text: 'text-[#9e9e9e]', label: 'Pendente'  },
-  completed: { bg: 'bg-[#0e2f13]',   text: 'text-[#229731]', label: 'Concluída' },
+  pending:   { bg: 'bg-surface-2',  text: 'text-fg-mute', label: 'Pendente'  },
+  completed: { bg: 'bg-success-bg', text: 'text-success', label: 'Concluída' },
 }
 
 export const MAINTENANCE_STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  pending:   { bg: 'bg-[#32323222]', text: 'text-[#9e9e9e]', label: 'Pendente'  },
-  completed: { bg: 'bg-[#0e2f13]',   text: 'text-[#229731]', label: 'Concluída' },
+  pending:   { bg: 'bg-surface-2',  text: 'text-fg-mute', label: 'Pendente'  },
+  completed: { bg: 'bg-success-bg', text: 'text-success', label: 'Concluída' },
 }
 
 export const MAINTENANCE_TYPE_LABEL: Record<string, string> = {

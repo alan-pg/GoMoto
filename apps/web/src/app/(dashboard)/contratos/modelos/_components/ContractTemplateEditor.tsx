@@ -84,8 +84,8 @@ function ToolbarButton({
       title={title}
       className={`h-8 w-8 flex items-center justify-center rounded transition-colors ${
         active
-          ? 'bg-[#BAFF1A] text-[#121212]'
-          : 'text-[#9e9e9e] hover:bg-[#323232] hover:text-[#f5f5f5]'
+          ? 'bg-primary text-bg'
+          : 'text-fg-mute hover:bg-surface-2 hover:text-fg'
       } disabled:opacity-30 disabled:cursor-not-allowed`}
     >
       {children}
@@ -94,7 +94,7 @@ function ToolbarButton({
 }
 
 function Divider() {
-  return <div className="w-px h-5 bg-[#474747] mx-0.5" />
+  return <div className="w-px h-5 bg-divider mx-0.5" />
 }
 
 function VariablePickerDropdown({ editor }: { editor: Editor }) {
@@ -124,8 +124,8 @@ function VariablePickerDropdown({ editor }: { editor: Editor }) {
         onClick={() => setOpen(o => !o)}
         className={`h-8 flex items-center gap-1.5 px-2.5 rounded text-[12px] font-medium transition-colors ${
           open
-            ? 'bg-[#BAFF1A] text-[#121212]'
-            : 'text-[#BAFF1A] border border-[#BAFF1A]/40 hover:bg-[#BAFF1A]/10'
+            ? 'bg-primary text-bg'
+            : 'text-primary border border-primary hover:bg-primary hover:text-bg'
         }`}
       >
         <Variable className="w-3.5 h-3.5" />
@@ -134,9 +134,9 @@ function VariablePickerDropdown({ editor }: { editor: Editor }) {
       </button>
 
       {open && (
-        <div className="absolute top-9 right-0 z-50 w-80 bg-[#202020] border border-[#474747] rounded-xl shadow-xl overflow-hidden">
+        <div className="absolute top-9 right-0 z-50 w-80 bg-surface border border-border rounded-xl shadow-xl overflow-hidden">
           {/* Categorias */}
-          <div className="flex border-b border-[#323232] overflow-x-auto">
+          <div className="flex border-b border-divider overflow-x-auto">
             {VARIABLE_CATEGORIES.map(cat => (
               <button
                 key={cat}
@@ -144,8 +144,8 @@ function VariablePickerDropdown({ editor }: { editor: Editor }) {
                 onClick={() => setActiveCategory(cat)}
                 className={`px-3 py-2 text-[11px] font-medium whitespace-nowrap transition-colors ${
                   activeCategory === cat
-                    ? 'text-[#BAFF1A] border-b-2 border-[#BAFF1A]'
-                    : 'text-[#9e9e9e] hover:text-[#f5f5f5]'
+                    ? 'text-primary border-b-2 border-primary'
+                    : 'text-fg-mute hover:text-fg'
                 }`}
               >
                 {cat}
@@ -160,18 +160,18 @@ function VariablePickerDropdown({ editor }: { editor: Editor }) {
                 key={v.key}
                 type="button"
                 onClick={() => insertVariable(v.key)}
-                className="w-full flex items-start gap-3 px-3 py-2 rounded-lg hover:bg-[#323232] transition-colors text-left"
+                className="w-full flex items-start gap-3 px-3 py-2 rounded-lg hover:bg-surface-2 transition-colors text-left"
               >
-                <code className="text-[11px] text-[#BAFF1A] font-mono bg-[#121212] border border-[#2a2a2a] rounded px-1.5 py-0.5 mt-0.5 shrink-0">
+                <code className="text-[11px] text-primary font-mono bg-bg border border-border rounded px-1.5 py-0.5 mt-0.5 shrink-0">
                   {`{{${v.key}}}`}
                 </code>
-                <span className="text-[12px] text-[#c7c7c7] leading-tight">{v.label}</span>
+                <span className="text-[12px] text-fg-soft leading-tight">{v.label}</span>
               </button>
             ))}
           </div>
 
-          <div className="border-t border-[#323232] px-3 py-2">
-            <p className="text-[11px] text-[#616161]">Clique para inserir no cursor</p>
+          <div className="border-t border-divider px-3 py-2">
+            <p className="text-[11px] text-fg-mute">Clique para inserir no cursor</p>
           </div>
         </div>
       )}
@@ -181,7 +181,7 @@ function VariablePickerDropdown({ editor }: { editor: Editor }) {
 
 function EditorToolbar({ editor }: { editor: Editor }) {
   return (
-    <div className="flex items-center gap-0.5 flex-wrap px-3 py-2 border-b border-[#323232] bg-[#1a1a1a] rounded-t-xl">
+    <div className="flex items-center gap-0.5 flex-wrap px-3 py-2 border-b border-divider bg-surface rounded-t-xl">
       {/* Undo / Redo */}
       <ToolbarButton
         onClick={() => editor.chain().focus().undo().run()}
@@ -364,7 +364,7 @@ export function ContractTemplateEditor({
   if (!editor) return null
 
   return (
-    <div className={`flex flex-col rounded-xl border border-[#323232] overflow-hidden ${className}`}>
+    <div className={`flex flex-col rounded-xl border border-divider overflow-hidden ${className}`}>
       {editable && <EditorToolbar editor={editor} />}
 
       {/* Canvas: fundo cinza (mesa) — cada .contract-page é uma folha branca */}

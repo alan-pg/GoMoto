@@ -43,10 +43,10 @@ const KIND_LABEL: Record<Kind, string> = {
 }
 
 const URGENCY_CONFIG: Record<Urgency, { label: string; icon: typeof AlertTriangle; color: string; active: string; bg: string; text: string }> = {
-  overdue:         { label: 'Vencidas',         icon: AlertTriangle, color: 'text-[#ff9c9a]', active: 'border-[#ff3e3c]', bg: 'bg-[#7c1c1c]', text: 'text-[#ff9c9a]' },
-  review:          { label: 'Para revisar',     icon: ClipboardList, color: 'text-[#ffba49]', active: 'border-[#ffba49]', bg: 'bg-[#5e3a00]', text: 'text-[#ffba49]' },
-  pending:         { label: 'Pendentes',        icon: ClipboardCheck, color: 'text-[#BAFF1A]', active: 'border-[#BAFF1A]', bg: 'bg-[#233a05]', text: 'text-[#BAFF1A]' },
-  awaiting_client: { label: 'Aguardando cliente', icon: Clock,        color: 'text-[#9e9e9e]', active: 'border-[#9e9e9e]', bg: 'bg-[#323232]', text: 'text-[#9e9e9e]' },
+  overdue:         { label: 'Vencidas',         icon: AlertTriangle, color: 'text-danger', active: 'border-danger', bg: 'bg-danger-bg', text: 'text-danger' },
+  review:          { label: 'Para revisar',     icon: ClipboardList, color: 'text-pending', active: 'border-pending', bg: 'bg-pending-bg', text: 'text-pending' },
+  pending:         { label: 'Pendentes',        icon: ClipboardCheck, color: 'text-primary', active: 'border-primary', bg: 'bg-primary-tint', text: 'text-primary' },
+  awaiting_client: { label: 'Aguardando cliente', icon: Clock,        color: 'text-fg-mute', active: 'border-fg-mute', bg: 'bg-surface-2', text: 'text-fg-mute' },
 }
 
 const URGENCY_RANK: Record<Urgency, number> = { overdue: 0, review: 1, pending: 2, awaiting_client: 3 }
@@ -174,14 +174,14 @@ export default function InspectionsPendingPage() {
   const hasActiveFilters = urgencyFilter !== 'all' || kindFilter !== 'all' || !!search
 
   return (
-    <div className="flex flex-col bg-[#121212]">
+    <div className="flex flex-col bg-bg">
       <PageTitle
         title="Vistorias"
         subtitle="Fila de trabalho — check-in, check-out e vistoria periódica"
         actions={
           <Link
             href="/vistorias/perfis"
-            className="inline-flex items-center gap-2 h-9 px-4 rounded-full border border-[#474747] text-[#9e9e9e] text-[13px] font-medium hover:text-[#f5f5f5] hover:border-[#616161] transition-colors"
+            className="inline-flex items-center gap-2 h-9 px-4 rounded-full border border-border text-fg-mute text-[13px] font-medium hover:text-fg hover:border-fg-mute transition-colors"
           >
             Perfis de Vistoria
           </Link>
@@ -201,16 +201,16 @@ export default function InspectionsPendingPage() {
                 key={key}
                 onClick={() => setUrgencyFilter((prev) => (prev === key ? 'all' : key))}
                 aria-pressed={isActive}
-                className={`flex items-center justify-between rounded-xl bg-[#202020] p-4 border-2 transition-colors text-left ${
-                  isActive ? cfg.active : 'border-transparent hover:border-[#474747]'
+                className={`flex items-center justify-between rounded-xl bg-surface p-4 border-2 transition-colors text-left ${
+                  isActive ? cfg.active : 'border-transparent hover:border-border'
                 }`}
               >
                 <div>
-                  <p className="text-[13px] text-[#9e9e9e]">{cfg.label}</p>
+                  <p className="text-[13px] text-fg-mute">{cfg.label}</p>
                   <p className={`text-2xl font-bold ${cfg.color}`}>{counts[key]}</p>
                 </div>
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#323232]">
-                  <Icon className="h-5 w-5 text-[#BAFF1A]" />
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-2">
+                  <Icon className="h-5 w-5 text-primary" />
                 </div>
               </button>
             )
@@ -220,20 +220,20 @@ export default function InspectionsPendingPage() {
         {/* ── Barra de filtros ─────────────────────────────────────────────── */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#616161]" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-fg-mute" />
             <input
               type="text"
               placeholder="Buscar cliente, placa, modelo..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-10 rounded-full border border-[#474747] bg-[#323232] pl-9 pr-4 text-[13px] text-[#f5f5f5] placeholder:text-[#616161] focus:border-[#BAFF1A] focus:outline-none w-64"
+              className="h-10 rounded-full border border-border bg-surface-2 pl-9 pr-4 text-[13px] text-fg placeholder:text-fg-mute focus:border-primary focus:outline-none w-64"
             />
           </div>
 
           <select
             value={kindFilter}
             onChange={(e) => setKindFilter(e.target.value as Kind | 'all')}
-            className="h-10 rounded-full border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
+            className="h-10 rounded-full border border-border bg-surface-2 px-3 text-[13px] text-fg focus:border-primary focus:outline-none"
           >
             <option value="all">Todos os tipos</option>
             <option value="checkin">Check-in</option>
@@ -244,14 +244,14 @@ export default function InspectionsPendingPage() {
           {hasActiveFilters && (
             <button
               onClick={() => { setUrgencyFilter('all'); setKindFilter('all'); setSearch('') }}
-              className="flex items-center gap-1 h-10 px-3 rounded-full border border-[#474747] bg-transparent text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] hover:border-[#9e9e9e] transition-colors"
+              className="flex items-center gap-1 h-10 px-3 rounded-full border border-border bg-transparent text-[13px] text-fg-mute hover:text-fg hover:border-fg-mute transition-colors"
             >
               <X className="w-3.5 h-3.5" />
               Limpar
             </button>
           )}
 
-          <span className="ml-auto text-[13px] text-[#616161]">
+          <span className="ml-auto text-[13px] text-fg-mute">
             {filtered.length} item{filtered.length === 1 ? '' : 's'}
           </span>
         </div>
@@ -259,29 +259,29 @@ export default function InspectionsPendingPage() {
         {/* ── Fila de trabalho ─────────────────────────────────────────────── */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#BAFF1A] border-t-transparent" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-xl bg-[#202020] p-16 text-center">
-            <Camera className="mb-4 h-12 w-12 text-[#474747]" />
-            <p className="text-lg font-medium text-[#f5f5f5]">
+          <div className="flex flex-col items-center justify-center rounded-xl bg-surface p-16 text-center">
+            <Camera className="mb-4 h-12 w-12 text-border" />
+            <p className="text-lg font-medium text-fg">
               {rows.length === 0 ? 'Nenhuma vistoria pendente.' : 'Nenhuma vistoria encontrada.'}
             </p>
-            <p className="mt-1 text-[13px] text-[#9e9e9e]">
+            <p className="mt-1 text-[13px] text-fg-mute">
               {rows.length === 0 ? 'Tudo em dia — novas pendências aparecem aqui automaticamente.' : 'Ajuste os filtros ou a busca.'}
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl bg-[#202020]">
-            <table className="w-full text-left text-[13px] text-[#f5f5f5]">
-              <thead className="bg-[#323232] border-b border-[#474747]">
+          <div className="overflow-x-auto rounded-xl bg-surface">
+            <table className="w-full text-left text-[13px] text-fg">
+              <thead className="bg-surface-2 border-b border-border">
                 <tr>
-                  <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium w-40">Status</th>
-                  <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium w-28">Tipo</th>
-                  <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Cliente</th>
-                  <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Veículo</th>
-                  <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">{'Data'}</th>
-                  <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Detalhe</th>
+                  <th className="h-9 px-4 text-fg-mute text-[13px] font-medium w-40">Status</th>
+                  <th className="h-9 px-4 text-fg-mute text-[13px] font-medium w-28">Tipo</th>
+                  <th className="h-9 px-4 text-fg-mute text-[13px] font-medium">Cliente</th>
+                  <th className="h-9 px-4 text-fg-mute text-[13px] font-medium">Veículo</th>
+                  <th className="h-9 px-4 text-fg-mute text-[13px] font-medium">{'Data'}</th>
+                  <th className="h-9 px-4 text-fg-mute text-[13px] font-medium">Detalhe</th>
                 </tr>
               </thead>
               <tbody>
@@ -291,30 +291,30 @@ export default function InspectionsPendingPage() {
                     <tr
                       key={`${row.kind}-${row.id}`}
                       onClick={() => router.push(row.href)}
-                      className="h-9 border-b border-[#323232] last:border-0 transition-colors hover:bg-[#282828] cursor-pointer"
+                      className="h-9 border-b border-divider last:border-0 transition-colors hover:bg-surface-2 cursor-pointer"
                     >
                       <td className="px-4">
                         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${cfg.bg} ${cfg.text}`}>
                           {cfg.label === 'Aguardando cliente' ? 'Aguard. cliente' : cfg.label.replace(/s$/, '')}
                         </span>
                       </td>
-                      <td className="px-4 text-[#9e9e9e]">{KIND_LABEL[row.kind]}</td>
-                      <td className="px-4 text-[#f5f5f5] font-medium">{row.customerName}</td>
+                      <td className="px-4 text-fg-mute">{KIND_LABEL[row.kind]}</td>
+                      <td className="px-4 text-fg font-medium">{row.customerName}</td>
                       <td className="px-4">
                         <div className="flex flex-col leading-tight">
-                          <span className="font-mono text-[#f5f5f5] text-[13px]">{row.vehiclePlate}</span>
-                          {row.vehicleLabel && <span className="text-[12px] text-[#9e9e9e]">{row.vehicleLabel}</span>}
+                          <span className="font-mono text-fg text-[13px]">{row.vehiclePlate}</span>
+                          {row.vehicleLabel && <span className="text-[12px] text-fg-mute">{row.vehicleLabel}</span>}
                         </div>
                       </td>
                       <td className="px-4">
                         <div className="flex flex-col leading-tight">
-                          <span className="text-[#c7c7c7] text-[13px]">{fmtDate(row.date)}</span>
-                          <span className={`text-[12px] ${row.urgency === 'overdue' ? 'text-[#ff9c9a]' : 'text-[#616161]'}`}>
+                          <span className="text-fg-soft text-[13px]">{fmtDate(row.date)}</span>
+                          <span className={`text-[12px] ${row.urgency === 'overdue' ? 'text-danger' : 'text-fg-mute'}`}>
                             {row.dateLabel} · {relativeLabel(row, todayIso)}
                           </span>
                         </div>
                       </td>
-                      <td className="px-4 text-[#9e9e9e] max-w-[220px] truncate" title={row.detail}>
+                      <td className="px-4 text-fg-mute max-w-[220px] truncate" title={row.detail}>
                         {row.detail ?? '—'}
                       </td>
                     </tr>

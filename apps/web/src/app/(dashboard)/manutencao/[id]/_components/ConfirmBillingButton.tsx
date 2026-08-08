@@ -66,7 +66,7 @@ export function ConfirmBillingButton({ maintenanceId, defaultAmount, vehicleId: 
 
   if (refused) {
     return (
-      <p className="text-[13px] text-[#9e9e9e]">Cobrança recusada — não será gerada.</p>
+      <p className="text-[13px] text-fg-mute">Cobrança recusada — não será gerada.</p>
     )
   }
 
@@ -76,14 +76,14 @@ export function ConfirmBillingButton({ maintenanceId, defaultAmount, vehicleId: 
         <button
           onClick={() => { setFlashError(null); setOpen(true) }}
           disabled={isPending}
-          className="inline-flex h-9 items-center rounded-full bg-[#BAFF1A] px-4 text-[13px] font-semibold text-[#121212] transition-colors hover:bg-[#ccff40] disabled:opacity-50"
+          className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-[13px] font-semibold text-bg transition-colors hover:bg-primary-hover disabled:opacity-50"
         >
           Gerar cobrança
         </button>
         <button
           onClick={handleRefuse}
           disabled={isPending}
-          className="inline-flex h-9 items-center rounded-full border border-[#474747] px-4 text-[13px] text-[#9e9e9e] transition-colors hover:border-[#616161] hover:text-[#f5f5f5] disabled:opacity-50"
+          className="inline-flex h-9 items-center rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg disabled:opacity-50"
         >
           Não cobrar
         </button>
@@ -105,18 +105,18 @@ export function ConfirmBillingButton({ maintenanceId, defaultAmount, vehicleId: 
             value={dueDate}
             onChange={e => setDueDate(e.target.value)}
           />
-          {flashError && <p className="text-[13px] text-[#ff9c9a]">{flashError}</p>}
+          {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button
               onClick={() => setOpen(false)}
-              className="inline-flex h-9 items-center px-4 rounded-full border border-[#474747] text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5]"
+              className="inline-flex h-9 items-center px-4 rounded-full border border-border text-[13px] text-fg-mute hover:text-fg"
             >
               Cancelar
             </button>
             <button
               onClick={handleConfirm}
               disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-[#BAFF1A] text-[13px] font-semibold text-[#121212] hover:bg-[#ccff40] disabled:opacity-50"
+              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-primary-hover disabled:opacity-50"
             >
               {isPending ? 'Gerando…' : 'Confirmar cobrança'}
             </button>

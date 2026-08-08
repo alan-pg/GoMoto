@@ -6,6 +6,7 @@ import {
   calculatePunctualityRate,
   calculateFinalAmount,
   canApplyDiscount,
+  canEditDownPayment,
   canRegisterPayment,
   isChargeOverdue,
 } from './billings'
@@ -143,5 +144,23 @@ describe('calculateFinalAmount', () => {
 
   it('sem desconto retorna o original', () => {
     expect(calculateFinalAmount(300, 0)).toBe(300)
+  })
+})
+
+describe('canEditDownPayment', () => {
+  it('permite editar Entrada pending', () => {
+    expect(canEditDownPayment('pending')).toEqual({ ok: true })
+  })
+
+  it('bloqueia edição de Entrada já paga', () => {
+    const result = canEditDownPayment('paid')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.errorCode).toBe('DOWN_PAYMENT_ALREADY_PAID')
+  })
+
+  it('bloqueia edição de Entrada cancelada', () => {
+    const result = canEditDownPayment('cancelled')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.errorCode).toBe('BILLING_CANCELLED')
   })
 })

@@ -52,7 +52,7 @@ export default async function RentalContractTab({
 
   return (
     <section>
-      <div className="overflow-hidden rounded-xl bg-[#202020]">
+      <div className="overflow-hidden rounded-xl bg-surface">
         <table className="w-full text-[13px]">
           <tbody>
             {([
@@ -64,20 +64,20 @@ export default async function RentalContractTab({
               ['Pro rata',    rental.use_pro_rata ? 'Sim' : 'Não'],
               ...(rental.observations ? [['Observações', rental.observations]] : []),
             ] as [string, string][]).map(([label, value]) => (
-              <tr key={label} className="border-b border-[#323232] last:border-0">
-                <td className="h-9 w-44 shrink-0 px-4 text-[#9e9e9e]">{label}</td>
-                <td className="h-9 px-4 text-[#f5f5f5]">{value}</td>
+              <tr key={label} className="border-b border-divider last:border-0">
+                <td className="h-9 w-44 shrink-0 px-4 text-fg-mute">{label}</td>
+                <td className="h-9 px-4 text-fg">{value}</td>
               </tr>
             ))}
             {adjustments.length > 0 && (
-              <tr className="border-b border-[#323232] last:border-0">
-                <td className="h-9 w-44 shrink-0 px-4 text-[#9e9e9e]">Reajustes</td>
-                <td className="h-9 px-4 text-[#f5f5f5]">
+              <tr className="border-b border-divider last:border-0">
+                <td className="h-9 w-44 shrink-0 px-4 text-fg-mute">Reajustes</td>
+                <td className="h-9 px-4 text-fg">
                   {adjustments.length} · último em {fmt(adjustments[0].adjusted_at)}
                   {' '}
                   <Link
                     href={`/locacoes/${id}/financeiro`}
-                    className="text-[12px] text-[#616161] transition-colors hover:text-[#BAFF1A]"
+                    className="text-[12px] text-fg-mute transition-colors hover:text-primary"
                   >
                     ver histórico →
                   </Link>

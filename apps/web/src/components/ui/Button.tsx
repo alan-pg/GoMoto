@@ -65,15 +65,15 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
  * primários da aplicação consistentemente.
  */
 const variants: Record<ButtonVariant, string> = {
-  primary: 'bg-[#BAFF1A] text-[#000000] font-medium hover:bg-[#a8e617]',
-  secondary: 'bg-[#323232] text-[#ffffff] hover:bg-[#474747]',
-  ghost: 'bg-transparent text-[#c7c7c7] hover:bg-[#323232] hover:text-[#f5f5f5]',
-  danger: 'bg-[#bf1d1e] text-[#f5f5f5] hover:bg-[#a01819]',
-  outline: 'bg-transparent border border-[#474747] text-[#f5f5f5] hover:border-[#BAFF1A] hover:text-[#BAFF1A]',
-  white: 'bg-[#ffffff] text-[#121212] hover:bg-[#f0f0f0]',
-  'white-lg': 'bg-[#ffffff] text-[#121212] hover:bg-[#f0f0f0]',
-  'neutral-sm': 'bg-[#eeeeee] text-[#000000]',
-  'actions-sm': 'bg-[#323232] text-[#ffffff] hover:bg-[#474747]',
+  primary: 'bg-primary text-primary-contrast font-medium hover:bg-primary-hover',
+  secondary: 'bg-surface-2 text-fg hover:opacity-80',
+  ghost: 'bg-transparent text-fg-soft hover:bg-surface-2 hover:text-fg',
+  danger: 'bg-danger text-white hover:opacity-90',
+  outline: 'bg-transparent border border-border text-fg hover:border-primary hover:text-primary',
+  white: 'bg-white text-black hover:bg-white/90',
+  'white-lg': 'bg-white text-black hover:bg-white/90',
+  'neutral-sm': 'bg-surface-2 text-fg',
+  'actions-sm': 'bg-surface-2 text-fg hover:opacity-80',
 }
 
 /**
@@ -108,7 +108,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           // 1. Classes base: aplicadas a TODAS as variantes de botão.
           'inline-flex items-center justify-center gap-2 rounded-full font-medium transition-all duration-150',
           'hover:scale-[1.025] active:scale-95',
-          'disabled:bg-[#323232] disabled:text-[#9e9e9e] disabled:cursor-not-allowed disabled:hover:scale-100 disabled:active:scale-100',
+          'disabled:bg-surface-2 disabled:text-fg-mute disabled:cursor-not-allowed disabled:hover:scale-100 disabled:active:scale-100',
           // 2. Classes de variante: aplica o estilo da variante selecionada.
           variants[variant],
           // 3. Classes de tamanho: aplica as dimensões do tamanho selecionado.

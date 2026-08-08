@@ -18,8 +18,8 @@ export default function MobileExecuteInspectionPage({
 
   return (
     <div>
-      <div className="sticky top-12 z-20 bg-[#121212]/95 backdrop-blur border-b border-[#2a2a2a] px-4 h-11 flex items-center gap-3">
-        <Link href="/mobile/vistorias" className="text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors whitespace-nowrap">
+      <div className="sticky top-12 z-20 bg-bg backdrop-blur border-b border-border px-4 h-11 flex items-center gap-3">
+        <Link href="/mobile/vistorias" className="text-[13px] text-fg-mute hover:text-fg transition-colors whitespace-nowrap">
           ← Vistorias
         </Link>
       </div>

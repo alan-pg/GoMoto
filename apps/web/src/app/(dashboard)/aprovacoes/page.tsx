@@ -152,7 +152,7 @@ export default function AprovacoesPage() {
       />
       <div className="px-6 py-6">
         {loading ? (
-          <div className="flex items-center justify-center py-20 text-[#9e9e9e]">
+          <div className="flex items-center justify-center py-20 text-fg-mute">
             <Loader2 className="w-5 h-5 animate-spin mr-2" /> Carregando…
           </div>
         ) : records.length === 0 ? (
@@ -190,10 +190,10 @@ export default function AprovacoesPage() {
 
 function EmptyState() {
   return (
-    <div className="border border-[#323232] rounded-2xl bg-[#202020] px-8 py-12 text-center">
-      <ClipboardList className="w-8 h-8 text-[#9e9e9e] mx-auto mb-3" />
-      <h2 className="text-[16px] font-medium text-[#f5f5f5]">Nenhum registro pendente</h2>
-      <p className="text-[13px] text-[#9e9e9e] mt-1">
+    <div className="border border-divider rounded-2xl bg-surface px-8 py-12 text-center">
+      <ClipboardList className="w-8 h-8 text-fg-mute mx-auto mb-3" />
+      <h2 className="text-[16px] font-medium text-fg">Nenhum registro pendente</h2>
+      <p className="text-[13px] text-fg-mute mt-1">
         Quando um cliente concluir uma manutenção pelo app, ela aparece aqui pra revisão.
       </p>
     </div>
@@ -216,13 +216,13 @@ function RecordCard({
   onReject: () => void
 }) {
   return (
-    <div className="border border-[#323232] rounded-2xl bg-[#202020] p-4 flex flex-col gap-3">
+    <div className="border border-divider rounded-2xl bg-surface p-4 flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-[14px] font-medium text-[#f5f5f5]">
+          <h3 className="text-[14px] font-medium text-fg">
             {maintenance?.description || 'Manutenção corretiva (sem vínculo no plano)'}
           </h3>
-          <p className="text-[12px] text-[#9e9e9e] mt-0.5">
+          <p className="text-[12px] text-fg-mute mt-0.5">
             {maintenance ? TYPE_LABEL[maintenance.type] ?? maintenance.type : 'Avulsa'}
             {' · '}
             {customer?.name ?? '—'}
@@ -230,7 +230,7 @@ function RecordCard({
             {vehicle ? `${vehicle.license_plate} ${vehicle.make ?? ''} ${vehicle.model ?? ''}` : 'Moto não identificada'}
           </p>
         </div>
-        <span className="bg-[#5e3a00] text-[#ffba49] text-[11px] font-medium px-2 py-1 rounded-full whitespace-nowrap">
+        <span className="bg-pending-bg text-pending text-[11px] font-medium px-2 py-1 rounded-full whitespace-nowrap">
           Pendente
         </span>
       </div>
@@ -243,7 +243,7 @@ function RecordCard({
       </div>
 
       {record.notes ? (
-        <div className="text-[13px] text-[#c7c7c7] bg-[#121212] border border-[#323232] rounded-lg px-3 py-2">
+        <div className="text-[13px] text-fg-soft bg-bg border border-divider rounded-lg px-3 py-2">
           {record.notes}
         </div>
       ) : null}
@@ -270,8 +270,8 @@ function RecordCard({
 function KV({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[11px] text-[#9e9e9e] uppercase tracking-wide">{label}</p>
-      <p className="text-[13px] text-[#f5f5f5] mt-0.5">{value}</p>
+      <p className="text-[11px] text-fg-mute uppercase tracking-wide">{label}</p>
+      <p className="text-[13px] text-fg mt-0.5">{value}</p>
     </div>
   )
 }
@@ -279,7 +279,7 @@ function KV({ label, value }: { label: string; value: string }) {
 function PhotoSlot({ label, url }: { label: string; url: string | null }) {
   if (!url) {
     return (
-      <div className="border border-dashed border-[#323232] rounded-lg p-3 text-center text-[12px] text-[#9e9e9e]">
+      <div className="border border-dashed border-divider rounded-lg p-3 text-center text-[12px] text-fg-mute">
         {label}: sem foto
       </div>
     )
@@ -289,11 +289,11 @@ function PhotoSlot({ label, url }: { label: string; url: string | null }) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group block border border-[#323232] rounded-lg overflow-hidden"
+      className="group block border border-divider rounded-lg overflow-hidden"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={url} alt={label} className="w-full h-32 object-cover" />
-      <div className="flex items-center justify-between bg-[#121212] px-2 py-1 text-[12px] text-[#c7c7c7] group-hover:text-[#BAFF1A]">
+      <div className="flex items-center justify-between bg-bg px-2 py-1 text-[12px] text-fg-soft group-hover:text-primary">
         <span>{label}</span>
         <ExternalLink className="w-3 h-3" />
       </div>
@@ -355,7 +355,7 @@ function ApproveModal({
   return (
     <Modal open={record !== null} onClose={handleClose} title="Aprovar registro" size="md">
       <div className="flex flex-col gap-4">
-        <p className="text-[13px] text-[#c7c7c7]">
+        <p className="text-[13px] text-fg-soft">
           Aprovar marca a manutenção como concluída no sistema, com o KM e custo informados pelo
           cliente. Defina o snapshot de responsabilidade (D4 do PRD).
         </p>
@@ -377,7 +377,7 @@ function ApproveModal({
           value={pct}
           onChange={(e) => setPct(e.target.value)}
         />
-        {error ? <p className="text-[12px] text-[#ff9c9a]">{error}</p> : null}
+        {error ? <p className="text-[12px] text-danger">{error}</p> : null}
         <div className="flex items-center justify-end gap-2">
           <Button variant="secondary" onClick={handleClose} disabled={submitting}>
             <X className="w-4 h-4" />
@@ -436,7 +436,7 @@ function RejectModal({
   return (
     <Modal open={record !== null} onClose={handleClose} title="Rejeitar registro" size="md">
       <div className="flex flex-col gap-4">
-        <p className="text-[13px] text-[#c7c7c7]">
+        <p className="text-[13px] text-fg-soft">
           O cliente recebe o motivo e pode reenviar. Não altera a manutenção planejada.
         </p>
         <Textarea
@@ -445,7 +445,7 @@ function RejectModal({
           onChange={(e) => setReason(e.target.value)}
           placeholder="Ex.: a foto do hodômetro está borrada, refaça com a moto desligada."
         />
-        {error ? <p className="text-[12px] text-[#ff9c9a]">{error}</p> : null}
+        {error ? <p className="text-[12px] text-danger">{error}</p> : null}
         <div className="flex items-center justify-end gap-2">
           <Button variant="secondary" onClick={handleClose} disabled={submitting}>
             <X className="w-4 h-4" />

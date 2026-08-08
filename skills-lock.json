@@ -85,6 +85,12 @@
       "skillPath": "plugins/expo/skills/native-data-fetching/SKILL.md",
       "computedHash": "21253dd72e2afa0cc0a6693295f043af3b149fa250c7aedef4d33144e69258ff"
     },
+    "shadcn": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "skillPath": "skills/shadcn/SKILL.md",
+      "computedHash": "c1a68ee06a668aced9ab2b5fbdea5f989864123794eb2e056b339a072dbb7f10"
+    },
     "supabase": {
       "source": "supabase/agent-skills",
       "sourceType": "github",

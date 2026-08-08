@@ -19,6 +19,7 @@ import {
   generateCycleCharges,
   canRegisterPayment,
   canApplyDiscount,
+  canEditDownPayment,
   isRentalTerminationWithinMinimum,
   calculateAdjustedBillingAmount,
   computeScheduleRegenerationCutoff,
@@ -105,6 +106,10 @@ export async function createRental(
     p_checkin_checkout_inspection_profile_id: parsed.data.checkin_checkout_inspection_profile_id ?? null,
     p_periodic_inspection_profile_id:         parsed.data.periodic_inspection_profile_id ?? null,
     p_periodic_inspection_frequency_days:     parsed.data.periodic_inspection_frequency_days ?? null,
+    p_down_payment:              parsed.data.down_payment ?? null,
+    p_down_payment_paid:         parsed.data.down_payment_paid,
+    p_down_payment_payment_date: parsed.data.down_payment_payment_date ?? null,
+    p_down_payment_due_date:     parsed.data.down_payment_due_date ?? null,
   })
 
   if (error) {
@@ -150,7 +155,7 @@ export async function createRental(
 
 export async function updateRental(
   leaseId: string,
-  data: Pick<CreateRental, 'observations' | 'security_deposit'>,
+  data: Pick<CreateRental, 'observations' | 'security_deposit' | 'down_payment' | 'down_payment_due_date'>,
 ): Promise<ActionResult<void>> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -228,6 +233,33 @@ export async function updateRental(
           received_at: rentalRow.start_date ?? new Date().toISOString().slice(0, 10),
         })
       }
+    }
+  }
+
+  // Entrada (Spec 0010, RN-002): definida só na criação — edição nunca cria
+  // uma nova, só corrige a existente enquanto pendente (RF-005).
+  if (data.down_payment != null) {
+    const { data: dp } = await supabase
+      .from('billings')
+      .select('id, status')
+      .eq('lease_id', leaseId)
+      .eq('tenant_id', tenantId)
+      .eq('billing_type', 'down_payment')
+      .maybeSingle()
+
+    if (dp) {
+      const check = canEditDownPayment(dp.status)
+      if (!check.ok) {
+        const msg = check.errorCode === 'DOWN_PAYMENT_ALREADY_PAID'
+          ? 'Entrada já paga não pode ser alterada.'
+          : 'Esta Entrada está cancelada.'
+        return { ok: false, error: { code: check.errorCode as 'DOWN_PAYMENT_ALREADY_PAID' | 'BILLING_CANCELLED', message: msg } }
+      }
+      await supabase
+        .from('billings')
+        .update({ original_amount: data.down_payment, due_date: data.down_payment_due_date ?? undefined })
+        .eq('id', dp.id)
+        .eq('tenant_id', tenantId)
     }
   }
 

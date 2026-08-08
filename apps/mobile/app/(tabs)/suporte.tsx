@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   Linking,
@@ -12,6 +12,15 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import Constants from 'expo-constants'
 import { useAuth } from '../../src/contexts/auth'
 import { supabase } from '../../src/lib/supabase'
+import { useTheme, useThemePreference, type ThemeTokens, type ThemePreference } from '../../src/theme'
+
+type Styles = ReturnType<typeof createStyles>
+
+const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: 'auto', label: 'Sistema' },
+  { value: 'light', label: 'Claro' },
+  { value: 'dark', label: 'Escuro' },
+]
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,11 +45,11 @@ function openMail(email: string) {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function SectionTitle({ text }: { text: string }) {
+function SectionTitle({ text, styles }: { text: string; styles: Styles }) {
   return <Text style={styles.sectionTitle}>{text}</Text>
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, value, styles }: { label: string; value: string; styles: Styles }) {
   return (
     <View style={styles.infoRow}>
       <Text style={styles.infoLabel}>{label}</Text>
@@ -54,11 +63,13 @@ function ActionRow({
   sublabel,
   onPress,
   accent,
+  styles,
 }: {
   label: string
   sublabel?: string
   onPress: () => void
   accent?: boolean
+  styles: Styles
 }) {
   return (
     <Pressable
@@ -76,6 +87,35 @@ function ActionRow({
   )
 }
 
+function ThemeSelector({
+  preference,
+  onChange,
+  styles,
+}: {
+  preference: ThemePreference
+  onChange: (pref: ThemePreference) => void
+  styles: Styles
+}) {
+  return (
+    <View style={styles.themeOptions}>
+      {THEME_OPTIONS.map((opt) => {
+        const active = preference === opt.value
+        return (
+          <Pressable
+            key={opt.value}
+            style={[styles.themeOption, active && styles.themeOptionActive]}
+            onPress={() => onChange(opt.value)}
+          >
+            <Text style={[styles.themeOptionText, active && styles.themeOptionTextActive]}>
+              {opt.label}
+            </Text>
+          </Pressable>
+        )
+      })}
+    </View>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Screen
 // ---------------------------------------------------------------------------
@@ -84,6 +124,9 @@ type CustomerProfile = { name: string | null; phone: string | null }
 
 export default function ContaTab() {
   const { session, tenants, activeTenantId, signOut } = useAuth()
+  const theme = useTheme()
+  const styles = useMemo(() => createStyles(theme), [theme])
+  const { preference, setPreference } = useThemePreference()
 
   const activeTenant = tenants.find((t) => t.id === activeTenantId) ?? null
   const appVersion = Constants.expoConfig?.version ?? '—'
@@ -122,26 +165,33 @@ export default function ContaTab() {
       <ScrollView contentContainerStyle={styles.content}>
 
         {/* Meu perfil */}
-        <SectionTitle text="Meu perfil" />
+        <SectionTitle text="Meu perfil" styles={styles} />
         <View style={styles.card}>
-          <InfoRow label="Nome" value={profile.name ?? '—'} />
+          <InfoRow label="Nome" value={profile.name ?? '—'} styles={styles} />
           {profile.phone ? (
-            <InfoRow label="Telefone" value={profile.phone} />
+            <InfoRow label="Telefone" value={profile.phone} styles={styles} />
           ) : null}
+        </View>
+
+        {/* Aparência */}
+        <SectionTitle text="Aparência" styles={styles} />
+        <View style={styles.card}>
+          <ThemeSelector preference={preference} onChange={setPreference} styles={styles} />
         </View>
 
         {/* Minha locadora */}
         {activeTenant ? (
           <>
-            <SectionTitle text="Minha locadora" />
+            <SectionTitle text="Minha locadora" styles={styles} />
             <View style={styles.card}>
-              <InfoRow label="Empresa" value={activeTenant.name} />
+              <InfoRow label="Empresa" value={activeTenant.name} styles={styles} />
               {tenantPhone ? (
                 <ActionRow
                   label="WhatsApp"
                   sublabel={tenantPhone}
                   onPress={() => openWhatsApp(tenantPhone)}
                   accent
+                  styles={styles}
                 />
               ) : null}
               {tenantEmail ? (
@@ -150,19 +200,20 @@ export default function ContaTab() {
                   sublabel={tenantEmail}
                   onPress={() => openMail(tenantEmail)}
                   accent
+                  styles={styles}
                 />
               ) : null}
               {!tenantPhone && !tenantEmail ? (
-                <InfoRow label="Contato" value="Não informado" />
+                <InfoRow label="Contato" value="Não informado" styles={styles} />
               ) : null}
             </View>
           </>
         ) : null}
 
         {/* Sobre */}
-        <SectionTitle text="Sobre o app" />
+        <SectionTitle text="Sobre o app" styles={styles} />
         <View style={styles.card}>
-          <InfoRow label="Versão" value={appVersion} />
+          <InfoRow label="Versão" value={appVersion} styles={styles} />
         </View>
 
         {/* Sair */}
@@ -182,20 +233,20 @@ export default function ContaTab() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
+const createStyles = (theme: ThemeTokens) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: theme.bg,
   },
   header: {
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 14,
-    borderBottomColor: '#323232',
+    borderBottomColor: theme.surfaceAlt,
     borderBottomWidth: 1,
   },
   headerTitle: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 22,
     fontWeight: '700',
   },
@@ -205,7 +256,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   sectionTitle: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.6,
@@ -215,8 +266,8 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
   card: {
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 12,
     overflow: 'hidden',
@@ -227,15 +278,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 14,
     paddingVertical: 12,
-    borderBottomColor: '#2a2a2a',
+    borderBottomColor: theme.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   infoLabel: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
   },
   infoValue: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 13,
     fontWeight: '500',
     maxWidth: '60%',
@@ -246,47 +297,73 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 14,
     paddingVertical: 12,
-    borderBottomColor: '#2a2a2a',
+    borderBottomColor: theme.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: 8,
   },
   actionRowPressed: {
-    backgroundColor: '#2a2a2a',
+    backgroundColor: theme.border,
   },
   actionRowLeft: {
     flex: 1,
     gap: 2,
   },
   actionRowLabel: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 13,
     fontWeight: '500',
   },
   actionRowLabelAccent: {
-    color: '#BAFF1A',
+    color: theme.primary,
   },
   actionRowSublabel: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 12,
   },
   actionRowChevron: {
-    color: '#474747',
+    color: theme.border,
     fontSize: 18,
+  },
+  themeOptions: {
+    flexDirection: 'row',
+    gap: 8,
+    padding: 10,
+  },
+  themeOption: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: theme.surfaceAlt,
+    borderColor: theme.border,
+    borderWidth: 1,
+  },
+  themeOptionActive: {
+    backgroundColor: theme.primaryTint,
+    borderColor: theme.primary,
+  },
+  themeOptionText: {
+    color: theme.textSoft,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  themeOptionTextActive: {
+    color: theme.primary,
   },
   signOutBtn: {
     marginTop: 24,
-    borderColor: '#3a1a1a',
+    borderColor: theme.danger,
     borderWidth: 1,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
-    backgroundColor: '#1e0f0f',
+    backgroundColor: theme.dangerBg,
   },
   signOutBtnPressed: {
-    backgroundColor: '#2a1212',
+    backgroundColor: theme.dangerBg,
   },
   signOutText: {
-    color: '#e65e24',
+    color: theme.warning,
     fontSize: 15,
     fontWeight: '600',
   },

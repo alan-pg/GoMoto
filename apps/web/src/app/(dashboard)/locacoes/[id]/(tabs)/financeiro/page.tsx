@@ -49,6 +49,7 @@ const SOURCE_LABELS: Record<string, string> = {
   expense:      'Despesa',
   manual:       'Manual',
   deposit:      'Caução',
+  down_payment: 'Entrada',
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -132,24 +133,24 @@ export default async function RentalFinancialTab({
 
       {/* ── KPIs ──────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <div className="rounded-xl bg-[#202020] p-4">
-          <p className="text-[12px] text-[#9e9e9e]">Total emitido</p>
-          <p className="mt-1 text-xl font-bold text-[#f5f5f5]">{formatCurrency(totalBilled)}</p>
-          <p className="mt-0.5 text-[12px] text-[#616161]">{billings.length} cobranças</p>
+        <div className="rounded-xl bg-surface p-4">
+          <p className="text-[12px] text-fg-mute">Total emitido</p>
+          <p className="mt-1 text-xl font-bold text-fg">{formatCurrency(totalBilled)}</p>
+          <p className="mt-0.5 text-[12px] text-fg-mute">{billings.length} cobranças</p>
         </div>
-        <div className="rounded-xl bg-[#202020] p-4">
-          <p className="text-[12px] text-[#9e9e9e]">Total pago</p>
-          <p className="mt-1 text-xl font-bold text-[#229731]">{formatCurrency(totalPaid)}</p>
+        <div className="rounded-xl bg-surface p-4">
+          <p className="text-[12px] text-fg-mute">Total pago</p>
+          <p className="mt-1 text-xl font-bold text-success">{formatCurrency(totalPaid)}</p>
         </div>
-        <div className="rounded-xl bg-[#202020] p-4">
-          <p className="text-[12px] text-[#9e9e9e]">Em aberto</p>
-          <p className={`mt-1 text-xl font-bold ${totalPending > 0 ? 'text-[#a880ff]' : 'text-[#9e9e9e]'}`}>
+        <div className="rounded-xl bg-surface p-4">
+          <p className="text-[12px] text-fg-mute">Em aberto</p>
+          <p className={`mt-1 text-xl font-bold ${totalPending > 0 ? 'text-info' : 'text-fg-mute'}`}>
             {formatCurrency(totalPending)}
           </p>
         </div>
-        <div className="rounded-xl bg-[#202020] p-4">
-          <p className="text-[12px] text-[#9e9e9e]">Vencido</p>
-          <p className={`mt-1 text-xl font-bold ${totalOverdue > 0 ? 'text-[#ff9c9a]' : 'text-[#9e9e9e]'}`}>
+        <div className="rounded-xl bg-surface p-4">
+          <p className="text-[12px] text-fg-mute">Vencido</p>
+          <p className={`mt-1 text-xl font-bold ${totalOverdue > 0 ? 'text-danger' : 'text-fg-mute'}`}>
             {formatCurrency(totalOverdue)}
           </p>
         </div>
@@ -157,35 +158,35 @@ export default async function RentalFinancialTab({
 
       {/* ── Caução ────────────────────────────────────────────────────── */}
       <section>
-        <h2 className="mb-3 text-[14px] font-bold text-[#BAFF1A]">Caução</h2>
-        <div className="overflow-hidden rounded-xl bg-[#202020]">
+        <h2 className="mb-3 text-[14px] font-bold text-primary">Caução</h2>
+        <div className="overflow-hidden rounded-xl bg-surface">
           <table className="w-full text-[13px]">
             <tbody>
-              <tr className="border-b border-[#323232]">
-                <td className="h-9 w-52 px-4 text-[#9e9e9e]">Valor contratado</td>
-                <td className="h-9 px-4 font-mono text-[#f5f5f5]">
+              <tr className="border-b border-divider">
+                <td className="h-9 w-52 px-4 text-fg-mute">Valor contratado</td>
+                <td className="h-9 px-4 font-mono text-fg">
                   {deposit != null ? formatCurrency(deposit.amount) : '—'}
                 </td>
               </tr>
-              <tr className="border-b border-[#323232]">
-                <td className="h-9 w-52 px-4 text-[#9e9e9e]">Recebido</td>
-                <td className="h-9 px-4 font-mono text-[#229731]">{formatCurrency(depositReceived)}</td>
+              <tr className="border-b border-divider">
+                <td className="h-9 w-52 px-4 text-fg-mute">Recebido</td>
+                <td className="h-9 px-4 font-mono text-success">{formatCurrency(depositReceived)}</td>
               </tr>
               {depositReturned > 0 && (
-                <tr className="border-b border-[#323232]">
-                  <td className="h-9 w-52 px-4 text-[#9e9e9e]">Devolvido</td>
-                  <td className="h-9 px-4 font-mono text-[#9e9e9e]">− {formatCurrency(depositReturned)}</td>
+                <tr className="border-b border-divider">
+                  <td className="h-9 w-52 px-4 text-fg-mute">Devolvido</td>
+                  <td className="h-9 px-4 font-mono text-fg-mute">− {formatCurrency(depositReturned)}</td>
                 </tr>
               )}
               {depositRetained > 0 && (
-                <tr className="border-b border-[#323232]">
-                  <td className="h-9 w-52 px-4 text-[#9e9e9e]">Retido</td>
-                  <td className="h-9 px-4 font-mono text-[#e65e24]">− {formatCurrency(depositRetained)}</td>
+                <tr className="border-b border-divider">
+                  <td className="h-9 w-52 px-4 text-fg-mute">Retido</td>
+                  <td className="h-9 px-4 font-mono text-warning">− {formatCurrency(depositRetained)}</td>
                 </tr>
               )}
               <tr>
-                <td className="h-9 w-52 px-4 font-medium text-[#f5f5f5]">Saldo</td>
-                <td className={`h-9 px-4 font-mono font-bold ${depositBalance > 0 ? 'text-[#BAFF1A]' : 'text-[#9e9e9e]'}`}>
+                <td className="h-9 w-52 px-4 font-medium text-fg">Saldo</td>
+                <td className={`h-9 px-4 font-mono font-bold ${depositBalance > 0 ? 'text-primary' : 'text-fg-mute'}`}>
                   {formatCurrency(depositBalance)}
                 </td>
               </tr>
@@ -197,27 +198,27 @@ export default async function RentalFinancialTab({
       {/* ── Movimentações de caução ───────────────────────────────────── */}
       {depositMovements.length > 0 && (
         <section>
-          <h2 className="mb-3 text-[14px] font-bold text-[#BAFF1A]">
+          <h2 className="mb-3 text-[14px] font-bold text-primary">
             Movimentações de caução
-            <span className="ml-2 text-[12px] font-normal text-[#9e9e9e]">({depositMovements.length})</span>
+            <span className="ml-2 text-[12px] font-normal text-fg-mute">({depositMovements.length})</span>
           </h2>
-          <div className="overflow-hidden rounded-xl border border-[#323232]">
+          <div className="overflow-hidden rounded-xl border border-divider">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b border-[#323232] bg-[#1a1a1a]">
-                  <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Tipo</th>
-                  <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Data</th>
-                  <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Valor</th>
-                  <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Motivo</th>
+                <tr className="border-b border-divider bg-surface">
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Tipo</th>
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
+                  <th className="h-9 px-4 text-right font-medium text-fg-mute">Valor</th>
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Motivo</th>
                 </tr>
               </thead>
               <tbody>
                 {depositMovements.map(m => (
-                  <tr key={m.id} className="border-b border-[#1e1e1e] last:border-0 hover:bg-[#222222]">
-                    <td className="h-9 px-4 text-[#c7c7c7]">{MOVEMENT_TYPE_LABELS[m.movement_type] ?? m.movement_type}</td>
-                    <td className="h-9 px-4 text-[#9e9e9e]">{fmtDatetime(m.created_at)}</td>
-                    <td className="h-9 px-4 text-right font-mono text-[#f5f5f5]">{formatCurrency(m.amount)}</td>
-                    <td className="h-9 max-w-[200px] truncate px-4 text-[#9e9e9e]">{m.reason ?? '—'}</td>
+                  <tr key={m.id} className="border-b border-border last:border-0 hover:bg-surface-2">
+                    <td className="h-9 px-4 text-fg-soft">{MOVEMENT_TYPE_LABELS[m.movement_type] ?? m.movement_type}</td>
+                    <td className="h-9 px-4 text-fg-mute">{fmtDatetime(m.created_at)}</td>
+                    <td className="h-9 px-4 text-right font-mono text-fg">{formatCurrency(m.amount)}</td>
+                    <td className="h-9 max-w-[200px] truncate px-4 text-fg-mute">{m.reason ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -229,27 +230,27 @@ export default async function RentalFinancialTab({
       {/* ── Ajustes de mensalidade ───────────────────────────────────── */}
       {adjustments.length > 0 && (
         <section>
-          <h2 className="mb-3 text-[14px] font-bold text-[#BAFF1A]">
+          <h2 className="mb-3 text-[14px] font-bold text-primary">
             Ajustes de mensalidade
-            <span className="ml-2 text-[12px] font-normal text-[#9e9e9e]">({adjustments.length})</span>
+            <span className="ml-2 text-[12px] font-normal text-fg-mute">({adjustments.length})</span>
           </h2>
-          <div className="overflow-hidden rounded-xl border border-[#323232]">
+          <div className="overflow-hidden rounded-xl border border-divider">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b border-[#323232] bg-[#1a1a1a]">
-                  <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Data</th>
-                  <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Motivo</th>
-                  <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Anterior</th>
-                  <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Novo</th>
+                <tr className="border-b border-divider bg-surface">
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Motivo</th>
+                  <th className="h-9 px-4 text-right font-medium text-fg-mute">Anterior</th>
+                  <th className="h-9 px-4 text-right font-medium text-fg-mute">Novo</th>
                 </tr>
               </thead>
               <tbody>
                 {adjustments.map(a => (
-                  <tr key={a.id} className="border-b border-[#1e1e1e] last:border-0 hover:bg-[#222222]">
-                    <td className="h-9 px-4 text-[#9e9e9e]">{fmt(a.adjusted_at)}</td>
-                    <td className="h-9 max-w-[180px] truncate px-4 text-[#c7c7c7]">{a.justification}</td>
-                    <td className="h-9 px-4 text-right font-mono text-[#9e9e9e]">{formatCurrency(a.previous_cycle_amount)}</td>
-                    <td className="h-9 px-4 text-right font-mono font-semibold text-[#f5f5f5]">{formatCurrency(a.new_cycle_amount)}</td>
+                  <tr key={a.id} className="border-b border-border last:border-0 hover:bg-surface-2">
+                    <td className="h-9 px-4 text-fg-mute">{fmt(a.adjusted_at)}</td>
+                    <td className="h-9 max-w-[180px] truncate px-4 text-fg-soft">{a.justification}</td>
+                    <td className="h-9 px-4 text-right font-mono text-fg-mute">{formatCurrency(a.previous_cycle_amount)}</td>
+                    <td className="h-9 px-4 text-right font-mono font-semibold text-fg">{formatCurrency(a.new_cycle_amount)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -261,28 +262,28 @@ export default async function RentalFinancialTab({
       {/* ── Cobranças ─────────────────────────────────────────────────── */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-[14px] font-bold text-[#BAFF1A]">
+          <h2 className="text-[14px] font-bold text-primary">
             Cobranças
-            <span className="ml-2 text-[12px] font-normal text-[#9e9e9e]">({billings.length})</span>
+            <span className="ml-2 text-[12px] font-normal text-fg-mute">({billings.length})</span>
           </h2>
-          <Link href="/cobrancas" className="text-[12px] text-[#616161] transition-colors hover:text-[#BAFF1A]">
+          <Link href="/cobrancas" className="text-[12px] text-fg-mute transition-colors hover:text-primary">
             Ver em cobranças →
           </Link>
         </div>
         {billings.length === 0 ? (
-          <div className="flex items-center justify-center rounded-xl bg-[#202020] py-8">
-            <p className="text-[13px] text-[#616161]">Nenhuma cobrança.</p>
+          <div className="flex items-center justify-center rounded-xl bg-surface py-8">
+            <p className="text-[13px] text-fg-mute">Nenhuma cobrança.</p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-[#323232]">
+          <div className="overflow-hidden rounded-xl border border-divider">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b border-[#323232] bg-[#1a1a1a]">
-                  <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Vencimento</th>
-                  <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Tipo</th>
-                  <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Origem</th>
-                  <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Valor</th>
-                  <th className="h-9 px-4 font-medium text-[#9e9e9e]">Status</th>
+                <tr className="border-b border-divider bg-surface">
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Vencimento</th>
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Tipo</th>
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Origem</th>
+                  <th className="h-9 px-4 text-right font-medium text-fg-mute">Valor</th>
+                  <th className="h-9 px-4 font-medium text-fg-mute">Status</th>
                   <th className="h-9 px-4"></th>
                 </tr>
               </thead>
@@ -291,18 +292,18 @@ export default async function RentalFinancialTab({
                   const dynStatus = effectiveBillingStatus(b)
                   const badge     = BILLING_STATUS_BADGE[dynStatus] ?? BILLING_STATUS_BADGE.pending
                   return (
-                    <tr key={b.id} className="border-b border-[#1e1e1e] last:border-0 hover:bg-[#222222]">
-                      <td className="h-9 px-4 text-[#c7c7c7]">{fmt(b.due_date)}</td>
-                      <td className="h-9 px-4 text-[#9e9e9e]">{BILLING_TYPE_LABEL[b.billing_type ?? 'one_time'] ?? '—'}</td>
-                      <td className="h-9 px-4 text-[#9e9e9e]">{SOURCE_LABELS[b.source ?? ''] ?? '—'}</td>
-                      <td className="h-9 px-4 text-right font-mono text-[#f5f5f5]">{formatCurrency(b.original_amount)}</td>
+                    <tr key={b.id} className="border-b border-border last:border-0 hover:bg-surface-2">
+                      <td className="h-9 px-4 text-fg-soft">{fmt(b.due_date)}</td>
+                      <td className="h-9 px-4 text-fg-mute">{BILLING_TYPE_LABEL[b.billing_type ?? 'one_time'] ?? '—'}</td>
+                      <td className="h-9 px-4 text-fg-mute">{SOURCE_LABELS[b.source ?? ''] ?? '—'}</td>
+                      <td className="h-9 px-4 text-right font-mono text-fg">{formatCurrency(b.original_amount)}</td>
                       <td className="h-9 px-4">
                         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge.bg} ${badge.text}`}>
                           {badge.label}
                         </span>
                       </td>
                       <td className="h-9 px-4 text-right">
-                        <Link href={`/cobrancas/${b.id}`} className="text-[12px] text-[#616161] transition-colors hover:text-[#BAFF1A]">
+                        <Link href={`/cobrancas/${b.id}`} className="text-[12px] text-fg-mute transition-colors hover:text-primary">
                           Ver →
                         </Link>
                       </td>

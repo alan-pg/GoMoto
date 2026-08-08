@@ -179,12 +179,12 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 className="w-6 h-6 text-[#BAFF1A] animate-spin" />
+        <Loader2 className="w-6 h-6 text-primary animate-spin" />
       </div>
     )
   }
   if (loadError || !data) {
-    return <p className="text-[13px] text-[#ff9c9a] py-8 text-center">Vistoria não encontrada.</p>
+    return <p className="text-[13px] text-danger py-8 text-center">Vistoria não encontrada.</p>
   }
 
   const { inspection, profile } = data
@@ -192,15 +192,15 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
-        <span className="inline-flex h-7 items-center rounded-full bg-[#323232] px-3 text-[13px] font-medium text-[#f5f5f5]">
+        <span className="inline-flex h-7 items-center rounded-full bg-surface-2 px-3 text-[13px] font-medium text-fg">
           {KIND_LABEL[inspection.kind] ?? inspection.kind}
         </span>
-        <span className="text-[13px] text-[#9e9e9e]">Perfil: {profile.name}</span>
+        <span className="text-[13px] text-fg-mute">Perfil: {profile.name}</span>
       </div>
 
       {isReadOnly && inspection.status === 'completed' && (
-        <div className="rounded-xl bg-[#0e2f13] border border-[#229731] px-4 py-3">
-          <p className="text-[13px] text-[#229731] font-medium">
+        <div className="rounded-xl bg-success-bg border border-success px-4 py-3">
+          <p className="text-[13px] text-success font-medium">
             Vistoria registrada em {inspection.executed_at ? new Date(inspection.executed_at).toLocaleString('pt-BR') : '—'}
           </p>
         </div>
@@ -208,23 +208,23 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
 
       {/* ── Checklist ─────────────────────────────────────────────────── */}
       <section className="space-y-3">
-        <h3 className="text-[13px] font-bold text-[#9e9e9e] uppercase tracking-wide">Checklist</h3>
+        <h3 className="text-[13px] font-bold text-fg-mute uppercase tracking-wide">Checklist</h3>
         {(isReadOnly ? inspection.answers : profile.checklist_items ?? []).map((raw) => {
           const isRO = isReadOnly
           const item = isRO ? { id: (raw as { item_id: string }).item_id, name: (raw as { name: string }).name } : (raw as { id: string; name: string })
           const draft = answers[item.id]
           const roAnswer = isRO ? (raw as { status: 'ok' | 'not_ok'; note?: string }) : null
           return (
-            <div key={item.id} className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-4 space-y-2">
-              <p className="text-[13px] text-[#f5f5f5] font-medium">{item.name}</p>
+            <div key={item.id} className="rounded-xl border border-border bg-surface p-4 space-y-2">
+              <p className="text-[13px] text-fg font-medium">{item.name}</p>
               {isRO ? (
                 <div className="flex items-center gap-2">
                   <span className={`inline-flex h-6 items-center rounded-full px-2.5 text-[11px] font-semibold ${
-                    roAnswer?.status === 'ok' ? 'bg-[#0e2f13] text-[#229731]' : 'bg-[#7c1c1c] text-[#ff9c9a]'
+                    roAnswer?.status === 'ok' ? 'bg-success-bg text-success' : 'bg-danger-bg text-danger'
                   }`}>
                     {roAnswer?.status === 'ok' ? 'OK' : 'Não OK'}
                   </span>
-                  {roAnswer?.note && <span className="text-[12px] text-[#9e9e9e]">{roAnswer.note}</span>}
+                  {roAnswer?.note && <span className="text-[12px] text-fg-mute">{roAnswer.note}</span>}
                 </div>
               ) : (
                 <>
@@ -233,7 +233,7 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
                       type="button"
                       onClick={() => setAnswers((prev) => ({ ...prev, [item.id]: { ...prev[item.id], status: 'ok' } }))}
                       className={`h-11 px-4 rounded-full text-[12px] font-semibold transition-colors ${
-                        draft?.status === 'ok' ? 'bg-[#229731] text-[#0e2f13]' : 'bg-[#282828] text-[#9e9e9e] hover:text-[#f5f5f5]'
+                        draft?.status === 'ok' ? 'bg-success text-success-bg' : 'bg-surface-2 text-fg-mute hover:text-fg'
                       }`}
                     >
                       OK
@@ -242,7 +242,7 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
                       type="button"
                       onClick={() => setAnswers((prev) => ({ ...prev, [item.id]: { ...prev[item.id], status: 'not_ok' } }))}
                       className={`h-11 px-4 rounded-full text-[12px] font-semibold transition-colors ${
-                        draft?.status === 'not_ok' ? 'bg-[#ff9c9a] text-[#7c1c1c]' : 'bg-[#282828] text-[#9e9e9e] hover:text-[#f5f5f5]'
+                        draft?.status === 'not_ok' ? 'bg-danger text-danger-bg' : 'bg-surface-2 text-fg-mute hover:text-fg'
                       }`}
                     >
                       Não OK
@@ -253,7 +253,7 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
                     value={draft?.note ?? ''}
                     onChange={(e) => setAnswers((prev) => ({ ...prev, [item.id]: { ...prev[item.id], note: e.target.value } }))}
                     maxLength={1000}
-                    className="w-full h-8 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[12px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all"
+                    className="w-full h-8 px-3 rounded-lg bg-surface-2 border border-border text-[12px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all"
                   />
                 </>
               )}
@@ -264,27 +264,27 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
 
       {/* ── Fotos ─────────────────────────────────────────────────────── */}
       <section className="space-y-3">
-        <h3 className="text-[13px] font-bold text-[#9e9e9e] uppercase tracking-wide">Fotos</h3>
+        <h3 className="text-[13px] font-bold text-fg-mute uppercase tracking-wide">Fotos</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {isReadOnly
             ? inspection.photos.map((p) => (
                 <div key={p.item_id} className="space-y-1.5">
-                  <div className="aspect-square rounded-lg bg-[#202020] border border-[#323232] overflow-hidden flex items-center justify-center">
+                  <div className="aspect-square rounded-lg bg-surface border border-divider overflow-hidden flex items-center justify-center">
                     {readOnlyPhotoUrls[p.storage_path] ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={readOnlyPhotoUrls[p.storage_path]} alt={p.label} className="w-full h-full object-cover" />
                     ) : (
-                      <Loader2 className="w-4 h-4 text-[#616161] animate-spin" />
+                      <Loader2 className="w-4 h-4 text-fg-mute animate-spin" />
                     )}
                   </div>
-                  <p className="text-[11px] text-[#9e9e9e] truncate">{p.label}</p>
+                  <p className="text-[11px] text-fg-mute truncate">{p.label}</p>
                 </div>
               ))
             : (profile.photo_items ?? []).map((item) => {
                 const draft = photos[item.id]
                 return (
                   <div key={item.id} className="space-y-1.5">
-                    <label className="relative aspect-square rounded-lg bg-[#202020] border border-dashed border-[#474747] overflow-hidden flex items-center justify-center cursor-pointer hover:border-[#BAFF1A] transition-colors block">
+                    <label className="relative aspect-square rounded-lg bg-surface border border-dashed border-border overflow-hidden flex items-center justify-center cursor-pointer hover:border-primary transition-colors block">
                       <input
                         type="file"
                         accept="image/jpeg,image/png,image/webp"
@@ -296,21 +296,21 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
                         }}
                       />
                       {draft?.uploading ? (
-                        <Loader2 className="w-5 h-5 text-[#BAFF1A] animate-spin" />
+                        <Loader2 className="w-5 h-5 text-primary animate-spin" />
                       ) : draft?.previewUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={draft.previewUrl} alt={item.label} className="w-full h-full object-cover" />
                       ) : (
-                        <Camera className="w-5 h-5 text-[#616161]" />
+                        <Camera className="w-5 h-5 text-fg-mute" />
                       )}
                       {draft?.storage_path && !draft.uploading && (
-                        <span className="absolute top-1 right-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[#229731]">
-                          <Check className="w-2.5 h-2.5 text-[#0e2f13]" />
+                        <span className="absolute top-1 right-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-success">
+                          <Check className="w-2.5 h-2.5 text-success-bg" />
                         </span>
                       )}
                     </label>
-                    <p className="text-[11px] text-[#9e9e9e] truncate">
-                      {item.label} {item.is_required && <span className="text-[#ff9c9a]">*</span>}
+                    <p className="text-[11px] text-fg-mute truncate">
+                      {item.label} {item.is_required && <span className="text-danger">*</span>}
                     </p>
                   </div>
                 )
@@ -320,15 +320,15 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
 
       {/* ── Análise (vistoria periódica submetida) ───────────────────────── */}
       {inspection.kind === 'periodic' && inspection.status === 'submitted' && (
-        <section className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-4 space-y-3">
-          <h3 className="text-[13px] font-bold text-[#f5f5f5]">Análise</h3>
+        <section className="rounded-xl border border-border bg-surface p-4 space-y-3">
+          <h3 className="text-[13px] font-bold text-fg">Análise</h3>
           {!showRejectReason ? (
             <div className="flex gap-2">
               <button
                 type="button"
                 disabled={reviewing}
                 onClick={handleApprove}
-                className="h-9 px-5 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors disabled:opacity-60"
+                className="h-9 px-5 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors disabled:opacity-60"
               >
                 {reviewing ? 'Aprovando…' : 'Aprovar'}
               </button>
@@ -336,7 +336,7 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
                 type="button"
                 disabled={reviewing}
                 onClick={() => setShowRejectReason(true)}
-                className="h-9 px-5 rounded-full border border-[#7c1c1c] text-[13px] text-[#ff9c9a] hover:bg-[#7c1c1c]/30 transition-colors"
+                className="h-9 px-5 rounded-full border border-danger-bg text-[13px] text-danger hover:bg-danger-bg transition-colors"
               >
                 Rejeitar
               </button>
@@ -348,21 +348,21 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
                 maxLength={1000}
-                className="w-full h-20 px-3 py-2 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all resize-none"
+                className="w-full h-20 px-3 py-2 rounded-lg bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all resize-none"
               />
               <div className="flex gap-2">
                 <button
                   type="button"
                   disabled={reviewing}
                   onClick={handleReject}
-                  className="h-9 px-5 rounded-full bg-[#ff9c9a] text-[#7c1c1c] text-[13px] font-bold hover:bg-[#ffb3b1] transition-colors disabled:opacity-60"
+                  className="h-9 px-5 rounded-full bg-danger text-danger-bg text-[13px] font-bold hover:opacity-80 transition-opacity disabled:opacity-60"
                 >
                   {reviewing ? 'Rejeitando…' : 'Confirmar rejeição'}
                 </button>
                 <button
                   type="button"
                   onClick={() => { setShowRejectReason(false); setRejectReason('') }}
-                  className="h-9 px-4 rounded-full border border-[#474747] text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors inline-flex items-center gap-1.5"
+                  className="h-9 px-4 rounded-full border border-border text-[13px] text-fg-mute hover:text-fg transition-colors inline-flex items-center gap-1.5"
                 >
                   <X className="w-3.5 h-3.5" /> Cancelar
                 </button>
@@ -373,21 +373,21 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
       )}
 
       {inspection.status === 'approved' && (
-        <div className="rounded-xl bg-[#0e2f13] border border-[#229731] px-4 py-3">
-          <p className="text-[13px] text-[#229731] font-medium">Vistoria aprovada.</p>
+        <div className="rounded-xl bg-success-bg border border-success px-4 py-3">
+          <p className="text-[13px] text-success font-medium">Vistoria aprovada.</p>
         </div>
       )}
       {inspection.status === 'rejected' && (
-        <div className="rounded-xl bg-[#7c1c1c] border border-[#ff9c9a]/30 px-4 py-3">
-          <p className="text-[13px] text-[#ff9c9a] font-medium">Vistoria rejeitada</p>
-          {inspection.review_notes && <p className="text-[12px] text-[#ff9c9a] mt-1">{inspection.review_notes}</p>}
+        <div className="rounded-xl bg-danger-bg border border-danger px-4 py-3">
+          <p className="text-[13px] text-danger font-medium">Vistoria rejeitada</p>
+          {inspection.review_notes && <p className="text-[12px] text-danger mt-1">{inspection.review_notes}</p>}
         </div>
       )}
 
       {formError && (
-        <div className="flex items-start gap-3 px-4 py-3 bg-[#7c1c1c] border border-[#ff9c9a]/30 rounded-xl">
-          <AlertCircle className="w-4 h-4 text-[#ff9c9a] flex-shrink-0 mt-0.5" />
-          <p className="text-[13px] text-[#ff9c9a]">{formError}</p>
+        <div className="flex items-start gap-3 px-4 py-3 bg-danger-bg border border-danger rounded-xl">
+          <AlertCircle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
+          <p className="text-[13px] text-danger">{formError}</p>
         </div>
       )}
 
@@ -397,7 +397,7 @@ export function InspectionExecutionPanel({ inspectionId, onSaved }: Props) {
             type="button"
             disabled={submitting}
             onClick={handleSubmit}
-            className="h-11 px-6 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors disabled:opacity-60"
+            className="h-11 px-6 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors disabled:opacity-60"
           >
             {submitting ? 'Salvando…' : 'Salvar vistoria'}
           </button>

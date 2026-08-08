@@ -24,14 +24,14 @@ function newDraftKey(): string {
 }
 
 const inputCls =
-  'w-full h-9 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all'
+  'w-full h-9 px-3 rounded-lg bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all'
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-[13px] text-[#9e9e9e] mb-1.5">
+      <label className="block text-[13px] text-fg-mute mb-1.5">
         {label}
-        {hint && <span className="ml-1.5 text-[12px] text-[#616161]">{hint}</span>}
+        {hint && <span className="ml-1.5 text-[12px] text-fg-mute">{hint}</span>}
       </label>
       {children}
     </div>
@@ -155,20 +155,20 @@ export function InspectionProfileForm({ profileId, initialProfile }: InspectionP
   }
 
   return (
-    <div className="min-h-screen bg-[#121212]">
-      <div className="sticky top-0 z-20 bg-[#121212]/95 backdrop-blur border-b border-[#2a2a2a] px-6 h-14 flex items-center gap-3">
-        <Link href="/vistorias/perfis" className="text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors whitespace-nowrap">
+    <div className="min-h-screen bg-bg">
+      <div className="sticky top-0 z-20 bg-bg backdrop-blur border-b border-border px-6 h-14 flex items-center gap-3">
+        <Link href="/vistorias/perfis" className="text-[13px] text-fg-mute hover:text-fg transition-colors whitespace-nowrap">
           ← Perfis de Vistoria
         </Link>
-        <span className="text-[#3a3a3a]">/</span>
-        <h1 className="text-[15px] font-bold text-[#f5f5f5] flex-1 truncate">
+        <span className="text-fg-mute">/</span>
+        <h1 className="text-[15px] font-bold text-fg flex-1 truncate">
           {isEditMode ? 'Editar perfil' : 'Novo Perfil de Vistoria'}
         </h1>
         <button
           type="submit"
           form="inspection-profile-form"
           disabled={isPending}
-          className="h-8 px-5 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors disabled:opacity-60"
+          className="h-8 px-5 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors disabled:opacity-60"
         >
           {isPending ? 'Salvando…' : isEditMode ? 'Salvar' : 'Criar perfil'}
         </button>
@@ -181,7 +181,7 @@ export function InspectionProfileForm({ profileId, initialProfile }: InspectionP
       >
         {/* ══ Identificação ═════════════════════════════════════════════ */}
         <section>
-          <h2 className="text-[15px] font-bold text-[#f5f5f5] mb-5">Identificação</h2>
+          <h2 className="text-[15px] font-bold text-fg mb-5">Identificação</h2>
           <div className="space-y-4">
             <Field label="Nome do perfil *">
               <input
@@ -208,14 +208,14 @@ export function InspectionProfileForm({ profileId, initialProfile }: InspectionP
 
         {/* ══ Itens de checklist ════════════════════════════════════════ */}
         <section>
-          <h2 className="text-[15px] font-bold text-[#f5f5f5] mb-5">
+          <h2 className="text-[15px] font-bold text-fg mb-5">
             Itens de checklist
-            <span className="ml-2 text-[12px] font-normal text-[#616161]">respondidos como OK / Não OK na execução</span>
+            <span className="ml-2 text-[12px] font-normal text-fg-mute">respondidos como OK / Não OK na execução</span>
           </h2>
           <div className="space-y-2">
             {checklistItems.map((item, idx) => (
               <div key={item.key} className="flex items-center gap-2">
-                <span className="text-[11px] text-[#474747] font-mono w-5 text-center flex-shrink-0">{idx + 1}</span>
+                <span className="text-[11px] text-border font-mono w-5 text-center flex-shrink-0">{idx + 1}</span>
                 <input
                   placeholder="Ex.: Faróis funcionando"
                   value={item.name}
@@ -226,7 +226,7 @@ export function InspectionProfileForm({ profileId, initialProfile }: InspectionP
                 <button
                   type="button"
                   onClick={() => removeChecklistItem(item.key)}
-                  className="flex-shrink-0 h-8 w-8 rounded-md text-[#616161] hover:bg-[#7c1c1c]/30 hover:text-[#ff9c9a] transition-colors flex items-center justify-center"
+                  className="flex-shrink-0 h-8 w-8 rounded-md text-fg-mute hover:bg-danger-bg hover:text-danger transition-colors flex items-center justify-center"
                   title="Remover item"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -237,7 +237,7 @@ export function InspectionProfileForm({ profileId, initialProfile }: InspectionP
           <button
             type="button"
             onClick={addChecklistItem}
-            className="mt-3 flex items-center justify-center gap-2 w-full h-10 rounded-xl border border-dashed border-[#474747] text-[13px] text-[#616161] hover:border-[#BAFF1A] hover:text-[#BAFF1A] transition-colors"
+            className="mt-3 flex items-center justify-center gap-2 w-full h-10 rounded-xl border border-dashed border-border text-[13px] text-fg-mute hover:border-primary hover:text-primary transition-colors"
           >
             <Plus className="w-4 h-4" /> Adicionar item de checklist
           </button>
@@ -245,14 +245,14 @@ export function InspectionProfileForm({ profileId, initialProfile }: InspectionP
 
         {/* ══ Itens de imagem ═══════════════════════════════════════════ */}
         <section>
-          <h2 className="text-[15px] font-bold text-[#f5f5f5] mb-5">
+          <h2 className="text-[15px] font-bold text-fg mb-5">
             Itens de imagem
-            <span className="ml-2 text-[12px] font-normal text-[#616161]">fotos exigidas na execução</span>
+            <span className="ml-2 text-[12px] font-normal text-fg-mute">fotos exigidas na execução</span>
           </h2>
           <div className="space-y-2">
             {photoItems.map((item, idx) => (
               <div key={item.key} className="flex items-center gap-2">
-                <span className="text-[11px] text-[#474747] font-mono w-5 text-center flex-shrink-0">{idx + 1}</span>
+                <span className="text-[11px] text-border font-mono w-5 text-center flex-shrink-0">{idx + 1}</span>
                 <input
                   placeholder="Ex.: Frente, Lateral Esquerda, Painel/Odômetro"
                   value={item.label}
@@ -265,14 +265,14 @@ export function InspectionProfileForm({ profileId, initialProfile }: InspectionP
                     type="checkbox"
                     checked={item.is_required}
                     onChange={(e) => updatePhotoItem(item.key, { is_required: e.target.checked })}
-                    className="accent-[#BAFF1A]"
+                    className="accent-primary"
                   />
-                  <span className="text-[12px] text-[#9e9e9e] whitespace-nowrap">Obrigatória</span>
+                  <span className="text-[12px] text-fg-mute whitespace-nowrap">Obrigatória</span>
                 </label>
                 <button
                   type="button"
                   onClick={() => removePhotoItem(item.key)}
-                  className="flex-shrink-0 h-8 w-8 rounded-md text-[#616161] hover:bg-[#7c1c1c]/30 hover:text-[#ff9c9a] transition-colors flex items-center justify-center"
+                  className="flex-shrink-0 h-8 w-8 rounded-md text-fg-mute hover:bg-danger-bg hover:text-danger transition-colors flex items-center justify-center"
                   title="Remover item"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -283,7 +283,7 @@ export function InspectionProfileForm({ profileId, initialProfile }: InspectionP
           <button
             type="button"
             onClick={addPhotoItem}
-            className="mt-3 flex items-center justify-center gap-2 w-full h-10 rounded-xl border border-dashed border-[#474747] text-[13px] text-[#616161] hover:border-[#BAFF1A] hover:text-[#BAFF1A] transition-colors"
+            className="mt-3 flex items-center justify-center gap-2 w-full h-10 rounded-xl border border-dashed border-border text-[13px] text-fg-mute hover:border-primary hover:text-primary transition-colors"
           >
             <Plus className="w-4 h-4" /> Adicionar item de imagem
           </button>
@@ -291,20 +291,20 @@ export function InspectionProfileForm({ profileId, initialProfile }: InspectionP
 
         {/* ══ Arquivar / Reativar (edição) ═══════════════════════════════ */}
         {isEditMode && (
-          <section className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-4">
+          <section className="rounded-xl border border-border bg-surface p-4">
             {isArchived ? (
               <div className="flex items-start gap-3">
-                <ArchiveRestore className="h-4 w-4 text-[#9e9e9e] flex-shrink-0 mt-0.5" />
+                <ArchiveRestore className="h-4 w-4 text-fg-mute flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <p className="text-[13px] text-[#f5f5f5] font-medium mb-1">Perfil arquivado</p>
-                  <p className="text-[12px] text-[#616161] mb-3">
+                  <p className="text-[13px] text-fg font-medium mb-1">Perfil arquivado</p>
+                  <p className="text-[12px] text-fg-mute mb-3">
                     Locações que já usam este perfil continuam válidas — ele só some do seletor de novas associações.
                   </p>
                   <button
                     type="button"
                     disabled={archiving}
                     onClick={handleUnarchive}
-                    className="h-8 px-4 rounded-full border border-[#474747] text-[13px] text-[#f5f5f5] hover:border-[#BAFF1A] hover:text-[#BAFF1A] transition-colors disabled:opacity-50"
+                    className="h-8 px-4 rounded-full border border-border text-[13px] text-fg hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
                   >
                     {archiving ? 'Reativando…' : 'Reativar perfil'}
                   </button>
@@ -312,17 +312,17 @@ export function InspectionProfileForm({ profileId, initialProfile }: InspectionP
               </div>
             ) : (
               <div className="flex items-start gap-3">
-                <Archive className="h-4 w-4 text-[#9e9e9e] flex-shrink-0 mt-0.5" />
+                <Archive className="h-4 w-4 text-fg-mute flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <p className="text-[13px] text-[#f5f5f5] font-medium mb-1">Arquivar perfil</p>
-                  <p className="text-[12px] text-[#616161] mb-3">
+                  <p className="text-[13px] text-fg font-medium mb-1">Arquivar perfil</p>
+                  <p className="text-[12px] text-fg-mute mb-3">
                     Remove da seleção de novas associações. Locações que já usam este perfil não são afetadas.
                   </p>
                   <button
                     type="button"
                     disabled={archiving}
                     onClick={handleArchive}
-                    className="h-8 px-4 rounded-full border border-[#7c1c1c] text-[13px] text-[#ff9c9a] hover:bg-[#7c1c1c]/30 transition-colors disabled:opacity-50"
+                    className="h-8 px-4 rounded-full border border-danger-bg text-[13px] text-danger hover:bg-danger-bg transition-colors disabled:opacity-50"
                   >
                     {archiving ? 'Arquivando…' : 'Arquivar perfil'}
                   </button>
@@ -333,23 +333,23 @@ export function InspectionProfileForm({ profileId, initialProfile }: InspectionP
         )}
 
         {globalError && (
-          <div className="flex items-start gap-3 px-4 py-3 bg-[#7c1c1c] border border-[#ff9c9a]/30 rounded-xl">
-            <AlertCircle className="w-4 h-4 text-[#ff9c9a] flex-shrink-0 mt-0.5" />
-            <p className="text-[13px] text-[#ff9c9a]">{globalError}</p>
+          <div className="flex items-start gap-3 px-4 py-3 bg-danger-bg border border-danger rounded-xl">
+            <AlertCircle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
+            <p className="text-[13px] text-danger">{globalError}</p>
           </div>
         )}
 
-        <div className="flex gap-3 justify-end pt-4 pb-16 border-t border-[#2a2a2a]">
+        <div className="flex gap-3 justify-end pt-4 pb-16 border-t border-border">
           <Link
             href="/vistorias/perfis"
-            className="inline-flex items-center h-9 px-5 rounded-full border border-[#474747] text-[#9e9e9e] text-[13px] font-medium hover:text-[#f5f5f5] hover:border-[#616161] transition-colors"
+            className="inline-flex items-center h-9 px-5 rounded-full border border-border text-fg-mute text-[13px] font-medium hover:text-fg hover:border-fg-mute transition-colors"
           >
             Cancelar
           </Link>
           <button
             type="submit"
             disabled={isPending}
-            className="h-9 px-6 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors disabled:opacity-60"
+            className="h-9 px-6 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors disabled:opacity-60"
           >
             {isPending ? 'Salvando…' : isEditMode ? 'Salvar alterações' : 'Criar perfil'}
           </button>

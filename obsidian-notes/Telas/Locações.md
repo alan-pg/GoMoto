@@ -46,7 +46,7 @@ Cada campo que impacta cobranças tem **um dono só**, nunca "Editar":
 | Prazo (fim) — estender | **Renovar** (`renewRental`) | Sim — recalcula última cobrança pro rata + gera novas |
 | Prazo (fim) — antecipar | **Encerrar** (`terminate_rental` RPC) | Sim — cancela `pending` com `due_date > data_encerramento` |
 | Tipo, ciclo, dia de vencimento, início, pro rata | — (imutável após criação) | — nenhum fluxo cobre mudança pós-criação; a orientação na UI é encerrar e criar uma nova locação |
-| Caução, observações | **Editar** (`updateRental`) | Observações não. Caução sim, **se ainda pendente** — cascata pra cobrança vinculada (ver seção abaixo); se já paga, só `deposits` muda (cobrança paga é imutável, RNF-007) |
+| Caução, Entrada, observações | **Editar** (`updateRental`) | Observações não. Caução sim, **se ainda pendente** — cascata pra cobrança vinculada (ver seção abaixo); se já paga, só `deposits` muda (cobrança paga é imutável, RNF-007). Entrada sim, **se ainda pendente** (`canEditDownPayment`, `@gomoto/core`) — se já paga, campo vira somente-leitura (RN-002/RF-005, [[Specs/0010-entrada-locacao]]) |
 
 `RentalForm.tsx` é compartilhado entre criação e edição: em modo edição, a seção "Condições do contrato" fica somente-leitura com links diretos para Reajustar/Renovar/Encerrar, e o formulário vira single-step (sem o wizard de preview, que só faz sentido na criação).
 
@@ -57,6 +57,17 @@ Caução deixou de ser só bookkeeping em `deposits` — ver detalhes completos 
 - Criação: checkbox "Caução já foi paga" em `RentalForm` (marcado por padrão) decide se a cobrança de caução (`billing_type='deposit'`) nasce `paid` ou `pending`.
 - `/locacoes/[id]/editar` e `/locacoes/[id]/financeiro` buscam o deposit com `.in('status', ['pending', 'received'])` — **não** só `'received'`. Se algum código novo voltar a filtrar só `'received'`, o valor da caução pendente some do formulário de edição silenciosamente (bug já encontrado e corrigido uma vez).
 - Labels de `billing_type`/`source` para `'deposit'` existem em 5 lugares diferentes (`lib/billing-status.ts` + mapas locais em `cobrancas/[id]/page.tsx`, `locacoes/[id]/financeiro/page.tsx`, `financeiro/page.tsx`) — todos duplicados, nenhum compartilhado. Adicionar um novo `billing_type`/`source` exige lembrar de todos eles.
+
+## Entrada não reembolsável (2026-08-07)
+
+Ver [[Specs/0010-entrada-locacao]] para o detalhamento completo. Resumo para quem só mexe em tela:
+
+- Bloco **"Entrada (R$)"** em `RentalForm.tsx`, separado do bloco de Caução — mesma dinâmica paga/pendente (checkbox "Entrada já foi paga" + data de pagamento ou de vencimento), mas gera só 1 `billings` (`billing_type='down_payment'`), **sem** linha em `deposits` (RN-001: não é devolvível, não tem saldo a rastrear).
+- Diferente da Caução, a Entrada **não tem página de edição sempre-editável**: em `/locacoes/[id]/editar`, o campo só aparece editável se a cobrança ainda está `pending`; se `paid`, vira um `<div>` somente-leitura ("Entrada já paga — não pode ser alterada"). Guardado por `canEditDownPayment` (`packages/core/src/rules/billings.ts`) tanto na UI quanto (defesa em profundidade) dentro de `updateRental`.
+- Preview de cobranças (Step 2 da criação) lista a Entrada como uma linha extra na tabela (`ChargePreview`'s `extraRows` prop) — mistura com as cobranças de ciclo (`CycleCharge[]`) sem forçar `billing_type='down_payment'` a existir no union `BillingType` de `packages/core` (que só cobre os tipos que `generateCycleCharges` de fato gera).
+- `terminate_rental` (RPC) parava de cancelar só `deposit` pendente com vencimento futuro — o mesmo risco existia pra Entrada e foi corrigido junto (RN-003): `billing_type NOT IN ('deposit', 'down_payment')` no filtro de cancelamento.
+- **Bug pré-existente encontrado e corrigido no mesmo PR** (não é sobre Entrada, mas bloqueava a RF-004 dessa spec): `financeiro/veiculos/[id]/page.tsx` filtrava `billings` por `.eq('vehicle_id', id)`, mas `billings` nunca teve coluna `vehicle_id` (só `lease_id`) — a query sempre voltava vazia (Postgrest engolia o erro), então "Receita total" da tela de ROI do veículo sempre mostrava R$ 0,00, pra **qualquer** tipo de cobrança, não só Entrada. Corrigido com join `billings.select('..., rentals!inner(vehicle_id)').eq('rentals.vehicle_id', id)` (mesmo padrão já usado em `veiculos/[id]/page.tsx` para `inspections`).
+- Labels de `billing_type`/`source` para `'down_payment'` seguem o mesmo problema de duplicação já registrado na seção da Caução acima (5 lugares diferentes) — adicionado `down_payment: 'Entrada'` em todos.
 
 ## Modelo de contrato + PDF assinado (2026-07-26)
 

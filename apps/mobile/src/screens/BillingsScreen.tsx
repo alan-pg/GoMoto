@@ -23,6 +23,7 @@ import {
 } from '@gomoto/core'
 import type { Billing } from '@gomoto/core'
 import { supabase } from '../lib/supabase'
+import { useTheme, type ThemeTokens } from '../theme'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,20 +50,14 @@ const STATUS_LABEL: Record<string, string> = {
   prejudice: 'Prejuízo',
 }
 
-const STATUS_COLOR: Record<string, string> = {
-  pending:   '#e0a500',
-  paid:      '#229731',
-  overdue:   '#e65e24',
-  cancelled: '#9e9e9e',
-  prejudice: '#ff9c9a',
-}
-
-const STATUS_BG: Record<string, string> = {
-  pending:   '#2a1f00',
-  paid:      '#0e2f13',
-  overdue:   '#3a1a00',
-  cancelled: '#1e1e1e',
-  prejudice: '#3a0f0f',
+function getStatusTone(theme: ThemeTokens): Record<string, { color: string; bg: string }> {
+  return {
+    pending:   { color: theme.pending, bg: theme.pendingBg },
+    paid:      { color: theme.success, bg: theme.successBg },
+    overdue:   { color: theme.warning, bg: theme.warningBg },
+    cancelled: { color: theme.textMute, bg: theme.surfaceAlt },
+    prejudice: { color: theme.danger, bg: theme.dangerBg },
+  }
 }
 
 const BILLING_TYPE_LABEL: Record<string, string> = {
@@ -72,12 +67,18 @@ const BILLING_TYPE_LABEL: Record<string, string> = {
   fine:          'Multa',
 }
 
-const BILLING_TYPE_COLOR: Record<string, { bg: string; fg: string }> = {
-  cycle:         { bg: '#1a2e1a', fg: '#6fcf97' },
-  one_time:      { bg: '#1a1a2e', fg: '#9b9bff' },
-  complementary: { bg: '#2e1a2e', fg: '#d97ff5' },
-  fine:          { bg: '#2e1a1a', fg: '#ff9c9a' },
+function getBillingTypeTone(theme: ThemeTokens): Record<string, { bg: string; fg: string }> {
+  return {
+    cycle:         { bg: theme.successBg, fg: theme.success },
+    one_time:      { bg: theme.indigoBg, fg: theme.indigo },
+    complementary: { bg: theme.violetBg, fg: theme.violet },
+    fine:          { bg: theme.dangerBg, fg: theme.danger },
+  }
 }
+
+type StatusTone = ReturnType<typeof getStatusTone>
+type TypeTone = ReturnType<typeof getBillingTypeTone>
+type Styles = ReturnType<typeof createStyles>
 
 const PAYMENT_METHOD_LABEL: Record<string, string> = {
   pix:           'Pix',
@@ -135,7 +136,7 @@ async function generatePix(billingId: string): Promise<PixResult> {
 // SectionHeader
 // ---------------------------------------------------------------------------
 
-function SectionHeader({ title, count, danger }: { title: string; count: number; danger?: boolean }) {
+function SectionHeader({ title, count, danger, styles }: { title: string; count: number; danger?: boolean; styles: Styles }) {
   return (
     <View style={styles.sectionHeader}>
       {danger && <View style={styles.sectionDangerDot} />}
@@ -155,11 +156,13 @@ function SectionHeader({ title, count, danger }: { title: string; count: number;
 // TypeBadge
 // ---------------------------------------------------------------------------
 
-function TypeBadge({ type }: { type: string | null | undefined }) {
+function TypeBadge({ type, styles, typeTone }: { type: string | null | undefined; styles: Styles; typeTone: TypeTone }) {
   if (type === 'one_time') return null
   const label = BILLING_TYPE_LABEL[type ?? ''] ?? null
   if (!label) return null
-  const tone = BILLING_TYPE_COLOR[type ?? ''] ?? { bg: '#202020', fg: '#9e9e9e' }
+  // fallback inalcançável na prática: os 4 tipos em BILLING_TYPE_LABEL são os
+  // mesmos 4 de getBillingTypeTone — mantido só por segurança de tipos.
+  const tone = typeTone[type ?? ''] ?? typeTone.one_time
   return (
     <View style={[styles.typeBadge, { backgroundColor: tone.bg }]}>
       <Text style={[styles.typeBadgeText, { color: tone.fg }]}>{label}</Text>
@@ -174,9 +177,13 @@ function TypeBadge({ type }: { type: string | null | undefined }) {
 function BillingRow({
   billing,
   onPress,
+  styles,
+  typeTone,
 }: {
   billing: Billing
   onPress: () => void
+  styles: Styles
+  typeTone: TypeTone
 }) {
   const today = new Date()
   const overdue = isChargeOverdue(billing, today)
@@ -206,7 +213,7 @@ function BillingRow({
       onPress={onPress}
     >
       <View style={styles.billingRowTop}>
-        <TypeBadge type={billing.billing_type} />
+        <TypeBadge type={billing.billing_type} styles={styles} typeTone={typeTone} />
         <Text style={[styles.billingRowMeta, overdue ? styles.billingRowMetaDanger : styles.billingRowMetaMuted]}>
           {dueMeta}
         </Text>
@@ -240,7 +247,7 @@ function BillingRow({
 // HistoryRow — compact row for paid billings
 // ---------------------------------------------------------------------------
 
-function HistoryRow({ billing, onPress }: { billing: Billing; onPress: () => void }) {
+function HistoryRow({ billing, onPress, styles }: { billing: Billing; onPress: () => void; styles: Styles }) {
   const finalAmount = calculateFinalAmount(billing.original_amount ?? 0, billing.discount_amount ?? 0)
   const paidDate = billing.paid_at ?? billing.payment_date
   const method = billing.payment_method ? PAYMENT_METHOD_LABEL[billing.payment_method] ?? billing.payment_method : null
@@ -277,9 +284,11 @@ function HistoryRow({ billing, onPress }: { billing: Billing; onPress: () => voi
 function PaymentMethodSelector({
   selected,
   onChange,
+  styles,
 }: {
   selected: PaymentMethod
   onChange: (m: PaymentMethod) => void
+  styles: Styles
 }) {
   const methods: { id: PaymentMethod; label: string; available: boolean }[] = [
     { id: 'pix',    label: 'Pix',    available: true },
@@ -325,11 +334,13 @@ function PixModal({
   result,
   pixPaid,
   onClose,
+  styles,
 }: {
   billing: Billing
   result: PixResult
   pixPaid: boolean
   onClose: () => void
+  styles: Styles
 }) {
   const finalAmount = calculateFinalAmount(billing.original_amount ?? 0, billing.discount_amount ?? 0)
 
@@ -391,11 +402,17 @@ function BillingDetailModal({
   onClose,
   onPixGenerated,
   pixPaid,
+  styles,
+  typeTone,
+  statusTone,
 }: {
   billing: Billing
   onClose: () => void
   onPixGenerated?: (billingId: string) => void
   pixPaid?: boolean
+  styles: Styles
+  typeTone: TypeTone
+  statusTone: StatusTone
 }) {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('pix')
   const [generatingPix, setGeneratingPix]   = useState(false)
@@ -424,8 +441,8 @@ function BillingDetailModal({
     }
   }
 
-  const statusColor = STATUS_COLOR[billing.status] ?? '#9e9e9e'
-  const statusBg    = STATUS_BG[billing.status] ?? '#202020'
+  const statusColor = statusTone[billing.status]?.color ?? statusTone.cancelled.color
+  const statusBg    = statusTone[billing.status]?.bg ?? statusTone.cancelled.bg
 
   return (
     <>
@@ -448,7 +465,7 @@ function BillingDetailModal({
             {/* Identity block */}
             <View style={styles.detailIdentity}>
               <View style={styles.detailIdentityBadges}>
-                <TypeBadge type={billing.billing_type} />
+                <TypeBadge type={billing.billing_type} styles={styles} typeTone={typeTone} />
                 <View style={[styles.statusPill, { backgroundColor: statusBg }]}>
                   <Text style={[styles.statusPillText, { color: statusColor }]}>
                     {STATUS_LABEL[billing.status] ?? billing.status}
@@ -487,7 +504,7 @@ function BillingDetailModal({
                           <Text style={styles.compositionSub}>{billing.discount_reason}</Text>
                         ) : null}
                       </View>
-                      <Text style={[styles.compositionValue, { color: '#229731' }]}>
+                      <Text style={[styles.compositionValue, { color: statusTone.paid.color }]}>
                         − {formatCurrency(discount)}
                       </Text>
                     </View>
@@ -507,7 +524,7 @@ function BillingDetailModal({
             {canPay && (
               <View style={styles.detailSection}>
                 <Text style={styles.detailSectionTitle}>Pagar com</Text>
-                <PaymentMethodSelector selected={selectedMethod} onChange={setSelectedMethod} />
+                <PaymentMethodSelector selected={selectedMethod} onChange={setSelectedMethod} styles={styles} />
                 {selectedMethod === 'pix' && (
                   <TouchableOpacity
                     style={[styles.payBtn, generatingPix && styles.payBtnDisabled]}
@@ -527,12 +544,13 @@ function BillingDetailModal({
               <View style={styles.paidBlock}>
                 <Text style={styles.paidTitle}>Pagamento registrado</Text>
                 {billing.paid_at ?? billing.payment_date ? (
-                  <CompositionRow label="Data" value={formatDate(billing.paid_at ?? billing.payment_date)} />
+                  <CompositionRow label="Data" value={formatDate(billing.paid_at ?? billing.payment_date)} styles={styles} />
                 ) : null}
                 {billing.payment_method ? (
                   <CompositionRow
                     label="Forma"
                     value={PAYMENT_METHOD_LABEL[billing.payment_method] ?? billing.payment_method}
+                    styles={styles}
                   />
                 ) : null}
                 {billing.confirmed_source === 'mp_webhook' && (
@@ -550,13 +568,14 @@ function BillingDetailModal({
           result={pixResult}
           pixPaid={pixPaid ?? false}
           onClose={() => setPixResult(null)}
+          styles={styles}
         />
       )}
     </>
   )
 }
 
-function CompositionRow({ label, value }: { label: string; value: string }) {
+function CompositionRow({ label, value, styles }: { label: string; value: string; styles: Styles }) {
   return (
     <View style={styles.compositionRow}>
       <Text style={styles.compositionLabel}>{label}</Text>
@@ -575,6 +594,10 @@ export function BillingsScreen() {
   const [historyOpen, setHistoryOpen]   = useState(false)
   const [pixBillingId, setPixBillingId] = useState<string | null>(null)
   const [pixPaid, setPixPaid]           = useState(false)
+  const theme = useTheme()
+  const styles = useMemo(() => createStyles(theme), [theme])
+  const typeTone = useMemo(() => getBillingTypeTone(theme), [theme])
+  const statusTone = useMemo(() => getStatusTone(theme), [theme])
 
   const query        = useBillingsForCustomer()
   const historyQuery = useHistoryBillingsForCustomer({ enabled: historyOpen })
@@ -677,13 +700,13 @@ export function BillingsScreen() {
 
       {query.isLoading ? (
         <View style={styles.centered}>
-          <ActivityIndicator color="#BAFF1A" size="large" />
+          <ActivityIndicator color={theme.primary} size="large" />
         </View>
       ) : (
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#BAFF1A" />
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.primary} />
           }
         >
           {!hasContent ? (
@@ -696,10 +719,10 @@ export function BillingsScreen() {
               {/* Em atraso */}
               {overdue.length > 0 && (
                 <View style={styles.section}>
-                  <SectionHeader title="Em atraso" count={overdue.length} danger />
+                  <SectionHeader title="Em atraso" count={overdue.length} danger styles={styles} />
                   <View style={styles.sectionBody}>
                     {overdue.map((b) => (
-                      <BillingRow key={b.id} billing={b} onPress={() => setSelected(b)} />
+                      <BillingRow key={b.id} billing={b} onPress={() => setSelected(b)} styles={styles} typeTone={typeTone} />
                     ))}
                   </View>
                 </View>
@@ -708,9 +731,9 @@ export function BillingsScreen() {
               {/* Próxima cobrança de ciclo */}
               {nextCycle && (
                 <View style={styles.section}>
-                  <SectionHeader title="Próxima cobrança" count={1} />
+                  <SectionHeader title="Próxima cobrança" count={1} styles={styles} />
                   <View style={styles.sectionBody}>
-                    <BillingRow billing={nextCycle} onPress={() => setSelected(nextCycle)} />
+                    <BillingRow billing={nextCycle} onPress={() => setSelected(nextCycle)} styles={styles} typeTone={typeTone} />
                   </View>
                 </View>
               )}
@@ -718,10 +741,10 @@ export function BillingsScreen() {
               {/* Outras cobranças pendentes (multas, avulsas, complementares) */}
               {others.length > 0 && (
                 <View style={styles.section}>
-                  <SectionHeader title="Outras" count={others.length} />
+                  <SectionHeader title="Outras" count={others.length} styles={styles} />
                   <View style={styles.sectionBody}>
                     {others.map((b) => (
-                      <BillingRow key={b.id} billing={b} onPress={() => setSelected(b)} />
+                      <BillingRow key={b.id} billing={b} onPress={() => setSelected(b)} styles={styles} typeTone={typeTone} />
                     ))}
                   </View>
                 </View>
@@ -741,7 +764,7 @@ export function BillingsScreen() {
                 {historyOpen && (
                   historyQuery.isLoading ? (
                     <View style={styles.historyLoading}>
-                      <ActivityIndicator color="#BAFF1A" size="small" />
+                      <ActivityIndicator color={theme.primary} size="small" />
                     </View>
                   ) : (historyQuery.data ?? []).length === 0 ? (
                     <View style={styles.historyEmpty}>
@@ -750,7 +773,7 @@ export function BillingsScreen() {
                   ) : (
                     <View style={styles.sectionBody}>
                       {(historyQuery.data ?? []).map((b) => (
-                        <HistoryRow key={b.id} billing={b} onPress={() => setSelected(b)} />
+                        <HistoryRow key={b.id} billing={b} onPress={() => setSelected(b)} styles={styles} />
                       ))}
                     </View>
                   )
@@ -767,6 +790,9 @@ export function BillingsScreen() {
           onClose={() => { setSelected(null); setPixBillingId(null); setPixPaid(false) }}
           onPixGenerated={setPixBillingId}
           pixPaid={pixBillingId === selected.id && pixPaid}
+          styles={styles}
+          typeTone={typeTone}
+          statusTone={statusTone}
         />
       )}
     </SafeAreaView>
@@ -777,37 +803,37 @@ export function BillingsScreen() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
+const createStyles = (theme: ThemeTokens) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: theme.bg,
   },
   header: {
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 12,
-    borderBottomColor: '#323232',
+    borderBottomColor: theme.surfaceAlt,
     borderBottomWidth: 1,
   },
   headerTitle: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 22,
     fontWeight: '700',
   },
   headerSubtitle: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
     marginTop: 2,
   },
   offlineBanner: {
-    backgroundColor: '#3a2200',
-    borderBottomColor: '#cc7722',
+    backgroundColor: theme.warningBg,
+    borderBottomColor: theme.warning,
     borderBottomWidth: 1,
     paddingVertical: 8,
     paddingHorizontal: 16,
   },
   offlineBannerText: {
-    color: '#ffa040',
+    color: theme.warning,
     fontSize: 13,
     textAlign: 'center',
   },
@@ -838,10 +864,10 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#e65e24',
+    backgroundColor: theme.warning,
   },
   sectionTitle: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -849,24 +875,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sectionTitleDanger: {
-    color: '#e65e24',
+    color: theme.warning,
   },
   sectionCount: {
-    backgroundColor: '#2a2a2a',
+    backgroundColor: theme.border,
     borderRadius: 999,
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
   sectionCountDanger: {
-    backgroundColor: '#3a1a00',
+    backgroundColor: theme.warningBg,
   },
   sectionCountText: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 11,
     fontWeight: '700',
   },
   sectionCountTextDanger: {
-    color: '#e65e24',
+    color: theme.warning,
   },
   sectionBody: {
     gap: 6,
@@ -888,16 +914,16 @@ const styles = StyleSheet.create({
 
   // Billing row
   billingRow: {
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 12,
     padding: 12,
     gap: 8,
   },
   billingRowOverdue: {
-    borderColor: '#5a2800',
-    backgroundColor: '#1e1008',
+    borderColor: theme.warning,
+    backgroundColor: theme.warningBg,
   },
   billingRowPressed: {
     opacity: 0.8,
@@ -915,10 +941,10 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   billingRowMetaDanger: {
-    color: '#e65e24',
+    color: theme.warning,
   },
   billingRowMetaMuted: {
-    color: '#9e9e9e',
+    color: theme.textMute,
   },
   billingRowMain: {
     flexDirection: 'row',
@@ -930,13 +956,13 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   billingRowDesc: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 14,
     fontWeight: '500',
     lineHeight: 20,
   },
   billingRowPlate: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 12,
   },
   billingRowRight: {
@@ -944,28 +970,28 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   billingRowAmount: {
-    color: '#BAFF1A',
+    color: theme.primary,
     fontSize: 15,
     fontWeight: '700',
   },
   billingRowAmountDanger: {
-    color: '#ff9c9a',
+    color: theme.danger,
   },
   billingRowAmountStrike: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 12,
     textDecorationLine: 'line-through',
   },
   billingRowChevron: {
-    color: '#474747',
+    color: theme.border,
     fontSize: 18,
     lineHeight: 20,
   },
 
   // History row
   historyRow: {
-    backgroundColor: '#1a1a1a',
-    borderColor: '#2a2a2a',
+    backgroundColor: theme.surface,
+    borderColor: theme.border,
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 12,
@@ -984,12 +1010,12 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#0e2f13',
+    backgroundColor: theme.successBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
   historyCheckText: {
-    color: '#229731',
+    color: theme.success,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -998,12 +1024,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   historyRowDesc: {
-    color: '#c0c0c0',
+    color: theme.textSoft,
     fontSize: 13,
     fontWeight: '500',
   },
   historyRowMeta: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 11,
   },
   historyRowRight: {
@@ -1012,7 +1038,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   historyRowAmount: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -1027,7 +1053,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   historyEmptyText: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
   },
 
@@ -1039,25 +1065,25 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 10,
   },
   historyToggleText: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
     fontWeight: '600',
   },
   historyToggleChevron: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 10,
   },
 
   // Empty state
   emptyCard: {
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 14,
     padding: 24,
@@ -1066,12 +1092,12 @@ const styles = StyleSheet.create({
     marginTop: 32,
   },
   emptyTitle: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 16,
     fontWeight: '700',
   },
   emptyText: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
     textAlign: 'center',
     lineHeight: 20,
@@ -1088,38 +1114,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 10,
     borderRadius: 8,
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     gap: 2,
   },
   methodBtnActive: {
-    backgroundColor: '#1a2a00',
-    borderColor: '#BAFF1A',
+    backgroundColor: theme.successBg,
+    borderColor: theme.primary,
   },
   methodBtnDisabled: {
     opacity: 0.5,
   },
   methodBtnText: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
     fontWeight: '600',
   },
   methodBtnTextActive: {
-    color: '#BAFF1A',
+    color: theme.primary,
   },
   methodBtnTextDisabled: {
-    color: '#474747',
+    color: theme.border,
   },
   methodBtnSoon: {
-    color: '#474747',
+    color: theme.border,
     fontSize: 9,
     fontWeight: '500',
   },
 
   // Pay button
   payBtn: {
-    backgroundColor: '#BAFF1A',
+    backgroundColor: theme.primary,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
@@ -1128,7 +1154,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   payBtnText: {
-    color: '#121212',
+    color: theme.primaryContrast,
     fontSize: 15,
     fontWeight: '700',
   },
@@ -1136,23 +1162,23 @@ const styles = StyleSheet.create({
   // Modal base
   modalSafe: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: theme.bg,
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
-    borderBottomColor: '#323232',
+    borderBottomColor: theme.surfaceAlt,
     borderBottomWidth: 1,
   },
   modalTitle: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 18,
     fontWeight: '700',
   },
   modalClose: {
-    color: '#BAFF1A',
+    color: theme.primary,
     fontSize: 15,
   },
   modalBody: {
@@ -1171,22 +1197,22 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   detailDesc: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 18,
     fontWeight: '700',
     lineHeight: 24,
   },
   detailPlate: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
   },
   detailOverdueMeta: {
-    color: '#e65e24',
+    color: theme.warning,
     fontSize: 13,
     fontWeight: '500',
   },
   detailDueMeta: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
   },
 
@@ -1195,7 +1221,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   detailSectionTitle: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -1204,8 +1230,8 @@ const styles = StyleSheet.create({
 
   // Composition block
   compositionBlock: {
-    backgroundColor: '#1a1a1a',
-    borderColor: '#2a2a2a',
+    backgroundColor: theme.surface,
+    borderColor: theme.border,
     borderWidth: 1,
     borderRadius: 12,
     padding: 14,
@@ -1222,30 +1248,30 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   compositionLabel: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 14,
   },
   compositionLabelTotal: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontWeight: '600',
   },
   compositionSub: {
-    color: '#474747',
+    color: theme.border,
     fontSize: 12,
   },
   compositionValue: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 14,
     fontWeight: '500',
   },
   compositionValueTotal: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#BAFF1A',
+    color: theme.primary,
   },
   compositionDivider: {
     height: 1,
-    backgroundColor: '#323232',
+    backgroundColor: theme.surfaceAlt,
   },
 
   // Status pill
@@ -1262,52 +1288,53 @@ const styles = StyleSheet.create({
 
   // Paid block
   paidBlock: {
-    backgroundColor: '#0e2f13',
-    borderColor: '#229731',
+    backgroundColor: theme.successBg,
+    borderColor: theme.success,
     borderWidth: 1,
     borderRadius: 12,
     padding: 14,
     gap: 10,
   },
   paidTitle: {
-    color: '#229731',
+    color: theme.success,
     fontSize: 13,
     fontWeight: '700',
     marginBottom: 2,
   },
   paidConfirmedTag: {
-    color: '#229731',
+    color: theme.success,
     fontSize: 12,
     opacity: 0.8,
   },
 
   // Pix modal
   pixPaidConfirm: {
-    backgroundColor: '#0e2f13',
-    borderColor: '#229731',
+    backgroundColor: theme.successBg,
+    borderColor: theme.success,
     borderWidth: 1,
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
   },
   pixPaidConfirmText: {
-    color: '#229731',
+    color: theme.success,
     fontSize: 17,
     fontWeight: '700',
   },
   reuseNote: {
-    backgroundColor: '#1a1a2e',
+    backgroundColor: theme.indigoBg,
     borderRadius: 8,
     padding: 10,
   },
   reuseNoteText: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 12,
     textAlign: 'center',
   },
   pixQrContainer: {
+    // QR code precisa de fundo branco sólido pra ler bem — não segue o tema.
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: 'white',
     borderRadius: 16,
     padding: 16,
   },
@@ -1320,42 +1347,42 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   pixAmount: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 22,
     fontWeight: '700',
   },
   pixExpiry: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
   },
   pixCodeBlock: {
-    backgroundColor: '#1a1a1a',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 12,
     padding: 14,
     gap: 6,
   },
   pixCodeLabel: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 12,
   },
   pixCode: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 11,
     fontFamily: 'monospace',
     lineHeight: 16,
   },
   copyBtn: {
-    backgroundColor: '#202020',
-    borderColor: '#474747',
+    backgroundColor: theme.surface,
+    borderColor: theme.border,
     borderWidth: 1,
     borderRadius: 12,
     paddingVertical: 13,
     alignItems: 'center',
   },
   copyBtnText: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 14,
     fontWeight: '600',
   },

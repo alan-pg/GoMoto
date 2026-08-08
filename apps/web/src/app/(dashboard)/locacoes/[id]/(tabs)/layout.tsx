@@ -25,17 +25,17 @@ export default async function RentalDetailLayout({
   )
 
   return (
-    <div className="min-h-screen bg-[#121212]">
+    <div className="min-h-screen bg-bg">
 
-      <div className="sticky top-0 z-10 bg-[#121212]">
+      <div className="sticky top-0 z-10 bg-bg">
 
         {/* ── Header: breadcrumb + título + ações ──────────────────────────── */}
-        <div className="flex h-16 items-center gap-4 border-b border-[#323232] px-6">
-          <Link href="/locacoes" className="whitespace-nowrap text-[13px] text-[#9e9e9e] transition-colors hover:text-[#f5f5f5]">
+        <div className="flex h-16 items-center gap-4 border-b border-divider px-6">
+          <Link href="/locacoes" className="whitespace-nowrap text-[13px] text-fg-mute transition-colors hover:text-fg">
             ← Locações
           </Link>
-          <span className="text-[#474747]">/</span>
-          <h1 className="flex-1 truncate text-[15px] font-bold text-[#f5f5f5]">
+          <span className="text-border">/</span>
+          <h1 className="flex-1 truncate text-[15px] font-bold text-fg">
             {rental.customer?.name ?? '—'} · {rental.vehicle?.license_plate ?? '—'}
           </h1>
 
@@ -44,7 +44,7 @@ export default async function RentalDetailLayout({
               <>
                 <Link
                   href={`/locacoes/${id}/cobranca-avulsa`}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#474747] px-3 text-[13px] text-[#9e9e9e] transition-colors hover:border-[#616161] hover:text-[#f5f5f5]"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border px-3 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg"
                   title="Cobrança Avulsa"
                 >
                   <Zap className="h-4 w-4" />
@@ -52,7 +52,7 @@ export default async function RentalDetailLayout({
                 </Link>
                 <Link
                   href={`/locacoes/${id}/renovar`}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#474747] px-3 text-[13px] text-[#9e9e9e] transition-colors hover:border-[#616161] hover:text-[#f5f5f5]"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border px-3 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg"
                   title="Renovar"
                 >
                   <RotateCcw className="h-4 w-4" />
@@ -60,7 +60,7 @@ export default async function RentalDetailLayout({
                 </Link>
                 <Link
                   href={`/locacoes/${id}/reajustar`}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#474747] px-3 text-[13px] text-[#9e9e9e] transition-colors hover:border-[#616161] hover:text-[#f5f5f5]"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border px-3 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg"
                   title="Reajustar"
                 >
                   <TrendingUp className="h-4 w-4" />
@@ -68,7 +68,7 @@ export default async function RentalDetailLayout({
                 </Link>
                 <Link
                   href={`/locacoes/${id}/encerrar`}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#ff9c9a]/30 bg-[#7c1c1c] px-3 text-[13px] text-[#ff9c9a] transition-colors hover:bg-[#9c2c2c]"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-full border border-danger bg-danger-bg px-3 text-[13px] text-danger transition-opacity hover:opacity-80"
                   title="Encerrar"
                 >
                   <X className="h-4 w-4" />
@@ -78,7 +78,7 @@ export default async function RentalDetailLayout({
             )}
             <Link
               href={`/locacoes/${id}/editar`}
-              className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#323232] px-3 text-[13px] text-[#f5f5f5] transition-colors hover:bg-[#474747]"
+              className="inline-flex h-9 items-center gap-1.5 rounded-full bg-surface-2 px-3 text-[13px] text-fg transition-colors hover:bg-divider"
             >
               <Edit2 className="h-4 w-4" />
               Editar
@@ -87,13 +87,13 @@ export default async function RentalDetailLayout({
         </div>
 
         {/* ── Status + valor do ciclo ───────────────────────────────────────── */}
-        <div className="flex flex-wrap items-center gap-4 border-b border-[#323232] px-6 py-3">
+        <div className="flex flex-wrap items-center gap-4 border-b border-divider px-6 py-3">
           <span className={`inline-flex h-7 items-center rounded-full border border-transparent px-3 text-[13px] font-medium ${statusCfg.bg} ${statusCfg.text}`}>
             {statusCfg.label}
           </span>
-          <span className="text-[15px] font-bold text-[#f5f5f5]">
+          <span className="text-[15px] font-bold text-fg">
             {rental.cycle_amount != null ? formatCurrency(rental.cycle_amount) : '—'}
-            <span className="ml-1 text-[13px] font-normal text-[#9e9e9e]">/{CYCLE_LABEL[rental.cycle ?? 'monthly'] ?? 'ciclo'}</span>
+            <span className="ml-1 text-[13px] font-normal text-fg-mute">/{CYCLE_LABEL[rental.cycle ?? 'monthly'] ?? 'ciclo'}</span>
           </span>
         </div>
 

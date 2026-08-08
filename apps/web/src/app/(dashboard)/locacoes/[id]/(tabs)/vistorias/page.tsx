@@ -18,8 +18,8 @@ export default async function RentalInspectionsTab({
 
   if (!hasAnyInspectionLink) {
     return (
-      <div className="flex items-center justify-center rounded-xl bg-[#202020] py-10">
-        <p className="text-[13px] text-[#616161]">Nenhum perfil de vistoria vinculado a esta locação.</p>
+      <div className="flex items-center justify-center rounded-xl bg-surface py-10">
+        <p className="text-[13px] text-fg-mute">Nenhum perfil de vistoria vinculado a esta locação.</p>
       </div>
     )
   }
@@ -59,24 +59,24 @@ export default async function RentalInspectionsTab({
 
       {checkinInspection?.status === 'completed' && checkoutInspection?.status === 'completed' && (
         <div className="mb-4">
-          <p className="mb-2 text-[12px] font-medium uppercase tracking-wide text-[#9e9e9e]">Comparação</p>
+          <p className="mb-2 text-[12px] font-medium uppercase tracking-wide text-fg-mute">Comparação</p>
           <InspectionComparisonPanel rentalId={id} />
         </div>
       )}
 
       {rental.periodic_inspection_profile_id && inspectionSchedules.length > 0 && (
         <div>
-          <p className="mb-2 text-[12px] font-medium uppercase tracking-wide text-[#9e9e9e]">
+          <p className="mb-2 text-[12px] font-medium uppercase tracking-wide text-fg-mute">
             Vistoria periódica — a cada {rental.periodic_inspection_frequency_days} dias
           </p>
-          <div className="overflow-hidden rounded-xl bg-[#202020]">
+          <div className="overflow-hidden rounded-xl bg-surface">
             <table className="w-full text-[13px]">
               <tbody>
                 {inspectionSchedules.map((s) => {
                   const badge = SCHEDULE_STATUS_BADGE[s.status] ?? SCHEDULE_STATUS_BADGE.pending
                   return (
-                    <tr key={s.id} className="h-9 border-b border-[#323232] last:border-0">
-                      <td className="px-4 text-[#c7c7c7]">{fmt(s.target_date)}</td>
+                    <tr key={s.id} className="h-9 border-b border-divider last:border-0">
+                      <td className="px-4 text-fg-soft">{fmt(s.target_date)}</td>
                       <td className="px-4 text-right">
                         {s.latest_inspection ? (
                           <Link href={`/vistorias/execute/${s.latest_inspection.id}`} className="inline-flex items-center gap-2">

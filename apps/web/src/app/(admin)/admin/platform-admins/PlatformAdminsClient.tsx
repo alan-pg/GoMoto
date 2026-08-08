@@ -117,10 +117,10 @@ export function PlatformAdminsClient({
     <div className="p-8 max-w-6xl mx-auto">
       <header className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-[24px] font-semibold text-[#f5f5f5] flex items-center gap-2">
+          <h1 className="text-[24px] font-semibold text-fg flex items-center gap-2">
             <ShieldCheck className="w-6 h-6" /> Admins da plataforma
           </h1>
-          <p className="text-[13px] text-[#9e9e9e] mt-1">
+          <p className="text-[13px] text-fg-mute mt-1">
             Pessoas com acesso ao control plane. Owners gerenciam outros owners; operators
             executam o operacional do dia-a-dia.
           </p>
@@ -133,20 +133,20 @@ export function PlatformAdminsClient({
       </header>
 
       {loadError ? (
-        <div className="rounded-lg bg-[#7c1c1c] text-[#ff9c9a] border border-[#ff9c9a] px-4 py-3 text-[13px] mb-4">
+        <div className="rounded-lg bg-danger-bg text-danger border border-danger px-4 py-3 text-[13px] mb-4">
           Falha ao carregar admins: {loadError}
         </div>
       ) : null}
 
       {topError ? (
-        <div className="rounded-lg bg-[#7c1c1c] text-[#ff9c9a] border border-[#ff9c9a] px-4 py-3 text-[13px] mb-4">
+        <div className="rounded-lg bg-danger-bg text-danger border border-danger px-4 py-3 text-[13px] mb-4">
           {topError}
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-[#323232] overflow-hidden bg-[#181818]">
+      <div className="rounded-xl border border-divider overflow-hidden bg-surface">
         <table className="w-full text-left">
-          <thead className="bg-[#202020] text-[12px] uppercase tracking-wide text-[#9e9e9e]">
+          <thead className="bg-surface text-[12px] uppercase tracking-wide text-fg-mute">
             <tr>
               <th className="px-4 py-3 font-medium">Pessoa</th>
               <th className="px-4 py-3 font-medium">Role</th>
@@ -157,7 +157,7 @@ export function PlatformAdminsClient({
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-[#9e9e9e] text-[14px]">
+                <td colSpan={4} className="px-4 py-8 text-center text-fg-mute text-[14px]">
                   Nenhum admin cadastrado.
                 </td>
               </tr>
@@ -166,10 +166,10 @@ export function PlatformAdminsClient({
                 const isSelf = row.user_id === currentUserId
                 const isLastOwner = row.role === 'owner' && ownerCount <= 1
                 return (
-                  <tr key={row.user_id} className="border-t border-[#323232]">
-                    <td className="px-4 py-3 text-[14px] text-[#f5f5f5]">
+                  <tr key={row.user_id} className="border-t border-divider">
+                    <td className="px-4 py-3 text-[14px] text-fg">
                       <div className="font-medium">{row.name ?? row.email}</div>
-                      <div className="text-[12px] text-[#9e9e9e]">{row.email}</div>
+                      <div className="text-[12px] text-fg-mute">{row.email}</div>
                     </td>
                     <td className="px-4 py-3">
                       {row.role === 'owner' ? (
@@ -178,7 +178,7 @@ export function PlatformAdminsClient({
                         <Badge variant="muted">Operator</Badge>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-[13px] text-[#9e9e9e]">
+                    <td className="px-4 py-3 text-[13px] text-fg-mute">
                       {row.created_by_email ?? <span className="italic">bootstrap</span>}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -234,7 +234,7 @@ export function PlatformAdminsClient({
 
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Adicionar admin">
         <div className="space-y-4">
-          <p className="text-[13px] text-[#c7c7c7]">
+          <p className="text-[13px] text-fg-soft">
             O usuário precisa já existir em <code>auth.users</code> (cadastre antes via Supabase
             Studio ou signup). Buscamos pelo email exato.
           </p>
@@ -248,7 +248,7 @@ export function PlatformAdminsClient({
             disabled={pending}
           />
           <div>
-            <label className="text-[13px] text-[#c7c7c7] block mb-1.5">Role</label>
+            <label className="text-[13px] text-fg-soft block mb-1.5">Role</label>
             <div className="flex gap-2">
               {(['operator', 'owner'] as const).map((r) => (
                 <button
@@ -259,8 +259,8 @@ export function PlatformAdminsClient({
                   className={
                     'flex-1 h-10 rounded-lg border text-[14px] transition ' +
                     (form.role === r
-                      ? 'border-[#BAFF1A] text-[#BAFF1A] bg-[#243300]'
-                      : 'border-[#323232] text-[#c7c7c7] hover:border-[#474747]')
+                      ? 'border-primary text-primary bg-primary-tint'
+                      : 'border-divider text-fg-soft hover:border-border')
                   }
                 >
                   {r === 'owner' ? (
@@ -277,7 +277,7 @@ export function PlatformAdminsClient({
             </div>
           </div>
           {formError ? (
-            <div className="rounded-lg bg-[#7c1c1c] text-[#ff9c9a] border border-[#ff9c9a] px-3 py-2 text-[13px]">
+            <div className="rounded-lg bg-danger-bg text-danger border border-danger px-3 py-2 text-[13px]">
               {formError}
             </div>
           ) : null}
@@ -298,18 +298,18 @@ export function PlatformAdminsClient({
         title="Remover admin da plataforma"
       >
         <div className="space-y-4">
-          <p className="text-[13px] text-[#c7c7c7]">
+          <p className="text-[13px] text-fg-soft">
             A pessoa perde acesso ao control plane imediatamente. O usuário em si permanece
             em <code>auth.users</code> — você só está removendo o vínculo de admin.
           </p>
           {target ? (
-            <div className="rounded-lg border border-[#323232] bg-[#181818] px-3 py-2 text-[14px] text-[#f5f5f5]">
+            <div className="rounded-lg border border-divider bg-surface px-3 py-2 text-[14px] text-fg">
               <div className="font-medium">{target.name ?? target.email}</div>
-              <div className="text-[12px] text-[#9e9e9e]">{target.email}</div>
+              <div className="text-[12px] text-fg-mute">{target.email}</div>
             </div>
           ) : null}
           {removeError ? (
-            <div className="rounded-lg bg-[#7c1c1c] text-[#ff9c9a] border border-[#ff9c9a] px-3 py-2 text-[13px]">
+            <div className="rounded-lg bg-danger-bg text-danger border border-danger px-3 py-2 text-[13px]">
               {removeError}
             </div>
           ) : null}

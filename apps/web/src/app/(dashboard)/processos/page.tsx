@@ -144,21 +144,21 @@ export default function ProcessesPage() {
       <div className="p-6 space-y-4">
         {/* Filtros e Busca */}
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 px-4 bg-[#323232] border border-[#474747] rounded-full h-10 w-64 focus-within:border-[#616161]">
-            <Search className="w-4 h-4 text-[#9e9e9e] flex-shrink-0" />
+          <div className="flex items-center gap-2 px-4 bg-surface-2 border border-border rounded-full h-10 w-64 focus-within:border-fg-mute">
+            <Search className="w-4 h-4 text-fg-mute flex-shrink-0" />
             <input
               type="text"
               placeholder="Buscar pergunta ou resposta..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="flex-1 bg-transparent text-[#f5f5f5] text-[13px] outline-none placeholder:text-[#616161]"
+              className="flex-1 bg-transparent text-fg text-[13px] outline-none placeholder:text-fg-mute"
             />
           </div>
 
-          <div className="w-px h-5 bg-[#616161]" />
-          <BookOpen className="w-4 h-4 text-[#9e9e9e]" />
+          <div className="w-px h-5 bg-fg-mute" />
+          <BookOpen className="w-4 h-4 text-fg-mute" />
 
-          <div className="flex flex-wrap border-b border-[#616161]">
+          <div className="flex flex-wrap border-b border-fg-mute">
             {[{ value: '', label: 'Todas' }, ...categories.map((c) => ({ value: c, label: c }))].map(
               (opt) => (
                 <button
@@ -166,8 +166,8 @@ export default function ProcessesPage() {
                   onClick={() => setCategoryFilter(opt.value)}
                   className={`px-3 py-2 text-[13px] font-medium transition-all border-b-2 ${
                     categoryFilter === opt.value
-                      ? 'border-[#BAFF1A] text-[#f5f5f5]'
-                      : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
+                      ? 'border-primary text-fg'
+                      : 'border-transparent text-fg-mute hover:text-fg'
                   }`}
                 >
                   {opt.label}
@@ -179,7 +179,7 @@ export default function ProcessesPage() {
 
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#BAFF1A] border-t-transparent" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
         ) : (
           <>
@@ -187,23 +187,23 @@ export default function ProcessesPage() {
               <div key={category} className="space-y-2">
                 <div className="flex items-center gap-2 py-1">
                   <Badge variant={categoryBadgeVariant[category] ?? 'muted'}>{category}</Badge>
-                  <span className="text-[13px] text-[#9e9e9e]">{items.length} processo(s)</span>
+                  <span className="text-[13px] text-fg-mute">{items.length} processo(s)</span>
                 </div>
 
                 <div className="space-y-1">
                   {items.map((process) => (
-                    <div key={process.id} className="bg-[#202020] rounded-xl overflow-hidden">
+                    <div key={process.id} className="bg-surface rounded-xl overflow-hidden">
                       <button
                         className="w-full min-h-[56px] flex items-center justify-between gap-4 p-4 text-left"
                         onClick={() => toggleExpand(process.id)}
                       >
                         <div className="flex items-start gap-2 min-w-0">
                           {process.category === 'Procedimentos Internos' && (
-                            <span className="mt-0.5 flex-shrink-0 px-2 py-0.5 rounded-full text-[13px] font-medium bg-[#2d0363] text-[#a880ff]">
+                            <span className="mt-0.5 flex-shrink-0 px-2 py-0.5 rounded-full text-[13px] font-medium bg-info-bg text-info">
                               Interno
                             </span>
                           )}
-                          <p className="font-medium text-[#f5f5f5] text-[13px] leading-relaxed">
+                          <p className="font-medium text-fg text-[13px] leading-relaxed">
                             {process.question}
                           </p>
                         </div>
@@ -234,16 +234,16 @@ export default function ProcessesPage() {
                             <Trash2 className="h-4 w-4" />
                           </Button>
                           {expandedId === process.id ? (
-                            <ChevronUp className="w-4 h-4 text-[#9e9e9e]" />
+                            <ChevronUp className="w-4 h-4 text-fg-mute" />
                           ) : (
-                            <ChevronDown className="w-4 h-4 text-[#9e9e9e]" />
+                            <ChevronDown className="w-4 h-4 text-fg-mute" />
                           )}
                         </div>
                       </button>
 
                       {expandedId === process.id && (
-                        <div className="px-4 pb-4 border-t border-[#323232] pt-3">
-                          <p className="text-[13px] text-[#9e9e9e] leading-relaxed whitespace-pre-wrap">
+                        <div className="px-4 pb-4 border-t border-divider pt-3">
+                          <p className="text-[13px] text-fg-mute leading-relaxed whitespace-pre-wrap">
                             {process.answer}
                           </p>
                         </div>
@@ -257,14 +257,14 @@ export default function ProcessesPage() {
             {filteredProcesses.length === 0 && (
               <div className="flex items-center justify-center py-20">
                 <div className="text-center">
-                  <BookOpen className="w-12 h-12 text-[#616161] mx-auto mb-3" />
-                  <p className="text-[13px] text-[#9e9e9e]">
+                  <BookOpen className="w-12 h-12 text-fg-mute mx-auto mb-3" />
+                  <p className="text-[13px] text-fg-mute">
                     {search ? `Nenhum resultado para "${search}"` : 'Nenhum processo encontrado'}
                   </p>
                   {search && (
                     <button
                       onClick={() => setSearch('')}
-                      className="mt-2 text-[13px] text-[#BAFF1A] hover:underline"
+                      className="mt-2 text-[13px] text-primary hover:underline"
                     >
                       Limpar busca
                     </button>

@@ -31,6 +31,12 @@ export const RentalSchema = z.object({
   deposit_payment_date: dateString.optional(),
   // Relevante apenas quando deposit_paid = false: vencimento da cobrança.
   deposit_due_date:     dateString.optional(),
+  // Entrada (Spec 0010) — valor opcional, não reembolsável, informado só na
+  // criação (RN-002). Mesmo racional de deposit_paid/_payment_date/_due_date.
+  down_payment:              z.number().min(0).nullable().optional(),
+  down_payment_paid:         z.boolean().default(true),
+  down_payment_payment_date: dateString.optional(),
+  down_payment_due_date:     dateString.optional(),
   late_charge_config: LateChargeConfigSchema.optional(),
   // Modelo de contrato usado para gerar o PDF na criação (opcional).
   contract_template_id: z.string().uuid().nullable().optional(),

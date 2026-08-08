@@ -56,31 +56,31 @@ export function SignedContractUpload({ rentalId, currentFileName, signedUrl }: P
   }
 
   return (
-    <div className="rounded-xl bg-[#202020] p-4">
+    <div className="rounded-xl bg-surface p-4">
       <div className="flex items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-2">
-          <FileText className="h-4 w-4 shrink-0 text-[#9e9e9e]" />
+          <FileText className="h-4 w-4 shrink-0 text-fg-mute" />
           {signedUrl && currentFileName ? (
             <a
               href={signedUrl}
               target="_blank"
               rel="noreferrer"
-              className="truncate text-[13px] text-[#BAFF1A] hover:underline"
+              className="truncate text-[13px] text-primary hover:underline"
             >
               {currentFileName}
             </a>
           ) : (
-            <p className="text-[13px] text-[#616161]">Nenhum contrato assinado anexado</p>
+            <p className="text-[13px] text-fg-mute">Nenhum contrato assinado anexado</p>
           )}
         </div>
-        <label className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-[#474747] px-4 text-[13px] text-[#f5f5f5] transition-colors hover:border-[#BAFF1A] hover:text-[#BAFF1A]">
+        <label className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border px-4 text-[13px] text-fg transition-colors hover:border-primary hover:text-primary">
           <Upload className="h-3.5 w-3.5" />
           {uploading ? 'Enviando…' : currentFileName ? 'Trocar' : 'Anexar assinado'}
           <input type="file" accept="application/pdf" className="hidden" disabled={uploading} onChange={handleFileChange} />
         </label>
       </div>
       {error && (
-        <div className="mt-2 flex items-center gap-1.5 text-[12px] text-[#ff9c9a]">
+        <div className="mt-2 flex items-center gap-1.5 text-[12px] text-danger">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           {error}
         </div>

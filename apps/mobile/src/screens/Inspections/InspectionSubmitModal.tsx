@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +17,7 @@ import * as ImagePicker from 'expo-image-picker'
 import { useSupabaseContext, useRequiredTenantId, usePeriodicInspectionProfileForRental } from '@gomoto/data'
 import type { InspectionScheduleWithStatus } from '@gomoto/core'
 import { supabase } from '../../lib/supabase'
+import { useTheme, type ThemeTokens } from '../../theme'
 
 type AnswerDraft = { status: 'ok' | 'not_ok' | null; note: string }
 type PhotoDraft = { uri: string; storage_path: string | null; uploading: boolean }
@@ -57,6 +58,8 @@ export function InspectionSubmitModal({ schedule, onClose, onSubmitted }: Props)
   const [answers, setAnswers] = useState<Record<string, AnswerDraft>>({})
   const [photos, setPhotos] = useState<Record<string, PhotoDraft>>({})
   const [submitting, setSubmitting] = useState(false)
+  const theme = useTheme()
+  const styles = useMemo(() => createStyles(theme), [theme])
 
   useEffect(() => {
     if (!schedule) {
@@ -160,7 +163,7 @@ export function InspectionSubmitModal({ schedule, onClose, onSubmitted }: Props)
 
         {profileQuery.isLoading ? (
           <View style={styles.centered}>
-            <ActivityIndicator color="#BAFF1A" size="large" />
+            <ActivityIndicator color={theme.primary} size="large" />
           </View>
         ) : !profileQuery.data ? (
           <View style={styles.centered}>
@@ -193,7 +196,7 @@ export function InspectionSubmitModal({ schedule, onClose, onSubmitted }: Props)
                       value={draft?.note ?? ''}
                       onChangeText={(v) => setAnswers((prev) => ({ ...prev, [item.id]: { ...prev[item.id], note: v } }))}
                       placeholder="Observação (opcional)"
-                      placeholderTextColor="#5a5a5a"
+                      placeholderTextColor={theme.textMute}
                       style={styles.noteInput}
                     />
                   </View>
@@ -207,7 +210,7 @@ export function InspectionSubmitModal({ schedule, onClose, onSubmitted }: Props)
                   return (
                     <Pressable key={item.id} style={styles.photoSlot} onPress={() => pickPhoto(item.id)}>
                       {draft?.uploading ? (
-                        <ActivityIndicator color="#BAFF1A" />
+                        <ActivityIndicator color={theme.primary} />
                       ) : draft?.uri ? (
                         <Image source={{ uri: draft.uri }} style={styles.photoThumb} />
                       ) : (
@@ -227,7 +230,7 @@ export function InspectionSubmitModal({ schedule, onClose, onSubmitted }: Props)
                 onPress={handleSubmit}
                 disabled={submitting}
               >
-                {submitting ? <ActivityIndicator color="#121212" /> : <Text style={styles.submitText}>Enviar vistoria</Text>}
+                {submitting ? <ActivityIndicator color={theme.primaryContrast} /> : <Text style={styles.submitText}>Enviar vistoria</Text>}
               </Pressable>
             </View>
           </>
@@ -237,8 +240,8 @@ export function InspectionSubmitModal({ schedule, onClose, onSubmitted }: Props)
   )
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: '#121212' },
+const createStyles = (theme: ThemeTokens) => StyleSheet.create({
+  flex: { flex: 1, backgroundColor: theme.bg },
   header: {
     paddingHorizontal: 20,
     paddingTop: 18,
@@ -246,17 +249,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderBottomColor: '#323232',
+    borderBottomColor: theme.surfaceAlt,
     borderBottomWidth: 1,
   },
-  title: { color: '#f5f5f5', fontSize: 18, fontWeight: '700' },
-  closeText: { color: '#BAFF1A', fontSize: 14, fontWeight: '600' },
+  title: { color: theme.text, fontSize: 18, fontWeight: '700' },
+  closeText: { color: theme.primary, fontSize: 14, fontWeight: '600' },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
-  emptyText: { color: '#9e9e9e', fontSize: 13, textAlign: 'center' },
+  emptyText: { color: theme.textMute, fontSize: 13, textAlign: 'center' },
   body: { flex: 1 },
   bodyContent: { padding: 20, paddingBottom: 40, gap: 10 },
   sectionLabel: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -265,42 +268,42 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   checklistCard: {
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 12,
     padding: 12,
     gap: 8,
   },
-  checklistName: { color: '#f5f5f5', fontSize: 14, fontWeight: '600' },
+  checklistName: { color: theme.text, fontSize: 14, fontWeight: '600' },
   checklistBtnRow: { flexDirection: 'row', gap: 8 },
   checklistBtn: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: '#282828',
+    backgroundColor: theme.surfaceAlt,
   },
-  checklistBtnOk: { backgroundColor: '#229731' },
-  checklistBtnNotOk: { backgroundColor: '#ff9c9a' },
-  checklistBtnText: { color: '#9e9e9e', fontSize: 12, fontWeight: '700' },
-  checklistBtnTextOk: { color: '#0e2f13' },
-  checklistBtnTextNotOk: { color: '#7c1c1c' },
+  checklistBtnOk: { backgroundColor: theme.success },
+  checklistBtnNotOk: { backgroundColor: theme.danger },
+  checklistBtnText: { color: theme.textMute, fontSize: 12, fontWeight: '700' },
+  checklistBtnTextOk: { color: 'white' },
+  checklistBtnTextNotOk: { color: 'white' },
   noteInput: {
-    backgroundColor: '#282828',
-    borderColor: '#474747',
+    backgroundColor: theme.surfaceAlt,
+    borderColor: theme.border,
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 12,
   },
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   photoSlot: {
     width: '31%',
     aspectRatio: 1,
-    backgroundColor: '#202020',
-    borderColor: '#474747',
+    backgroundColor: theme.surface,
+    borderColor: theme.border,
     borderWidth: 1,
     borderStyle: 'dashed',
     borderRadius: 10,
@@ -309,12 +312,12 @@ const styles = StyleSheet.create({
     padding: 6,
     gap: 4,
   },
-  photoSlotText: { color: '#9e9e9e', fontSize: 10, textAlign: 'center' },
-  photoSlotLabel: { color: '#9e9e9e', fontSize: 10, textAlign: 'center' },
+  photoSlotText: { color: theme.textMute, fontSize: 10, textAlign: 'center' },
+  photoSlotLabel: { color: theme.textMute, fontSize: 10, textAlign: 'center' },
   photoThumb: { width: '100%', height: '70%', borderRadius: 6 },
-  footer: { padding: 20, borderTopColor: '#323232', borderTopWidth: 1 },
-  submitBtn: { backgroundColor: '#BAFF1A', paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
+  footer: { padding: 20, borderTopColor: theme.surfaceAlt, borderTopWidth: 1 },
+  submitBtn: { backgroundColor: theme.primary, paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
   submitBtnPressed: { opacity: 0.85 },
   submitBtnDisabled: { opacity: 0.5 },
-  submitText: { color: '#121212', fontSize: 14, fontWeight: '700' },
+  submitText: { color: theme.primaryContrast, fontSize: 14, fontWeight: '700' },
 })

@@ -59,18 +59,18 @@ export function TerminateForm({ rental }: TerminateFormProps) {
   }
 
   return (
-    <div className="min-h-screen bg-[#121212]">
+    <div className="min-h-screen bg-bg">
 
       {/* Header */}
-      <div className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-[#2a2a2a] bg-[#121212]/95 px-6 backdrop-blur">
-        <Link href={`/locacoes/${rental.id}`} className="text-[13px] text-[#9e9e9e] transition-colors hover:text-[#f5f5f5]">
+      <div className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-border bg-bg px-6 backdrop-blur">
+        <Link href={`/locacoes/${rental.id}`} className="text-[13px] text-fg-mute transition-colors hover:text-fg">
           ← {rental.vehicle?.license_plate ?? 'Locação'}
         </Link>
-        <span className="text-[#3a3a3a]">/</span>
-        <h1 className="flex-1 text-[15px] font-bold text-[#f5f5f5]">Encerrar locação</h1>
+        <span className="text-fg-mute">/</span>
+        <h1 className="flex-1 text-[15px] font-bold text-fg">Encerrar locação</h1>
         <Link
           href={`/locacoes/${rental.id}`}
-          className="inline-flex h-8 items-center rounded-full border border-[#474747] px-4 text-[13px] text-[#9e9e9e] transition-colors hover:border-[#616161] hover:text-[#f5f5f5]"
+          className="inline-flex h-8 items-center rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg"
         >
           Cancelar
         </Link>
@@ -78,7 +78,7 @@ export function TerminateForm({ rental }: TerminateFormProps) {
           type="button"
           onClick={handleConfirm}
           disabled={isPending || !terminationDate}
-          className="inline-flex h-8 items-center rounded-full bg-[#7c1c1c] px-5 text-[13px] font-bold text-[#ff9c9a] transition-colors hover:bg-[#9c2c2c] disabled:opacity-60"
+          className="inline-flex h-8 items-center rounded-full bg-danger-bg px-5 text-[13px] font-bold text-danger transition-opacity hover:opacity-80 disabled:opacity-60"
         >
           {isPending ? 'Encerrando…' : 'Confirmar Encerramento'}
         </button>
@@ -87,24 +87,24 @@ export function TerminateForm({ rental }: TerminateFormProps) {
       <div className="mx-auto max-w-xl space-y-6 px-6 py-8">
 
         {/* Resumo da locação */}
-        <div className="rounded-xl bg-[#202020] p-4 text-[13px]">
-          <p className="font-semibold text-[#f5f5f5]">
+        <div className="rounded-xl bg-surface p-4 text-[13px]">
+          <p className="font-semibold text-fg">
             {rental.vehicle?.license_plate} — {rental.vehicle?.make} {rental.vehicle?.model}
           </p>
-          <p className="mt-0.5 text-[#9e9e9e]">{rental.customer?.name}</p>
-          <p className="mt-0.5 text-[#9e9e9e]">
+          <p className="mt-0.5 text-fg-mute">{rental.customer?.name}</p>
+          <p className="mt-0.5 text-fg-mute">
             {rental.start_date ? formatDate(rental.start_date) : '—'} até {rental.end_date ? formatDate(rental.end_date) : '—'}
           </p>
         </div>
 
         {/* Data de encerramento */}
         <div>
-          <label className="mb-1.5 block text-[13px] text-[#9e9e9e]">Data de encerramento</label>
+          <label className="mb-1.5 block text-[13px] text-fg-mute">Data de encerramento</label>
           <input
             type="date"
             value={terminationDate}
             onChange={e => setTerminationDate(e.target.value)}
-            className="h-9 w-full rounded-lg border border-[#474747] bg-[#282828] px-3 text-[13px] text-[#f5f5f5] outline-none transition-all focus:border-[#BAFF1A]"
+            className="h-9 w-full rounded-lg border border-border bg-surface-2 px-3 text-[13px] text-fg outline-none transition-all focus:border-primary"
           />
         </div>
 
@@ -112,7 +112,7 @@ export function TerminateForm({ rental }: TerminateFormProps) {
         {impact && (
           <div className="space-y-2">
             {impact.overdue_count > 0 && (
-              <div className="flex items-start gap-2 rounded-lg border border-[#e65e24] bg-[#3a1200] px-3 py-2.5 text-[13px] text-[#ffa040]">
+              <div className="flex items-start gap-2 rounded-lg border border-warning bg-warning-bg px-3 py-2.5 text-[13px] text-warning">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
                   {impact.overdue_count} cobrança{impact.overdue_count !== 1 ? 's' : ''} vencida
@@ -121,7 +121,7 @@ export function TerminateForm({ rental }: TerminateFormProps) {
               </div>
             )}
             {impact.future_count > 0 && (
-              <div className="flex items-start gap-2 rounded-lg border border-[#474747] bg-[#202020] px-3 py-2.5 text-[13px] text-[#9e9e9e]">
+              <div className="flex items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-[13px] text-fg-mute">
                 <X className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
                   {impact.future_count} cobrança{impact.future_count !== 1 ? 's' : ''} futura
@@ -130,7 +130,7 @@ export function TerminateForm({ rental }: TerminateFormProps) {
               </div>
             )}
             {impact.within_minimum && (
-              <div className="flex items-start gap-2 rounded-lg border border-[#eab308] bg-[#2a2000] px-3 py-2.5 text-[13px] text-[#fde047]">
+              <div className="flex items-start gap-2 rounded-lg border border-warning bg-warning-bg px-3 py-2.5 text-[13px] text-warning">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
                   Rescisão dentro da vigência mínima —{' '}
@@ -139,7 +139,7 @@ export function TerminateForm({ rental }: TerminateFormProps) {
               </div>
             )}
             {newStatus === 'transferred' && (
-              <div className="flex items-start gap-2 rounded-lg border border-[#60a5fa] bg-[#0a1f3a] px-3 py-2.5 text-[13px] text-[#60a5fa]">
+              <div className="flex items-start gap-2 rounded-lg border border-info bg-info-bg px-3 py-2.5 text-[13px] text-info">
                 <ChevronRight className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>Compra Programada cumprida — status será alterado para <strong>Transferida</strong>.</span>
               </div>
@@ -148,7 +148,7 @@ export function TerminateForm({ rental }: TerminateFormProps) {
         )}
 
         {error && (
-          <p className="text-[13px] text-[#ff9c9a]">{error}</p>
+          <p className="text-[13px] text-danger">{error}</p>
         )}
       </div>
     </div>

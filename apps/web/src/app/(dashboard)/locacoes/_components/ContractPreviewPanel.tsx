@@ -71,23 +71,23 @@ export function ContractPreviewPanel({
   }
 
   return (
-    <div className="rounded-xl bg-[#202020] p-4">
+    <div className="rounded-xl bg-surface p-4">
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <p className="text-[12px] text-[#9e9e9e]">Modelo de contrato</p>
+          <p className="text-[12px] text-fg-mute">Modelo de contrato</p>
           {currentTemplateId ? (
             <Link
               href={`/contratos/modelos/${currentTemplateId}`}
-              className="text-[13px] text-[#f5f5f5] transition-colors hover:text-[#BAFF1A]"
+              className="text-[13px] text-fg transition-colors hover:text-primary"
             >
               {selectedTemplateQuery.data?.name ?? '…'} →
             </Link>
           ) : (
-            <p className="text-[13px] text-[#616161]">Nenhum modelo vinculado</p>
+            <p className="text-[13px] text-fg-mute">Nenhum modelo vinculado</p>
           )}
           <Link
             href={`/locacoes/${rentalId}/editar`}
-            className="mt-1 block text-[12px] text-[#616161] transition-colors hover:text-[#BAFF1A]"
+            className="mt-1 block text-[12px] text-fg-mute transition-colors hover:text-primary"
           >
             Trocar modelo (Editar) →
           </Link>
@@ -97,7 +97,7 @@ export function ContractPreviewPanel({
             type="button"
             onClick={handleView}
             disabled={!currentTemplateId || busy !== null}
-            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#474747] px-4 text-[13px] text-[#f5f5f5] transition-colors hover:border-[#BAFF1A] hover:text-[#BAFF1A] disabled:opacity-50"
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border px-4 text-[13px] text-fg transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
           >
             <Eye className="h-3.5 w-3.5" />
             {busy === 'view' ? 'Abrindo…' : 'Visualizar'}
@@ -106,7 +106,7 @@ export function ContractPreviewPanel({
             type="button"
             onClick={handleDownload}
             disabled={!currentTemplateId || busy !== null}
-            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#474747] px-4 text-[13px] text-[#f5f5f5] transition-colors hover:border-[#BAFF1A] hover:text-[#BAFF1A] disabled:opacity-50"
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border px-4 text-[13px] text-fg transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
           >
             <Download className="h-3.5 w-3.5" />
             {busy === 'download' ? 'Gerando…' : 'Baixar (PDF)'}
@@ -114,7 +114,7 @@ export function ContractPreviewPanel({
         </div>
       </div>
       {error && (
-        <div className="mt-2 flex items-center gap-1.5 text-[12px] text-[#ff9c9a]">
+        <div className="mt-2 flex items-center gap-1.5 text-[12px] text-danger">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           {error}
         </div>

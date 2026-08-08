@@ -6,6 +6,7 @@ import { SupabaseProvider, useMaintenanceRecordsRealtime } from '@gomoto/data'
 
 import { AuthProvider, useAuth } from '../src/contexts/auth'
 import { supabase } from '../src/lib/supabase'
+import { ThemeProvider, useTheme, type ThemeTokens } from '../src/theme'
 
 // QueryClient é estável durante o ciclo do app. Defaults conservadores: dados
 // considerados frescos por 30 s (mobile alterna foreground/background bastante).
@@ -34,6 +35,8 @@ function RootGate() {
   const { session, loading, needsPasswordSetup, needsTenantSelection } = useAuth()
   const router = useRouter()
   const segments = useSegments()
+  const theme = useTheme()
+  const styles = useMemo(() => createStyles(theme), [theme])
 
   useEffect(() => {
     if (loading) return
@@ -66,7 +69,7 @@ function RootGate() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator color="#BAFF1A" size="large" />
+        <ActivityIndicator color={theme.primary} size="large" />
       </View>
     )
   }
@@ -76,20 +79,22 @@ function RootGate() {
 
 export default function RootLayout() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <DataProviders>
-          <RootGate />
-        </DataProviders>
-      </AuthProvider>
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <DataProviders>
+            <RootGate />
+          </DataProviders>
+        </AuthProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   )
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: ThemeTokens) => StyleSheet.create({
   loadingContainer: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: theme.bg,
     alignItems: 'center',
     justifyContent: 'center',
   },

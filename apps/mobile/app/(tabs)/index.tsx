@@ -26,6 +26,7 @@ import {
   type Vehicle,
 } from '@gomoto/core'
 import { useAuth } from '../../src/contexts/auth'
+import { useTheme, type ThemeTokens } from '../../src/theme'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,12 +55,17 @@ const CYCLE_LABEL: Record<string, string> = {
   weekly: '/semana',
 }
 
-const MAINTENANCE_STATUS_TONE: Record<string, { bg: string; fg: string }> = {
-  overdue:   { bg: '#7c1c1c', fg: '#ff9c9a' },
-  upcoming:  { bg: '#5e3a00', fg: '#ffba49' },
-  scheduled: { bg: '#0e2f13', fg: '#229731' },
-  completed: { bg: '#323232', fg: '#9e9e9e' },
+function getMaintenanceStatusTone(theme: ThemeTokens): Record<string, { bg: string; fg: string }> {
+  return {
+    overdue:   { bg: theme.dangerBg, fg: theme.danger },
+    upcoming:  { bg: theme.pendingBg, fg: theme.pending },
+    scheduled: { bg: theme.successBg, fg: theme.success },
+    completed: { bg: theme.surfaceAlt, fg: theme.textMute },
+  }
 }
+
+type StatusTone = ReturnType<typeof getMaintenanceStatusTone>
+type Styles = ReturnType<typeof createStyles>
 
 const MAINTENANCE_STATUS_LABEL: Record<string, string> = {
   overdue:   'Vencida',
@@ -72,11 +78,11 @@ const MAINTENANCE_STATUS_LABEL: Record<string, string> = {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function SectionLabel({ text }: { text: string }) {
+function SectionLabel({ text, styles }: { text: string; styles: Styles }) {
   return <Text style={styles.sectionLabel}>{text}</Text>
 }
 
-function RentalHeroCard({ rental }: { rental: Rental }) {
+function RentalHeroCard({ rental, styles }: { rental: Rental; styles: Styles }) {
   const vehicle = rental.vehicle
   return (
     <View style={styles.heroCard}>
@@ -103,9 +109,11 @@ function RentalHeroCard({ rental }: { rental: Rental }) {
 function OverdueBillingAlert({
   billing,
   onPress,
+  styles,
 }: {
   billing: Billing
   onPress: () => void
+  styles: Styles
 }) {
   const amount = calculateFinalAmount(billing.original_amount ?? 0, billing.discount_amount ?? 0)
   return (
@@ -128,9 +136,11 @@ function OverdueBillingAlert({
 function NextBillingCard({
   billing,
   onPress,
+  styles,
 }: {
   billing: Billing
   onPress: () => void
+  styles: Styles
 }) {
   const amount = calculateFinalAmount(billing.original_amount ?? 0, billing.discount_amount ?? 0)
   return (
@@ -156,10 +166,14 @@ function MaintenanceCard({
   maintenance,
   vehicle,
   onPress,
+  styles,
+  statusTone,
 }: {
   maintenance: Maintenance
   vehicle: Vehicle | undefined
   onPress: () => void
+  styles: Styles
+  statusTone: StatusTone
 }) {
   const status = calculateMaintenanceStatus({
     completed: maintenance.completed,
@@ -167,7 +181,7 @@ function MaintenanceCard({
     scheduled_date: maintenance.scheduled_date,
     current_km: vehicle?.km_current ?? 0,
   })
-  const tone = MAINTENANCE_STATUS_TONE[status]
+  const tone = statusTone[status]
   return (
     <Pressable style={styles.infoCard} onPress={onPress}>
       <View style={styles.infoCardRow}>
@@ -196,26 +210,28 @@ function MaintenanceCard({
   )
 }
 
-function ContractDetailsCard({ rental }: { rental: Rental }) {
+function ContractDetailsCard({ rental, styles }: { rental: Rental; styles: Styles }) {
   const cycleLabel = CYCLE_LABEL[rental.cycle ?? ''] ?? ''
   return (
     <View style={styles.detailsCard}>
       <Text style={styles.detailsTitle}>Detalhes do contrato</Text>
       <View style={styles.detailsGrid}>
-        <DetailRow label="Início" value={formatDate(rental.start_date)} />
+        <DetailRow label="Início" value={formatDate(rental.start_date)} styles={styles} />
         {rental.end_date ? (
-          <DetailRow label="Término previsto" value={formatDate(rental.end_date)} />
+          <DetailRow label="Término previsto" value={formatDate(rental.end_date)} styles={styles} />
         ) : null}
         {rental.cycle_amount ? (
           <DetailRow
             label="Valor"
             value={`${formatCurrency(rental.cycle_amount)}${cycleLabel}`}
+            styles={styles}
           />
         ) : null}
         {rental.cycle ? (
           <DetailRow
             label="Ciclo"
             value={rental.cycle === 'monthly' ? 'Mensal' : 'Semanal'}
+            styles={styles}
           />
         ) : null}
       </View>
@@ -223,7 +239,7 @@ function ContractDetailsCard({ rental }: { rental: Rental }) {
   )
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value, styles }: { label: string; value: string; styles: Styles }) {
   return (
     <View style={styles.detailRow}>
       <Text style={styles.detailLabel}>{label}</Text>
@@ -232,7 +248,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function NoRentalCard() {
+function NoRentalCard({ styles }: { styles: Styles }) {
   return (
     <View style={styles.emptyCard}>
       <Text style={styles.emptyTitle}>Sem contrato ativo</Text>
@@ -250,6 +266,9 @@ function NoRentalCard() {
 export default function HomeTab() {
   const router = useRouter()
   const { tenants, activeTenantId } = useAuth()
+  const theme = useTheme()
+  const styles = useMemo(() => createStyles(theme), [theme])
+  const statusTone = useMemo(() => getMaintenanceStatusTone(theme), [theme])
 
   const rentalsQuery    = useRentals({ status: 'active' })
   const billingsQuery   = useBillingsForCustomer()
@@ -351,7 +370,7 @@ export default function HomeTab() {
 
       {isLoading ? (
         <View style={styles.centered}>
-          <ActivityIndicator color="#BAFF1A" size="large" />
+          <ActivityIndicator color={theme.primary} size="large" />
         </View>
       ) : (
         <ScrollView
@@ -360,25 +379,26 @@ export default function HomeTab() {
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
-              tintColor="#BAFF1A"
+              tintColor={theme.primary}
             />
           }
         >
           {!activeRental ? (
-            <NoRentalCard />
+            <NoRentalCard styles={styles} />
           ) : (
             <>
               {/* Meu veículo */}
-              <SectionLabel text="Meu veículo" />
-              <RentalHeroCard rental={activeRental} />
+              <SectionLabel text="Meu veículo" styles={styles} />
+              <RentalHeroCard rental={activeRental} styles={styles} />
 
               {/* Cobrança vencida */}
               {overdueBillings.length > 0 && (
                 <>
-                  <SectionLabel text={`${overdueBillings.length > 1 ? `${overdueBillings.length} cobranças vencidas` : 'Cobrança vencida'}`} />
+                  <SectionLabel text={`${overdueBillings.length > 1 ? `${overdueBillings.length} cobranças vencidas` : 'Cobrança vencida'}`} styles={styles} />
                   <OverdueBillingAlert
                     billing={overdueBillings[0]!}
                     onPress={goToCobrancas}
+                    styles={styles}
                   />
                   {overdueBillings.length > 1 && (
                     <Pressable style={styles.moreLink} onPress={goToCobrancas}>
@@ -393,26 +413,28 @@ export default function HomeTab() {
               {/* Próximo pagamento */}
               {nextBilling && (
                 <>
-                  <SectionLabel text="Próximo pagamento" />
-                  <NextBillingCard billing={nextBilling} onPress={goToCobrancas} />
+                  <SectionLabel text="Próximo pagamento" styles={styles} />
+                  <NextBillingCard billing={nextBilling} onPress={goToCobrancas} styles={styles} />
                 </>
               )}
 
               {/* Manutenção urgente */}
               {urgentMaintenance && (
                 <>
-                  <SectionLabel text="Manutenção" />
+                  <SectionLabel text="Manutenção" styles={styles} />
                   <MaintenanceCard
                     maintenance={urgentMaintenance}
                     vehicle={vehiclesById.get(urgentMaintenance.vehicle_id)}
                     onPress={goToManutencoes}
+                    styles={styles}
+                    statusTone={statusTone}
                   />
                 </>
               )}
 
               {/* Detalhes do contrato */}
-              <SectionLabel text="Contrato" />
-              <ContractDetailsCard rental={activeRental} />
+              <SectionLabel text="Contrato" styles={styles} />
+              <ContractDetailsCard rental={activeRental} styles={styles} />
             </>
           )}
         </ScrollView>
@@ -425,25 +447,25 @@ export default function HomeTab() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
+const createStyles = (theme: ThemeTokens) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: theme.bg,
   },
   header: {
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 14,
-    borderBottomColor: '#323232',
+    borderBottomColor: theme.surfaceAlt,
     borderBottomWidth: 1,
   },
   greeting: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 22,
     fontWeight: '700',
   },
   tenantName: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
     marginTop: 2,
   },
@@ -460,7 +482,7 @@ const styles = StyleSheet.create({
 
   // Section label
   sectionLabel: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.6,
@@ -472,8 +494,8 @@ const styles = StyleSheet.create({
 
   // Hero card
   heroCard: {
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 14,
     overflow: 'hidden',
@@ -481,17 +503,17 @@ const styles = StyleSheet.create({
   heroPhoto: {
     width: '100%',
     height: 160,
-    backgroundColor: '#2a2a2a',
+    backgroundColor: theme.border,
   },
   heroPhotoPlaceholder: {
     width: '100%',
     height: 120,
-    backgroundColor: '#2a2a2a',
+    backgroundColor: theme.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   heroPhotoPlaceholderText: {
-    color: '#474747',
+    color: theme.border,
     fontSize: 13,
   },
   heroInfo: {
@@ -501,35 +523,35 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   heroPlate: {
-    color: '#BAFF1A',
+    color: theme.primary,
     fontSize: 18,
     fontWeight: '800',
     letterSpacing: 1,
   },
   heroModel: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 15,
     fontWeight: '500',
     flex: 1,
   },
   heroBadge: {
-    backgroundColor: '#0e2f13',
-    borderColor: '#229731',
+    backgroundColor: theme.successBg,
+    borderColor: theme.success,
     borderWidth: 1,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 3,
   },
   heroBadgeText: {
-    color: '#229731',
+    color: theme.success,
     fontSize: 11,
     fontWeight: '700',
   },
 
   // Alert card (overdue)
   alertCard: {
-    backgroundColor: '#3a0f0f',
-    borderColor: '#7c1c1c',
+    backgroundColor: theme.dangerBg,
+    borderColor: theme.dangerBg,
     borderWidth: 1,
     borderRadius: 12,
     padding: 14,
@@ -542,19 +564,19 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   alertTitle: {
-    color: '#ff9c9a',
+    color: theme.danger,
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
   },
   alertDesc: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 14,
     fontWeight: '500',
   },
   alertDue: {
-    color: '#ff9c9a',
+    color: theme.danger,
     fontSize: 12,
   },
   alertRight: {
@@ -562,20 +584,20 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   alertAmount: {
-    color: '#ff9c9a',
+    color: theme.danger,
     fontSize: 16,
     fontWeight: '700',
   },
   alertCta: {
-    color: '#ff9c9a',
+    color: theme.danger,
     fontSize: 12,
     fontWeight: '600',
   },
 
   // Info card (next billing, maintenance)
   infoCard: {
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 12,
     padding: 14,
@@ -590,19 +612,19 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   infoCardTitle: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
   },
   infoCardDesc: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 14,
     fontWeight: '500',
   },
   infoCardMeta: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 12,
   },
   infoCardRight: {
@@ -610,12 +632,12 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   infoCardAmount: {
-    color: '#BAFF1A',
+    color: theme.primary,
     fontSize: 16,
     fontWeight: '700',
   },
   infoCardCta: {
-    color: '#BAFF1A',
+    color: theme.primary,
     fontSize: 12,
     fontWeight: '600',
   },
@@ -638,22 +660,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   moreLinkText: {
-    color: '#ff9c9a',
+    color: theme.danger,
     fontSize: 13,
     fontWeight: '500',
   },
 
   // Contract details card
   detailsCard: {
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 12,
     padding: 14,
     gap: 10,
   },
   detailsTitle: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -669,19 +691,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   detailLabel: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
   },
   detailValue: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 13,
     fontWeight: '500',
   },
 
   // Empty state
   emptyCard: {
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 14,
     padding: 24,
@@ -690,12 +712,12 @@ const styles = StyleSheet.create({
     marginTop: 32,
   },
   emptyTitle: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 16,
     fontWeight: '700',
   },
   emptyText: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
     textAlign: 'center',
     lineHeight: 20,

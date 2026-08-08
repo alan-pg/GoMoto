@@ -17,9 +17,15 @@ import { createRental, updateRental, updateContractTemplate } from '../actions'
 
 interface RentalFormProps {
   rentalId?: string
-  // security_deposit não é mais coluna de rentals (vive em `deposits`) — a
-  // página de edição computa o valor à parte e injeta aqui como campo extra.
-  initialData?: Partial<Rental> & { security_deposit?: number | null }
+  // security_deposit/down_payment não são coluna de rentals (vivem em
+  // `deposits`/`billings`) — a página de edição computa os valores à parte
+  // e injeta aqui como campos extra.
+  initialData?: Partial<Rental> & {
+    security_deposit?: number | null
+    down_payment?: number | null
+    down_payment_status?: string | null
+    down_payment_due_date?: string | null
+  }
   defaultCustomerId?: string
   // Usado na variável {{nome_empresa}} ao gerar o contrato — só relevante na criação.
   tenantName?: string
@@ -36,6 +42,8 @@ type FormState = {
   end_date:         string
   use_pro_rata:     boolean
   security_deposit: string
+  down_payment:          string
+  down_payment_due_date: string
   contract_template_id: string
   observations:     string
   checkin_checkout_inspection_profile_id: string
@@ -45,11 +53,11 @@ type FormState = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const labelCls    = 'block text-[13px] text-[#9e9e9e] mb-1.5'
-const inputCls    = 'w-full h-9 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all'
+const labelCls    = 'block text-[13px] text-fg-mute mb-1.5'
+const inputCls    = 'w-full h-9 px-3 rounded-lg bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all'
 const selectCls   = inputCls
-const inputErrCls = 'w-full h-9 px-3 rounded-lg bg-[#282828] border border-[#ff9c9a] text-[13px] text-[#f5f5f5] outline-none focus:border-[#ff9c9a] transition-all'
-const readOnlyCls = 'flex h-9 w-full items-center rounded-lg border border-[#323232] bg-[#1a1a1a] px-3 text-[13px] text-[#c7c7c7]'
+const inputErrCls = 'w-full h-9 px-3 rounded-lg bg-surface-2 border border-danger text-[13px] text-fg outline-none focus:border-danger transition-all'
+const readOnlyCls = 'flex h-9 w-full items-center rounded-lg border border-divider bg-surface px-3 text-[13px] text-fg-soft'
 
 const CONTRACT_TYPE_LABEL = { rental: 'Locação', rent_to_own: 'Compra Programada' }
 const CYCLE_LABEL         = { weekly: 'Semanal', monthly: 'Mensal' }
@@ -84,7 +92,14 @@ function computePeriod(start: string, end: string, cycle: 'monthly' | 'weekly'):
   return String(Math.max(1, Math.floor(days / 7)))
 }
 
-function buildInitialForm(d?: Partial<Rental> & { security_deposit?: number | null }, defaultCustomerId?: string): FormState {
+function buildInitialForm(
+  d?: Partial<Rental> & {
+    security_deposit?: number | null
+    down_payment?: number | null
+    down_payment_due_date?: string | null
+  },
+  defaultCustomerId?: string,
+): FormState {
   return {
     vehicle_id:       d?.vehicle_id ?? '',
     customer_id:      d?.customer_id ?? defaultCustomerId ?? '',
@@ -96,6 +111,8 @@ function buildInitialForm(d?: Partial<Rental> & { security_deposit?: number | nu
     end_date:         d?.end_date ?? '',
     use_pro_rata:     d?.use_pro_rata ?? true,
     security_deposit: d?.security_deposit != null ? String(d.security_deposit) : '',
+    down_payment:          d?.down_payment != null ? String(d.down_payment) : '',
+    down_payment_due_date: d?.down_payment_due_date ?? '',
     contract_template_id: d?.contract_template_id ?? '',
     observations:     d?.observations ?? '',
     checkin_checkout_inspection_profile_id: '',
@@ -106,18 +123,21 @@ function buildInitialForm(d?: Partial<Rental> & { security_deposit?: number | nu
 
 // ─── ChargePreview ────────────────────────────────────────────────────────────
 
-function ChargePreview({ charges }: { charges: CycleCharge[] }) {
-  if (charges.length === 0) return null
-  const total = charges.reduce((s, c) => s + c.amount, 0)
+type ExtraChargeRow = { due_date: string; label: string; amount: number }
+
+function ChargePreview({ charges, extraRows = [] }: { charges: CycleCharge[]; extraRows?: ExtraChargeRow[] }) {
+  if (charges.length === 0 && extraRows.length === 0) return null
+  const total = charges.reduce((s, c) => s + c.amount, 0) + extraRows.reduce((s, r) => s + r.amount, 0)
+  const count = charges.length + extraRows.length
   return (
     <div>
-      <p className="mb-2 text-[13px] font-semibold text-[#f5f5f5]">
-        {charges.length} cobrança{charges.length !== 1 ? 's' : ''} · {formatCurrency(total)} total
+      <p className="mb-2 text-[13px] font-semibold text-fg">
+        {count} cobrança{count !== 1 ? 's' : ''} · {formatCurrency(total)} total
       </p>
-      <div className="max-h-52 overflow-y-auto rounded-lg border border-[#323232]">
+      <div className="max-h-52 overflow-y-auto rounded-lg border border-divider">
         <table className="w-full text-[13px]">
           <thead>
-            <tr className="border-b border-[#323232] text-left text-[#9e9e9e]">
+            <tr className="border-b border-divider text-left text-fg-mute">
               <th className="h-8 px-3 font-normal">Vencimento</th>
               <th className="h-8 px-3 font-normal">Tipo</th>
               <th className="h-8 px-3 text-right font-normal">Valor</th>
@@ -125,12 +145,19 @@ function ChargePreview({ charges }: { charges: CycleCharge[] }) {
           </thead>
           <tbody>
             {charges.map((c, i) => (
-              <tr key={i} className="h-9 border-b border-[#1e1e1e] last:border-0">
-                <td className="px-3 text-[#c7c7c7]">{formatDate(c.due_date)}</td>
-                <td className="px-3 text-[#9e9e9e]">
+              <tr key={i} className="h-9 border-b border-border last:border-0">
+                <td className="px-3 text-fg-soft">{formatDate(c.due_date)}</td>
+                <td className="px-3 text-fg-mute">
                   {c.billing_type === 'cycle' ? 'Ciclo' : 'Complementar'}
                 </td>
-                <td className="px-3 text-right font-mono text-[#f5f5f5]">{formatCurrency(c.amount)}</td>
+                <td className="px-3 text-right font-mono text-fg">{formatCurrency(c.amount)}</td>
+              </tr>
+            ))}
+            {extraRows.map((r, i) => (
+              <tr key={`extra-${i}`} className="h-9 border-b border-border last:border-0">
+                <td className="px-3 text-fg-soft">{formatDate(r.due_date)}</td>
+                <td className="px-3 text-fg-mute">{r.label}</td>
+                <td className="px-3 text-right font-mono text-fg">{formatCurrency(r.amount)}</td>
               </tr>
             ))}
           </tbody>
@@ -186,6 +213,14 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
   const [depositPaid, setDepositPaid] = useState(true)
   const [depositPaymentDate, setDepositPaymentDate] = useState(() => todayISO())
   const [depositDueDate, setDepositDueDate] = useState('')
+
+  // Entrada (Spec 0010) — opcional, não reembolsável, definida só na criação
+  // (RN-002). Mesma dinâmica paga/pendente da Caução, mas sem saldo a rastrear.
+  const [downPaymentPaid, setDownPaymentPaid] = useState(true)
+  const [downPaymentPaymentDate, setDownPaymentPaymentDate] = useState(() => todayISO())
+  const [downPaymentDueDate, setDownPaymentDueDate] = useState('')
+  const isDownPaymentPaid = initialData?.down_payment_status === 'paid'
+  const isDownPaymentEditable = initialData?.down_payment != null && initialData?.down_payment_status === 'pending'
 
   // Modelo de contrato — só na criação; geração roda no client com os dados
   // já preenchidos no form, sem depender da locação existir no banco ainda.
@@ -285,6 +320,14 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
     } catch { return [] }
   }, [form.start_date, form.end_date, form.cycle, form.due_day, form.cycle_amount, form.use_pro_rata])
 
+  const downPaymentPreviewRows = useMemo<ExtraChargeRow[]>(() => {
+    const amount = parseFloat(form.down_payment)
+    if (!amount || amount <= 0) return []
+    const due_date = downPaymentPaid ? downPaymentPaymentDate : (downPaymentDueDate || form.start_date)
+    if (!due_date) return []
+    return [{ due_date, label: 'Entrada', amount }]
+  }, [form.down_payment, form.start_date, downPaymentPaid, downPaymentPaymentDate, downPaymentDueDate])
+
   const isFormReady = Boolean(
     form.vehicle_id && form.customer_id && form.start_date && form.end_date &&
     form.cycle_amount && form.due_day && form.end_date > form.start_date
@@ -318,6 +361,10 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
         const result = await updateRental(rentalId!, {
           observations:     form.observations || null,
           security_deposit: form.security_deposit ? parseFloat(form.security_deposit) : null,
+          ...(isDownPaymentEditable ? {
+            down_payment:          form.down_payment ? parseFloat(form.down_payment) : null,
+            down_payment_due_date: form.down_payment_due_date || undefined,
+          } : {}),
         })
         if (!result.ok) { setGlobalError(result.error.message); return }
 
@@ -358,6 +405,10 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
         deposit_paid:         depositPaid,
         deposit_payment_date: depositPaid ? depositPaymentDate : undefined,
         deposit_due_date:     !depositPaid ? (depositDueDate || form.start_date || undefined) : undefined,
+        down_payment:              form.down_payment ? parseFloat(form.down_payment) : null,
+        down_payment_paid:         downPaymentPaid,
+        down_payment_payment_date: downPaymentPaid ? downPaymentPaymentDate : undefined,
+        down_payment_due_date:     !downPaymentPaid ? (downPaymentDueDate || form.start_date || undefined) : undefined,
         late_charge_config,
         contract_template_id: form.contract_template_id || null,
         observations:     form.observations || null,
@@ -388,22 +439,22 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-[#121212]">
+    <div className="min-h-screen bg-bg">
 
       {/* ── Sticky header ────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-[#2a2a2a] bg-[#121212]/95 px-6 backdrop-blur">
-        <Link href="/locacoes" className="whitespace-nowrap text-[13px] text-[#9e9e9e] transition-colors hover:text-[#f5f5f5]">
+      <div className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border bg-bg px-6 backdrop-blur">
+        <Link href="/locacoes" className="whitespace-nowrap text-[13px] text-fg-mute transition-colors hover:text-fg">
           ← Locações
         </Link>
-        <span className="text-[#3a3a3a]">/</span>
-        <h1 className="flex-1 truncate text-[15px] font-bold text-[#f5f5f5]">
+        <span className="text-fg-mute">/</span>
+        <h1 className="flex-1 truncate text-[15px] font-bold text-fg">
           {isEditMode ? 'Editar locação' : 'Nova locação'}
         </h1>
         {!isEditMode && step === 'preview' && (
           <button
             type="button"
             onClick={() => setStep('form')}
-            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#474747] px-4 text-[13px] text-[#9e9e9e] transition-colors hover:border-[#616161] hover:text-[#f5f5f5]"
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg"
           >
             <ChevronLeft className="h-4 w-4" />
             Editar
@@ -411,7 +462,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
         )}
         <Link
           href="/locacoes"
-          className="inline-flex h-8 items-center rounded-full border border-[#474747] px-4 text-[13px] text-[#9e9e9e] transition-colors hover:border-[#616161] hover:text-[#f5f5f5]"
+          className="inline-flex h-8 items-center rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg"
         >
           Cancelar
         </Link>
@@ -420,7 +471,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
             type="button"
             onClick={handleSubmit}
             disabled={isPending}
-            className="inline-flex h-8 items-center rounded-full bg-[#BAFF1A] px-5 text-[13px] font-bold text-[#121212] transition-colors hover:bg-[#a8e616] disabled:opacity-60"
+            className="inline-flex h-8 items-center rounded-full bg-primary px-5 text-[13px] font-bold text-bg transition-colors hover:bg-primary-hover disabled:opacity-60"
           >
             {isPending ? 'Salvando…' : 'Salvar'}
           </button>
@@ -429,7 +480,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
             type="button"
             onClick={handleNext}
             disabled={!isFormReady || previewCharges.length === 0}
-            className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#BAFF1A] px-5 text-[13px] font-bold text-[#121212] transition-colors hover:bg-[#a8e616] disabled:opacity-50"
+            className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-5 text-[13px] font-bold text-bg transition-colors hover:bg-primary-hover disabled:opacity-50"
           >
             Preview
             <ChevronRight className="h-4 w-4" />
@@ -439,7 +490,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
             type="button"
             onClick={handleSubmit}
             disabled={isPending}
-            className="inline-flex h-8 items-center rounded-full bg-[#BAFF1A] px-5 text-[13px] font-bold text-[#121212] transition-colors hover:bg-[#a8e616] disabled:opacity-60"
+            className="inline-flex h-8 items-center rounded-full bg-primary px-5 text-[13px] font-bold text-bg transition-colors hover:bg-primary-hover disabled:opacity-60"
           >
             {isPending ? 'Criando…' : `Confirmar — ${previewCharges.length} cobrança${previewCharges.length !== 1 ? 's' : ''}`}
           </button>
@@ -453,7 +504,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
 
             {/* ── Seção: Partes ─────────────────────────────────────────── */}
             <section>
-              <h2 className="mb-5 text-[14px] font-bold text-[#BAFF1A]">Partes do contrato</h2>
+              <h2 className="mb-5 text-[14px] font-bold text-primary">Partes do contrato</h2>
               {isEditMode ? (
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-4">
@@ -466,7 +517,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                       <div className={`${readOnlyCls} font-mono`}>{vehicleName}</div>
                     </div>
                   </div>
-                  <p className="text-[12px] text-[#616161]">
+                  <p className="text-[12px] text-fg-mute">
                     Cliente e veículo não podem ser alterados. Para trocar, encerre esta locação e crie uma nova.
                   </p>
                 </div>
@@ -485,7 +536,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                       ))}
                     </select>
                     {fieldErrors.customer_id && (
-                      <p className="mt-1 text-[12px] text-[#ff9c9a]">{fieldErrors.customer_id}</p>
+                      <p className="mt-1 text-[12px] text-danger">{fieldErrors.customer_id}</p>
                     )}
                   </div>
                   <div>
@@ -503,7 +554,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                       ))}
                     </select>
                     {fieldErrors.vehicle_id && (
-                      <p className="mt-1 text-[12px] text-[#ff9c9a]">{fieldErrors.vehicle_id}</p>
+                      <p className="mt-1 text-[12px] text-danger">{fieldErrors.vehicle_id}</p>
                     )}
                   </div>
                 </div>
@@ -512,7 +563,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
 
             {/* ── Seção: Condições ──────────────────────────────────────── */}
             <section>
-              <h2 className="mb-5 text-[14px] font-bold text-[#BAFF1A]">Condições do contrato</h2>
+              <h2 className="mb-5 text-[14px] font-bold text-primary">Condições do contrato</h2>
               {isEditMode ? (
                 <div className="space-y-3">
                   <div className="grid grid-cols-3 gap-4">
@@ -544,10 +595,10 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                     </div>
                   </div>
                   <div className={`${readOnlyCls} w-fit px-4`}>Pro rata: {form.use_pro_rata ? 'Sim' : 'Não'}</div>
-                  <p className="text-[12px] text-[#616161]">
-                    Valor do ciclo e encargos → <Link href={`/locacoes/${rentalId}/reajustar`} className="text-[#BAFF1A] hover:underline">Reajustar</Link>.{' '}
-                    Prazo → <Link href={`/locacoes/${rentalId}/renovar`} className="text-[#BAFF1A] hover:underline">Renovar</Link> (estender)
-                    {' '}ou <Link href={`/locacoes/${rentalId}/encerrar`} className="text-[#BAFF1A] hover:underline">Encerrar</Link> (antecipar).{' '}
+                  <p className="text-[12px] text-fg-mute">
+                    Valor do ciclo e encargos → <Link href={`/locacoes/${rentalId}/reajustar`} className="text-primary hover:underline">Reajustar</Link>.{' '}
+                    Prazo → <Link href={`/locacoes/${rentalId}/renovar`} className="text-primary hover:underline">Renovar</Link> (estender)
+                    {' '}ou <Link href={`/locacoes/${rentalId}/encerrar`} className="text-primary hover:underline">Encerrar</Link> (antecipar).{' '}
                     Tipo, ciclo, dia de vencimento, início e pro rata não podem ser alterados — encerre esta locação e crie uma nova.
                   </p>
                 </div>
@@ -634,7 +685,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                         onChange={e => set('cycle_amount', e.target.value)}
                       />
                       {fieldErrors.cycle_amount && (
-                        <p className="mt-1 text-[12px] text-[#ff9c9a]">{fieldErrors.cycle_amount}</p>
+                        <p className="mt-1 text-[12px] text-danger">{fieldErrors.cycle_amount}</p>
                       )}
                     </div>
                     <div>
@@ -646,7 +697,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                         onChange={e => handleStartDateChange(e.target.value)}
                       />
                       {fieldErrors.start_date && (
-                        <p className="mt-1 text-[12px] text-[#ff9c9a]">{fieldErrors.start_date}</p>
+                        <p className="mt-1 text-[12px] text-danger">{fieldErrors.start_date}</p>
                       )}
                     </div>
                     <div>
@@ -663,26 +714,26 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                           type="number"
                           min="1"
                           max="120"
-                          className="h-7 w-14 rounded-md border border-[#323232] bg-[#282828] px-2 text-[12px] text-[#f5f5f5] outline-none focus:border-[#BAFF1A]"
+                          className="h-7 w-14 rounded-md border border-divider bg-surface-2 px-2 text-[12px] text-fg outline-none focus:border-primary"
                           value={periodQty}
                           onChange={e => handlePeriodChange(e.target.value)}
                         />
-                        <span className="text-[12px] text-[#9e9e9e]">
+                        <span className="text-[12px] text-fg-mute">
                           {form.cycle === 'monthly' ? 'meses' : 'semanas'}
                         </span>
                       </div>
                       {fieldErrors.end_date && (
-                        <p className="mt-1 text-[12px] text-[#ff9c9a]">{fieldErrors.end_date}</p>
+                        <p className="mt-1 text-[12px] text-danger">{fieldErrors.end_date}</p>
                       )}
                     </div>
                   </div>
 
-                  <label className="flex cursor-pointer items-center gap-2 text-[13px] text-[#c7c7c7]">
+                  <label className="flex cursor-pointer items-center gap-2 text-[13px] text-fg-soft">
                     <input
                       type="checkbox"
                       checked={form.use_pro_rata}
                       onChange={e => set('use_pro_rata', e.target.checked)}
-                      className="rounded accent-[#BAFF1A]"
+                      className="rounded accent-primary"
                     />
                     Calcular pro rata na primeira e última cobranças
                   </label>
@@ -693,7 +744,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
             {/* ── Seção: Encargos por atraso (RF-011) ────────────────────── */}
             {!isEditMode && (
               <section>
-                <h2 className="mb-5 text-[14px] font-bold text-[#BAFF1A]">Encargos por atraso</h2>
+                <h2 className="mb-5 text-[14px] font-bold text-primary">Encargos por atraso</h2>
                 <div className="grid max-w-md grid-cols-2 gap-4">
                   <div>
                     <label className={labelCls}>Tipo de multa</label>
@@ -728,7 +779,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                     />
                   </div>
                 </div>
-                <p className="mt-2 text-[12px] text-[#616161]">
+                <p className="mt-2 text-[12px] text-fg-mute">
                   Deixe em branco para usar o padrão do tenant.
                 </p>
               </section>
@@ -736,7 +787,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
 
             {/* ── Seção: Financeiro ─────────────────────────────────────── */}
             <section>
-              <h2 className="mb-5 text-[14px] font-bold text-[#BAFF1A]">Garantias e observações</h2>
+              <h2 className="mb-5 text-[14px] font-bold text-primary">Garantias e observações</h2>
               <div className="space-y-4">
                 <div className="max-w-xs">
                   <label className={labelCls}>Caução / depósito de segurança (R$)</label>
@@ -749,17 +800,17 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                     value={form.security_deposit}
                     onChange={e => set('security_deposit', e.target.value)}
                   />
-                  <p className="mt-1 text-[12px] text-[#616161]">
+                  <p className="mt-1 text-[12px] text-fg-mute">
                     Valor retido como garantia. Devolvido ao encerrar.
                   </p>
                   {!isEditMode && form.security_deposit && (
                     <>
-                      <label className="mt-2 flex cursor-pointer items-center gap-2 text-[13px] text-[#c7c7c7]">
+                      <label className="mt-2 flex cursor-pointer items-center gap-2 text-[13px] text-fg-soft">
                         <input
                           type="checkbox"
                           checked={depositPaid}
                           onChange={e => setDepositPaid(e.target.checked)}
-                          className="rounded accent-[#BAFF1A]"
+                          className="rounded accent-primary"
                         />
                         Caução já foi paga
                       </label>
@@ -789,6 +840,95 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                     </>
                   )}
                 </div>
+
+                <div className="max-w-xs">
+                  <label className={labelCls}>Entrada (R$)</label>
+                  {isEditMode ? (
+                    initialData?.down_payment == null ? (
+                      <p className="text-[12px] text-fg-mute">
+                        Nenhuma Entrada foi definida na criação desta locação.
+                      </p>
+                    ) : isDownPaymentPaid ? (
+                      <>
+                        <div className={readOnlyCls}>{formatCurrency(initialData.down_payment)}</div>
+                        <p className="mt-1 text-[12px] text-fg-mute">
+                          Entrada já paga — não pode ser alterada.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0,00"
+                          className={inputCls}
+                          value={form.down_payment}
+                          onChange={e => set('down_payment', e.target.value)}
+                        />
+                        <label className={`${labelCls} mt-2`}>Data de vencimento</label>
+                        <input
+                          type="date"
+                          className={inputCls}
+                          value={form.down_payment_due_date}
+                          onChange={e => set('down_payment_due_date', e.target.value)}
+                        />
+                      </>
+                    )
+                  ) : (
+                    <>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0,00 — opcional"
+                        className={inputCls}
+                        value={form.down_payment}
+                        onChange={e => set('down_payment', e.target.value)}
+                      />
+                      <p className="mt-1 text-[12px] text-fg-mute">
+                        Valor não reembolsável, cobrado à parte da Caução.
+                      </p>
+                      {form.down_payment && (
+                        <>
+                          <label className="mt-2 flex cursor-pointer items-center gap-2 text-[13px] text-fg-soft">
+                            <input
+                              type="checkbox"
+                              checked={downPaymentPaid}
+                              onChange={e => setDownPaymentPaid(e.target.checked)}
+                              className="rounded accent-primary"
+                            />
+                            Entrada já foi paga
+                          </label>
+                          <div className="mt-2">
+                            {downPaymentPaid ? (
+                              <>
+                                <label className={labelCls}>Data do pagamento</label>
+                                <input
+                                  type="date"
+                                  className={inputCls}
+                                  value={downPaymentPaymentDate}
+                                  onChange={e => setDownPaymentPaymentDate(e.target.value)}
+                                />
+                              </>
+                            ) : (
+                              <>
+                                <label className={labelCls}>Data de vencimento</label>
+                                <input
+                                  type="date"
+                                  className={inputCls}
+                                  value={downPaymentDueDate || form.start_date}
+                                  onChange={e => setDownPaymentDueDate(e.target.value)}
+                                />
+                              </>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+
                 <div>
                   <label className={labelCls}>Observações</label>
                   <textarea
@@ -805,7 +945,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
             {/* ── Seção: Vistoria (Spec 0009 — só na criação) ──────────────── */}
             {!isEditMode && (
               <section>
-                <h2 className="mb-5 text-[14px] font-bold text-[#BAFF1A]">Vistoria</h2>
+                <h2 className="mb-5 text-[14px] font-bold text-primary">Vistoria</h2>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={labelCls}>Perfil — Check-in/Check-out</label>
@@ -819,7 +959,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </select>
-                    <p className="mt-1 text-[12px] text-[#616161]">
+                    <p className="mt-1 text-[12px] text-fg-mute">
                       Check-in nasce pendente na criação; check-out fica disponível ao encerrar.
                     </p>
                   </div>
@@ -853,7 +993,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
 
             {/* ── Seção: Modelo de contrato ──────────────────────────────── */}
             <section>
-              <h2 className="mb-5 text-[14px] font-bold text-[#BAFF1A]">Modelo de contrato</h2>
+              <h2 className="mb-5 text-[14px] font-bold text-primary">Modelo de contrato</h2>
               <div className="max-w-md">
                 <label className={labelCls}>Modelo (opcional)</label>
                 <select
@@ -866,7 +1006,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                     <option key={t.id} value={t.id}>{t.name}</option>
                   ))}
                 </select>
-                <p className="mt-1 text-[12px] text-[#616161]">
+                <p className="mt-1 text-[12px] text-fg-mute">
                   {isEditMode
                     ? 'Ao salvar, o novo modelo fica vinculado à locação — visualize ou baixe o contrato atualizado na tela de detalhe.'
                     : 'Selecione um modelo para gerar o contrato preenchido na etapa de revisão.'}
@@ -875,18 +1015,20 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
             </section>
 
             {/* Preview de cobranças (inline) — só na criação */}
-            {!isEditMode && previewCharges.length > 0 && <ChargePreview charges={previewCharges} />}
+            {!isEditMode && previewCharges.length > 0 && (
+              <ChargePreview charges={previewCharges} extraRows={downPaymentPreviewRows} />
+            )}
 
             {!isEditMode && previewCharges.length === 0 && isFormReady && (
-              <p className="text-[13px] text-[#9e9e9e]">
+              <p className="text-[13px] text-fg-mute">
                 Preencha as datas e valor para visualizar as cobranças.
               </p>
             )}
 
             {isEditMode && globalError && (
-              <div className="flex items-start gap-3 rounded-xl border border-[#ff9c9a]/30 bg-[#7c1c1c] px-4 py-3">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#ff9c9a]" />
-                <p className="text-[13px] text-[#ff9c9a]">{globalError}</p>
+              <div className="flex items-start gap-3 rounded-xl border border-danger bg-danger-bg px-4 py-3">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+                <p className="text-[13px] text-danger">{globalError}</p>
               </div>
             )}
           </div>
@@ -894,8 +1036,8 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
         ) : (
           /* ── Step 2: Preview ──────────────────────────────────────────── */
           <div className="space-y-6">
-            <div className="rounded-xl bg-[#202020] p-5 text-[13px]">
-              <h2 className="mb-4 text-[14px] font-bold text-[#BAFF1A]">Resumo do contrato</h2>
+            <div className="rounded-xl bg-surface p-5 text-[13px]">
+              <h2 className="mb-4 text-[14px] font-bold text-primary">Resumo do contrato</h2>
               <div className="grid grid-cols-2 gap-x-8 gap-y-2.5">
                 {([
                   ['Cliente',     customerName],
@@ -910,53 +1052,56 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                   ...(form.security_deposit
                     ? [['Caução', formatCurrency(parseFloat(form.security_deposit))]]
                     : []),
+                  ...(form.down_payment
+                    ? [['Entrada', formatCurrency(parseFloat(form.down_payment))]]
+                    : []),
                 ] as [string, string][]).map(([label, value]) => (
                   <div key={label} className="flex gap-2">
-                    <span className="min-w-[90px] text-[#9e9e9e]">{label}:</span>
-                    <span className="text-[#f5f5f5]">{value}</span>
+                    <span className="min-w-[90px] text-fg-mute">{label}:</span>
+                    <span className="text-fg">{value}</span>
                   </div>
                 ))}
               </div>
               {form.observations && (
-                <div className="mt-4 border-t border-[#323232] pt-4">
-                  <span className="text-[#9e9e9e]">Observações: </span>
-                  <span className="text-[#c7c7c7]">{form.observations}</span>
+                <div className="mt-4 border-t border-divider pt-4">
+                  <span className="text-fg-mute">Observações: </span>
+                  <span className="text-fg-soft">{form.observations}</span>
                 </div>
               )}
             </div>
 
-            <div className="rounded-xl bg-[#202020] p-5 text-[13px]">
-              <h2 className="mb-3 text-[14px] font-bold text-[#BAFF1A]">Contrato</h2>
+            <div className="rounded-xl bg-surface p-5 text-[13px]">
+              <h2 className="mb-3 text-[14px] font-bold text-primary">Contrato</h2>
               {form.contract_template_id ? (
                 <div className="flex items-center justify-between gap-4">
-                  <p className="text-[#9e9e9e]">
-                    Modelo selecionado: <span className="text-[#f5f5f5]">{selectedTemplateQuery.data?.name ?? '…'}</span>
+                  <p className="text-fg-mute">
+                    Modelo selecionado: <span className="text-fg">{selectedTemplateQuery.data?.name ?? '…'}</span>
                   </p>
                   <button
                     type="button"
                     onClick={handleGenerateContract}
                     disabled={generatingContract || !selectedTemplateQuery.data}
-                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-[#474747] px-4 text-[13px] text-[#f5f5f5] transition-colors hover:border-[#BAFF1A] hover:text-[#BAFF1A] disabled:opacity-50"
+                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border px-4 text-[13px] text-fg transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
                   >
                     {generatingContract ? 'Gerando…' : 'Gerar contrato (PDF)'}
                   </button>
                 </div>
               ) : (
-                <p className="text-[#9e9e9e]">
+                <p className="text-fg-mute">
                   Nenhum modelo selecionado — você poderá anexar o contrato assinado depois de criar a locação.
                 </p>
               )}
               {contractError && (
-                <p className="mt-2 text-[12px] text-[#ff9c9a]">{contractError}</p>
+                <p className="mt-2 text-[12px] text-danger">{contractError}</p>
               )}
             </div>
 
-            <ChargePreview charges={previewCharges} />
+            <ChargePreview charges={previewCharges} extraRows={downPaymentPreviewRows} />
 
             {globalError && (
-              <div className="flex items-start gap-3 rounded-xl border border-[#ff9c9a]/30 bg-[#7c1c1c] px-4 py-3">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#ff9c9a]" />
-                <p className="text-[13px] text-[#ff9c9a]">{globalError}</p>
+              <div className="flex items-start gap-3 rounded-xl border border-danger bg-danger-bg px-4 py-3">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+                <p className="text-[13px] text-danger">{globalError}</p>
               </div>
             )}
           </div>

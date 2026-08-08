@@ -8,7 +8,17 @@ import {
   createTestContract,
   deleteTestContract,
   waitForPageLoad,
+  getSupabase,
 } from './helpers'
+
+// ---------------------------------------------------------------------------
+// Helper de formulário — RentalForm não usa htmlFor/id, então navegamos pelo
+// texto do label até o campo irmão (mesmo padrão em toda a seção "form").
+// ---------------------------------------------------------------------------
+
+function fieldAfterLabel(page: import('@playwright/test').Page, label: string) {
+  return page.getByText(label, { exact: true }).locator('xpath=following-sibling::*[1]')
+}
 
 // ---------------------------------------------------------------------------
 // Helpers de setup
@@ -47,6 +57,111 @@ test.describe('Locações — tela e fila de espera', () => {
     await waitForPageLoad(page)
     await expect(page.getByRole('link', { name: /locações/i })).toBeVisible()
     await expect(page.getByRole('link', { name: /fila de locadores/i })).not.toBeVisible()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Entrada (Spec 0010) — RF-001..RF-005, RN-002
+// ---------------------------------------------------------------------------
+
+test.describe('Locações — Entrada na criação (Spec 0010)', () => {
+  let vehiclePaidId = ''
+  let vehiclePendingId = ''
+  let customerId = ''
+  let leasePaidId = ''
+  let leasePendingId = ''
+
+  test.beforeAll(async () => {
+    vehiclePaidId = (await createTestVehicle()).id
+    vehiclePendingId = (await createTestVehicle()).id
+    customerId = (await createTestCustomer()).id
+  })
+
+  test.afterAll(async () => {
+    const sb = await getSupabase()
+    if (leasePaidId) await sb.from('rentals').delete().eq('id', leasePaidId)
+    if (leasePendingId) await sb.from('rentals').delete().eq('id', leasePendingId)
+    await deleteTestVehicle(vehiclePaidId)
+    await deleteTestVehicle(vehiclePendingId)
+    await deleteTestCustomer(customerId)
+  })
+
+  // RF-001, RF-002, RF-003, RF-004 — Entrada já paga nasce recebida, sem
+  // cobrança em aberto, e soma na receita do veículo (source != 'deposit').
+  test('Entrada já paga na criação: nasce recebida e soma na receita do veículo', async ({ page }) => {
+    await page.goto('/locacoes/nova')
+    await waitForPageLoad(page)
+
+    await fieldAfterLabel(page, 'Cliente *').selectOption(customerId)
+    await fieldAfterLabel(page, 'Veículo *').selectOption(vehiclePaidId)
+    await fieldAfterLabel(page, 'Valor do ciclo (R$) *').fill('500')
+    await fieldAfterLabel(page, 'Data de início *').fill('2026-08-10')
+    await fieldAfterLabel(page, 'Entrada (R$)').fill('150')
+    // "Entrada já foi paga" fica marcada por padrão — não precisa tocar.
+
+    await page.getByRole('button', { name: 'Preview' }).click()
+    await expect(page.getByText('Resumo do contrato')).toBeVisible()
+    await expect(page.locator('tr', { hasText: 'Entrada' })).toBeVisible()
+
+    await page.getByRole('button', { name: /Confirmar/ }).click()
+    await page.waitForURL(/\/locacoes\/[0-9a-f-]{36}$/, { timeout: 15_000 })
+    leasePaidId = page.url().split('/').pop()!
+
+    const sb = await getSupabase()
+    const { data: billing } = await sb
+      .from('billings')
+      .select('status, original_amount, source, billing_type')
+      .eq('lease_id', leasePaidId)
+      .eq('billing_type', 'down_payment')
+      .single()
+    expect(billing?.status).toBe('paid')
+    expect(billing?.original_amount).toBe(150)
+    expect(billing?.source).toBe('down_payment')
+
+    await page.goto(`/financeiro/veiculos/${vehiclePaidId}`)
+    await waitForPageLoad(page)
+    await expect(page.locator('main')).toContainText('R$ 150,00')
+    await expect(page.locator('main')).toContainText('Entrada')
+  })
+
+  // RF-001, RF-002, RF-003, RF-005 — Entrada pendente gera cobrança em
+  // aberto, visível no preview e no extrato financeiro da locação.
+  test('Entrada pendente na criação: gera cobrança em aberto e aparece no preview e no extrato', async ({ page }) => {
+    await page.goto('/locacoes/nova')
+    await waitForPageLoad(page)
+
+    await fieldAfterLabel(page, 'Cliente *').selectOption(customerId)
+    await fieldAfterLabel(page, 'Veículo *').selectOption(vehiclePendingId)
+    await fieldAfterLabel(page, 'Valor do ciclo (R$) *').fill('500')
+    await fieldAfterLabel(page, 'Data de início *').fill('2026-08-10')
+    await fieldAfterLabel(page, 'Entrada (R$)').fill('150')
+    await page.getByLabel('Entrada já foi paga').uncheck()
+
+    await page.getByRole('button', { name: 'Preview' }).click()
+    const previewRow = page.locator('tr', { hasText: 'Entrada' })
+    await expect(previewRow).toBeVisible()
+    await expect(previewRow).toContainText('R$ 150,00')
+
+    await page.getByRole('button', { name: /Confirmar/ }).click()
+    await page.waitForURL(/\/locacoes\/[0-9a-f-]{36}$/, { timeout: 15_000 })
+    leasePendingId = page.url().split('/').pop()!
+
+    const sb = await getSupabase()
+    const { data: billing } = await sb
+      .from('billings')
+      .select('status, original_amount, source, billing_type')
+      .eq('lease_id', leasePendingId)
+      .eq('billing_type', 'down_payment')
+      .single()
+    expect(billing?.status).toBe('pending')
+    expect(billing?.original_amount).toBe(150)
+
+    await page.goto(`/locacoes/${leasePendingId}/financeiro`)
+    await waitForPageLoad(page)
+    const extratoRow = page.locator('tr', { hasText: 'Entrada' })
+    await expect(extratoRow).toBeVisible()
+    await expect(extratoRow).toContainText('R$ 150,00')
+    await expect(extratoRow).toContainText('Pendente')
   })
 })
 

@@ -119,11 +119,11 @@ const monthlyStats = {
  * Definido no módulo (fora do componente) para ser criado apenas uma vez.
  */
 const REPORT_COLOR_MAP: Record<ReportCard['color'], { bg: string; text: string; border: string }> = {
-  brand:   { bg: 'bg-[#243300]', text: 'text-[#BAFF1A]', border: 'border-[#6b9900]' },
-  success: { bg: 'bg-[#0e2f13]', text: 'text-[#229731]', border: 'border-[#28b438]' },
-  warning: { bg: 'bg-[#3a180f]', text: 'text-[#e65e24]', border: 'border-[#e65e24]' },
-  danger:  { bg: 'bg-[#7c1c1c]', text: 'text-[#ff9c9a]', border: 'border-[#ff9c9a]' },
-  info:    { bg: 'bg-[#2d0363]', text: 'text-[#a880ff]', border: 'border-[#a880ff]' },
+  brand:   { bg: 'bg-primary-tint', text: 'text-primary', border: 'border-primary' },
+  success: { bg: 'bg-success-bg', text: 'text-success', border: 'border-success' },
+  warning: { bg: 'bg-warning-bg', text: 'text-warning', border: 'border-warning' },
+  danger:  { bg: 'bg-danger-bg', text: 'text-danger', border: 'border-danger' },
+  info:    { bg: 'bg-info-bg', text: 'text-info', border: 'border-info' },
 }
 
 /**
@@ -167,7 +167,7 @@ export default function ReportsPage() {
       <div className="p-6 space-y-6">
         {/* SEÇÃO: Resumo do Mês Atual */}
         <div>
-          <p className="text-[12px] text-[#9e9e9e] mb-3">
+          <p className="text-[12px] text-fg-mute mb-3">
             Resumo — {monthName.charAt(0).toUpperCase() + monthName.slice(1)}
           </p>
           
@@ -214,7 +214,7 @@ export default function ReportsPage() {
 
         {/* SEÇÃO: Lista de Cards de Relatórios disponíveis para geração. */}
         <div>
-          <p className="text-[12px] text-[#9e9e9e] mb-3">
+          <p className="text-[12px] text-fg-mute mb-3">
             Relatórios disponíveis
           </p>
           
@@ -230,7 +230,7 @@ export default function ReportsPage() {
               return (
                 <div
                   key={report.id}
-                  className="bg-[#202020] rounded-xl p-4 flex items-start gap-4 hover:bg-[#262626] transition-colors"
+                  className="bg-surface rounded-xl p-4 flex items-start gap-4 hover:bg-divider transition-colors"
                 >
                   {/* Container do Ícone com cores dinâmicas */}
                   <div className={`p-3 rounded-full flex-shrink-0 ${styles.bg} border ${styles.border}`}>
@@ -240,7 +240,7 @@ export default function ReportsPage() {
                   <div className="flex-1 min-w-0">
                     {/* Título e Badge de disponibilidade */}
                     <div className="flex items-center gap-2 mb-1">
-                      <h3 className="text-[14px] font-semibold text-[#f5f5f5]">{report.title}</h3>
+                      <h3 className="text-[14px] font-semibold text-fg">{report.title}</h3>
                       {!report.available && (
                         <Badge variant="muted" className="text-[12px]">
                           Em breve
@@ -248,7 +248,7 @@ export default function ReportsPage() {
                       )}
                     </div>
 
-                    <p className="text-[13px] text-[#9e9e9e] mb-4 leading-relaxed">{report.description}</p>
+                    <p className="text-[13px] text-fg-mute mb-4 leading-relaxed">{report.description}</p>
                     
                     {/* Botão de ação (desabilitado se o relatório não estiver disponível) */}
                     <Button
@@ -256,7 +256,7 @@ export default function ReportsPage() {
                       variant={report.available ? 'primary' : 'outline'}
                       onClick={handleGenerateReport}
                       disabled={!report.available}
-                      className={!report.available ? 'bg-[#323232] text-[#9e9e9e] cursor-not-allowed' : ''}
+                      className={!report.available ? 'bg-surface-2 text-fg-mute cursor-not-allowed' : ''}
                     >
                       {!report.available && <Lock className="w-3.5 h-3.5" />}
                       {report.available ? (
@@ -277,9 +277,9 @@ export default function ReportsPage() {
 
         {/* SEÇÃO: Aviso de rodapé sobre o estado de desenvolvimento dos relatórios. */}
         <Card className="text-center py-8">
-          <BarChart2 className="w-12 h-12 text-[#616161] mx-auto mb-3" />
-          <p className="text-[#f5f5f5] font-medium mb-1">Relatórios em desenvolvimento</p>
-          <p className="text-[13px] text-[#9e9e9e] max-w-md mx-auto">
+          <BarChart2 className="w-12 h-12 text-fg-mute mx-auto mb-3" />
+          <p className="text-fg font-medium mb-1">Relatórios em desenvolvimento</p>
+          <p className="text-[13px] text-fg-mute max-w-md mx-auto">
             Os relatórios completos com exportação em PDF e Excel estão sendo desenvolvidos e estarão
             disponíveis em breve.
           </p>
@@ -288,9 +288,9 @@ export default function ReportsPage() {
 
       {/* NOTIFICAÇÃO (Toast): Feedback para relatórios bloqueados. */}
       {showToast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl bg-[#202020] border border-[#6b9900] shadow-2xl animate-in fade-in slide-in-from-bottom">
-          <div className="w-2 h-2 rounded-full bg-[#BAFF1A]" />
-          <p className="text-[13px] text-[#f5f5f5]">Este relatório ainda não está disponível.</p>
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl bg-surface border border-primary shadow-2xl animate-in fade-in slide-in-from-bottom">
+          <div className="w-2 h-2 rounded-full bg-primary" />
+          <p className="text-[13px] text-fg">Este relatório ainda não está disponível.</p>
         </div>
       )}
     </div>

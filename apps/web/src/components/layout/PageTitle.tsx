@@ -13,11 +13,11 @@ interface PageTitleProps {
  */
 export function PageTitle({ title, subtitle, actions }: PageTitleProps) {
   return (
-    <div className="sticky top-0 z-10 bg-[#121212] border-b border-[#323232] px-6 flex items-center justify-between shrink-0 h-[60px]">
+    <div className="sticky top-0 z-10 bg-bg border-b border-border px-6 flex items-center justify-between shrink-0 h-[60px]">
       <div className="min-w-0">
-        <h1 className="text-[22px] font-bold text-[#f5f5f5] leading-none truncate">{title}</h1>
+        <h1 className="text-[22px] font-bold text-fg leading-none truncate">{title}</h1>
         {subtitle && (
-          <p className="text-[12px] text-[#9e9e9e] mt-1 leading-none truncate">{subtitle}</p>
+          <p className="text-[12px] text-fg-mute mt-1 leading-none truncate">{subtitle}</p>
         )}
       </div>
       {actions && (

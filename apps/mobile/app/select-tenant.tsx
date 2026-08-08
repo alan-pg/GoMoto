@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import {
   Pressable,
   ScrollView,
@@ -8,13 +9,18 @@ import {
 import { StatusBar } from 'expo-status-bar'
 
 import { useAuth } from '../src/contexts/auth'
+import { lightTheme, type ThemeTokens } from '../src/theme'
 
 export default function SelectTenantScreen() {
   const { tenants, selectTenant, signOut } = useAuth()
+  // Fluxo de autenticação fica sempre no tema claro padrão — ver login.tsx.
+  const theme = lightTheme
+  const statusBarStyle = 'dark' as const
+  const styles = useMemo(() => createStyles(theme), [theme])
 
   return (
     <View style={styles.container}>
-      <StatusBar style="light" />
+      <StatusBar style={statusBarStyle} />
       <View style={styles.card}>
         <Text style={styles.title}>Escolha a empresa</Text>
         <Text style={styles.subtitle}>
@@ -52,10 +58,10 @@ export default function SelectTenantScreen() {
   )
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: ThemeTokens) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: theme.bg,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -63,20 +69,20 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 420,
-    backgroundColor: '#202020',
-    borderColor: '#474747',
+    backgroundColor: theme.surface,
+    borderColor: theme.border,
     borderWidth: 1,
     borderRadius: 16,
     padding: 24,
   },
   title: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 22,
     fontWeight: '700',
     textAlign: 'center',
   },
   subtitle: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 14,
     textAlign: 'center',
     marginTop: 8,
@@ -90,8 +96,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   option: {
-    backgroundColor: '#181818',
-    borderColor: '#474747',
+    backgroundColor: theme.bg,
+    borderColor: theme.border,
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 16,
@@ -107,20 +113,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   optionName: {
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 16,
     fontWeight: '600',
   },
   optionNameDisabled: {
-    color: '#9e9e9e',
+    color: theme.textMute,
   },
   optionBadge: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 11,
     marginTop: 2,
   },
   optionChevron: {
-    color: '#BAFF1A',
+    color: theme.primary,
     fontSize: 22,
     fontWeight: '700',
     marginLeft: 8,
@@ -131,7 +137,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   secondaryText: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 13,
   },
 })

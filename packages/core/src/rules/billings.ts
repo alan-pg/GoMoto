@@ -33,6 +33,17 @@ export function canRegisterPayment(status: string): BillingActionResult {
 }
 
 /**
+ * Verifica se a Entrada de uma locação pode ser editada (Spec 0010, RF-005).
+ * Só é permitido corrigir valor/vencimento enquanto a cobrança está pendente
+ * — paga é imutável (defesa em profundidade; a UI já esconde o campo).
+ */
+export function canEditDownPayment(status: string): BillingActionResult {
+  if (status === 'paid')      return { ok: false, errorCode: 'DOWN_PAYMENT_ALREADY_PAID' }
+  if (status === 'cancelled') return { ok: false, errorCode: 'BILLING_CANCELLED' }
+  return { ok: true }
+}
+
+/**
  * Verifica se um desconto pode ser aplicado (RN-016, RN-018).
  */
 export function canApplyDiscount(

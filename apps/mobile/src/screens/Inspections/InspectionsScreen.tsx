@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Pressable,
@@ -16,6 +16,7 @@ import {
 } from '@gomoto/data'
 import type { Inspection, InspectionScheduleWithStatus } from '@gomoto/core'
 import { InspectionSubmitModal } from './InspectionSubmitModal'
+import { useTheme, type ThemeTokens } from '../../theme'
 
 const SCHEDULE_STATUS_LABEL: Record<string, string> = {
   pending: 'Pendente',
@@ -23,10 +24,12 @@ const SCHEDULE_STATUS_LABEL: Record<string, string> = {
   rejected: 'Rejeitada — reenviar',
 }
 
-const SCHEDULE_STATUS_TONE: Record<string, { bg: string; fg: string }> = {
-  pending: { bg: '#202020', fg: '#9e9e9e' },
-  overdue: { bg: '#3a1a00', fg: '#e65e24' },
-  rejected: { bg: '#3a0f0f', fg: '#ff9c9a' },
+function getScheduleStatusTone(theme: ThemeTokens): Record<string, { bg: string; fg: string }> {
+  return {
+    pending: { bg: theme.surfaceAlt, fg: theme.textMute },
+    overdue: { bg: theme.warningBg, fg: theme.warning },
+    rejected: { bg: theme.dangerBg, fg: theme.danger },
+  }
 }
 
 const HISTORY_STATUS_LABEL: Record<string, string> = {
@@ -35,10 +38,12 @@ const HISTORY_STATUS_LABEL: Record<string, string> = {
   rejected: 'Rejeitada',
 }
 
-const HISTORY_STATUS_TONE: Record<string, { bg: string; fg: string }> = {
-  submitted: { bg: '#2a1f00', fg: '#e0a500' },
-  approved: { bg: '#0e2f13', fg: '#229731' },
-  rejected: { bg: '#3a0f0f', fg: '#ff9c9a' },
+function getHistoryStatusTone(theme: ThemeTokens): Record<string, { bg: string; fg: string }> {
+  return {
+    submitted: { bg: theme.pendingBg, fg: theme.pending },
+    approved: { bg: theme.successBg, fg: theme.success },
+    rejected: { bg: theme.dangerBg, fg: theme.danger },
+  }
 }
 
 function formatDate(iso: string): string {
@@ -50,6 +55,10 @@ export function InspectionsScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [selected, setSelected] = useState<InspectionScheduleWithStatus | null>(null)
+  const theme = useTheme()
+  const styles = useMemo(() => createStyles(theme), [theme])
+  const scheduleStatusTone = useMemo(() => getScheduleStatusTone(theme), [theme])
+  const historyStatusTone = useMemo(() => getHistoryStatusTone(theme), [theme])
 
   const pendingQuery = usePendingInspectionSchedulesForCustomer()
   const historyQuery = usePeriodicInspectionsForCustomer()
@@ -77,12 +86,12 @@ export function InspectionsScreen() {
 
       {pendingQuery.isLoading ? (
         <View style={styles.centered}>
-          <ActivityIndicator color="#BAFF1A" size="large" />
+          <ActivityIndicator color={theme.primary} size="large" />
         </View>
       ) : (
         <ScrollView
           contentContainerStyle={styles.scrollContent}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#BAFF1A" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.primary} />}
         >
           {pending.length === 0 ? (
             <View style={styles.emptyCard}>
@@ -94,7 +103,7 @@ export function InspectionsScreen() {
               <Text style={styles.sectionTitle}>Pendentes ({pending.length})</Text>
               <View style={styles.sectionBody}>
                 {pending.map((s) => {
-                  const tone = SCHEDULE_STATUS_TONE[s.status] ?? SCHEDULE_STATUS_TONE.pending
+                  const tone = scheduleStatusTone[s.status] ?? scheduleStatusTone.pending
                   return (
                     <Pressable
                       key={s.id}
@@ -130,7 +139,7 @@ export function InspectionsScreen() {
             {historyOpen &&
               (historyQuery.isLoading ? (
                 <View style={styles.historyLoading}>
-                  <ActivityIndicator color="#BAFF1A" size="small" />
+                  <ActivityIndicator color={theme.primary} size="small" />
                 </View>
               ) : (historyQuery.data ?? []).length === 0 ? (
                 <View style={styles.historyEmpty}>
@@ -139,7 +148,7 @@ export function InspectionsScreen() {
               ) : (
                 <View style={styles.sectionBody}>
                   {(historyQuery.data ?? []).map((insp: Inspection) => {
-                    const tone = HISTORY_STATUS_TONE[insp.status] ?? HISTORY_STATUS_TONE.submitted
+                    const tone = historyStatusTone[insp.status] ?? historyStatusTone.submitted
                     return (
                       <View key={insp.id} style={styles.historyRow}>
                         <View style={styles.historyRowLeft}>
@@ -177,23 +186,23 @@ export function InspectionsScreen() {
   )
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#121212' },
+const createStyles = (theme: ThemeTokens) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: theme.bg },
   header: {
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 12,
-    borderBottomColor: '#323232',
+    borderBottomColor: theme.surfaceAlt,
     borderBottomWidth: 1,
   },
-  headerTitle: { color: '#f5f5f5', fontSize: 22, fontWeight: '700' },
-  headerSubtitle: { color: '#9e9e9e', fontSize: 13, marginTop: 2 },
+  headerTitle: { color: theme.text, fontSize: 22, fontWeight: '700' },
+  headerSubtitle: { color: theme.textMute, fontSize: 13, marginTop: 2 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   scrollContent: { padding: 16, paddingBottom: 40, gap: 8 },
 
   section: { gap: 8, marginTop: 8 },
   sectionTitle: {
-    color: '#9e9e9e',
+    color: theme.textMute,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -203,8 +212,8 @@ const styles = StyleSheet.create({
   sectionBody: { gap: 8 },
 
   scheduleRow: {
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 12,
     padding: 14,
@@ -214,9 +223,9 @@ const styles = StyleSheet.create({
   },
   rowPressed: { opacity: 0.8 },
   scheduleRowLeft: { flex: 1, gap: 3 },
-  scheduleRowTitle: { color: '#f5f5f5', fontSize: 14, fontWeight: '600' },
-  scheduleRowMeta: { color: '#9e9e9e', fontSize: 12 },
-  scheduleRowRejection: { color: '#ff9c9a', fontSize: 11, marginTop: 2 },
+  scheduleRowTitle: { color: theme.text, fontSize: 14, fontWeight: '600' },
+  scheduleRowMeta: { color: theme.textMute, fontSize: 12 },
+  scheduleRowRejection: { color: theme.danger, fontSize: 11, marginTop: 2 },
 
   statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
   statusPillText: { fontSize: 11, fontWeight: '700' },
@@ -228,20 +237,20 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 10,
   },
-  historyToggleText: { color: '#9e9e9e', fontSize: 13, fontWeight: '600' },
-  historyToggleChevron: { color: '#9e9e9e', fontSize: 10 },
+  historyToggleText: { color: theme.textMute, fontSize: 13, fontWeight: '600' },
+  historyToggleChevron: { color: theme.textMute, fontSize: 10 },
   historyLoading: { paddingVertical: 20, alignItems: 'center' },
   historyEmpty: { paddingVertical: 16, alignItems: 'center' },
-  historyEmptyText: { color: '#9e9e9e', fontSize: 13 },
+  historyEmptyText: { color: theme.textMute, fontSize: 13 },
 
   historyRow: {
-    backgroundColor: '#1a1a1a',
-    borderColor: '#2a2a2a',
+    backgroundColor: theme.surface,
+    borderColor: theme.border,
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 12,
@@ -251,12 +260,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   historyRowLeft: { flex: 1, gap: 2 },
-  historyRowTitle: { color: '#c0c0c0', fontSize: 13, fontWeight: '500' },
-  historyRowNote: { color: '#ff9c9a', fontSize: 11 },
+  historyRowTitle: { color: theme.textSoft, fontSize: 13, fontWeight: '500' },
+  historyRowNote: { color: theme.danger, fontSize: 11 },
 
   emptyCard: {
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 14,
     padding: 24,
@@ -265,6 +274,6 @@ const styles = StyleSheet.create({
     marginTop: 32,
     marginHorizontal: 16,
   },
-  emptyTitle: { color: '#f5f5f5', fontSize: 16, fontWeight: '700' },
-  emptyText: { color: '#9e9e9e', fontSize: 13, textAlign: 'center', lineHeight: 20 },
+  emptyTitle: { color: theme.text, fontSize: 16, fontWeight: '700' },
+  emptyText: { color: theme.textMute, fontSize: 13, textAlign: 'center', lineHeight: 20 },
 })

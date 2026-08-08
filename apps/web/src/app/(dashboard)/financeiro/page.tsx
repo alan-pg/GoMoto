@@ -47,11 +47,11 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 
 const STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  paid:      { bg: 'bg-[#0e2f13]', text: 'text-[#229731]', label: 'Paga' },
-  overdue:   { bg: 'bg-[#7c1c1c]', text: 'text-[#ff9c9a]', label: 'Vencida' },
-  pending:   { bg: 'bg-[#2d0363]', text: 'text-[#a880ff]', label: 'Pendente' },
-  cancelled: { bg: 'bg-[#32323222]', text: 'text-[#9e9e9e]', label: 'Cancelada' },
-  prejudice: { bg: 'bg-[#3a180f]', text: 'text-[#e65e24]', label: 'Prejuízo' },
+  paid:      { bg: 'bg-success-bg', text: 'text-success', label: 'Paga' },
+  overdue:   { bg: 'bg-danger-bg', text: 'text-danger', label: 'Vencida' },
+  pending:   { bg: 'bg-info-bg', text: 'text-info', label: 'Pendente' },
+  cancelled: { bg: 'bg-surface-2', text: 'text-fg-mute', label: 'Cancelada' },
+  prejudice: { bg: 'bg-warning-bg', text: 'text-warning', label: 'Prejuízo' },
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -124,39 +124,39 @@ export default async function FinancialDashboardPage() {
   const monthLabel = now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
 
   return (
-    <div className="min-h-screen bg-[#121212]">
+    <div className="min-h-screen bg-bg">
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-10 flex h-16 items-center border-b border-[#323232] bg-[#121212] px-6">
-        <h1 className="text-[15px] font-bold text-[#f5f5f5] capitalize">{monthLabel}</h1>
-        <span className="ml-2 text-[13px] text-[#9e9e9e]">— Painel financeiro</span>
+      <div className="sticky top-0 z-10 flex h-16 items-center border-b border-divider bg-bg px-6">
+        <h1 className="text-[15px] font-bold text-fg capitalize">{monthLabel}</h1>
+        <span className="ml-2 text-[13px] text-fg-mute">— Painel financeiro</span>
       </div>
 
       <div className="mx-auto max-w-5xl space-y-6 px-6 py-6">
 
         {/* ── KPIs do mês ───────────────────────────────────────────────── */}
         <div className="grid grid-cols-4 gap-4">
-          <div className="rounded-xl bg-[#202020] p-4">
-            <p className="text-[12px] text-[#9e9e9e]">Emitido no mês</p>
-            <p className="mt-1 text-xl font-bold text-[#f5f5f5]">{formatCurrency(totalBilledMonth)}</p>
-            <p className="mt-0.5 text-[12px] text-[#616161]">{monthBillings.length} cobranças</p>
+          <div className="rounded-xl bg-surface p-4">
+            <p className="text-[12px] text-fg-mute">Emitido no mês</p>
+            <p className="mt-1 text-xl font-bold text-fg">{formatCurrency(totalBilledMonth)}</p>
+            <p className="mt-0.5 text-[12px] text-fg-mute">{monthBillings.length} cobranças</p>
           </div>
-          <div className="rounded-xl bg-[#202020] p-4">
-            <p className="text-[12px] text-[#9e9e9e]">Recebido no mês</p>
-            <p className="mt-1 text-xl font-bold text-[#229731]">{formatCurrency(totalPaidMonth)}</p>
-            <p className="mt-0.5 text-[12px] text-[#616161]">{monthBillings.filter(b => b.status === 'paid').length} pagas</p>
+          <div className="rounded-xl bg-surface p-4">
+            <p className="text-[12px] text-fg-mute">Recebido no mês</p>
+            <p className="mt-1 text-xl font-bold text-success">{formatCurrency(totalPaidMonth)}</p>
+            <p className="mt-0.5 text-[12px] text-fg-mute">{monthBillings.filter(b => b.status === 'paid').length} pagas</p>
           </div>
-          <div className="rounded-xl bg-[#202020] p-4">
-            <p className="text-[12px] text-[#9e9e9e]">Pendente no mês</p>
-            <p className="mt-1 text-xl font-bold text-[#a880ff]">{formatCurrency(totalPendingMonth)}</p>
-            <p className="mt-0.5 text-[12px] text-[#616161]">{monthBillings.filter(b => calcBillingStatus(b.status, b.due_date) === 'pending').length} pendentes</p>
+          <div className="rounded-xl bg-surface p-4">
+            <p className="text-[12px] text-fg-mute">Pendente no mês</p>
+            <p className="mt-1 text-xl font-bold text-info">{formatCurrency(totalPendingMonth)}</p>
+            <p className="mt-0.5 text-[12px] text-fg-mute">{monthBillings.filter(b => calcBillingStatus(b.status, b.due_date) === 'pending').length} pendentes</p>
           </div>
-          <div className="rounded-xl bg-[#202020] p-4">
-            <p className="text-[12px] text-[#9e9e9e]">Vencidas (total)</p>
-            <p className={`mt-1 text-xl font-bold ${overdueBillings.length > 0 ? 'text-[#ff9c9a]' : 'text-[#9e9e9e]'}`}>
+          <div className="rounded-xl bg-surface p-4">
+            <p className="text-[12px] text-fg-mute">Vencidas (total)</p>
+            <p className={`mt-1 text-xl font-bold ${overdueBillings.length > 0 ? 'text-danger' : 'text-fg-mute'}`}>
               {formatCurrency(totalOverdueAll)}
             </p>
-            <p className="mt-0.5 text-[12px] text-[#616161]">{overdueBillings.length} cobranças</p>
+            <p className="mt-0.5 text-[12px] text-fg-mute">{overdueBillings.length} cobranças</p>
           </div>
         </div>
 
@@ -164,41 +164,41 @@ export default async function FinancialDashboardPage() {
         {overdueBillings.length > 0 && (
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-[14px] font-bold text-[#BAFF1A]">
+              <h2 className="text-[14px] font-bold text-primary">
                 Cobranças vencidas
-                <span className="ml-2 text-[12px] font-normal text-[#9e9e9e]">({overdueBillings.length})</span>
+                <span className="ml-2 text-[12px] font-normal text-fg-mute">({overdueBillings.length})</span>
               </h2>
-              <Link href="/cobrancas" className="text-[12px] text-[#616161] transition-colors hover:text-[#BAFF1A]">
+              <Link href="/cobrancas" className="text-[12px] text-fg-mute transition-colors hover:text-primary">
                 Ver em cobranças →
               </Link>
             </div>
-            <div className="overflow-hidden rounded-xl border border-[#323232]">
+            <div className="overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-[#323232] bg-[#1a1a1a]">
-                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Cliente</th>
-                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Veículo</th>
-                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Origem</th>
-                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Vencimento</th>
-                    <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Valor</th>
+                  <tr className="border-b border-divider bg-surface">
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Cliente</th>
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Veículo</th>
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Origem</th>
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Vencimento</th>
+                    <th className="h-9 px-4 text-right font-medium text-fg-mute">Valor</th>
                   </tr>
                 </thead>
                 <tbody>
                   {overdueBillings.map(b => {
                     const net = Math.max(0, b.original_amount - (b.discount_amount ?? 0) - (b.credit_applied ?? 0))
                     return (
-                      <tr key={b.id} className="border-b border-[#1e1e1e] last:border-0 hover:bg-[#222222]">
+                      <tr key={b.id} className="border-b border-border last:border-0 hover:bg-surface-2">
                         <td className="h-9 px-4">
                           {b.customer ? (
-                            <Link href={`/clientes/${b.customer.id}`} className="text-[#c7c7c7] hover:text-[#BAFF1A]">
+                            <Link href={`/clientes/${b.customer.id}`} className="text-fg-soft hover:text-primary">
                               {b.customer.name}
                             </Link>
-                          ) : <span className="text-[#616161]">—</span>}
+                          ) : <span className="text-fg-mute">—</span>}
                         </td>
-                        <td className="h-9 px-4 font-mono text-[#9e9e9e]">{b.rental?.vehicle?.license_plate ?? '—'}</td>
-                        <td className="h-9 px-4 text-[#9e9e9e]">{SOURCE_LABELS[b.source ?? ''] ?? '—'}</td>
-                        <td className="h-9 px-4 text-[#ff9c9a]">{fmt(b.due_date)}</td>
-                        <td className="h-9 px-4 text-right font-mono font-semibold text-[#ff9c9a]">{formatCurrency(net)}</td>
+                        <td className="h-9 px-4 font-mono text-fg-mute">{b.rental?.vehicle?.license_plate ?? '—'}</td>
+                        <td className="h-9 px-4 text-fg-mute">{SOURCE_LABELS[b.source ?? ''] ?? '—'}</td>
+                        <td className="h-9 px-4 text-danger">{fmt(b.due_date)}</td>
+                        <td className="h-9 px-4 text-right font-mono font-semibold text-danger">{formatCurrency(net)}</td>
                       </tr>
                     )
                   })}
@@ -211,28 +211,28 @@ export default async function FinancialDashboardPage() {
         {/* ── Cobranças do mês ──────────────────────────────────────────── */}
         <section>
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-[14px] font-bold text-[#BAFF1A]">
+            <h2 className="text-[14px] font-bold text-primary">
               Cobranças do mês
-              <span className="ml-2 text-[12px] font-normal text-[#9e9e9e]">({monthBillings.length})</span>
+              <span className="ml-2 text-[12px] font-normal text-fg-mute">({monthBillings.length})</span>
             </h2>
-            <Link href="/cobrancas" className="text-[12px] text-[#616161] transition-colors hover:text-[#BAFF1A]">
+            <Link href="/cobrancas" className="text-[12px] text-fg-mute transition-colors hover:text-primary">
               Ver todas →
             </Link>
           </div>
           {monthBillings.length === 0 ? (
-            <div className="flex items-center justify-center rounded-xl bg-[#202020] py-10">
-              <p className="text-[13px] text-[#616161]">Nenhuma cobrança neste mês.</p>
+            <div className="flex items-center justify-center rounded-xl bg-surface py-10">
+              <p className="text-[13px] text-fg-mute">Nenhuma cobrança neste mês.</p>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-[#323232]">
+            <div className="overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-[#323232] bg-[#1a1a1a]">
-                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Cliente</th>
-                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Veículo</th>
-                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Vencimento</th>
-                    <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Valor</th>
-                    <th className="h-9 px-4 font-medium text-[#9e9e9e]">Status</th>
+                  <tr className="border-b border-divider bg-surface">
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Cliente</th>
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Veículo</th>
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Vencimento</th>
+                    <th className="h-9 px-4 text-right font-medium text-fg-mute">Valor</th>
+                    <th className="h-9 px-4 font-medium text-fg-mute">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -240,21 +240,21 @@ export default async function FinancialDashboardPage() {
                     const dynStatus = calcBillingStatus(b.status, b.due_date)
                     const badge     = STATUS_BADGE[dynStatus] ?? STATUS_BADGE.pending
                     return (
-                      <tr key={b.id} className="border-b border-[#1e1e1e] last:border-0 hover:bg-[#222222]">
+                      <tr key={b.id} className="border-b border-border last:border-0 hover:bg-surface-2">
                         <td className="h-9 px-4">
                           {b.customer ? (
-                            <Link href={`/cobrancas/${b.id}`} className="text-[#c7c7c7] hover:text-[#BAFF1A]">
+                            <Link href={`/cobrancas/${b.id}`} className="text-fg-soft hover:text-primary">
                               {b.customer.name}
                             </Link>
                           ) : (
-                            <Link href={`/cobrancas/${b.id}`} className="text-[#616161] hover:text-[#BAFF1A]">
+                            <Link href={`/cobrancas/${b.id}`} className="text-fg-mute hover:text-primary">
                               {b.description ?? '—'}
                             </Link>
                           )}
                         </td>
-                        <td className="h-9 px-4 font-mono text-[#9e9e9e]">{b.rental?.vehicle?.license_plate ?? '—'}</td>
-                        <td className="h-9 px-4 text-[#c7c7c7]">{fmt(b.due_date)}</td>
-                        <td className="h-9 px-4 text-right font-mono text-[#f5f5f5]">{formatCurrency(b.original_amount)}</td>
+                        <td className="h-9 px-4 font-mono text-fg-mute">{b.rental?.vehicle?.license_plate ?? '—'}</td>
+                        <td className="h-9 px-4 text-fg-soft">{fmt(b.due_date)}</td>
+                        <td className="h-9 px-4 text-right font-mono text-fg">{formatCurrency(b.original_amount)}</td>
                         <td className="h-9 px-4">
                           <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge.bg} ${badge.text}`}>
                             {badge.label}
@@ -272,16 +272,16 @@ export default async function FinancialDashboardPage() {
         {/* ── Clientes bloqueados ───────────────────────────────────────── */}
         {delinquentCustomers.length > 0 && (
           <section>
-            <h2 className="mb-3 text-[14px] font-bold text-[#BAFF1A]">
+            <h2 className="mb-3 text-[14px] font-bold text-primary">
               Clientes bloqueados
-              <span className="ml-2 text-[12px] font-normal text-[#9e9e9e]">({delinquentCustomers.length})</span>
+              <span className="ml-2 text-[12px] font-normal text-fg-mute">({delinquentCustomers.length})</span>
             </h2>
             <div className="flex flex-wrap gap-2">
               {delinquentCustomers.map(c => (
                 <Link
                   key={c.id}
                   href={`/clientes/${c.id}`}
-                  className="inline-flex h-8 items-center rounded-full border border-[#ff9c9a]/30 bg-[#7c1c1c]/50 px-3 text-[13px] text-[#ff9c9a] transition-colors hover:bg-[#7c1c1c]"
+                  className="inline-flex h-8 items-center rounded-full border border-danger bg-danger-bg px-3 text-[13px] text-danger transition-colors hover:bg-danger-bg"
                 >
                   {c.name}
                 </Link>
@@ -294,35 +294,35 @@ export default async function FinancialDashboardPage() {
         {vehicles.length > 0 && (
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-[14px] font-bold text-[#BAFF1A]">ROI de veículos</h2>
+              <h2 className="text-[14px] font-bold text-primary">ROI de veículos</h2>
             </div>
-            <div className="overflow-hidden rounded-xl border border-[#323232]">
+            <div className="overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="border-b border-[#323232] bg-[#1a1a1a]">
-                    <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Veículo</th>
-                    <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Aquisição</th>
-                    <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Venda</th>
+                  <tr className="border-b border-divider bg-surface">
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Veículo</th>
+                    <th className="h-9 px-4 text-right font-medium text-fg-mute">Aquisição</th>
+                    <th className="h-9 px-4 text-right font-medium text-fg-mute">Venda</th>
                     <th className="h-9 px-4"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {vehicles.map(v => (
-                    <tr key={v.id} className="border-b border-[#1e1e1e] last:border-0 hover:bg-[#222222]">
+                    <tr key={v.id} className="border-b border-border last:border-0 hover:bg-surface-2">
                       <td className="h-9 px-4">
-                        <Link href={`/financeiro/veiculos/${v.id}`} className="flex items-center gap-2 hover:text-[#BAFF1A]">
-                          <span className="font-mono text-[#BAFF1A]">{v.license_plate}</span>
-                          <span className="text-[#9e9e9e]">{v.make} {v.model}</span>
+                        <Link href={`/financeiro/veiculos/${v.id}`} className="flex items-center gap-2 hover:text-primary">
+                          <span className="font-mono text-primary">{v.license_plate}</span>
+                          <span className="text-fg-mute">{v.make} {v.model}</span>
                         </Link>
                       </td>
-                      <td className="h-9 px-4 text-right font-mono text-[#f5f5f5]">
+                      <td className="h-9 px-4 text-right font-mono text-fg">
                         {v.acquisition_value != null ? formatCurrency(v.acquisition_value) : '—'}
                       </td>
-                      <td className="h-9 px-4 text-right font-mono text-[#9e9e9e]">
+                      <td className="h-9 px-4 text-right font-mono text-fg-mute">
                         {v.sale_value != null ? formatCurrency(v.sale_value) : '—'}
                       </td>
                       <td className="h-9 px-4 text-right">
-                        <Link href={`/financeiro/veiculos/${v.id}`} className="text-[12px] text-[#616161] transition-colors hover:text-[#BAFF1A]">
+                        <Link href={`/financeiro/veiculos/${v.id}`} className="text-[12px] text-fg-mute transition-colors hover:text-primary">
                           Ver ROI →
                         </Link>
                       </td>
