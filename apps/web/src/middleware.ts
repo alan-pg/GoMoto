@@ -122,9 +122,11 @@ export async function middleware(request: NextRequest) {
 
   /**
    * @constant isPublicPath
-   * @description Identifica rotas de autenticação (como callback de login) que devem ser públicas.
+   * @description Identifica rotas que devem ser públicas mesmo sem sessão: callback de
+   * autenticação (`/auth/*`) e a landing page institucional (`/home`). `/` continua
+   * gated — segue redirecionando pra `/login`/`/dashboard` conforme o papel do usuário.
    */
-  const isPublicPath = request.nextUrl.pathname.startsWith('/auth');
+  const isPublicPath = request.nextUrl.pathname.startsWith('/auth') || request.nextUrl.pathname === '/home';
 
   const pathname = request.nextUrl.pathname;
 
