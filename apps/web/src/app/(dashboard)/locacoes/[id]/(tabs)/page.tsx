@@ -46,6 +46,10 @@ export default async function RentalDetailPage({
   const totalOverdue = overdueBillings.reduce((s, b) => s + netBillingAmount(b), 0)
   const overdueCount = overdueBillings.length
 
+  // Entrada (Spec 0010) — cobrança comum em `billings`, sem tabela própria
+  // (ao contrário da Caução, que tem saldo/movimentações em `deposits`).
+  const downPayment = billings.find(b => b.billing_type === 'down_payment')
+
   return (
     <>
 
@@ -82,6 +86,17 @@ export default async function RentalDetailPage({
           {deposit && deposit.status !== 'received' && (
             <p className="mt-0.5 text-[12px] text-fg-mute">
               Saldo: {formatCurrency(deposit.balance)}
+            </p>
+          )}
+        </div>
+        <div className="rounded-xl bg-surface p-4">
+          <p className="text-[12px] text-fg-mute">Entrada</p>
+          <p className="mt-1 text-xl font-bold text-fg">
+            {downPayment ? formatCurrency(netBillingAmount(downPayment)) : '—'}
+          </p>
+          {downPayment && downPayment.status !== 'paid' && (
+            <p className="mt-0.5 text-[12px] text-fg-mute">
+              {effectiveBillingStatus(downPayment) === 'overdue' ? 'Vencida' : 'Pendente'}
             </p>
           )}
         </div>

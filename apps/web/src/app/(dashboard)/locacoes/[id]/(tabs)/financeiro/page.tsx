@@ -49,6 +49,7 @@ const SOURCE_LABELS: Record<string, string> = {
   expense:      'Despesa',
   manual:       'Manual',
   deposit:      'Caução',
+  down_payment: 'Entrada',
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────

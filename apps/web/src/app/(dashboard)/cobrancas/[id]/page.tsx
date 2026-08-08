@@ -102,6 +102,7 @@ const BILLING_TYPE_LABELS: Record<string, string> = {
   one_time:      'Avulsa',
   complementary: 'Complementar',
   deposit:       'Caução',
+  down_payment:  'Entrada',
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -112,6 +113,7 @@ const SOURCE_LABELS: Record<string, string> = {
   expense:      'Despesa',
   manual:       'Manual',
   deposit:      'Caução',
+  down_payment: 'Entrada',
 }
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {

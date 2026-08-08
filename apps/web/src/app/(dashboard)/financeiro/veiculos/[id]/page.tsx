@@ -33,11 +33,12 @@ export default async function VehicleROIPage({
       .eq('tenant_id', tenantId)
       .single(),
     // Receita total: cobranças pagas vinculadas a este veículo — caução fica
-    // de fora, é garantia/depósito, não receita operacional.
+    // de fora, é garantia/depósito, não receita operacional. `billings` não
+    // tem vehicle_id direto (só lease_id) — filtra via join com rentals.
     supabase
       .from('billings')
-      .select('original_amount, discount_amount, source, due_date')
-      .eq('vehicle_id', id)
+      .select('original_amount, discount_amount, source, due_date, rentals!inner(vehicle_id)')
+      .eq('rentals.vehicle_id', id)
       .eq('tenant_id', tenantId)
       .eq('status', 'paid')
       .neq('source', 'deposit'),
@@ -88,11 +89,12 @@ export default async function VehicleROIPage({
   }
 
   const SOURCE_LABELS: Record<string, string> = {
-    cycle:       'Locação (ciclos)',
-    fine:        'Cobranças de multa',
-    maintenance: 'Cobranças de manutenção',
-    expense:     'Despesas',
-    manual:      'Avulso manual',
+    cycle:        'Locação (ciclos)',
+    fine:         'Cobranças de multa',
+    maintenance:  'Cobranças de manutenção',
+    expense:      'Despesas',
+    manual:       'Avulso manual',
+    down_payment: 'Entrada',
   }
 
   const alreadySold = vehicle.sale_value != null

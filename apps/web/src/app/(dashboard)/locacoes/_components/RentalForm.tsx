@@ -17,9 +17,15 @@ import { createRental, updateRental, updateContractTemplate } from '../actions'
 
 interface RentalFormProps {
   rentalId?: string
-  // security_deposit não é mais coluna de rentals (vive em `deposits`) — a
-  // página de edição computa o valor à parte e injeta aqui como campo extra.
-  initialData?: Partial<Rental> & { security_deposit?: number | null }
+  // security_deposit/down_payment não são coluna de rentals (vivem em
+  // `deposits`/`billings`) — a página de edição computa os valores à parte
+  // e injeta aqui como campos extra.
+  initialData?: Partial<Rental> & {
+    security_deposit?: number | null
+    down_payment?: number | null
+    down_payment_status?: string | null
+    down_payment_due_date?: string | null
+  }
   defaultCustomerId?: string
   // Usado na variável {{nome_empresa}} ao gerar o contrato — só relevante na criação.
   tenantName?: string
@@ -36,6 +42,8 @@ type FormState = {
   end_date:         string
   use_pro_rata:     boolean
   security_deposit: string
+  down_payment:          string
+  down_payment_due_date: string
   contract_template_id: string
   observations:     string
   checkin_checkout_inspection_profile_id: string
@@ -84,7 +92,14 @@ function computePeriod(start: string, end: string, cycle: 'monthly' | 'weekly'):
   return String(Math.max(1, Math.floor(days / 7)))
 }
 
-function buildInitialForm(d?: Partial<Rental> & { security_deposit?: number | null }, defaultCustomerId?: string): FormState {
+function buildInitialForm(
+  d?: Partial<Rental> & {
+    security_deposit?: number | null
+    down_payment?: number | null
+    down_payment_due_date?: string | null
+  },
+  defaultCustomerId?: string,
+): FormState {
   return {
     vehicle_id:       d?.vehicle_id ?? '',
     customer_id:      d?.customer_id ?? defaultCustomerId ?? '',
@@ -96,6 +111,8 @@ function buildInitialForm(d?: Partial<Rental> & { security_deposit?: number | nu
     end_date:         d?.end_date ?? '',
     use_pro_rata:     d?.use_pro_rata ?? true,
     security_deposit: d?.security_deposit != null ? String(d.security_deposit) : '',
+    down_payment:          d?.down_payment != null ? String(d.down_payment) : '',
+    down_payment_due_date: d?.down_payment_due_date ?? '',
     contract_template_id: d?.contract_template_id ?? '',
     observations:     d?.observations ?? '',
     checkin_checkout_inspection_profile_id: '',
@@ -106,13 +123,16 @@ function buildInitialForm(d?: Partial<Rental> & { security_deposit?: number | nu
 
 // ─── ChargePreview ────────────────────────────────────────────────────────────
 
-function ChargePreview({ charges }: { charges: CycleCharge[] }) {
-  if (charges.length === 0) return null
-  const total = charges.reduce((s, c) => s + c.amount, 0)
+type ExtraChargeRow = { due_date: string; label: string; amount: number }
+
+function ChargePreview({ charges, extraRows = [] }: { charges: CycleCharge[]; extraRows?: ExtraChargeRow[] }) {
+  if (charges.length === 0 && extraRows.length === 0) return null
+  const total = charges.reduce((s, c) => s + c.amount, 0) + extraRows.reduce((s, r) => s + r.amount, 0)
+  const count = charges.length + extraRows.length
   return (
     <div>
       <p className="mb-2 text-[13px] font-semibold text-fg">
-        {charges.length} cobrança{charges.length !== 1 ? 's' : ''} · {formatCurrency(total)} total
+        {count} cobrança{count !== 1 ? 's' : ''} · {formatCurrency(total)} total
       </p>
       <div className="max-h-52 overflow-y-auto rounded-lg border border-divider">
         <table className="w-full text-[13px]">
@@ -131,6 +151,13 @@ function ChargePreview({ charges }: { charges: CycleCharge[] }) {
                   {c.billing_type === 'cycle' ? 'Ciclo' : 'Complementar'}
                 </td>
                 <td className="px-3 text-right font-mono text-fg">{formatCurrency(c.amount)}</td>
+              </tr>
+            ))}
+            {extraRows.map((r, i) => (
+              <tr key={`extra-${i}`} className="h-9 border-b border-border last:border-0">
+                <td className="px-3 text-fg-soft">{formatDate(r.due_date)}</td>
+                <td className="px-3 text-fg-mute">{r.label}</td>
+                <td className="px-3 text-right font-mono text-fg">{formatCurrency(r.amount)}</td>
               </tr>
             ))}
           </tbody>
@@ -186,6 +213,14 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
   const [depositPaid, setDepositPaid] = useState(true)
   const [depositPaymentDate, setDepositPaymentDate] = useState(() => todayISO())
   const [depositDueDate, setDepositDueDate] = useState('')
+
+  // Entrada (Spec 0010) — opcional, não reembolsável, definida só na criação
+  // (RN-002). Mesma dinâmica paga/pendente da Caução, mas sem saldo a rastrear.
+  const [downPaymentPaid, setDownPaymentPaid] = useState(true)
+  const [downPaymentPaymentDate, setDownPaymentPaymentDate] = useState(() => todayISO())
+  const [downPaymentDueDate, setDownPaymentDueDate] = useState('')
+  const isDownPaymentPaid = initialData?.down_payment_status === 'paid'
+  const isDownPaymentEditable = initialData?.down_payment != null && initialData?.down_payment_status === 'pending'
 
   // Modelo de contrato — só na criação; geração roda no client com os dados
   // já preenchidos no form, sem depender da locação existir no banco ainda.
@@ -285,6 +320,14 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
     } catch { return [] }
   }, [form.start_date, form.end_date, form.cycle, form.due_day, form.cycle_amount, form.use_pro_rata])
 
+  const downPaymentPreviewRows = useMemo<ExtraChargeRow[]>(() => {
+    const amount = parseFloat(form.down_payment)
+    if (!amount || amount <= 0) return []
+    const due_date = downPaymentPaid ? downPaymentPaymentDate : (downPaymentDueDate || form.start_date)
+    if (!due_date) return []
+    return [{ due_date, label: 'Entrada', amount }]
+  }, [form.down_payment, form.start_date, downPaymentPaid, downPaymentPaymentDate, downPaymentDueDate])
+
   const isFormReady = Boolean(
     form.vehicle_id && form.customer_id && form.start_date && form.end_date &&
     form.cycle_amount && form.due_day && form.end_date > form.start_date
@@ -318,6 +361,10 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
         const result = await updateRental(rentalId!, {
           observations:     form.observations || null,
           security_deposit: form.security_deposit ? parseFloat(form.security_deposit) : null,
+          ...(isDownPaymentEditable ? {
+            down_payment:          form.down_payment ? parseFloat(form.down_payment) : null,
+            down_payment_due_date: form.down_payment_due_date || undefined,
+          } : {}),
         })
         if (!result.ok) { setGlobalError(result.error.message); return }
 
@@ -358,6 +405,10 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
         deposit_paid:         depositPaid,
         deposit_payment_date: depositPaid ? depositPaymentDate : undefined,
         deposit_due_date:     !depositPaid ? (depositDueDate || form.start_date || undefined) : undefined,
+        down_payment:              form.down_payment ? parseFloat(form.down_payment) : null,
+        down_payment_paid:         downPaymentPaid,
+        down_payment_payment_date: downPaymentPaid ? downPaymentPaymentDate : undefined,
+        down_payment_due_date:     !downPaymentPaid ? (downPaymentDueDate || form.start_date || undefined) : undefined,
         late_charge_config,
         contract_template_id: form.contract_template_id || null,
         observations:     form.observations || null,
@@ -789,6 +840,95 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                     </>
                   )}
                 </div>
+
+                <div className="max-w-xs">
+                  <label className={labelCls}>Entrada (R$)</label>
+                  {isEditMode ? (
+                    initialData?.down_payment == null ? (
+                      <p className="text-[12px] text-fg-mute">
+                        Nenhuma Entrada foi definida na criação desta locação.
+                      </p>
+                    ) : isDownPaymentPaid ? (
+                      <>
+                        <div className={readOnlyCls}>{formatCurrency(initialData.down_payment)}</div>
+                        <p className="mt-1 text-[12px] text-fg-mute">
+                          Entrada já paga — não pode ser alterada.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0,00"
+                          className={inputCls}
+                          value={form.down_payment}
+                          onChange={e => set('down_payment', e.target.value)}
+                        />
+                        <label className={`${labelCls} mt-2`}>Data de vencimento</label>
+                        <input
+                          type="date"
+                          className={inputCls}
+                          value={form.down_payment_due_date}
+                          onChange={e => set('down_payment_due_date', e.target.value)}
+                        />
+                      </>
+                    )
+                  ) : (
+                    <>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0,00 — opcional"
+                        className={inputCls}
+                        value={form.down_payment}
+                        onChange={e => set('down_payment', e.target.value)}
+                      />
+                      <p className="mt-1 text-[12px] text-fg-mute">
+                        Valor não reembolsável, cobrado à parte da Caução.
+                      </p>
+                      {form.down_payment && (
+                        <>
+                          <label className="mt-2 flex cursor-pointer items-center gap-2 text-[13px] text-fg-soft">
+                            <input
+                              type="checkbox"
+                              checked={downPaymentPaid}
+                              onChange={e => setDownPaymentPaid(e.target.checked)}
+                              className="rounded accent-primary"
+                            />
+                            Entrada já foi paga
+                          </label>
+                          <div className="mt-2">
+                            {downPaymentPaid ? (
+                              <>
+                                <label className={labelCls}>Data do pagamento</label>
+                                <input
+                                  type="date"
+                                  className={inputCls}
+                                  value={downPaymentPaymentDate}
+                                  onChange={e => setDownPaymentPaymentDate(e.target.value)}
+                                />
+                              </>
+                            ) : (
+                              <>
+                                <label className={labelCls}>Data de vencimento</label>
+                                <input
+                                  type="date"
+                                  className={inputCls}
+                                  value={downPaymentDueDate || form.start_date}
+                                  onChange={e => setDownPaymentDueDate(e.target.value)}
+                                />
+                              </>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+
                 <div>
                   <label className={labelCls}>Observações</label>
                   <textarea
@@ -875,7 +1015,9 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
             </section>
 
             {/* Preview de cobranças (inline) — só na criação */}
-            {!isEditMode && previewCharges.length > 0 && <ChargePreview charges={previewCharges} />}
+            {!isEditMode && previewCharges.length > 0 && (
+              <ChargePreview charges={previewCharges} extraRows={downPaymentPreviewRows} />
+            )}
 
             {!isEditMode && previewCharges.length === 0 && isFormReady && (
               <p className="text-[13px] text-fg-mute">
@@ -909,6 +1051,9 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                   ['Pro rata',    form.use_pro_rata ? 'Sim' : 'Não'],
                   ...(form.security_deposit
                     ? [['Caução', formatCurrency(parseFloat(form.security_deposit))]]
+                    : []),
+                  ...(form.down_payment
+                    ? [['Entrada', formatCurrency(parseFloat(form.down_payment))]]
                     : []),
                 ] as [string, string][]).map(([label, value]) => (
                   <div key={label} className="flex gap-2">
@@ -951,7 +1096,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
               )}
             </div>
 
-            <ChargePreview charges={previewCharges} />
+            <ChargePreview charges={previewCharges} extraRows={downPaymentPreviewRows} />
 
             {globalError && (
               <div className="flex items-start gap-3 rounded-xl border border-danger bg-danger-bg px-4 py-3">

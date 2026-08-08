@@ -8,6 +8,8 @@ import {
   createTestContract,
   deleteTestContract,
   waitForPageLoad,
+  getSupabase,
+  getTestTenantId,
 } from './helpers'
 
 // ---------------------------------------------------------------------------
@@ -59,6 +61,78 @@ test.describe('Cobranças — filtros e novo campo original_amount', () => {
     await tabPrejuizo.click()
     // Não deve quebrar — estado deve mudar normalmente
     await expect(tabPrejuizo).toBeVisible()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Encerramento antecipado — RN-003 (Spec 0010): Entrada e Caução pendentes
+// com vencimento futuro sobrevivem; cobrança de ciclo futura é cancelada.
+// ---------------------------------------------------------------------------
+
+test.describe('Cobranças de Locação — encerramento antecipado preserva garantias pendentes (RN-003)', () => {
+  let vehicleId = ''
+  let customerId = ''
+  let leaseId = ''
+
+  test.beforeAll(async () => {
+    vehicleId = (await createTestVehicle()).id
+    customerId = (await createTestCustomer()).id
+  })
+
+  test.afterAll(async () => {
+    const sb = await getSupabase()
+    if (leaseId) await sb.from('rentals').delete().eq('id', leaseId)
+    await deleteTestVehicle(vehicleId)
+    await deleteTestCustomer(customerId)
+  })
+
+  // RF-014, RF-015 — cobrança de ciclo futura é cancelada.
+  // RN-003 — Entrada e Caução pendentes com vencimento futuro sobrevivem.
+  test('encerramento antecipado cancela cobrança de ciclo futura e preserva Entrada e Caução pendentes', async ({ page }) => {
+    const sb = await getSupabase()
+    const tenantId = await getTestTenantId()
+
+    const { data: newLeaseId, error } = await sb.rpc('create_rental_with_charges', {
+      p_tenant_id: tenantId,
+      p_vehicle_id: vehicleId,
+      p_customer_id: customerId,
+      p_cycle: 'monthly',
+      p_due_day: 10,
+      p_cycle_amount: 500,
+      p_start_date: '2026-08-10',
+      p_end_date: '2026-11-10',
+      p_use_pro_rata: true,
+      p_charges: [{ amount: 500, due_date: '2026-09-10', billing_type: 'cycle' }],
+      p_security_deposit: 300,
+      p_deposit_paid: false,
+      p_deposit_due_date: '2026-10-01',
+      p_down_payment: 150,
+      p_down_payment_paid: false,
+      p_down_payment_due_date: '2026-10-01',
+    })
+    if (error) throw new Error(`Erro ao criar locação de teste via RPC: ${error.message}`)
+    leaseId = newLeaseId as string
+
+    // Encerra em 2026-08-20 — antes do vencimento da cobrança de ciclo
+    // (2026-09-10) e das garantias pendentes (2026-10-01).
+    await page.goto(`/locacoes/${leaseId}/encerrar`)
+    await waitForPageLoad(page)
+    await page.locator('input[type=date]').first().fill('2026-08-20')
+    await page.getByRole('button', { name: 'Confirmar Encerramento' }).click()
+    await page.waitForURL(/\/locacoes\/?$/, { timeout: 15_000 })
+
+    const { data: billings } = await sb
+      .from('billings')
+      .select('billing_type, status')
+      .eq('lease_id', leaseId)
+
+    const cycle       = billings?.find(b => b.billing_type === 'cycle')
+    const deposit      = billings?.find(b => b.billing_type === 'deposit')
+    const downPayment = billings?.find(b => b.billing_type === 'down_payment')
+
+    expect(cycle?.status).toBe('cancelled')
+    expect(deposit?.status).toBe('pending')
+    expect(downPayment?.status).toBe('pending')
   })
 })
 

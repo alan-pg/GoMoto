@@ -19,12 +19,22 @@ export const TEST_TAG = '[E2E]'
 
 let _supabase: ReturnType<typeof createClient> | null = null
 let _authenticated = false
+let _tenantId: string | null = null
+
+// Date.now() sozinho colide quando dois helpers rodam no mesmo milissegundo
+// (ex.: duas chamadas a createTestVehicle() em sequência num beforeAll) —
+// um contador monotônico garante unicidade mesmo nesse caso.
+let _uniqueSeq = 0
+function uniqueSuffix(digits: number): string {
+  _uniqueSeq += 1
+  return `${Date.now()}${_uniqueSeq}`.slice(-digits)
+}
 
 /**
  * Retorna uma instância autenticada do cliente Supabase em Node.js.
  * Autentica com email/senha na primeira chamada e reutiliza nas demais.
  */
-async function getSupabase() {
+export async function getSupabase() {
   if (!_supabase) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -45,6 +55,23 @@ async function getSupabase() {
   return _supabase
 }
 
+/**
+ * Resolve e cacheia o tenant_id do usuário de teste via get_user_tenants()
+ * (mesma RPC usada por getCurrentTenantId no app) — os inserts diretos deste
+ * arquivo passam por RLS (get_user_tenants()) e precisam do valor explícito,
+ * já que não há trigger/default que preencha tenant_id automaticamente.
+ */
+export async function getTestTenantId(): Promise<string> {
+  if (_tenantId) return _tenantId
+  const sb = await getSupabase()
+  const { data, error } = await sb.rpc('get_user_tenants')
+  if (error) throw new Error(`Erro ao resolver tenant de teste: ${error.message}`)
+  const tenantId = (data as string[] | null)?.[0]
+  if (!tenantId) throw new Error('Usuário de teste não pertence a nenhum tenant (get_user_tenants() vazio)')
+  _tenantId = tenantId
+  return tenantId
+}
+
 // ---------------------------------------------------------------------------
 // Helpers de dados — sem dependência de browser
 // ---------------------------------------------------------------------------
@@ -55,12 +82,14 @@ async function getSupabase() {
  */
 export async function createTestCustomer(): Promise<{ id: string; name: string }> {
   const sb = await getSupabase()
-  const ts = Date.now().toString().slice(-9)
-  const cpf = `${ts.slice(0,3)}.${ts.slice(3,6)}.${ts.slice(6,9)}-00`
+  const tenantId = await getTestTenantId()
+  const ts = uniqueSuffix(9)
+  const cpf = `${ts}00`
   const name = `${TEST_TAG} Cliente ${ts}`
   const { data, error } = await sb
     .from('customers')
     .insert({
+      tenant_id: tenantId,
       name,
       cpf,
       phone: '21999990000',
@@ -91,16 +120,24 @@ export async function deleteTestCustomer(id: string): Promise<void> {
  */
 export async function createTestVehicle(): Promise<{ id: string; license_plate: string }> {
   const sb = await getSupabase()
-  const suffix = Date.now().toString().slice(-5)
+  const tenantId = await getTestTenantId()
+  const suffix = uniqueSuffix(5)
   const plate = `T${suffix}`.slice(0, 7).toUpperCase()
 
   const { data, error } = await sb
     .from('vehicles')
     .insert({
+      tenant_id: tenantId,
       license_plate: plate,
       model: 'Model E2E',
       make: 'TEST',
-      year: '2024/2024',
+      year_manufacture: '2024',
+      year_model: '2024',
+      // Default de acquisition_type na coluna ('purchase') não satisfaz o
+      // próprio CHECK da tabela (não está na lista permitida) — bug de
+      // schema pré-existente, fora do escopo deste helper; setamos aqui
+      // para não depender do default quebrado.
+      acquisition_type: 'used',
       color: 'PRETO',
       renavam: `0000000${suffix}`.slice(0, 11),
       chassis: `TEST${suffix}E2E000`.slice(0, 17).toUpperCase(),
@@ -124,6 +161,14 @@ export async function deleteTestVehicle(id: string): Promise<void> {
   const sb = await getSupabase()
   await sb.from('maintenances').delete().eq('vehicle_id', id)
   await sb.from('fines').delete().eq('vehicle_id', id)
+  // deposits.rental_id não tem ON DELETE CASCADE (ao contrário de
+  // billings.lease_id) — sem isso, o delete de rentals falha em silêncio
+  // (supabase-js não lança) e deixa vehicle/customer órfãos pra trás.
+  const { data: rentals } = await sb.from('rentals').select('id').eq('vehicle_id', id)
+  const rentalIds = (rentals ?? []).map(r => r.id as string)
+  if (rentalIds.length > 0) {
+    await sb.from('deposits').delete().in('rental_id', rentalIds)
+  }
   await sb.from('rentals').delete().eq('vehicle_id', id)
   await sb.from('vehicles').delete().eq('id', id)
 }
@@ -135,13 +180,15 @@ export async function deleteTestVehicle(id: string): Promise<void> {
  */
 export async function createTestContract(vehicleId: string): Promise<{ customerId: string; contractId: string }> {
   const sb = await getSupabase()
+  const tenantId = await getTestTenantId()
   const today = new Date().toISOString().split('T')[0]
 
   const { data: customer, error: customerError } = await sb
     .from('customers')
     .insert({
+      tenant_id: tenantId,
       name: `${TEST_TAG} Cliente Contrato E2E`,
-      cpf: (() => { const t = Date.now().toString().slice(-9); return `${t.slice(0,3)}.${t.slice(3,6)}.${t.slice(6,9)}-99` })(),
+      cpf: `${uniqueSuffix(9)}99`,
       phone: '21988880099',
       state: 'RJ',
       active: true,
@@ -155,6 +202,7 @@ export async function createTestContract(vehicleId: string): Promise<{ customerI
   const { data: contract, error: contractError } = await sb
     .from('rentals')
     .insert({
+      tenant_id: tenantId,
       customer_id:  customer.id,
       vehicle_id: vehicleId,
       start_date:   today,
