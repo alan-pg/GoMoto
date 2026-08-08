@@ -4,23 +4,9 @@ Rota: `/configuracoes` | Tipo: Client Component
 
 ## Seções
 
-### 1. Dados da Empresa (ícone Building2 `#BAFF1A`)
+> Seção "Dados da Empresa" removida (2026-08-07) — os campos `empresa_*` na tabela `settings` não eram consumidos por nenhuma outra tela (contratos, relatórios, etc.).
 
-Grid 2 colunas (md+):
-
-| Campo | Chave no banco |
-|---|---|
-| Nome da Empresa | `empresa_nome` |
-| CNPJ | `empresa_cnpj` |
-| Telefone | `empresa_telefone` |
-| E-mail | `empresa_email` |
-| Endereço Completo | `empresa_endereco` (full width) |
-
-Salva via `UPSERT INTO settings (key, value)` em paralelo (`Promise.all`) para todas as 5 chaves.
-
-**Feedback:** componente `FeedbackMessage` inline — sucesso (verde) ou erro (vermelho).
-
-### 2. Segurança (ícone Lock `#a880ff`)
+### 1. Segurança (ícone Lock `#a880ff`)
 
 | Campo | Tipo |
 |---|---|
@@ -33,7 +19,7 @@ Salva via `UPSERT INTO settings (key, value)` em paralelo (`Promise.all`) para t
 
 Salva via `supabase.auth.updateUser({ password: newPassword })`.
 
-### 3. Informações da Conta (ícone User `#e65e24`) — Read-Only
+### 2. Informações da Conta (ícone User `#e65e24`) — Read-Only
 
 - E-mail de acesso (`supabase.auth.getUser()`)
 - Membro desde (data formatada com `Intl.DateTimeFormat('pt-BR', { day, month, year })`)
@@ -49,13 +35,6 @@ type: 'success' | 'error'
 ## Queries Supabase
 
 ```sql
--- Fetch inicial
-SELECT key, value FROM settings
-
--- Salvar empresa (5 upserts em paralelo)
-UPSERT INTO settings (key, value) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
--- chaves: empresa_nome, empresa_cnpj, empresa_telefone, empresa_email, empresa_endereco
-
 -- Alterar senha
 supabase.auth.updateUser({ password: '...' })
 

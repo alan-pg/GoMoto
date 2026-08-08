@@ -2,23 +2,16 @@
  * @file src/app/(dashboard)/configuracoes/page.tsx
  * @description Página de Configurações do Sistema GoMoto.
  *
- * @summary
- * Esta página conecta as configurações da empresa e da conta do usuário
- * diretamente ao Supabase. A tabela `configuracoes` usa estrutura chave-valor,
- * portanto os campos são mapeados de/para pares { chave, valor } nas operações
- * de leitura e escrita.
- *
  * @funcionalidades
- * 1. **Dados da Empresa**: Busca e salva na tabela `configuracoes` via upsert.
- * 2. **Segurança**: Altera a senha do usuário via `supabase.auth.updateUser`.
- * 3. **Informações da Conta**: Exibe e-mail e data de criação do usuário logado.
+ * 1. **Segurança**: Altera a senha do usuário via `supabase.auth.updateUser`.
+ * 2. **Informações da Conta**: Exibe e-mail e data de criação do usuário logado.
  */
 
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Building2, Lock, User, Save, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, CreditCard, Link2, Link2Off, Palette } from 'lucide-react'
+import { Lock, User, Save, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, CreditCard, Link2, Link2Off, Palette } from 'lucide-react'
 import { PageTitle } from '@/components/layout/PageTitle'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -42,24 +35,6 @@ const COLOR_MODES: { value: ColorMode; label: string }[] = [
   { value: 'light', label: 'Claro' },
   { value: 'dark', label: 'Escuro' },
 ]
-
-/**
- * @interface CompanyData
- * @description Define a estrutura dos dados da empresa gerenciados nesta página.
- * Cada campo corresponde a uma chave na tabela `configuracoes`.
- */
-interface CompanyData {
-  /** Chave: empresa_nome */
-  company_name: string
-  /** Chave: empresa_cnpj */
-  cnpj: string
-  /** Chave: empresa_telefone */
-  phone: string
-  /** Chave: empresa_email */
-  email: string
-  /** Chave: empresa_endereco */
-  address: string
-}
 
 /**
  * @interface UserData
@@ -91,26 +66,6 @@ export default function SettingsPage() {
    */
   const supabase = React.useMemo(() => createClient(), [])
   const router = useRouter()
-
-  // --- ESTADOS: Dados da Empresa ---
-
-  /** @state companyData — Formulário com os dados da empresa. */
-  const [companyData, setCompanyData] = useState<CompanyData>({
-    company_name: '',
-    cnpj: '',
-    phone: '',
-    email: '',
-    address: '',
-  })
-
-  /** @state isLoadingCompany — Exibe o spinner enquanto os dados são carregados. */
-  const [isLoadingCompany, setIsLoadingCompany] = useState<boolean>(true)
-
-  /** @state isSavingCompany — Bloqueia o botão e exibe loading durante o salvamento. */
-  const [isSavingCompany, setIsSavingCompany] = useState<boolean>(false)
-
-  /** @state companyFeedback — Mensagem inline de sucesso ou erro do formulário da empresa. */
-  const [companyFeedback, setCompanyFeedback] = useState<FeedbackState | null>(null)
 
   // --- ESTADOS: Segurança (Senha) ---
 
@@ -223,8 +178,8 @@ export default function SettingsPage() {
 
   /**
    * @effect fetchInitialData
-   * @description Busca os dados da empresa na tabela `configuracoes` e
-   * as informações do usuário logado via Supabase Auth ao montar o componente.
+   * @description Busca as informações do usuário logado via Supabase Auth
+   * ao montar o componente.
    */
   useEffect(() => {
     async function fetchInitialData() {
@@ -249,34 +204,6 @@ export default function SettingsPage() {
         // Falha silenciosa: o card de conta exibirá mensagem de erro
       } finally {
         setIsLoadingUser(false)
-      }
-
-      try {
-        // Busca todos os registros da tabela de configurações (estrutura chave-valor)
-        const { data: settingsData, error: settingsError } = await supabase
-          .from('settings')
-          .select('key, value')
-
-        if (settingsData && !settingsError) {
-          /**
-           * Transforma o array [{chave, valor}] em um objeto estruturado,
-           * mapeando cada chave do banco para a propriedade correspondente.
-           */
-          const find = (key: string) =>
-            settingsData.find((item) => item.key === key)?.value ?? ''
-
-          setCompanyData({
-            company_name: find('empresa_nome'),
-            cnpj: find('empresa_cnpj'),
-            phone: find('empresa_telefone'),
-            email: find('empresa_email'),
-            address: find('empresa_endereco'),
-          })
-        }
-      } catch {
-        // Falha silenciosa: o formulário iniciará vazio
-      } finally {
-        setIsLoadingCompany(false)
       }
     }
 
@@ -329,44 +256,6 @@ export default function SettingsPage() {
       paymentConnectionQuery.refetch()
     }
     setIsDisconnecting(false)
-  }
-
-  /**
-   * @function handleSaveCompany
-   * @description Salva todos os campos da empresa na tabela `configuracoes`
-   * usando Promise.all para executar os upserts em paralelo.
-   */
-  const handleSaveCompany = async () => {
-    setIsSavingCompany(true)
-    setCompanyFeedback(null)
-
-    try {
-      const updates = [
-        { key: 'empresa_nome', value: companyData.company_name },
-        { key: 'empresa_cnpj', value: companyData.cnpj },
-        { key: 'empresa_telefone', value: companyData.phone },
-        { key: 'empresa_email', value: companyData.email },
-        { key: 'empresa_endereco', value: companyData.address },
-      ]
-
-      await Promise.all(
-        updates.map((update) =>
-          supabase.from('settings').upsert(update, { onConflict: 'key' })
-        )
-      )
-
-      setCompanyFeedback({
-        type: 'success',
-        message: 'Dados da empresa salvos com sucesso!',
-      })
-    } catch {
-      setCompanyFeedback({
-        type: 'error',
-        message: 'Erro ao salvar os dados. Tente novamente.',
-      })
-    } finally {
-      setIsSavingCompany(false)
-    }
   }
 
   /**
@@ -443,13 +332,12 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col min-h-full">
-      <PageTitle title="Configurações" subtitle="Gerencie as informações da empresa e detalhes da sua conta" />
+      <PageTitle title="Configurações" subtitle="Gerencie as preferências do sistema e detalhes da sua conta" />
       <div className="p-6 space-y-8 max-w-5xl">
 
         {/* SEÇÃO 1: Aparência (ADR 0019) — preferência pessoal, colocada primeiro
-            para não depender de rolar a página até o fim de "Dados da Empresa"
-            para ser encontrada (achado de descobribilidade da auditoria de
-            UX/UI 2026-08-06, ver ADR 0019 §7). */}
+            para ser encontrada sem depender de rolar a página (achado de
+            descobribilidade da auditoria de UX/UI 2026-08-06, ver ADR 0019 §7). */}
         <section>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2.5 rounded-full bg-primary-tint">
@@ -530,90 +418,7 @@ export default function SettingsPage() {
           </Card>
         </section>
 
-        {/* SEÇÃO 2: Dados da Empresa */}
-        <section>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2.5 rounded-full bg-surface-2">
-              <Building2 className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-[28px] font-semibold text-fg">Dados da Empresa</h2>
-              <p className="text-[13px] text-fg-mute">
-                Informações que aparecerão em contratos e relatórios.
-              </p>
-            </div>
-          </div>
-
-          <Card>
-            {isLoadingCompany ? (
-              /* Estado de carregamento: exibe spinner centralizado */
-              <div className="flex flex-col items-center justify-center py-12 gap-3">
-                <Loader2 className="animate-spin text-primary" size={32} />
-                <p className="text-fg-mute text-[13px]">Carregando dados da empresa...</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    label="Nome da Empresa"
-                    value={companyData.company_name}
-                    onChange={(e) =>
-                      setCompanyData({ ...companyData, company_name: e.target.value })
-                    }
-                  />
-                  <Input
-                    label="CNPJ"
-                    value={companyData.cnpj}
-                    onChange={(e) =>
-                      setCompanyData({ ...companyData, cnpj: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    label="Telefone"
-                    value={companyData.phone}
-                    onChange={(e) =>
-                      setCompanyData({ ...companyData, phone: e.target.value })
-                    }
-                  />
-                  <Input
-                    label="E-mail"
-                    type="email"
-                    value={companyData.email}
-                    onChange={(e) =>
-                      setCompanyData({ ...companyData, email: e.target.value })
-                    }
-                  />
-                </div>
-                <Input
-                  label="Endereço Completo"
-                  value={companyData.address}
-                  onChange={(e) =>
-                    setCompanyData({ ...companyData, address: e.target.value })
-                  }
-                />
-
-                {/* Área de ações com feedback inline */}
-                <div className="flex items-center justify-between pt-2 gap-4">
-                  <FeedbackMessage feedback={companyFeedback} />
-                  <Button
-                    variant="primary"
-                    size="md"
-                    loading={isSavingCompany}
-                    onClick={handleSaveCompany}
-                    className="ml-auto flex-shrink-0"
-                  >
-                    <Save className="w-4 h-4" />
-                    Salvar Dados da Empresa
-                  </Button>
-                </div>
-              </div>
-            )}
-          </Card>
-        </section>
-
-        {/* SEÇÃO 3: Segurança — Alteração de Senha */}
+        {/* SEÇÃO 2: Segurança — Alteração de Senha */}
         <section>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2.5 rounded-full bg-info-bg border border-info">
@@ -674,7 +479,7 @@ export default function SettingsPage() {
           </Card>
         </section>
 
-        {/* SEÇÃO 4: Integração de Pagamento */}
+        {/* SEÇÃO 3: Integração de Pagamento */}
         <section>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2.5 rounded-full bg-info-bg border border-info">
@@ -734,7 +539,7 @@ export default function SettingsPage() {
           </Card>
         </section>
 
-        {/* SEÇÃO 5: Informações da Conta */}
+        {/* SEÇÃO 4: Informações da Conta */}
         <section>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2.5 rounded-full bg-warning-bg border border-warning">
