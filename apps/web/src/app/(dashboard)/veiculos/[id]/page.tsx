@@ -8,7 +8,6 @@ import {
   ACQUISITION_TYPE_LABELS,
   type VehiclePhotoSlot,
   type VehicleStatus,
-  applyPlateMask,
   formatRenavam,
   formatDocument,
   formatIMEI,
@@ -156,7 +155,7 @@ export default async function VehicleDetailPage({
         </Link>
         <span className="text-border">/</span>
         <h1 className="text-[18px] font-bold text-fg">
-          {moto.make} {moto.model} · {applyPlateMask(moto.license_plate)}
+          {moto.make} {moto.model} · {moto.license_plate}
         </h1>
         <div className="ml-auto flex items-center gap-3">
           <Link
@@ -201,7 +200,7 @@ export default async function VehicleDetailPage({
             <table className="w-full text-[13px]">
               <tbody>
                 {[
-                  ['Placa', moto.license_plate ? applyPlateMask(moto.license_plate) : null],
+                  ['Placa', moto.license_plate],
                   ['RENAVAM', moto.renavam ? formatRenavam(moto.renavam) : null],
                   ['Chassi', moto.chassis],
                   ['Marca', moto.make],

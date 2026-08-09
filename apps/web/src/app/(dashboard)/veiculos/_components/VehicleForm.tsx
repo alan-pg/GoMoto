@@ -173,7 +173,11 @@ function buildInitialForm(d?: Record<string, any>) {
   const ownerType = (d?.registered_owner_type ?? 'cnpj') as 'cpf' | 'cnpj'
   const ownerDoc  = d?.registered_owner_document ?? ''
   return {
-    license_plate:             d?.license_plate ? applyPlateMask(d.license_plate) : '',
+    // Valor já salvo no banco não passa por applyPlateMask — a máscara é
+    // progressiva (posição por posição) e feita pra digitação nova; reaplicada
+    // em cima de um valor já completo, ela descarta silenciosamente qualquer
+    // caractere fora do formato de placa real (ex.: placas de seed/teste).
+    license_plate:             d?.license_plate ?? '',
     renavam:                   d?.renavam ? applyRenavamMask(d.renavam) : '',
     make:                      d?.make ?? '',
     model:                     d?.model ?? '',
