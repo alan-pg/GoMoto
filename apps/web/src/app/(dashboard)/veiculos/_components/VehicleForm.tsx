@@ -34,7 +34,7 @@ import {
   useMaintenancePlan,
 } from '@gomoto/data'
 
-import { createVehicle, updateVehicle, deleteVehiclePhoto, saveVehicleObligations } from '../actions'
+import { createVehicle, updateVehicle, deleteVehiclePhoto, saveVehicleObligations, assignMaintenancePlan } from '../actions'
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -72,7 +72,7 @@ const NAV_ITEMS = [
   { id: 'sec-tracker',        label: 'Rastreador' },
   { id: 'sec-insurance',      label: 'Seguro' },
   { id: 'sec-photos',         label: 'Fotos' },
-  { id: 'sec-maintenance',    label: 'Manutenção', createOnly: true },
+  { id: 'sec-maintenance',    label: 'Manutenção' },
 ]
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -277,10 +277,16 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
     () => (maintenancePlansQuery.data ?? []).filter((p) => !p.archived_at),
     [maintenancePlansQuery.data],
   )
-  const [selectedPlanId, setSelectedPlanId] = useState<string>('')
+  // Plano já vinculado ao carregar o form — usado para saber se a troca é uma
+  // atribuição nova (bootstrap de itens) ou só realinhar o vínculo.
+  const originalPlanId = initialData?.maintenance_plan_id ?? ''
+  const [selectedPlanId, setSelectedPlanId] = useState<string>(originalPlanId)
   const selectedPlanQuery = useMaintenancePlan(selectedPlanId || undefined)
   const planItems = (selectedPlanQuery.data?.items ?? []) as MaintenancePlanItem[]
   const [bootstrapItems, setBootstrapItems] = useState<Record<string, string>>({})
+  // Só mostra os inputs de "última vez feito" quando o veículo ainda não tinha
+  // plano nenhum — trocar de plano existente não deve exigir/gerar bootstrap.
+  const showPlanBootstrap = !originalPlanId && !!selectedPlanId
 
   // ── Âncoras: rastrear seção ativa via IntersectionObserver
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
@@ -474,6 +480,19 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
           return
         }
 
+        // Plano de manutenção — só chama a action se a seleção mudou.
+        if (selectedPlanId !== originalPlanId) {
+          const planResult = await assignMaintenancePlan({
+            vehicle_id: vehicleId!,
+            plan_id: selectedPlanId || null,
+            bootstrap_items: showPlanBootstrap ? bootstrapItems : undefined,
+          })
+          if (!planResult.ok) {
+            setGlobalError(planResult.error.message)
+            return
+          }
+        }
+
         // Salvar obrigações anuais em edit mode
         const today = new Date().toISOString().split('T')[0]
         const oblRows = (Object.entries(obligations) as [ObligationType, ObligationEntry][])
@@ -565,34 +584,14 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
         if (error) warnings.push(`Obrigações anuais não salvas: ${error.message}`)
       }
 
-      // Bootstrap de manutenção
-      if (selectedPlanId && planItems.length > 0) {
-        const currentKm = form.km_entry ? parseInt(form.km_entry, 10) : 0
-        const maintenanceRecords: Record<string, unknown>[] = []
-        for (const item of planItems) {
-          if (planItemMetric(item) === 'km' && item.interval_km != null) {
-            const lastKm = bootstrapItems[item.id] ? parseInt(bootstrapItems[item.id], 10) : 0
-            const nextDueKm = lastKm + item.interval_km
-            maintenanceRecords.push({
-              tenant_id: tenantId, vehicle_id: newId, type: 'preventive',
-              description: item.name, predicted_km: nextDueKm, completed: false,
-              observations: nextDueKm <= currentKm ? `Vencida — aos ${nextDueKm.toLocaleString('pt-BR')} km` : lastKm === 0 ? 'Sem histórico anterior' : `Última aos ${lastKm.toLocaleString('pt-BR')} km`,
-            })
-          } else if (item.interval_days != null) {
-            const lastDateStr = bootstrapItems[item.id] || today
-            const nextDueDate = new Date(lastDateStr + 'T12:00:00')
-            nextDueDate.setDate(nextDueDate.getDate() + item.interval_days)
-            maintenanceRecords.push({
-              tenant_id: tenantId, vehicle_id: newId, type: 'inspection',
-              description: item.name, scheduled_date: nextDueDate.toISOString().split('T')[0],
-              completed: false, observations: `Última em ${lastDateStr === today ? 'data não informada' : lastDateStr}`,
-            })
-          }
-        }
-        if (maintenanceRecords.length > 0) {
-          const { error } = await supabase.from('maintenances').insert(maintenanceRecords)
-          if (error) warnings.push(`Bootstrap de manutenção não salvo: ${error.message}`)
-        }
+      // Plano de manutenção
+      if (selectedPlanId) {
+        const planResult = await assignMaintenancePlan({
+          vehicle_id: newId,
+          plan_id: selectedPlanId,
+          bootstrap_items: bootstrapItems,
+        })
+        if (!planResult.ok) warnings.push(`Plano de manutenção não atribuído: ${planResult.error.message}`)
       }
 
       if (warnings.length > 0) { setPostWarnings(warnings); return }
@@ -629,8 +628,6 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
   const backHref  = isEditMode ? `/veiculos/${vehicleId}` : '/veiculos'
   const backLabel = isEditMode ? (`${initialData?.make ?? ''} ${initialData?.model ?? ''}`.trim() || 'Veículo') : 'Veículos'
 
-  const navItems = NAV_ITEMS.filter((n) => !n.createOnly || !isEditMode)
-
   return (
     <div className="min-h-screen bg-bg">
 
@@ -662,7 +659,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
         {/* ── Sidebar de navegação ─────────────────────────────────────── */}
         <aside className="w-44 flex-shrink-0 hidden md:block">
           <nav className="sticky top-14 pt-8 pb-8 pr-4 space-y-0.5">
-            {navItems.map((item) => {
+            {NAV_ITEMS.map((item) => {
               const isActive = activeSection === item.id
               return (
                 <button
@@ -1212,94 +1209,115 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
             </div>
           </section>
 
-          {/* ══ Plano de Manutenção — somente criação ════════════════════ */}
-          {!isEditMode && (
-            <section
-              id="sec-maintenance"
-              ref={(el) => { sectionRefs.current['sec-maintenance'] = el }}
-            >
-              <SectionHeader title="Plano de Manutenção" hint="opcional" />
-              {maintenancePlansQuery.isLoading ? (
-                <div className="flex justify-center py-6">
-                  <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          {/* ══ Plano de Manutenção ══════════════════════════════════════ */}
+          <section
+            id="sec-maintenance"
+            ref={(el) => { sectionRefs.current['sec-maintenance'] = el }}
+          >
+            <SectionHeader title="Plano de Manutenção" hint="opcional" />
+            {maintenancePlansQuery.isLoading ? (
+              <div className="flex justify-center py-6">
+                <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : plans.length === 0 ? (
+              <div className="flex items-start gap-3 px-4 py-3 bg-pending-bg border border-pending/30 rounded-xl">
+                <AlertCircle className="w-4 h-4 text-pending flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[13px] text-pending">Nenhum plano cadastrado — você pode criar depois.</p>
+                  <Link href="/planos-manutencao" className="text-[12px] text-primary hover:underline">Criar plano →</Link>
                 </div>
-              ) : plans.length === 0 ? (
-                <div className="flex items-start gap-3 px-4 py-3 bg-pending-bg border border-pending/30 rounded-xl">
-                  <AlertCircle className="w-4 h-4 text-pending flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-[13px] text-pending">Nenhum plano cadastrado — você pode criar depois.</p>
-                    <Link href="/planos-manutencao" className="text-[12px] text-primary hover:underline">Criar plano →</Link>
-                  </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <label className={labelCls}>Plano atribuído</label>
+                  <select
+                    className={`${inputCls} max-w-sm`}
+                    value={selectedPlanId}
+                    onChange={(e) => setSelectedPlanId(e.target.value)}
+                  >
+                    <option value="">Sem plano{isEditMode ? '' : ' (atribuir depois)'}</option>
+                    {plans.map((p) => (
+                      <option key={p.id} value={p.id}>{p.is_default ? `${p.name} (padrão)` : p.name}</option>
+                    ))}
+                  </select>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  <div>
-                    <label className={labelCls}>Plano atribuído</label>
-                    <select
-                      className={`${inputCls} max-w-sm`}
-                      value={selectedPlanId}
-                      onChange={(e) => setSelectedPlanId(e.target.value)}
-                    >
-                      <option value="">Sem plano (atribuir depois)</option>
-                      {plans.map((p) => (
-                        <option key={p.id} value={p.id}>{p.is_default ? `${p.name} (padrão)` : p.name}</option>
-                      ))}
-                    </select>
-                  </div>
 
-                  {selectedPlanId && (
-                    <>
+                {isEditMode && originalPlanId && selectedPlanId !== originalPlanId && (
+                  <div className="px-3 py-2.5 bg-info-bg border border-info/30 rounded-lg">
+                    <p className="text-[12px] text-fg-mute">
+                      {selectedPlanId
+                        ? 'Trocar o plano atualiza só o vínculo — manutenções já agendadas não mudam automaticamente.'
+                        : 'O veículo ficará sem plano de manutenção vinculado.'}
+                    </p>
+                  </div>
+                )}
+
+                {selectedPlanId && (
+                  <>
+                    {showPlanBootstrap && (
                       <div className="px-3 py-2.5 bg-primary-tint border border-primary/30 rounded-lg">
                         <p className="text-[12px] text-fg-mute">
                           Informe a <strong className="text-fg">última vez</strong> que cada item foi realizado. Deixe em branco se não souber — será marcado para revisão imediata.
                         </p>
                       </div>
-                      {selectedPlanQuery.isLoading ? (
-                        <div className="flex justify-center py-4">
-                          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                        </div>
-                      ) : planItems.length === 0 ? (
-                        <p className="text-[13px] text-fg-mute">Este plano ainda não tem itens.</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {planItems.map((item) => {
-                            const metric = planItemMetric(item)
-                            return (
-                              <div key={item.id} className="flex items-center gap-4 bg-divider border border-border rounded-xl px-4 py-3">
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-[13px] font-bold text-fg truncate">{item.name}</p>
-                                  <p className="text-[11px] text-fg-mute">{planItemHint(item)}</p>
-                                </div>
-                                {metric === 'km' ? (
-                                  <div className="relative flex-shrink-0">
-                                    <input
-                                      type="number"
-                                      placeholder="KM da última troca"
-                                      value={bootstrapItems[item.id] ?? ''}
-                                      onChange={(e) => setBootstrapItems((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                                      className="w-36 h-8 px-3 pr-8 rounded-lg bg-surface-2 border border-border text-[12px] text-fg placeholder:text-fg-mute outline-none focus:border-primary text-right"
-                                    />
-                                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-fg-mute font-bold pointer-events-none">KM</span>
-                                  </div>
-                                ) : (
+                    )}
+                    {selectedPlanQuery.isLoading ? (
+                      <div className="flex justify-center py-4">
+                        <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                      </div>
+                    ) : planItems.length === 0 ? (
+                      <p className="text-[13px] text-fg-mute">Este plano ainda não tem itens.</p>
+                    ) : !showPlanBootstrap ? (
+                      <div className="space-y-2">
+                        {planItems.map((item) => (
+                          <div key={item.id} className="flex items-center gap-4 bg-divider border border-border rounded-xl px-4 py-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[13px] font-bold text-fg truncate">{item.name}</p>
+                              <p className="text-[11px] text-fg-mute">{planItemHint(item)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {planItems.map((item) => {
+                          const metric = planItemMetric(item)
+                          return (
+                            <div key={item.id} className="flex items-center gap-4 bg-divider border border-border rounded-xl px-4 py-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[13px] font-bold text-fg truncate">{item.name}</p>
+                                <p className="text-[11px] text-fg-mute">{planItemHint(item)}</p>
+                              </div>
+                              {metric === 'km' ? (
+                                <div className="relative flex-shrink-0">
                                   <input
-                                    type="date"
+                                    type="number"
+                                    placeholder="KM da última troca"
                                     value={bootstrapItems[item.id] ?? ''}
                                     onChange={(e) => setBootstrapItems((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                                    className="w-36 h-8 px-3 rounded-lg bg-surface-2 border border-border text-[12px] text-fg outline-none focus:border-primary flex-shrink-0"
+                                    className="w-36 h-8 px-3 pr-8 rounded-lg bg-surface-2 border border-border text-[12px] text-fg placeholder:text-fg-mute outline-none focus:border-primary text-right"
                                   />
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-            </section>
-          )}
+                                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-fg-mute font-bold pointer-events-none">KM</span>
+                                </div>
+                              ) : (
+                                <input
+                                  type="date"
+                                  value={bootstrapItems[item.id] ?? ''}
+                                  onChange={(e) => setBootstrapItems((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                  className="w-36 h-8 px-3 rounded-lg bg-surface-2 border border-border text-[12px] text-fg outline-none focus:border-primary flex-shrink-0"
+                                />
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </section>
 
           {/* ── Erro global ────────────────────────────────────────────── */}
           {globalError && (

@@ -477,7 +477,15 @@ export default async function VehicleDetailPage({
 
         {/* Plano de manutenção */}
         <section>
-          <h2 className="text-[14px] font-bold text-primary mb-3">Plano de Manutenção</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[14px] font-bold text-primary">Plano de Manutenção</h2>
+            <Link
+              href={`/veiculos/${id}/editar#sec-maintenance`}
+              className="text-[12px] text-primary hover:underline"
+            >
+              {maintenancePlan ? 'Trocar plano' : 'Atribuir plano'}
+            </Link>
+          </div>
           <div className="bg-surface rounded-xl overflow-hidden">
             {maintenancePlan ? (
               <table className="w-full text-[13px]">

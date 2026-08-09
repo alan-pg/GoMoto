@@ -207,12 +207,13 @@ export default function VehiclesPage() {
                         <div className="flex items-center gap-2">
                           <p className="font-medium text-fg">{vehicle.make} {vehicle.model}</p>
                           {!vehicle.maintenance_plan_id && (
-                            <span
-                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium text-pending bg-pending-bg border border-pending/40"
-                              title="Sem plano de manutenção atribuído"
+                            <Link
+                              href={`/veiculos/${vehicle.id}/editar#sec-maintenance`}
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium text-pending bg-pending-bg border border-pending/40 hover:underline"
+                              title="Atribuir plano de manutenção"
                             >
                               Sem plano
-                            </span>
+                            </Link>
                           )}
                         </div>
                       </td>

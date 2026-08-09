@@ -458,6 +458,16 @@ getWarnThreshold(planItem, tenantSettings): number
 - Se o tenant tem `is_default=true` em algum plano, ele é pré-selecionado.
 - Se tenant não tem plano nenhum, o passo exige criação (link "Criar plano agora →" abre `/planos-manutencao` em nova aba ou modal).
 
+> ✏️ **Revisão 2026-08-09** — dois gaps encontrados e corrigidos em `/veiculos`:
+> 1. **Bug**: o wizard de criação selecionava o plano e fazia o bootstrap de `maintenances`, mas nunca persistia `vehicles.maintenance_plan_id` (campo nem existia no `VehicleBaseSchema`) — o veículo ficava com o badge "Sem plano" pra sempre.
+> 2. **Gap**: `/veiculos/[id]/editar` não tinha nenhuma forma de atribuir plano a um veículo sem plano, nem de trocar o plano de um veículo que já tinha um — a seção "Manutenção" só existia no modo criação.
+>
+> Fix: nova action dedicada `assignMaintenancePlan` (`apps/web/.../veiculos/actions.ts`) + schema `AssignMaintenancePlanSchema` e função pura `buildMaintenanceBootstrapRows` em `@gomoto/core`. A seção "Plano de Manutenção" do `VehicleForm` agora também aparece no modo edição: troca de plano só atualiza o vínculo (sem re-bootstrap, pra não gerar `maintenances` indesejadas); atribuir um plano a um veículo que não tinha nenhum reaproveita o mesmo fluxo de bootstrap do cadastro. Link "Trocar plano"/"Atribuir plano" adicionado em `/veiculos/[id]` e o badge "Sem plano" em `/veiculos` virou link direto pra edição.
+>
+> Bônus achado ao testar: os IDs fixos de `maintenance_plans` no `supabase/seed.sql` (`10000000-0000-0000-0000-00000000000X`) não eram UUIDs v4 válidos (nibble de versão `0`), o que quebrava qualquer validação `.uuid()` do Zod contra esses planos (incluindo `createMaintenancePlanItem` pré-existente). Corrigido para `10000000-0000-4000-8000-00000000000X`.
+>
+> **Segundo bug achado ao testar (mesmo dia)**: salvar o formulário de edição de veículo (por qualquer motivo, inclusive só trocar o plano) corrompia a placa. `applyPlateMask` (`packages/core/src/masks.ts`) é uma máscara progressiva pra digitação — só aceita caracteres em posições específicas do formato de placa real. Ela estava sendo reaplicada em cima do valor **já salvo no banco**, tanto no pré-preenchimento do form quanto na tela de detalhe. Placas fora do formato real (as de seed, `TE1-0001` etc.) tinham os dígitos descartados posição a posição, virando `"TE"` — e como `vehicles_tenant_license_plate_key` é único por `(tenant_id, license_plate)`, a segunda moto editada no mesmo tenant colidia com a primeira, gerando "Erro ao atualizar veículo". Fix: `VehicleForm` (pré-preenchimento) e `/veiculos/[id]` (exibição) pararam de rodar o valor já persistido por `applyPlateMask` — a máscara continua ativa só na digitação nova (`onChange` e import de CRLV).
+
 ### 6.8 Bootstrap de `maintenances` ao criar moto
 
 Hoje o passo 3 do wizard pede ao operador "último KM/data de cada item padrão". Refatorado:

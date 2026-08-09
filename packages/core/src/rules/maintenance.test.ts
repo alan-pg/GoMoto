@@ -5,6 +5,7 @@ import {
   calculateMaintenanceStatus,
   calculateNextMaintenance,
   filterMaintenancesInRentalPeriod,
+  buildMaintenanceBootstrapRows,
 } from './maintenance'
 
 describe('KM_POR_DIA', () => {
@@ -412,5 +413,61 @@ describe('filterMaintenancesInRentalPeriod', () => {
     expect(
       filterMaintenancesInRentalPeriod(maintenances, { vehicle_id: 'v1', start_date: null, end_date: '2026-06-30' }),
     ).toEqual([])
+  })
+})
+
+describe('buildMaintenanceBootstrapRows', () => {
+  const itemKm = { id: 'i1', name: 'Troca de óleo', interval_km: 1000, interval_days: null }
+  const itemDays = { id: 'i2', name: 'Revisão de freios', interval_km: null, interval_days: 180 }
+
+  it('item por KM sem histórico informado — vence a partir de 0 e usa currentKm para status', () => {
+    const [row] = buildMaintenanceBootstrapRows([itemKm], {}, 500, '2026-08-01')
+    expect(row).toMatchObject({
+      type: 'preventive',
+      description: 'Troca de óleo',
+      predicted_km: 1000,
+      completed: false,
+      observations: 'Sem histórico anterior',
+    })
+  })
+
+  it('item por KM com histórico vencido antes do currentKm — marca como vencida', () => {
+    const [row] = buildMaintenanceBootstrapRows([itemKm], { i1: '200' }, 1500, '2026-08-01')
+    expect(row.predicted_km).toBe(1200)
+    expect(row.observations).toContain('Vencida')
+  })
+
+  it('item por KM com histórico ainda não vencido — mostra a última troca', () => {
+    const [row] = buildMaintenanceBootstrapRows([itemKm], { i1: '800' }, 900, '2026-08-01')
+    expect(row.predicted_km).toBe(1800)
+    expect(row.observations).toBe('Última aos 800 km')
+  })
+
+  it('item por dias sem histórico — agenda a partir de hoje', () => {
+    const [row] = buildMaintenanceBootstrapRows([itemDays], {}, 0, '2026-08-01')
+    expect(row).toMatchObject({
+      type: 'inspection',
+      description: 'Revisão de freios',
+      scheduled_date: '2027-01-28',
+      completed: false,
+      observations: 'Última em data não informada',
+    })
+  })
+
+  it('item por dias com histórico informado — soma o intervalo a partir da última data', () => {
+    const [row] = buildMaintenanceBootstrapRows([itemDays], { i2: '2026-06-01' }, 0, '2026-08-01')
+    expect(row.scheduled_date).toBe('2026-11-28')
+    expect(row.observations).toBe('Última em 2026-06-01')
+  })
+
+  it('mistura itens de KM e dias, preservando a ordem', () => {
+    const rows = buildMaintenanceBootstrapRows([itemKm, itemDays], {}, 0, '2026-08-01')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]?.type).toBe('preventive')
+    expect(rows[1]?.type).toBe('inspection')
+  })
+
+  it('lista de itens vazia retorna array vazio', () => {
+    expect(buildMaintenanceBootstrapRows([], {}, 0, '2026-08-01')).toEqual([])
   })
 })

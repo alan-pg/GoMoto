@@ -79,6 +79,14 @@ export const VehicleStatusTransitionSchema = z.object({
   new_status: VehicleStatusEnum,
 })
 
+export const AssignMaintenancePlanSchema = z.object({
+  vehicle_id: z.string().uuid(),
+  plan_id: z.string().uuid().nullable(),
+  // último KM/data informado por item do plano, só usado quando o veículo
+  // não tinha plano nenhum antes (bootstrap) — chave é o id do item.
+  bootstrap_items: z.record(z.string(), z.string()).optional(),
+})
+
 export const VehiclePhotoUpsertSchema = z.object({
   vehicle_id: z.string().uuid(),
   slot:       VehiclePhotoSlotEnum,

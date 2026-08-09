@@ -6,6 +6,8 @@ import {
   VehicleSchema,
   VehicleBaseSchema,
   VehicleStatusTransitionSchema,
+  AssignMaintenancePlanSchema,
+  buildMaintenanceBootstrapRows,
   type VehicleStatus,
   type VehiclePhotoSlot,
   type ActionResult,
@@ -349,6 +351,89 @@ export async function saveVehicleObligations(
   await logAction({ action: 'update', table: 'vehicle_obligations', recordId: vehicleId })
   revalidatePath(`/veiculos/${vehicleId}`)
   return { ok: true, data: undefined }
+}
+
+export async function assignMaintenancePlan(
+  input: unknown,
+): Promise<ActionResult<{ id: string; bootstrapped: number }>> {
+  const { supabase, user, tenantId } = await getAuthenticatedContext()
+
+  if (!user) {
+    return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+  }
+  if (!tenantId) {
+    return { ok: false, error: { code: 'FORBIDDEN', message: 'Tenant não resolvido' } }
+  }
+
+  const parsed = AssignMaintenancePlanSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Dados inválidos' } }
+  }
+  const { vehicle_id: vehicleId, plan_id: planId, bootstrap_items: bootstrapItems } = parsed.data
+
+  const { data: current, error: fetchError } = await supabase
+    .from('vehicles')
+    .select('id, maintenance_plan_id, km_entry')
+    .eq('id', vehicleId)
+    .single()
+
+  if (fetchError || !current) {
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Veículo não encontrado', field: 'id' } }
+  }
+
+  const { error: updateError } = await supabase
+    .from('vehicles')
+    .update({ maintenance_plan_id: planId })
+    .eq('id', vehicleId)
+
+  if (updateError) {
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Erro ao atualizar plano de manutenção' } }
+  }
+
+  let bootstrapped = 0
+  if (planId && bootstrapItems) {
+    const { data: items } = await supabase
+      .from('maintenance_plan_items')
+      .select('id, name, interval_km, interval_days')
+      .eq('plan_id', planId)
+
+    if (items && items.length > 0) {
+      const today = new Date().toISOString().split('T')[0]
+      const rows = buildMaintenanceBootstrapRows(items, bootstrapItems, current.km_entry ?? 0, today)
+
+      // Dedup: não recria manutenção aberta com a mesma descrição (idempotência
+      // se a action for chamada duas vezes para o mesmo veículo).
+      const { data: existing } = await supabase
+        .from('maintenances')
+        .select('description')
+        .eq('vehicle_id', vehicleId)
+        .eq('completed', false)
+      const skip = new Set((existing ?? []).map((m) => m.description))
+
+      const toInsert = rows
+        .filter((r) => !skip.has(r.description))
+        .map((r) => ({ ...r, tenant_id: tenantId, vehicle_id: vehicleId }))
+
+      if (toInsert.length > 0) {
+        const { error: insertError } = await supabase.from('maintenances').insert(toInsert)
+        if (!insertError) bootstrapped = toInsert.length
+      }
+    }
+  }
+
+  await logAction({
+    action: 'update',
+    table: 'vehicles',
+    recordId: vehicleId,
+    oldData: { maintenance_plan_id: current.maintenance_plan_id },
+    newData: { maintenance_plan_id: planId },
+  })
+
+  revalidatePath('/veiculos')
+  revalidatePath(`/veiculos/${vehicleId}`)
+  revalidatePath('/manutencao')
+
+  return { ok: true, data: { id: vehicleId, bootstrapped } }
 }
 
 export async function deleteVehiclePhoto(
