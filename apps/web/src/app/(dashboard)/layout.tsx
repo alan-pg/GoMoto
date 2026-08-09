@@ -26,6 +26,21 @@ function TenantSuspendedPage({ tenantName }: { tenantName: string }) {
   )
 }
 
+/** RF-021/RN-009 (Spec 0011) — acesso revogado pelo Owner/Admin do tenant. */
+function AccessRevokedPage() {
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-bg">
+      <div className="text-center max-w-md p-8">
+        <h1 className="text-[20px] font-semibold text-fg mb-2">Acesso revogado</h1>
+        <p className="text-fg-mute text-[14px] mt-2">
+          Seu acesso a esta empresa foi revogado. Entre em contato com o responsável pela conta
+          para restaurar o acesso.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Separação dura de planos: platform_admin é "dono do sistema" e NÃO
  * acessa cockpit de tenant. Se o caller é platform_admin, manda direto
@@ -45,7 +60,18 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
   if (isMobileUserAgent(headers().get('user-agent'))) redirect('/mobile/vistorias')
 
   const tenantId = await getCurrentTenantId(supabase)
-  if (!tenantId) redirect('/login')
+  if (!tenantId) {
+    // getCurrentTenantId() devolve null tanto pra "nunca foi membro" quanto
+    // pra "acesso revogado" — get_user_tenants()/a RLS de tenant_members já
+    // filtram status='active', então um revogado não enxerga a própria
+    // linha por essa query. get_own_membership_status() é SECURITY DEFINER
+    // e bypassa isso de propósito, só pra distinguir os dois casos aqui
+    // (Spec 0011 §2.1/RF-021).
+    const { data: membership } = await supabase.rpc('get_own_membership_status')
+    const own = (membership as { tenant_id: string; status: string }[] | null)?.[0]
+    if (own?.status === 'revoked') return <AccessRevokedPage />
+    redirect('/login')
+  }
 
   const [{ data: tenant }, { data: { user } }] = await Promise.all([
     supabase.from('tenants').select('id, name, suspended_at').eq('id', tenantId).single(),

@@ -125,8 +125,15 @@ export async function middleware(request: NextRequest) {
    * @description Identifica rotas que devem ser públicas mesmo sem sessão: callback de
    * autenticação (`/auth/*`) e a landing page institucional (`/home`). `/` continua
    * gated — segue redirecionando pra `/login`/`/dashboard` conforme o papel do usuário.
+   * `/definir-senha` (Spec 0011 §3.5) também precisa ser pública: o link de
+   * convite entrega a sessão via hash da URL (#access_token=...), que o
+   * browser nunca envia ao servidor — o middleware roda antes do client JS
+   * processar o hash, então `user` ainda é null nesse primeiro request.
    */
-  const isPublicPath = request.nextUrl.pathname.startsWith('/auth') || request.nextUrl.pathname === '/home';
+  const isPublicPath =
+    request.nextUrl.pathname.startsWith('/auth') ||
+    request.nextUrl.pathname === '/home' ||
+    request.nextUrl.pathname === '/definir-senha';
 
   const pathname = request.nextUrl.pathname;
 
