@@ -10,7 +10,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Bike, Eye, EyeOff } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
@@ -20,7 +19,6 @@ import { SetInitialPasswordSchema } from '@gomoto/core'
 type Status = 'checking' | 'ready' | 'invalid'
 
 export default function DefinirSenhaPage() {
-  const router = useRouter()
   const [status, setStatus] = useState<Status>('checking')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -80,9 +78,12 @@ export default function DefinirSenhaPage() {
       return
     }
 
+    // Navegação "dura" (não router.push) pelo mesmo motivo do login: o
+    // layout raiz só resolve o tema salvo (ADR 0019) numa nova requisição
+    // ao servidor, senão herda o tema default cacheado desta tela.
     // O layout do dashboard já resolve platform_admin vs. tenant_member e
     // manda pro lugar certo (lógica existente em (dashboard)/layout.tsx).
-    router.push('/dashboard')
+    window.location.href = '/dashboard'
   }
 
   return (

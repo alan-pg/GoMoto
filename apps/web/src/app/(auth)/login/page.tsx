@@ -18,8 +18,6 @@
 
 // Hooks do React para gerenciamento de estado local.
 import { useState } from 'react'
-// Hook de navegação do Next.js para redirecionamento no lado do cliente.
-import { useRouter } from 'next/navigation'
 // Cliente Supabase configurado para operações no lado do navegador (Client Side).
 import { createClient } from '@/lib/supabase/client'
 // Componentes de interface reaproveitáveis (UI Library).
@@ -36,11 +34,6 @@ import { Bike } from 'lucide-react'
  * @returns {JSX.Element} A interface completa da tela de login.
  */
 export default function LoginPage() {
-  /**
-   * Instância do router para possibilitar navegação programática.
-   */
-  const router = useRouter()
-
   /**
    * @state email
    * @description Armazena o valor do campo de e-mail digitado pelo usuário.
@@ -102,7 +95,14 @@ export default function LoginPage() {
     // Separação de planos: platform_admin vai pro control plane;
     // tenant_member vai pro cockpit. Cada papel só vê o seu universo.
     const { data: platformRole } = await supabase.rpc('get_platform_role')
-    router.push(platformRole === 'owner' || platformRole === 'operator' ? '/admin/dashboard' : '/dashboard')
+
+    // Navegação "dura" (não router.push): o layout raiz só resolve o tema
+    // salvo (ADR 0019) via uma nova requisição ao servidor. router.push é
+    // navegação client-side e reaproveita o layout raiz já cacheado da
+    // tela de login (tema default, sem sessão) — o tema real só aparecia
+    // depois de um F5. window.location força o layout raiz a re-executar
+    // com a sessão recém-criada antes do primeiro paint.
+    window.location.href = platformRole === 'owner' || platformRole === 'operator' ? '/admin/dashboard' : '/dashboard'
   }
 
   return (
