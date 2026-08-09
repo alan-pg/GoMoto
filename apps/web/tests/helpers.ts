@@ -279,3 +279,87 @@ export async function waitForPageLoad(page: Page): Promise<void> {
     await spinner.waitFor({ state: 'hidden', timeout: 15_000 })
   }
 }
+
+// ---------------------------------------------------------------------------
+// Helpers — Spec 0011 (Módulo de Usuários e Controle de Acesso)
+// Usam service_role (Admin API) direto — as RPCs/Server Actions da feature
+// já são o alvo dos testes; setup/cleanup não deve passar por elas.
+// ---------------------------------------------------------------------------
+
+let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+
+export function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!url || !key) throw new Error('NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não definidos')
+    _supabaseAdmin = createClient(url, key, { auth: { persistSession: false } })
+  }
+  return _supabaseAdmin
+}
+
+/**
+ * Cria um auth.user + vínculo em tenant_members direto via service_role
+ * (bypassa a UI/RPC de convite — isso é setup, não o alvo do teste).
+ * Retorna id/email/memberId para os specs usarem em asserts e no afterAll.
+ */
+export async function createTestTenantMember(
+  role: 'owner' | 'admin' | 'operator' | 'viewer',
+  status: 'active' | 'revoked' = 'active',
+): Promise<{ userId: string; memberId: string; email: string }> {
+  const admin = getSupabaseAdmin()
+  const tenantId = await getTestTenantId()
+  const email = `e2e-${role}-${uniqueSuffix(9)}@teste.com`
+
+  const { data: created, error: createErr } = await admin.auth.admin.createUser({
+    email,
+    password: '12345678',
+    email_confirm: true,
+    user_metadata: { name: `${TEST_TAG} ${role}` },
+  })
+  if (createErr || !created.user) throw new Error(`Erro ao criar usuário de teste: ${createErr?.message}`)
+
+  const { data: member, error: memberErr } = await admin
+    .from('tenant_members')
+    .insert({ tenant_id: tenantId, user_id: created.user.id, role, status })
+    .select('id')
+    .single()
+  if (memberErr) throw new Error(`Erro ao vincular tenant_member de teste: ${memberErr.message}`)
+
+  return { userId: created.user.id, memberId: member.id as string, email }
+}
+
+/** Remove um usuário de teste criado por createTestTenantMember (e o vínculo, via CASCADE). */
+export async function deleteTestAuthUser(userId: string): Promise<void> {
+  if (!userId) return
+  await getSupabaseAdmin().auth.admin.deleteUser(userId).catch(() => {})
+}
+
+/** Remove um platform_admin de teste (vínculo + auth.user). */
+export async function deleteTestPlatformAdmin(userId: string): Promise<void> {
+  if (!userId) return
+  const admin = getSupabaseAdmin()
+  await admin.from('platform_admins').delete().eq('user_id', userId)
+  await admin.auth.admin.deleteUser(userId).catch(() => {})
+}
+
+/** Cria um auth.user + vínculo em platform_admins direto via service_role. */
+export async function createTestPlatformAdmin(
+  role: 'owner' | 'operator',
+): Promise<{ userId: string; email: string }> {
+  const admin = getSupabaseAdmin()
+  const email = `e2e-platform-${role}-${uniqueSuffix(9)}@teste.com`
+
+  const { data: created, error: createErr } = await admin.auth.admin.createUser({
+    email,
+    password: '12345678',
+    email_confirm: true,
+    user_metadata: { name: `${TEST_TAG} platform ${role}` },
+  })
+  if (createErr || !created.user) throw new Error(`Erro ao criar platform_admin de teste: ${createErr?.message}`)
+
+  const { error: linkErr } = await admin.from('platform_admins').insert({ user_id: created.user.id, role })
+  if (linkErr) throw new Error(`Erro ao vincular platform_admin de teste: ${linkErr.message}`)
+
+  return { userId: created.user.id, email }
+}
