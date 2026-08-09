@@ -1,15 +1,16 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Plus, ShieldCheck, ShieldOff, Trash2, UserPlus } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, Plus, ShieldCheck, ShieldOff, Trash2, UserPlus } from 'lucide-react'
 
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import {
-  addPlatformAdmin,
+  createPlatformAdmin,
   removePlatformAdmin,
+  resetPlatformAdminPassword,
   setPlatformAdminRole,
 } from './actions'
 
@@ -22,9 +23,9 @@ export type PlatformAdminRow = {
   created_by_email: string | null
 }
 
-type AddForm = { email: string; role: 'owner' | 'operator' }
+type AddForm = { name: string; email: string; role: 'owner' | 'operator'; password: string; confirmPassword: string }
 
-const EMPTY_FORM: AddForm = { email: '', role: 'operator' }
+const EMPTY_FORM: AddForm = { name: '', email: '', role: 'operator', password: '', confirmPassword: '' }
 
 type Props = {
   initialRows: PlatformAdminRow[]
@@ -43,8 +44,13 @@ export function PlatformAdminsClient({
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState<AddForm>(EMPTY_FORM)
   const [formError, setFormError] = useState<string | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [removeError, setRemoveError] = useState<string | null>(null)
+  const [resettingId, setResettingId] = useState<string | null>(null)
+  const [resetForm, setResetForm] = useState({ password: '', confirmPassword: '' })
+  const [resetError, setResetError] = useState<string | null>(null)
+  const [showResetPassword, setShowResetPassword] = useState(false)
   const [topError, setTopError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
@@ -56,14 +62,19 @@ export function PlatformAdminsClient({
   function openAdd() {
     setForm(EMPTY_FORM)
     setFormError(null)
+    setShowPassword(false)
     setShowAdd(true)
   }
 
   function handleAdd() {
     setFormError(null)
     setTopError(null)
+    if (form.password !== form.confirmPassword) {
+      setFormError('A confirmação não coincide com a senha')
+      return
+    }
     startTransition(async () => {
-      const result = await addPlatformAdmin(form.email, form.role)
+      const result = await createPlatformAdmin(form)
       if ('error' in result && result.error) {
         setFormError(result.error)
         return
@@ -111,7 +122,32 @@ export function PlatformAdminsClient({
     })
   }
 
+  function openReset(row: PlatformAdminRow) {
+    setResettingId(row.user_id)
+    setResetForm({ password: '', confirmPassword: '' })
+    setResetError(null)
+    setShowResetPassword(false)
+  }
+
+  function handleReset() {
+    if (!resettingId) return
+    setResetError(null)
+    if (resetForm.password !== resetForm.confirmPassword) {
+      setResetError('A confirmação não coincide com a senha')
+      return
+    }
+    startTransition(async () => {
+      const result = await resetPlatformAdminPassword(resettingId, { password: resetForm.password })
+      if ('error' in result && result.error) {
+        setResetError(result.error)
+        return
+      }
+      setResettingId(null)
+    })
+  }
+
   const target = removingId ? rows.find((r) => r.user_id === removingId) ?? null : null
+  const resetTarget = resettingId ? rows.find((r) => r.user_id === resettingId) ?? null : null
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
@@ -184,6 +220,16 @@ export function PlatformAdminsClient({
                     <td className="px-4 py-3 text-right">
                       <div className="inline-flex gap-2">
                         {isOwner ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={pending}
+                            onClick={() => openReset(row)}
+                          >
+                            <KeyRound className="w-3.5 h-3.5 mr-1" /> Resetar senha
+                          </Button>
+                        ) : null}
+                        {isOwner ? (
                           row.role === 'owner' ? (
                             <Button
                               variant="ghost"
@@ -234,17 +280,45 @@ export function PlatformAdminsClient({
 
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Adicionar admin">
         <div className="space-y-4">
-          <p className="text-[13px] text-fg-soft">
-            O usuário precisa já existir em <code>auth.users</code> (cadastre antes via Supabase
-            Studio ou signup). Buscamos pelo email exato.
-          </p>
+          <Input
+            label="Nome"
+            autoFocus
+            value={form.name}
+            onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+            placeholder="Nome completo"
+            disabled={pending}
+          />
           <Input
             label="Email"
             type="email"
-            autoFocus
             value={form.email}
             onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
             placeholder="pessoa@gomoto.dev"
+            disabled={pending}
+          />
+          <div className="relative">
+            <Input
+              label="Senha"
+              type={showPassword ? 'text' : 'password'}
+              value={form.password}
+              onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
+              hint="Mínimo de 8 caracteres."
+              disabled={pending}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute right-3 top-[38px] text-fg-mute hover:text-fg transition-colors focus:outline-none"
+              title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
+          <Input
+            label="Confirmar senha"
+            type={showPassword ? 'text' : 'password'}
+            value={form.confirmPassword}
+            onChange={(e) => setForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
             disabled={pending}
           />
           <div>
@@ -285,7 +359,16 @@ export function PlatformAdminsClient({
             <Button variant="ghost" onClick={() => setShowAdd(false)} disabled={pending}>
               Cancelar
             </Button>
-            <Button onClick={handleAdd} disabled={pending || form.email.trim().length === 0}>
+            <Button
+              onClick={handleAdd}
+              disabled={
+                pending ||
+                form.name.trim().length < 2 ||
+                form.email.trim().length === 0 ||
+                form.password.length < 8 ||
+                form.confirmPassword.length === 0
+              }
+            >
               {pending ? 'Adicionando…' : 'Adicionar'}
             </Button>
           </div>
@@ -319,6 +402,56 @@ export function PlatformAdminsClient({
             </Button>
             <Button variant="danger" onClick={handleRemove} disabled={pending}>
               {pending ? 'Removendo…' : 'Remover'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!resettingId} onClose={() => setResettingId(null)} title="Resetar senha">
+        <div className="space-y-4">
+          {resetTarget ? (
+            <div className="rounded-lg border border-divider bg-surface px-3 py-2 text-[14px] text-fg">
+              <div className="font-medium">{resetTarget.name ?? resetTarget.email}</div>
+              <div className="text-[12px] text-fg-mute">{resetTarget.email}</div>
+            </div>
+          ) : null}
+          <div className="relative">
+            <Input
+              label="Nova senha"
+              type={showResetPassword ? 'text' : 'password'}
+              autoFocus
+              value={resetForm.password}
+              onChange={(e) => setResetForm((prev) => ({ ...prev, password: e.target.value }))}
+              hint="Mínimo de 8 caracteres."
+              disabled={pending}
+            />
+            <button
+              type="button"
+              onClick={() => setShowResetPassword((v) => !v)}
+              className="absolute right-3 top-[38px] text-fg-mute hover:text-fg transition-colors focus:outline-none"
+              title={showResetPassword ? 'Ocultar senha' : 'Mostrar senha'}
+            >
+              {showResetPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
+          <Input
+            label="Confirmar nova senha"
+            type={showResetPassword ? 'text' : 'password'}
+            value={resetForm.confirmPassword}
+            onChange={(e) => setResetForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
+            disabled={pending}
+          />
+          {resetError ? (
+            <div className="rounded-lg bg-danger-bg text-danger border border-danger px-3 py-2 text-[13px]">
+              {resetError}
+            </div>
+          ) : null}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={() => setResettingId(null)} disabled={pending}>
+              Cancelar
+            </Button>
+            <Button onClick={handleReset} disabled={pending || resetForm.password.length < 8}>
+              {pending ? 'Resetando…' : 'Resetar senha'}
             </Button>
           </div>
         </div>
