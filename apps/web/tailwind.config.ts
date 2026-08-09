@@ -55,6 +55,22 @@ const config: Config = {
       width: {
         sidebar: "240px",
       },
+      // Card/modal de extração por IA (Spec 0012) — "respiração" do ícone
+      // Sparkles e sweep indeterminado da barra de progresso.
+      keyframes: {
+        "ai-pulse": {
+          "0%, 100%": { transform: "scale(1)", opacity: "1" },
+          "50%": { transform: "scale(1.08)", opacity: ".85" },
+        },
+        shimmer: {
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(350%)" },
+        },
+      },
+      animation: {
+        "ai-pulse": "ai-pulse 1.8s ease-in-out infinite",
+        shimmer: "shimmer 1.6s ease-in-out infinite",
+      },
     },
   },
   plugins: [],

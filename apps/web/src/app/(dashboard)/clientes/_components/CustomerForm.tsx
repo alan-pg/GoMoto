@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { AlertCircle, Upload, X, Loader2, MapPin } from 'lucide-react'
+import { AlertCircle, Upload, X, Loader2, MapPin, Sparkles } from 'lucide-react'
 
 import {
   applyCpfMask, normalizeCpf,
@@ -13,9 +13,10 @@ import {
 } from '@gomoto/core'
 import { useSupabaseContext, useRequiredTenantId } from '@gomoto/data'
 import { useCepLookup } from '@/hooks/useCepLookup'
+import { DocumentImportCard } from '@/components/documents/DocumentImportCard'
 
-import { createCustomer, updateCustomer } from '../actions'
-import type { Customer } from '@gomoto/core'
+import { createCustomer, updateCustomer, extractCnhFields } from '../actions'
+import { ExtractDocumentFileSchema, type Customer, type CnhFields } from '@gomoto/core'
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -28,6 +29,7 @@ const CNH_CATEGORY_OPTIONS = ['A','B','AB','C','AC','D','AD','E','AE']
 
 const NAV_ITEMS_INDIVIDUAL = [
   { id: 'sec-type',      label: 'Tipo de Pessoa' },
+  { id: 'sec-ai-cnh',    label: 'Preencher com IA' },
   { id: 'sec-personal',  label: 'Dados Pessoais' },
   { id: 'sec-license',   label: 'Habilitação' },
   { id: 'sec-contact',   label: 'Contato' },
@@ -109,10 +111,22 @@ function SectionHeader({ title, hint }: { title: string; hint?: string }) {
   )
 }
 
-function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+function Field({
+  label, children, className, lowConfidence,
+}: { label: string; children: React.ReactNode; className?: string; lowConfidence?: boolean }) {
   return (
     <div className={className}>
-      <label className={labelCls}>{label}</label>
+      <label className={labelCls}>
+        {label}
+        {lowConfidence && (
+          <span
+            className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-warning-bg text-warning"
+            title="Extraído da CNH com baixa confiança — confira o valor"
+          >
+            Confira
+          </span>
+        )}
+      </label>
       {children}
     </div>
   )
@@ -246,10 +260,64 @@ export function CustomerForm({ customerId, initialData }: CustomerFormProps) {
 
   const [uploadingDoc, setUploadingDoc] = useState<'cnh' | 'residency' | null>(null)
 
+  // Extração de CNH via IA (PRD/Spec 0012) — nunca bloqueia o cadastro (RNF-002).
+  const [cnhExtraction, setCnhExtraction] = useState<
+    { status: 'idle' } | { status: 'loading' } | { status: 'error'; message: string } | { status: 'success'; fieldsFound: number; fieldsTotal: number }
+  >({ status: 'idle' })
+  const [lowConfidenceFields, setLowConfidenceFields] = useState<Set<keyof FormState>>(new Set())
+
   const cepLookup = useCepLookup()
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  async function runCnhExtraction(file: File) {
+    // Validação imediata no client (mesmo schema do Server Action, RNF-003) —
+    // feedback rápido sem gastar round-trip antes da checagem definitiva.
+    const validFile = ExtractDocumentFileSchema.safeParse(file)
+    if (!validFile.success) {
+      setCnhExtraction({ status: 'error', message: validFile.error.issues[0]?.message ?? 'Arquivo inválido' })
+      return
+    }
+
+    setCnhExtraction({ status: 'loading' })
+    const formData = new FormData()
+    formData.append('file', file)
+    const result = await extractCnhFields(formData)
+
+    if (!result.ok) {
+      setCnhExtraction({ status: 'error', message: result.error.message })
+      return
+    }
+
+    type CnhMappedField =
+      | 'name' | 'cpf' | 'rg' | 'birth_date'
+      | 'drivers_license' | 'drivers_license_category' | 'drivers_license_validity'
+
+    const { fields, fieldsFound, fieldsTotal } = result.data
+    const lowConf = new Set<keyof FormState>()
+    const patch: Partial<Record<CnhMappedField, string>> = {}
+
+    function applyField(key: CnhMappedField, field: CnhFields[keyof CnhFields], mask?: (v: string) => string) {
+      // Confiança baixa é sinalizada mesmo com value null (RF-004/CA-004) —
+      // "não deu pra ler com confiança" é sinal diferente de "não achei o campo".
+      if (field.confidence === 'low') lowConf.add(key)
+      if (field.value === null) return
+      patch[key] = mask ? mask(field.value) : field.value
+    }
+
+    applyField('name', fields.name)
+    applyField('cpf', fields.cpf, applyCpfMask)
+    applyField('rg', fields.rg)
+    applyField('birth_date', fields.birth_date)
+    applyField('drivers_license', fields.drivers_license)
+    applyField('drivers_license_category', fields.drivers_license_category)
+    applyField('drivers_license_validity', fields.drivers_license_validity)
+
+    setForm((prev) => ({ ...prev, ...patch }))
+    setLowConfidenceFields(lowConf)
+    setCnhExtraction({ status: 'success', fieldsFound, fieldsTotal })
   }
 
   async function uploadFile(file: File, slot: 'cnh' | 'residency', entityId: string): Promise<string | null> {
@@ -433,6 +501,41 @@ export function CustomerForm({ customerId, initialData }: CustomerFormProps) {
             </div>
           </section>
 
+          {/* ── Preencher com IA (só PF — CNH) ───────────────────────────────── */}
+          {!isCompany && (
+            <div id="sec-ai-cnh">
+              <DocumentImportCard
+                icon={Sparkles}
+                badge="IA"
+                title="Preencher com IA"
+                description="Anexe a CNH para preencher automaticamente."
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                processingMessages={['Lendo o documento…', 'Identificando os campos…', 'Conferindo os dados…']}
+                status={cnhExtraction.status}
+                message={
+                  cnhExtraction.status === 'error'
+                    ? cnhExtraction.message
+                    : cnhExtraction.status === 'success'
+                      ? `${cnhExtraction.fieldsFound} de ${cnhExtraction.fieldsTotal} campos identificados.`
+                      : undefined
+                }
+                fileName={cnh?.name ?? (cnhUrl ? cnhUrl.split('/').pop() : null)}
+                existingUrl={cnhUrl}
+                onSelect={(f) => {
+                  setCnh(f)
+                  if (isEditing) { handleEditUpload(f, 'cnh') }
+                  void runCnhExtraction(f)
+                }}
+                onRetry={() => { if (cnh) void runCnhExtraction(cnh) }}
+                onDismissError={() => setCnhExtraction({ status: 'idle' })}
+                onClear={() => {
+                  setCnh(null); setCnhUrl(null)
+                  setCnhExtraction({ status: 'idle' }); setLowConfidenceFields(new Set())
+                }}
+              />
+            </div>
+          )}
+
           {/* ── Dados Pessoais / Empresa ─────────────────────────────────────── */}
           <section id="sec-personal" className="bg-surface rounded-2xl p-6">
             <SectionHeader title={isCompany ? 'Dados da Empresa' : 'Dados Pessoais'} />
@@ -459,20 +562,20 @@ export function CustomerForm({ customerId, initialData }: CustomerFormProps) {
                 </>
               ) : (
                 <>
-                  <Field label="Nome completo" className="col-span-2">
+                  <Field label="Nome completo" className="col-span-2" lowConfidence={lowConfidenceFields.has('name')}>
                     <input className={inputCls} placeholder="Nome completo do cliente"
                       value={form.name} onChange={(e) => set('name', e.target.value)} />
                   </Field>
-                  <Field label="CPF">
+                  <Field label="CPF" lowConfidence={lowConfidenceFields.has('cpf')}>
                     <input className={inputCls} placeholder="000.000.000-00"
                       value={form.cpf} onChange={(e) => set('cpf', applyCpfMask(e.target.value))} />
                   </Field>
-                  <Field label="RG">
+                  <Field label="RG" lowConfidence={lowConfidenceFields.has('rg')}>
                     <input className={inputCls} placeholder="Número do RG" maxLength={9}
                       value={form.rg}
                       onChange={(e) => set('rg', e.target.value.replace(/\D/g, '').slice(0, 9))} />
                   </Field>
-                  <Field label="Data de Nascimento">
+                  <Field label="Data de Nascimento" lowConfidence={lowConfidenceFields.has('birth_date')}>
                     <input type="date" className={inputCls}
                       value={form.birth_date} onChange={(e) => set('birth_date', e.target.value)} />
                   </Field>
@@ -498,12 +601,12 @@ export function CustomerForm({ customerId, initialData }: CustomerFormProps) {
             <section id="sec-license" className="bg-surface rounded-2xl p-6">
               <SectionHeader title="Habilitação (CNH)" />
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Número da CNH">
+                <Field label="Número da CNH" lowConfidence={lowConfidenceFields.has('drivers_license')}>
                   <input className={inputCls} placeholder="Número da habilitação" maxLength={11}
                     value={form.drivers_license}
                     onChange={(e) => set('drivers_license', e.target.value.replace(/\D/g, '').slice(0, 11))} />
                 </Field>
-                <Field label="Categoria">
+                <Field label="Categoria" lowConfidence={lowConfidenceFields.has('drivers_license_category')}>
                   <select className={selectCls} value={form.drivers_license_category}
                     onChange={(e) => set('drivers_license_category', e.target.value)}>
                     {CNH_CATEGORY_OPTIONS.map((cat) => (
@@ -511,7 +614,7 @@ export function CustomerForm({ customerId, initialData }: CustomerFormProps) {
                     ))}
                   </select>
                 </Field>
-                <Field label="Validade">
+                <Field label="Validade" lowConfidence={lowConfidenceFields.has('drivers_license_validity')}>
                   <input type="date" className={inputCls}
                     value={form.drivers_license_validity}
                     onChange={(e) => set('drivers_license_validity', e.target.value)} />
@@ -637,20 +740,6 @@ export function CustomerForm({ customerId, initialData }: CustomerFormProps) {
           <section id="sec-documents" className="bg-surface rounded-2xl p-6">
             <SectionHeader title="Documentos" hint="JPG, PNG, WebP ou PDF — máx. 10MB" />
             <div className="grid grid-cols-2 gap-6">
-
-              {!isCompany && (
-                <DocumentUpload
-                  label="Foto da CNH"
-                  existingUrl={cnhUrl}
-                  pendingFile={cnh}
-                  uploading={uploadingDoc === 'cnh'}
-                  onSelect={(f) => {
-                    if (isEditing) { handleEditUpload(f, 'cnh') }
-                    else { setCnh(f) }
-                  }}
-                  onClear={() => { setCnh(null); setCnhUrl(null) }}
-                />
-              )}
 
               <DocumentUpload
                 label={isCompany ? 'Cartão CNPJ ou documento da empresa' : 'Comprovante de Residência'}

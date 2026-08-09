@@ -1,21 +1,26 @@
 # 🚨 Tela: Multas — [[GoMoto]]
 
-Rota: `/multas` | Tipo: Client Component
+Rotas: `/multas` (listagem) · `/multas/novo` (criação) · `/multas/[id]` (detalhe) · `/multas/[id]/editar` (edição)
+Tipo: listagem e formulário são Client Component; detalhe é Server Component com Server Actions próprias.
 
-## Layout
+> ⚠️ Nota atualizada em 2026-08-09 durante o planejamento da Spec 0012 — a versão anterior não documentava o sistema de anexos nem vários campos do formulário que já existem no código.
 
-- 5 KPI cards
-- Filtros: abas de status + select de moto + busca
-- Accordion por moto com histórico colapsável
+## Listagem (`/multas`)
+
+- Botão **"+ Registrar Multa"** no `PageTitle`, linka pra `/multas/novo`.
+- 5 KPI cards.
+- Filtros: abas de status + select de moto + busca.
+- Accordion por moto com histórico colapsável.
+- Dados via hooks de `@gomoto/data`: `useFines()`, `useVehicles()` — não é mais fetch inline.
 
 ## KPI Cards
 
 | Card | Ícone | Cor |
 |---|---|---|
-| Total (todas) | FileText | — |
-| Pendentes (contagem + valor) | Clock | roxo |
+| Total (todas) | FileText | neutro |
+| Pendentes (contagem + valor) | Clock | info |
 | Vencidas (contagem + valor) | AlertTriangle | vermelho |
-| A vencer em 7d | Calendar | laranja |
+| A vencer em 7d | Calendar | amarelo |
 | Pagas no mês | CheckCircle2 | verde |
 
 ## Filtros
@@ -38,7 +43,7 @@ function calcFineStatus(fine):
 
 ## Agrupamento (Accordion por Moto)
 
-Cabeçalho exibe: ponto colorido de urgência + placa bold monospace + marca/modelo + KM atual + badges "X vencida(s)" / "X a vencer" + total pendente em vermelho.
+Cabeçalho: ponto colorido de urgência + placa bold monospace + marca/modelo + badges "X vencida(s)" / "X a vencer" + total pendente em vermelho.
 
 Dentro: tabela de pendentes + toggle "Ver histórico (X pagas)".
 
@@ -46,57 +51,68 @@ Dentro: tabela de pendentes + toggle "Ver histórico (X pagas)".
 
 | Coluna | Conteúdo |
 |---|---|
-| Infração | Descrição bold + obs + cliente em smaller |
+| Infração | Descrição bold + observações + cliente em texto menor |
 | Data / Vencimento | Data infração + "Venc:" em vermelho se vencida |
-| Valor | `formatCurrency()` em vermelho `#ff9c9a` |
-| Responsável | Badge "Cliente" (roxo) ou "Empresa" (neutro) |
+| Valor | `formatCurrency()` em vermelho |
+| Responsável | Badge "Cliente" (info) ou "Empresa" (neutro) |
 | Status | Badge computado via `calcFineStatus()` |
-| Ações | Edit2, CheckCircle (marcar paga), Trash2 |
+| Ações | Eye (detalhe), Edit2, CheckCircle (marcar paga), Trash2 |
 
-## Formulário de Criação/Edição
+## Formulário de Criação/Edição (`FineForm.tsx`)
 
-| Campo | Tipo | Required | Obs |
-|---|---|---|---|
-| Cliente | select | ✓ | Auto-vincula moto via contrato ativo |
-| Moto | select | ✓ | Auto-vincula cliente via contrato ativo |
-| Infrações Comuns | select quickfill | — | 12 infrações pré-cadastradas do CTB com valores |
-| Descrição | text | ✓ | Editável mesmo após quickfill |
-| Data da Infração | date | ✓ | — |
-| Data de Vencimento | date | — | Opcional |
-| Valor (R$) | number | ✓ | Pré-preenchido pelo quickfill |
-| Responsável | select | — | customer / company |
-| Observações | textarea | — | AIT nº, local, recurso em andamento... |
+Layout com navegação lateral por seção (sticky, com `IntersectionObserver` pra marcar a seção ativa).
 
-### Auto-vinculação Cliente ↔ Moto
+| Seção | Campo | Required | Obs |
+|---|---|:-:|---|
+| Vínculo | Moto | ✓ | Select — auto-vincula cliente via contrato/locação ativa |
+| Vínculo | Cliente | — | **Opcional** — "condutor pode ser identificado depois"; auto-vincula moto se selecionado primeiro |
+| Infração | Infrações comuns (CTB) | — | Select quickfill — 12 infrações pré-cadastradas com código/valor/pontos |
+| Infração | Descrição | ✓ | Editável mesmo após quickfill, max 300 chars |
+| Infração | Código do artigo (CTB) | — | Ex.: `218-II` |
+| Infração | Órgão autuador | — | Select: DETRAN / CETRAN / Municipal / Área privada / Outro (`source`) |
+| Infração | Local da infração | — | max 2000 chars |
+| Datas e Valores | Data da infração | ✓ | — |
+| Datas e Valores | Data de vencimento | — | — |
+| Datas e Valores | Valor (R$) | ✓ | Pré-preenchido pelo quickfill |
+| Datas e Valores | Pontos na CNH | — | 0–7 |
+| Datas e Valores | Responsável pelo pagamento | — | customer / company |
+| Datas e Valores | Nº do AIT | — | max 50 chars |
+| Observações | Link do boleto/notificação | — | `ticket_url`, tipo `url` |
+| Observações | Observações livres | — | max 2000 chars |
 
-Ao selecionar cliente → busca contrato ativo → preenche moto. Ao selecionar moto → preenche cliente. Usa: `SELECT customer_id, motorcycle_id FROM contracts WHERE status='active'`.
+**Modo edição**: sem upload de anexo neste formulário — anexar documento a uma multa já existente continua só na tela de detalhe (`FineAttachments`, §Anexos abaixo).
+
+**Modo criação** (Spec 0012): primeira seção ("Documento", opcional) permite anexar a notificação de autuação — dispara extração por IA (ver §Extração abaixo) e, ao salvar, sobe automaticamente pro bucket `fine-documents` como anexo tipo `ait`, sem precisar ir na tela de detalhe depois.
+
+### Auto-vinculação Moto ↔ Cliente
+
+Ao selecionar moto → busca contrato/locação ativa → preenche cliente (se houver). Ao selecionar cliente → preenche moto. Fonte: `useRentals()` filtrado por `status === 'active'`. Mesma lógica de contrato é reaproveitada quando a moto é pré-selecionada pela extração de placa (abaixo).
+
+### Extração de Notificação via IA (Spec 0012 / ADR 0023)
+
+Só no modo criação. Ao anexar o PDF/imagem na seção "Documento", o form dispara a Server Action `extractFineNoticeFields` (`multas/actions.ts`) — Gemini via Vercel AI Gateway, mesmo helper `apps/web/src/lib/document-extraction/extract.ts` da extração de CNH, schema `FineNoticeFieldsSchema` (`@gomoto/core`). Campos extraídos (Descrição, Datas, Valor, Nº do AIT, Local) pré-preenchem o form; a **placa extraída** é cruzada com `useVehicles()` via `matchVehicleByPlate` (`@gomoto/core/rules`) — bate → pré-seleciona a Moto (e o Cliente, via contrato ativo); não bate → campo de Moto fica vazio pra seleção manual, sem bloquear o resto do preenchimento. Falha/timeout (15s) mostra "Tentar novamente" / "Preencher manualmente".
+
+`DOCUMENT_EXTRACTION_MOCK=1` no servidor troca a chamada real por um resultado fixo, usado pela suíte E2E (`document-extraction-multa.spec.ts`).
+
+## Anexos (tela de detalhe, `/multas/[id]`)
+
+Componente `FineAttachments.tsx` — sistema de múltiplos anexos por tipo, **não documentado na versão anterior desta nota**.
+
+- Bucket Storage: **`fine-documents`** (privado, 10MB, PDF/JPG/PNG/WebP).
+- Path: `${tenantId}/${fineId}/${type}/${timestamp}.${ext}`.
+- Tabela `fine_attachments`: `type` ∈ `ait` (Auto de Infração), `nip` (Notificação de Penalidade), `payment_receipt`, `appeal`, `appeal_decision`, `driver_indication`, `other` — **múltiplos anexos por tipo são permitidos** (sem índice único).
+- Linha é **imutável após upload** (tabela não tem `updated_at`) — editar significa excluir e reanexar.
+- Fluxo: upload direto ao Storage pelo client → `addFineAttachment(fineId, type, path, label?, notes?)` (Server Action recebe só o path) → signed URL gerada no client pra exibir na hora → agrupamento visual por tipo.
+- Exclusão: `deleteFineAttachment(id, fineId, fileUrl)` remove do Storage + linha da tabela.
 
 ## Modal: Marcar como Paga
 
-- Pré-preenche data com hoje
-- Salva: `status='paid'`, `payment_date={data}`
+- Pré-preenche data com hoje.
+- Salva: `status='paid'`, `payment_date={data}` via `markFineAsPaid(id, data)`.
 
-## Queries Supabase
+## Server Actions (`actions.ts` e `[id]/actions.ts`)
 
-```sql
--- Fetch principal
-SELECT *, customers(name, phone), motorcycles(license_plate, model, make)
-FROM fines ORDER BY infraction_date DESC
-
--- Clientes e motos para selects
-SELECT id, name FROM customers WHERE active = true ORDER BY name
-SELECT id, license_plate, model, make FROM motorcycles ORDER BY license_plate
-SELECT customer_id, motorcycle_id FROM contracts WHERE status = 'active'
-
--- Criar
-INSERT INTO fines (customer_id, motorcycle_id, description, infraction_date, due_date, amount, responsible, status, observations)
-
--- Marcar paga
-UPDATE fines SET status='paid', payment_date=? WHERE id=?
-
--- Deletar
-DELETE FROM fines WHERE id=?
-```
+`createFine`, `updateFine`, `markFineAsPaid`, `deleteFine`, `addFineAttachment`, `deleteFineAttachment`, `extractFineNoticeFields` (Spec 0012, envelope `ActionResult<T>`), `confirmAutoBilling` (geração de cobrança a partir da multa, na tela de detalhe — usa envelope `ActionResult<T>`).
 
 ## Tags
 `#projeto/tela` `#gomoto/financeiro`

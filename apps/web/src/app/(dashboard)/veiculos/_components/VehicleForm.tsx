@@ -6,6 +6,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import {
   Upload,
+  Sparkles,
   AlertCircle,
   X,
   Plus,
@@ -35,6 +36,7 @@ import {
 } from '@gomoto/data'
 
 import { createVehicle, updateVehicle, deleteVehiclePhoto, saveVehicleObligations, assignMaintenancePlan } from '../actions'
+import { DocumentImportCard } from '@/components/documents/DocumentImportCard'
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -324,6 +326,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
   // ─── CRLV ────────────────────────────────────────────────────────────────
 
   async function handleCrlvImport(file: File) {
+    setCrvFile(file)
     setCrlvImporting(true)
     setCrlvMsg(null)
     try {
@@ -365,7 +368,6 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
         crv_number:                fields.numeroCrv ? fields.numeroCrv.replace(/\D/g, '') : (prev.crv_number),
         crv_exercise_year:         fields.exercicio ? fields.exercicio.replace(/\D/g, '').slice(0, 4) : prev.crv_exercise_year,
       }))
-      setCrvFile(file)
       setCrlvMsg({ kind: 'success', found: stats.found, total: stats.total, fileName: file.name })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'erro desconhecido'
@@ -698,36 +700,25 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
           >
             <SectionHeader title="Identificação" hint="campos obrigatórios marcados com *" />
 
-            {/* Banner CRLV — somente criação */}
+            {/* Importar CRLV — somente criação. Parsing determinístico local
+                (packages/core/src/parsers/crlv.ts) — NÃO passa por IA, mas
+                reaproveita o ícone/padrão visual do card de extração por IA
+                (Spec 0012) por escolha de produto; sem o selo "IA". */}
             {!isEditMode && (
-              <div className="flex items-center gap-4 px-4 py-3 bg-info-bg border border-info rounded-xl mb-5">
-                <div className="w-8 h-8 rounded-full bg-info-bg flex items-center justify-center flex-shrink-0">
-                  <Upload className="w-3.5 h-3.5 text-info" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-bold text-fg">Importar CRLV</p>
-                  <p className="text-[12px] text-fg-mute">Preenche placa, RENAVAM, chassi e proprietário automaticamente.</p>
-                  {crlvMsg?.kind === 'success' && (
-                    <p className="text-[12px] text-primary mt-1">✔ {crlvMsg.fileName} — {crlvMsg.found}/{crlvMsg.total} campos importados.</p>
-                  )}
-                  {crlvMsg?.kind === 'error' && (
-                    <p className="text-[12px] text-danger mt-1">✘ {crlvMsg.text}</p>
-                  )}
-                </div>
-                <label className={`flex-shrink-0 h-8 px-4 rounded-full bg-info text-bg text-[12px] font-bold cursor-pointer hover:opacity-90 transition-opacity inline-flex items-center ${crlvImporting ? 'opacity-60 pointer-events-none' : ''}`}>
-                  <input
-                    type="file"
-                    accept="application/pdf"
-                    className="hidden"
-                    disabled={crlvImporting}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) void handleCrlvImport(file)
-                      e.target.value = ''
-                    }}
-                  />
-                  {crlvImporting ? 'Lendo…' : 'Selecionar PDF'}
-                </label>
+              <div className="mb-5">
+                <DocumentImportCard
+                  icon={Sparkles}
+                  title="Importar CRLV"
+                  description="Preenche placa, RENAVAM, chassi e proprietário automaticamente."
+                  accept="application/pdf"
+                  status={crlvImporting ? 'loading' : crlvMsg?.kind === 'success' ? 'success' : crlvMsg?.kind === 'error' ? 'error' : 'idle'}
+                  message={crlvMsg?.kind === 'success' ? `${crlvMsg.found}/${crlvMsg.total} campos importados.` : crlvMsg?.kind === 'error' ? crlvMsg.text : undefined}
+                  fileName={crvFile?.name}
+                  onSelect={(f) => void handleCrlvImport(f)}
+                  onRetry={() => { if (crvFile) void handleCrlvImport(crvFile) }}
+                  onDismissError={() => setCrlvMsg(null)}
+                  onClear={() => { setCrvFile(null); setCrlvMsg(null) }}
+                />
               </div>
             )}
 

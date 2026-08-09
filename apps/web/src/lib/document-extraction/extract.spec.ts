@@ -1,0 +1,116 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+const { generateTextMock } = vi.hoisted(() => ({ generateTextMock: vi.fn() }))
+
+vi.mock('ai', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('ai')>()
+  return { ...actual, generateText: generateTextMock }
+})
+
+const { extractFields, EXTRACTION_TIMEOUT_MS } = await import('./extract')
+
+function makeFile(name = 'cnh.pdf', type = 'application/pdf'): File {
+  return new File([new Uint8Array([1, 2, 3])], name, { type })
+}
+
+beforeEach(() => {
+  generateTextMock.mockReset()
+  delete process.env.DOCUMENT_EXTRACTION_MOCK
+})
+
+describe('extractFields — dispatch do registry', () => {
+  it('chama generateText com o model, timeout e prompt de CNH corretos', async () => {
+    generateTextMock.mockResolvedValue({
+      output: {
+        name: { value: 'João', confidence: 'high' },
+        cpf: { value: '12345678901', confidence: 'high' },
+        rg: { value: null, confidence: 'low' },
+        birth_date: { value: '1990-01-01', confidence: 'high' },
+        drivers_license: { value: '123', confidence: 'high' },
+        drivers_license_category: { value: 'AB', confidence: 'high' },
+        drivers_license_validity: { value: '2030-01-01', confidence: 'high' },
+      },
+    })
+
+    await extractFields('cnh', makeFile())
+
+    expect(generateTextMock).toHaveBeenCalledTimes(1)
+    const call = generateTextMock.mock.calls[0][0]
+    expect(call.model).toBe('google/gemini-2.5-flash')
+    expect(call.timeout).toBe(EXTRACTION_TIMEOUT_MS)
+    expect(call.messages[0].content[0].text).toContain('CNH')
+    expect(call.messages[0].content[1]).toMatchObject({ type: 'file', mediaType: 'application/pdf' })
+  })
+
+  it('inclui providerOptions.gateway.disallowPromptTraining em toda chamada (RNF-005)', async () => {
+    generateTextMock.mockResolvedValue({
+      output: {
+        license_plate: { value: 'ABC1234', confidence: 'high' },
+        description: { value: 'x', confidence: 'high' },
+        infraction_date: { value: '2026-01-01', confidence: 'high' },
+        due_date: { value: null, confidence: 'low' },
+        amount: { value: 100, confidence: 'high' },
+        ait_number: { value: null, confidence: 'low' },
+        infraction_location: { value: null, confidence: 'low' },
+      },
+    })
+
+    await extractFields('fine_notice', makeFile('multa.pdf'))
+
+    const call = generateTextMock.mock.calls[0][0]
+    expect(call.providerOptions.gateway.disallowPromptTraining).toBe(true)
+  })
+
+  it('calcula fieldsFound/fieldsTotal a partir de um resultado com campos nulos (RF-005)', async () => {
+    generateTextMock.mockResolvedValue({
+      output: {
+        name: { value: 'João', confidence: 'high' },
+        cpf: { value: null, confidence: 'low' },
+        rg: { value: null, confidence: 'low' },
+        birth_date: { value: '1990-01-01', confidence: 'high' },
+        drivers_license: { value: null, confidence: 'low' },
+        drivers_license_category: { value: null, confidence: 'low' },
+        drivers_license_validity: { value: null, confidence: 'low' },
+      },
+    })
+
+    const result = await extractFields('cnh', makeFile())
+
+    expect(result).not.toBeNull()
+    expect(result!.fieldsTotal).toBe(7)
+    expect(result!.fieldsFound).toBe(2)
+  })
+})
+
+describe('extractFields — falhas (RNF-001/CA-010)', () => {
+  it('timeout do provedor → retorna null, nunca lança exceção', async () => {
+    generateTextMock.mockRejectedValue(new Error('timed out'))
+
+    await expect(extractFields('cnh', makeFile())).resolves.toBeNull()
+  })
+
+  it('erro do provedor → retorna null', async () => {
+    generateTextMock.mockRejectedValue(new Error('provider error'))
+
+    await expect(extractFields('fine_notice', makeFile('multa.pdf'))).resolves.toBeNull()
+  })
+})
+
+describe('extractFields — DOCUMENT_EXTRACTION_MOCK', () => {
+  it('não chama o provedor real quando o mock está habilitado', async () => {
+    process.env.DOCUMENT_EXTRACTION_MOCK = '1'
+
+    const result = await extractFields('cnh', makeFile())
+
+    expect(generateTextMock).not.toHaveBeenCalled()
+    expect(result?.documentType).toBe('cnh')
+  })
+
+  it('arquivo "mock-fail" simula falha do provedor', async () => {
+    process.env.DOCUMENT_EXTRACTION_MOCK = '1'
+
+    const result = await extractFields('cnh', makeFile('cnh-mock-fail.pdf'))
+
+    expect(result).toBeNull()
+  })
+})

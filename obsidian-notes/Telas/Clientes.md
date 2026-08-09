@@ -1,92 +1,88 @@
 # 👥 Tela: Clientes — [[GoMoto]]
 
-Rota: `/clientes` | Tipo: Client Component
+Rotas: `/clientes` (listagem) · `/clientes/novo` (criação) · `/clientes/[id]` (detalhe) · `/clientes/[id]/editar` (edição)
+Tipo: listagem e formulário são Client Component; detalhe (`[id]/page.tsx`) é Server Component.
 
-## Layout
+> ⚠️ Nota atualizada em 2026-08-09 durante o planejamento da Spec 0012 — a versão anterior descrevia um modal de detalhes e um formulário só de Pessoa Física que não existem mais no código atual.
 
-- 2 KPI cards (Ativos + Ex-Clientes)
-- Barra de filtros: 3 pílulas + dropdown UF + busca
-- Tabela com 6 colunas
+## Listagem (`/clientes`)
 
-> ⚠️ **Não há botão "+ Novo Cliente"** — clientes entram via [[Fila]].
+- Botão **"+ Novo Cliente"** no `PageTitle`, linka pra `/clientes/novo` — clientes **não** entram só via Fila, há criação direta.
+- 2 KPI cards (Ativos + Ex-Clientes).
+- Barra de filtros: abas (Todos/Ativos/Ex-Clientes) + dropdown UF + busca.
+- Tabela com 5 colunas — **sem coluna de CPF** (removida da listagem).
+- Dados via hooks de `@gomoto/data`: `useCustomers()`, `useActiveRentals()`, `useDeleteCustomer()` — não é mais fetch inline com `createClient()`.
 
-## Filtros
+### Filtros
 
 | Filtro | Valores |
 |---|---|
-| Pílulas | Todos / Ativos (`active !== false`) / Ex-Clientes (`active === false`) |
+| Abas | Todos / Ativos (`active !== false`) / Ex-Clientes (`active === false`) |
 | Dropdown Estado | 27 UFs brasileiras |
 | Busca textual | `name`, `cpf`, `phone` (case-insensitive) |
 
-## Colunas da Tabela
+### Colunas da Tabela
 
 | Coluna | Conteúdo |
 |---|---|
-| Nome | `customer.name` bold |
-| CPF | font-mono |
-| Telefone | Ícone MessageCircle + link WhatsApp `https://wa.me/55{digits}` (stopPropagation) |
-| Moto Atual | Badge `PLACA — MODELO` (brand) ou "—" |
+| Nome | `customer.name` (ou `company_name` se PJ, com badge "PJ" abaixo) |
+| Telefone | Ícone MessageCircle + link WhatsApp `https://wa.me/55{digits}` |
+| Moto Atual | Badge `PLACA — MARCA MODELO` (via contrato/locação ativa) ou "—" |
 | Status | Badge verde "Ativo" ou vermelho "Ex-Cliente" |
-| Ações | Eye, Edit2, Trash2 |
+| Ações | Eye (→ `/clientes/[id]`), Edit2 (→ `/clientes/[id]/editar`), Trash2 (modal de confirmação) |
 
-Clicar na linha → abre modal de detalhes.
+Clicar no nome → navega para a página de detalhe (**não é mais modal**).
 
-## Formulário de Edição
+### Exclusão
 
-Grid 2 colunas (md+):
+Modal de confirmação com o aviso "Clientes com contrato ativo não podem ser excluídos" — o bloqueio em si é resolvido dentro de `useDeleteCustomer()` (`@gomoto/data`), não mais checado inline na page.
 
-| Campo | Tipo | Obs |
-|---|---|---|
-| Nome | text | col-span-2 |
-| CPF | text | — |
-| RG | text | — |
-| Telefone | text | — |
-| Email | email | — |
-| Estado | select | 27 UFs, default RJ |
-| Data de Nascimento | date | — |
-| Endereço | text | col-span-2 |
-| CEP | text | — |
-| Status de Pagamento | text | Ex: "Caução pago" |
-| Número CNH | text | — |
-| Categoria CNH | select | A / B / AB / C / D / E |
-| Validade CNH | date | — |
-| Contato de Emergência | text | col-span-2 |
-| Observações | textarea | col-span-2 |
+## Formulário (`CustomerForm.tsx`, usado em `/novo` e `/editar`)
 
-Todos opcionais. Mapeamento: `zipCode → zip_code`, `cnh → drivers_license`, etc.
+Layout com navegação lateral por seção (sticky), não é mais um form plano. Primeira seção define **Tipo de Pessoa** (Pessoa Física / Pessoa Jurídica) — o restante do formulário muda de acordo.
 
-## Modal de Detalhes (Read-Only)
+### Seções — Pessoa Física
 
-Campos exibidos: Nome, Status, CPF, RG, Telefone, Email, Estado, CEP, Endereço, Nascimento, Emergência, CNH, Categoria, Validade, Status Pagamento, Data Saída, Motivo Saída, Observações.
+| Seção | Campos |
+|---|---|
+| Dados Pessoais | Nome completo, CPF, RG, Data de Nascimento |
+| Habilitação (CNH) | Número, Categoria (A/B/AB/C/AC/D/AD/E/AE), Validade |
+| Contato | Telefone 1, Telefone 2, Email, Nome/Telefone do Contato de Emergência |
+| Endereço | CEP (com **busca automática** via ViaCEP — preenche Logradouro/Bairro/Cidade/UF), Logradouro, Número, Complemento, Bairro, Cidade, UF |
+| Documentos | Foto da CNH, Comprovante de Residência (upload, ver §Documentos abaixo) |
+| Observações | Observações internas |
+| Encerramento *(só edição)* | Toggle Ativo/Ex-Cliente, Data de Saída, Motivo (habilitados só quando "Ex-Cliente") |
 
-**Documentos:** Seção condicional com `DocumentThumb` (miniatura com overlay "Ver tamanho original" ao hover → abre URL em nova aba).
+### Seções — Pessoa Jurídica
 
-## Restrição de Deleção
+Mesma estrutura, exceto:
+- "Dados Pessoais" vira "Dados da Empresa": Razão Social, Nome Fantasia, Nome do Responsável, CNPJ.
+- Sem seção de Habilitação (CNH) — não se aplica a PJ.
+- Sem Contato de Emergência.
+- "Documentos" pede "Cartão CNPJ ou documento da empresa" no lugar de comprovante de residência.
 
-Antes de deletar: busca contratos com `status = 'active'` para o cliente. Se houver → exibe `alert()` e bloqueia.
+Todos os campos são opcionais (sem `required` no HTML), exceto os que o Zod schema de `@gomoto/core` exigir no server.
 
-## Queries Supabase
+## Documentos (upload)
 
-```sql
--- Fetch (paralelo)
-SELECT * FROM customers WHERE in_queue = false ORDER BY name ASC
-SELECT customer_id, motorcycles(license_plate, model) FROM contracts WHERE status = 'active'
+- Bucket Supabase Storage: **`customer-documents`** (privado, 10MB, JPG/PNG/WebP/PDF).
+- Path: `${tenantId}/${customerId}/${slot}/${timestamp}.${ext}`, `slot ∈ {'cnh', 'residency'}`.
+- Colunas em `customers`: `drivers_license_photo_url`, `residency_proof_url` (e `document_photo_url` como fallback legado só na leitura do detalhe, não usado mais no formulário). Ambas passaram a ser validadas por `CustomerSchema` (`@gomoto/core`) a partir da Spec 0012 — antes eram gravadas sem passar pelo Zod, e `updateCustomer` descartava esses campos silenciosamente.
+- **Modo criação**: arquivo fica em memória (`File`) até `createCustomer` retornar o `id`; só então sobe pro Storage e faz um `updateCustomer` com a URL.
+- **Modo edição**: upload imediato ao selecionar o arquivo, seguido de `updateCustomer({ [field]: path })`.
+- Exibição no upload: preview inline (imagem ou ícone "PDF" se PDF), botão de remover.
 
--- Checar antes de deletar
-SELECT id FROM contracts WHERE customer_id = ? AND status = 'active' LIMIT 1
+### Extração de CNH via IA (Spec 0012 / ADR 0023)
 
--- Editar
-UPDATE customers SET (...) WHERE id = ?
+Ao selecionar a **Foto da CNH** (PF, ambos os modos), o form dispara em paralelo a Server Action `extractCnhFields` (`clientes/actions.ts`) — Gemini via Vercel AI Gateway, `apps/web/src/lib/document-extraction/extract.ts`, schema `CnhFieldsSchema` (`@gomoto/core`). Campos extraídos (Nome, CPF, RG, Nascimento, Nº/Categoria/Validade da CNH) pré-preenchem o form automaticamente; campos com confiança baixa ganham um badge **"Confira"** ao lado do label. Contagem "X de Y campos identificados" some abaixo do upload. Falha/timeout (15s) mostra "Tentar novamente" / "Preencher manualmente", sem perder o que já foi digitado.
 
--- Deletar
-DELETE FROM customers WHERE id = ?
-```
+A extração em si não persiste nada — o arquivo só sobe pro Storage no save do formulário (mesmo fluxo acima). `DOCUMENT_EXTRACTION_MOCK=1` no servidor troca a chamada real por um resultado fixo, usado pela suíte E2E (`document-extraction-cliente.spec.ts`).
 
-## Lógica Especial
+## Página de Detalhe (`/clientes/[id]`, Server Component)
 
-- **`activeContractsMap`** (Map): `customer_id → { license_plate, model }` — O(1) lookup por cliente
-- **WhatsApp:** extrai só dígitos do telefone, monta `wa.me/55{digits}`, abre em nova aba
-- Tratamento de `motorcycles` que pode vir como array ou objeto — normaliza para primeiro item
+Não é mais modal — página própria, com signed URLs (1h) geradas server-side para os documentos.
+
+Seções condicionais conforme o registro: Contrato Ativo (locação + veículo vinculado), Dados da Empresa (PJ) / Dados Pessoais (PF), Contato, Endereço, Habilitação — CNH (PF, com aviso visual "(Vencida)" se `drivers_license_validity` no passado), Acesso ao App (`CustomerAppAccess`, só PF com email), **Documentos** (thumbnails via função local `DocumentThumb` — não é componente exportado/reutilizável), Encerramento (ex-clientes), Situação financeira (bloqueio por inadimplência + créditos disponíveis), Créditos, Observações.
 
 ## Tags
 `#projeto/tela` `#gomoto/clientes`

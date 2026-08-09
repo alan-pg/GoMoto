@@ -80,6 +80,14 @@ TEST_USER_PASSWORD=12345678
 
 `apps/web/tests/helpers.ts` cria dados de teste via `@supabase/supabase-js` autenticado como o usuário de `.env.test`, sem passar pelo browser. Esses inserts passam pelas mesmas políticas RLS do app — todo helper que insere em `customers`/`vehicles`/`rentals` **precisa** de `tenant_id` explícito (via `getTestTenantId()`, que resolve por `get_user_tenants()`). Faltou isso até 2026-08-07: a suíte inteira falhava silenciosamente com "row-level security policy" — corrigido junto com a Spec 0010.
 
+**Suíte de extração de documentos via IA** (`document-extraction-cliente.spec.ts`, `document-extraction-multa.spec.ts` — Spec 0012): precisa do dev server rodando com `DOCUMENT_EXTRACTION_MOCK=1`, senão o Server Action tenta chamar o Gemini de verdade (exige `AI_GATEWAY_API_KEY`) e a suíte falha/trava no timeout de 15s.
+
+```bash
+DOCUMENT_EXTRACTION_MOCK=1 pnpm --filter web dev
+```
+
+O mock devolve um `ExtractionResult` fixo por tipo de documento — o nome do arquivo enviado no teste dirige o cenário (`mock-fail` simula falha do provedor, `mock-plate-<PLACA>` simula a placa extraída pra casar com um veículo criado no teste). Ver `apps/web/src/lib/document-extraction/mock.ts`.
+
 ---
 
 ## Comandos do dia a dia

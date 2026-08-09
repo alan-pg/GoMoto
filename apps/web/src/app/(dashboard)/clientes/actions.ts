@@ -3,9 +3,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
-import { CustomerSchema, cpfShellEmail } from '@gomoto/core'
+import {
+  CustomerSchema, cpfShellEmail,
+  ExtractDocumentFileSchema,
+  type ActionResult, type ExtractionResult, type CnhFields,
+} from '@gomoto/core'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
+import { extractFields } from '@/lib/document-extraction/extract'
 
 function getAdminClient() {
   const serviceUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -277,4 +282,46 @@ export async function deleteCustomer(id: string) {
   await logAction({ action: 'delete', table: 'customers', recordId: id, oldData: before })
   revalidatePath('/clientes')
   return { success: true }
+}
+
+/**
+ * PRD 0012/Spec 0012 §5.1 — extrai campos de uma CNH (PDF/imagem) via IA pra
+ * pré-preencher o CustomerForm. Não persiste nada (RN-001) — o client decide
+ * o que fazer com o resultado.
+ */
+export async function extractCnhFields(formData: FormData): Promise<ActionResult<ExtractionResult<CnhFields>>> {
+  const { supabase, user } = await getAuthenticatedUser()
+  if (!user) {
+    return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+  }
+
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) {
+    return { ok: false, error: { code: 'FORBIDDEN', message: 'Tenant não resolvido' } }
+  }
+
+  const parsedFile = ExtractDocumentFileSchema.safeParse(formData.get('file'))
+  if (!parsedFile.success) {
+    return {
+      ok: false,
+      error: { code: 'VALIDATION_ERROR', message: parsedFile.error.issues[0]?.message ?? 'Arquivo inválido', field: 'file' },
+    }
+  }
+
+  const startedAt = Date.now()
+  const result = await extractFields('cnh', parsedFile.data)
+  const latencyMs = Date.now() - startedAt
+
+  if (!result) {
+    console.error('[extractCnhFields] extraction_failed', { tenant_id: tenantId, outcome: 'error', latency_ms: latencyMs })
+    return {
+      ok: false,
+      error: { code: 'EXTRACTION_FAILED', message: 'Não foi possível extrair os dados da CNH. Tente novamente ou preencha manualmente.' },
+    }
+  }
+
+  console.info('[extractCnhFields] extraction_completed', {
+    tenant_id: tenantId, outcome: 'ok', fields_found: result.fieldsFound, fields_total: result.fieldsTotal, latency_ms: latencyMs,
+  })
+  return { ok: true, data: result }
 }

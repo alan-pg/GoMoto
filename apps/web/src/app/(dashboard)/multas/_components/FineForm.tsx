@@ -3,11 +3,13 @@
 import { useState, useEffect, useRef, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, Sparkles } from 'lucide-react'
 
-import { useCustomers, useVehicles, useRentals } from '@gomoto/data'
+import { useCustomers, useVehicles, useRentals, useSupabaseContext, useRequiredTenantId } from '@gomoto/data'
+import { matchVehicleByPlate, ExtractDocumentFileSchema } from '@gomoto/core'
 import { formatCurrency } from '@/lib/utils'
-import { createFine, updateFine } from '../actions'
+import { createFine, updateFine, extractFineNoticeFields, addFineAttachment } from '../actions'
+import { DocumentImportCard } from '@/components/documents/DocumentImportCard'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -41,6 +43,7 @@ const RESPONSIBLE_OPTIONS = [
 ]
 
 const NAV_ITEMS = [
+  { id: 'sec-document',     label: 'Documento'       },
   { id: 'sec-link',         label: 'Vínculo'         },
   { id: 'sec-infraction',   label: 'Infração'        },
   { id: 'sec-values',       label: 'Datas e Valores' },
@@ -120,6 +123,8 @@ export function FineForm({ fineId, initialData }: FineFormProps) {
   const isEditMode = !!fineId
   const router     = useRouter()
   const [isPending, startTransition] = useTransition()
+  const supabase    = useSupabaseContext()
+  const getTenantId = useRequiredTenantId()
 
   // ── Dados
   const customersQuery = useCustomers()
@@ -144,6 +149,14 @@ export function FineForm({ fineId, initialData }: FineFormProps) {
     [rentalsQuery.data],
   )
 
+  // runFineNoticeExtraction roda de forma assíncrona (Server Action) — sem ref,
+  // ela capturaria `vehicles`/`contracts` da closure de quando foi chamada, que
+  // pode estar desatualizada se a query ainda não tinha resolvido nesse instante.
+  const vehiclesRef = useRef(vehicles)
+  useEffect(() => { vehiclesRef.current = vehicles }, [vehicles])
+  const contractsRef = useRef(contracts)
+  useEffect(() => { contractsRef.current = contracts }, [contracts])
+
   // ── Estado do formulário
   const [form, setForm] = useState(() => buildInitialForm(initialData))
   function set(key: keyof ReturnType<typeof buildInitialForm>, value: string) {
@@ -153,9 +166,62 @@ export function FineForm({ fineId, initialData }: FineFormProps) {
   const [globalError,  setGlobalError]  = useState<string | null>(null)
   const [fieldErrors,  setFieldErrors]  = useState<Partial<Record<string, string>>>({})
 
+  // ── Extração de notificação de multa via IA (PRD/Spec 0012) — só na criação;
+  // edição de multa existente já anexa documento via FineAttachments (tela de detalhe).
+  const [pendingFineNoticeFile, setPendingFineNoticeFile] = useState<File | null>(null)
+  const [fineExtraction, setFineExtraction] = useState<
+    | { status: 'idle' }
+    | { status: 'loading' }
+    | { status: 'error'; message: string }
+    | { status: 'success'; fieldsFound: number; fieldsTotal: number; plateMatched: boolean }
+  >({ status: 'idle' })
+
+  async function runFineNoticeExtraction(file: File) {
+    // Validação imediata no client (mesmo schema do Server Action, RNF-003) —
+    // feedback rápido sem gastar round-trip antes da checagem definitiva.
+    const validFile = ExtractDocumentFileSchema.safeParse(file)
+    if (!validFile.success) {
+      setPendingFineNoticeFile(file)
+      setFineExtraction({ status: 'error', message: validFile.error.issues[0]?.message ?? 'Arquivo inválido' })
+      return
+    }
+
+    setPendingFineNoticeFile(file)
+    setFineExtraction({ status: 'loading' })
+    const formData = new FormData()
+    formData.append('file', file)
+    const result = await extractFineNoticeFields(formData)
+
+    if (!result.ok) {
+      setFineExtraction({ status: 'error', message: result.error.message })
+      return
+    }
+
+    const { fields, fieldsFound, fieldsTotal } = result.data
+    const match = matchVehicleByPlate(fields.license_plate.value, vehiclesRef.current)
+
+    setForm((prev) => {
+      const next = { ...prev }
+      if (fields.description.value !== null) next.description = fields.description.value
+      if (fields.infraction_date.value !== null) next.infraction_date = fields.infraction_date.value
+      if (fields.due_date.value !== null) next.due_date = fields.due_date.value
+      if (fields.amount.value !== null) next.amount = String(fields.amount.value)
+      if (fields.ait_number.value !== null) next.ait_number = fields.ait_number.value
+      if (fields.infraction_location.value !== null) next.infraction_location = fields.infraction_location.value
+      if (match) {
+        next.vehicle_id = match.id
+        const contract = contractsRef.current.find((c) => c.vehicle_id === match.id)
+        if (contract?.customer_id) next.customer_id = contract.customer_id
+      }
+      return next
+    })
+
+    setFineExtraction({ status: 'success', fieldsFound, fieldsTotal, plateMatched: !!match })
+  }
+
   // ── Sidebar: IntersectionObserver para seção ativa
   const sectionRefs  = useRef<Record<string, HTMLElement | null>>({})
-  const [activeSection, setActiveSection] = useState('sec-link')
+  const [activeSection, setActiveSection] = useState(isEditMode ? 'sec-link' : 'sec-document')
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -217,6 +283,24 @@ export function FineForm({ fineId, initialData }: FineFormProps) {
         return
       }
 
+      // RF-010/CA-011 — reaproveita o arquivo já obtido na extração, sem pedir de novo.
+      if (!isEditMode && pendingFineNoticeFile && result.data) {
+        const tenantId = getTenantId()
+        const ext = pendingFineNoticeFile.name.split('.').pop()?.toLowerCase() || 'pdf'
+        const path = `${tenantId}/${result.data.id}/ait/${Date.now()}.${ext}`
+        const { error: uploadErr } = await supabase.storage
+          .from('fine-documents')
+          .upload(path, pendingFineNoticeFile, { contentType: pendingFineNoticeFile.type })
+
+        if (uploadErr) {
+          // Multa já foi salva (sem risco de duplicar) — manda pro detalhe, onde
+          // FineAttachments permite reenviar o anexo manualmente.
+          router.push(`/multas/${result.data.id}`)
+          return
+        }
+        await addFineAttachment(result.data.id, 'ait', path)
+      }
+
       router.push('/multas')
     })
   }
@@ -257,7 +341,7 @@ export function FineForm({ fineId, initialData }: FineFormProps) {
         {/* ── Sidebar ─────────────────────────────────────────────────────── */}
         <aside className="w-44 flex-shrink-0 hidden md:block">
           <nav className="sticky top-14 pt-8 pb-8 pr-4 space-y-0.5">
-            {NAV_ITEMS.map((item) => {
+            {NAV_ITEMS.filter((item) => isEditMode ? item.id !== 'sec-document' : true).map((item) => {
               const isActive = activeSection === item.id
               return (
                 <button
@@ -284,6 +368,39 @@ export function FineForm({ fineId, initialData }: FineFormProps) {
           onSubmit={handleSubmit}
           className="flex-1 min-w-0 px-6 py-8 space-y-14"
         >
+
+          {/* ══ Preencher com IA (extração da notificação) ═══════════════════ */}
+          {!isEditMode && (
+            <div
+              id="sec-document"
+              ref={(el) => { sectionRefs.current['sec-document'] = el }}
+            >
+              <DocumentImportCard
+                icon={Sparkles}
+                badge="IA"
+                title="Preencher com IA"
+                description="Anexe a notificação para preencher automaticamente."
+                accept="application/pdf,image/jpeg,image/png,image/webp"
+                processingMessages={['Lendo o documento…', 'Identificando os campos…', 'Conferindo os dados…']}
+                status={fineExtraction.status}
+                message={
+                  fineExtraction.status === 'error'
+                    ? fineExtraction.message
+                    : fineExtraction.status === 'success'
+                      ? `${fineExtraction.fieldsFound} de ${fineExtraction.fieldsTotal} campos identificados.` +
+                        (fineExtraction.plateMatched
+                          ? ' Veículo pré-selecionado.'
+                          : ' Placa não encontrada.')
+                      : undefined
+                }
+                fileName={pendingFineNoticeFile?.name}
+                onSelect={(f) => void runFineNoticeExtraction(f)}
+                onRetry={() => { if (pendingFineNoticeFile) void runFineNoticeExtraction(pendingFineNoticeFile) }}
+                onDismissError={() => setFineExtraction({ status: 'idle' })}
+                onClear={() => { setPendingFineNoticeFile(null); setFineExtraction({ status: 'idle' }) }}
+              />
+            </div>
+          )}
 
           {/* ══ Vínculo ═══════════════════════════════════════════════════════ */}
           <section

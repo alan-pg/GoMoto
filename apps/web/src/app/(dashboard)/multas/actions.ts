@@ -2,9 +2,14 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { FineSchema } from '@gomoto/core'
+import {
+  FineSchema,
+  ExtractDocumentFileSchema,
+  type ActionResult, type ExtractionResult, type FineNoticeFields,
+} from '@gomoto/core'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
+import { extractFields } from '@/lib/document-extraction/extract'
 
 async function getAuthenticatedUser() {
   const supabase = await createClient()
@@ -131,4 +136,45 @@ export async function deleteFineAttachment(attachmentId: string, fineId: string,
   await logAction({ action: 'delete', table: 'fine_attachments', recordId: attachmentId, oldData: before })
   revalidatePath(`/multas/${fineId}`)
   return { success: true }
+}
+
+/**
+ * PRD 0012/Spec 0012 §5.1 — extrai campos de uma notificação de multa (PDF)
+ * via IA pra pré-preencher o FineForm. Não persiste nada (RN-001).
+ */
+export async function extractFineNoticeFields(formData: FormData): Promise<ActionResult<ExtractionResult<FineNoticeFields>>> {
+  const { supabase, user } = await getAuthenticatedUser()
+  if (!user) {
+    return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+  }
+
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) {
+    return { ok: false, error: { code: 'FORBIDDEN', message: 'Tenant não resolvido' } }
+  }
+
+  const parsedFile = ExtractDocumentFileSchema.safeParse(formData.get('file'))
+  if (!parsedFile.success) {
+    return {
+      ok: false,
+      error: { code: 'VALIDATION_ERROR', message: parsedFile.error.issues[0]?.message ?? 'Arquivo inválido', field: 'file' },
+    }
+  }
+
+  const startedAt = Date.now()
+  const result = await extractFields('fine_notice', parsedFile.data)
+  const latencyMs = Date.now() - startedAt
+
+  if (!result) {
+    console.error('[extractFineNoticeFields] extraction_failed', { tenant_id: tenantId, outcome: 'error', latency_ms: latencyMs })
+    return {
+      ok: false,
+      error: { code: 'EXTRACTION_FAILED', message: 'Não foi possível extrair os dados da notificação. Tente novamente ou preencha manualmente.' },
+    }
+  }
+
+  console.info('[extractFineNoticeFields] extraction_completed', {
+    tenant_id: tenantId, outcome: 'ok', fields_found: result.fieldsFound, fields_total: result.fieldsTotal, latency_ms: latencyMs,
+  })
+  return { ok: true, data: result }
 }
