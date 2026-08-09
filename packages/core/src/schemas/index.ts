@@ -89,6 +89,9 @@ export const CustomerSchema = z.object({
   zip_code: z.string().trim().max(10).optional().nullable(),
   // Legado
   address: z.string().trim().max(1000).optional().nullable(),
+  // Documentos — path no bucket customer-documents, não URL pública (Spec 0012 §4.3)
+  drivers_license_photo_url: z.string().trim().max(500).optional().nullable(),
+  residency_proof_url: z.string().trim().max(500).optional().nullable(),
   // Gestão
   payment_status: z.string().trim().max(50).optional().nullable(),
   observations: z.string().trim().max(2000).optional().nullable(),
