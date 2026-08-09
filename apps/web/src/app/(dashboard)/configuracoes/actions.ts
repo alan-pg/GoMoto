@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { SignJWT } from 'jose'
 import { LateChargeConfigSchema, ThemePreferenceSchema } from '@gomoto/core'
 import { createClient } from '@/lib/supabase/server'
-import { getCurrentTenantId } from '@/lib/auth/tenant'
+import { getCurrentTenantId, requireTenantOwner } from '@/lib/auth/tenant'
 import { buildOAuthUrl } from '@/lib/payment/mercadopago'
 import { logAction } from '@/lib/audit'
 import { revalidatePath } from 'next/cache'
@@ -18,9 +18,28 @@ async function getAuthenticatedTenant() {
   return { supabase, user, tenantId }
 }
 
+/**
+ * Integração de Pagamento é restrita a Tenant Owner — conectar/desconectar
+ * a conta Mercado Pago afeta o recebimento de toda a empresa, não é uma
+ * configuração operacional comum. Guard server-side; a tela também esconde
+ * a seção pra quem não é Owner (mesmo padrão de "esconder, não só bloquear"
+ * já usado na Spec 0011 pra Usuários/RNF-003).
+ */
+async function getOwnerTenant() {
+  try {
+    return await requireTenantOwner()
+  } catch (err) {
+    const code = err instanceof Error && err.message === 'FORBIDDEN' ? 'FORBIDDEN' : 'UNAUTHORIZED'
+    return { error: code as 'FORBIDDEN' | 'UNAUTHORIZED' }
+  }
+}
+
 export async function connectMercadoPagoAction() {
-  const ctx = await getAuthenticatedTenant()
-  if ('error' in ctx) return { ok: false, error: { code: ctx.error, message: 'Não autorizado' } }
+  const ctx = await getOwnerTenant()
+  if ('error' in ctx) {
+    const message = ctx.error === 'FORBIDDEN' ? 'Apenas o Owner da empresa pode conectar a integração de pagamento' : 'Não autorizado'
+    return { ok: false, error: { code: ctx.error, message } }
+  }
 
   const secret = process.env.MERCADOPAGO_CLIENT_SECRET
   if (!secret) return { ok: false, error: { code: 'INTERNAL', message: 'Integração não configurada' } }
@@ -35,8 +54,11 @@ export async function connectMercadoPagoAction() {
 }
 
 export async function disconnectPaymentAction() {
-  const ctx = await getAuthenticatedTenant()
-  if ('error' in ctx) return { ok: false, error: { code: ctx.error, message: 'Não autorizado' } }
+  const ctx = await getOwnerTenant()
+  if ('error' in ctx) {
+    const message = ctx.error === 'FORBIDDEN' ? 'Apenas o Owner da empresa pode desconectar a integração de pagamento' : 'Não autorizado'
+    return { ok: false, error: { code: ctx.error, message } }
+  }
 
   const { data: conn } = await ctx.supabase
     .from('payment_connections')
@@ -159,11 +181,14 @@ export async function updateThemePreferenceAction(input: unknown) {
     return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos' } }
   }
 
-  const { error } = await ctx.supabase
-    .from('tenant_members')
-    .update({ theme_brand: parsed.data.theme_brand, color_mode: parsed.data.color_mode })
-    .eq('tenant_id', ctx.tenantId)
-    .eq('user_id', ctx.user.id)
+  // RPC SECURITY DEFINER, não UPDATE direto: a única policy de UPDATE em
+  // tenant_members ("Owners/admins can manage members") exige role
+  // owner/admin — operator/viewer não conseguem alterar nem a própria
+  // linha por ela. Sem a RPC, o update roda sem erro mas afeta 0 linhas.
+  const { error } = await ctx.supabase.rpc('update_own_theme_preference', {
+    p_theme_brand: parsed.data.theme_brand,
+    p_color_mode: parsed.data.color_mode,
+  })
 
   if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
 

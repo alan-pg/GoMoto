@@ -11,7 +11,8 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Lock, User, Save, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, CreditCard, Link2, Link2Off, Palette } from 'lucide-react'
+import Link from 'next/link'
+import { Lock, User, Save, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, CreditCard, Link2, Link2Off, Palette, UsersRound, ChevronRight } from 'lucide-react'
 import { PageTitle } from '@/components/layout/PageTitle'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -91,6 +92,20 @@ export default function SettingsPage() {
 
   /** @state isLoadingUser — Exibe o spinner enquanto os dados do usuário carregam. */
   const [isLoadingUser, setIsLoadingUser] = useState<boolean>(true)
+
+  /**
+   * @state canManageUsers — Owner/Admin do tenant vê o card de "Usuários"
+   * (Spec 0011 RNF-003: Operator/Viewer não deve nem saber que a tela existe,
+   * então o link só aparece pra quem pode de fato acessá-la).
+   */
+  const [canManageUsers, setCanManageUsers] = useState(false)
+
+  /**
+   * @state isOwner — só o Owner do tenant vê/manipula a Integração de
+   * Pagamento (conectar/desconectar Mercado Pago afeta o recebimento de
+   * toda a empresa). Mais restrito que canManageUsers (que também libera Admin).
+   */
+  const [isOwner, setIsOwner] = useState(false)
 
   // --- ESTADOS: Integração de Pagamento ---
 
@@ -199,6 +214,15 @@ export default function SettingsPage() {
               year: 'numeric',
             }),
           })
+
+          const { data: membership } = await supabase
+            .from('tenant_members')
+            .select('role')
+            .eq('user_id', user.id)
+            .eq('status', 'active')
+            .maybeSingle()
+          setCanManageUsers(membership?.role === 'owner' || membership?.role === 'admin')
+          setIsOwner(membership?.role === 'owner')
         }
       } catch {
         // Falha silenciosa: o card de conta exibirá mensagem de erro
@@ -479,67 +503,103 @@ export default function SettingsPage() {
           </Card>
         </section>
 
-        {/* SEÇÃO 3: Integração de Pagamento */}
-        <section>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2.5 rounded-full bg-info-bg border border-info">
-              <CreditCard className="w-5 h-5 text-info" />
+        {/* SEÇÃO 3: Integração de Pagamento — só Owner vê/manipula (conectar/
+            desconectar afeta o recebimento de toda a empresa). Mesmo padrão de
+            "esconder, não só bloquear" já usado pra Usuários (RNF-003). */}
+        {isOwner ? (
+          <section>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 rounded-full bg-info-bg border border-info">
+                <CreditCard className="w-5 h-5 text-info" />
+              </div>
+              <div>
+                <h2 className="text-[28px] font-semibold text-fg">Integração de Pagamento</h2>
+                <p className="text-[13px] text-fg-mute">
+                  Conecte a conta Mercado Pago para gerar cobranças Pix automaticamente.
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-[28px] font-semibold text-fg">Integração de Pagamento</h2>
-              <p className="text-[13px] text-fg-mute">
-                Conecte a conta Mercado Pago para gerar cobranças Pix automaticamente.
-              </p>
-            </div>
-          </div>
 
-          <Card>
-            {paymentConnectionQuery.isLoading ? (
-              <div className="flex items-center gap-3 py-2">
-                <Loader2 className="animate-spin text-fg-mute" size={20} />
-                <p className="text-[13px] text-fg-mute">Verificando integração...</p>
-              </div>
-            ) : paymentConnectionQuery.data?.is_connected ? (
-              <div className="space-y-4">
-                <div className="flex items-center gap-3 p-4 rounded-xl bg-success-bg border border-success">
-                  <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-success">Mercado Pago conectado</p>
-                    {paymentConnectionQuery.data.mp_account_email && (
-                      <p className="text-[12px] text-fg-mute mt-0.5 truncate">
-                        {paymentConnectionQuery.data.mp_account_email}
-                      </p>
-                    )}
-                  </div>
-                  <Button variant="danger" size="sm" onClick={() => setDisconnectModalOpen(true)}>
-                    <Link2Off className="w-4 h-4" />
-                    Desconectar
-                  </Button>
+            <Card>
+              {paymentConnectionQuery.isLoading ? (
+                <div className="flex items-center gap-3 py-2">
+                  <Loader2 className="animate-spin text-fg-mute" size={20} />
+                  <p className="text-[13px] text-fg-mute">Verificando integração...</p>
                 </div>
-                {paymentFeedback && <FeedbackMessage feedback={paymentFeedback} />}
+              ) : paymentConnectionQuery.data?.is_connected ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 p-4 rounded-xl bg-success-bg border border-success">
+                    <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-medium text-success">Mercado Pago conectado</p>
+                      {paymentConnectionQuery.data.mp_account_email && (
+                        <p className="text-[12px] text-fg-mute mt-0.5 truncate">
+                          {paymentConnectionQuery.data.mp_account_email}
+                        </p>
+                      )}
+                    </div>
+                    <Button variant="danger" size="sm" onClick={() => setDisconnectModalOpen(true)}>
+                      <Link2Off className="w-4 h-4" />
+                      Desconectar
+                    </Button>
+                  </div>
+                  {paymentFeedback && <FeedbackMessage feedback={paymentFeedback} />}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 p-4 rounded-xl bg-surface border border-border">
+                    <Link2 className="w-5 h-5 text-fg-mute shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-[13px] font-medium text-fg">Nenhuma conta conectada</p>
+                      <p className="text-[12px] text-fg-mute mt-0.5">
+                        Conecte a conta Mercado Pago da locadora para gerar cobranças Pix.
+                      </p>
+                    </div>
+                    <Button onClick={handleConnect} loading={isConnecting} size="sm">
+                      <Link2 className="w-4 h-4" />
+                      Conectar Mercado Pago
+                    </Button>
+                  </div>
+                  {paymentFeedback && <FeedbackMessage feedback={paymentFeedback} />}
+                </div>
+              )}
+            </Card>
+          </section>
+        ) : null}
+
+        {/* SEÇÃO 4: Usuários (Spec 0011) — só visível pra Owner/Admin do tenant;
+            RNF-003 quer que Operator/Viewer nem saiba que a tela existe. */}
+        {canManageUsers ? (
+          <section>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 rounded-full bg-info-bg border border-info">
+                <UsersRound className="w-5 h-5 text-info" />
               </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="flex items-center gap-3 p-4 rounded-xl bg-surface border border-border">
-                  <Link2 className="w-5 h-5 text-fg-mute shrink-0" />
-                  <div className="flex-1">
-                    <p className="text-[13px] font-medium text-fg">Nenhuma conta conectada</p>
+              <div>
+                <h2 className="text-[28px] font-semibold text-fg">Usuários</h2>
+                <p className="text-[13px] text-fg-mute">
+                  Convide pessoas da sua equipe, gerencie papéis e revogue acesso.
+                </p>
+              </div>
+            </div>
+
+            <Link href="/configuracoes/usuarios">
+              <Card className="hover:border-fg-mute transition-colors cursor-pointer">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[13px] font-medium text-fg">Gerenciar usuários</p>
                     <p className="text-[12px] text-fg-mute mt-0.5">
-                      Conecte a conta Mercado Pago da locadora para gerar cobranças Pix.
+                      Convidar, alterar papel, revogar e reativar acesso de membros da empresa.
                     </p>
                   </div>
-                  <Button onClick={handleConnect} loading={isConnecting} size="sm">
-                    <Link2 className="w-4 h-4" />
-                    Conectar Mercado Pago
-                  </Button>
+                  <ChevronRight className="w-5 h-5 text-fg-mute shrink-0" />
                 </div>
-                {paymentFeedback && <FeedbackMessage feedback={paymentFeedback} />}
-              </div>
-            )}
-          </Card>
-        </section>
+              </Card>
+            </Link>
+          </section>
+        ) : null}
 
-        {/* SEÇÃO 4: Informações da Conta */}
+        {/* SEÇÃO 5: Informações da Conta */}
         <section>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2.5 rounded-full bg-warning-bg border border-warning">
