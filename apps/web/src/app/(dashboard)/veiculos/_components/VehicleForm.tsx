@@ -702,14 +702,14 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
 
             {/* Importar CRLV — somente criação. Parsing determinístico local
                 (packages/core/src/parsers/crlv.ts) — NÃO passa por IA, mas
-                reaproveita o ícone/padrão visual do card de extração por IA
-                (Spec 0012) por escolha de produto; sem o selo "IA". */}
+                reaproveita o ícone/título/padrão visual do card de extração
+                por IA (Spec 0012) por escolha de produto; sem o selo "IA". */}
             {!isEditMode && (
               <div className="mb-5">
                 <DocumentImportCard
                   icon={Sparkles}
-                  title="Importar CRLV"
-                  description="Preenche placa, RENAVAM, chassi e proprietário automaticamente."
+                  title="Preencher com IA"
+                  description="Anexe o CRLV para preencher automaticamente."
                   accept="application/pdf"
                   status={crlvImporting ? 'loading' : crlvMsg?.kind === 'success' ? 'success' : crlvMsg?.kind === 'error' ? 'error' : 'idle'}
                   message={crlvMsg?.kind === 'success' ? `${crlvMsg.found}/${crlvMsg.total} campos importados.` : crlvMsg?.kind === 'error' ? crlvMsg.text : undefined}
