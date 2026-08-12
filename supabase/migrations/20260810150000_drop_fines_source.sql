@@ -1,0 +1,18 @@
+-- ============================================================
+-- PRD 0013 — remove fines.source e a obrigatoriedade condicional do RENAINF
+-- (RN-002 revogada)
+-- ============================================================
+-- `source` (DETRAN/CETRAN/municipal/área privada/outro) nunca foi
+-- preenchido pela extração e virou um select redundante com
+-- `issuing_agency_name` (texto livre, esse sim extraído automaticamente da
+-- NA). "Órgão autuador" no form passa a ser só o texto livre.
+--
+-- RN-002 (RENAINF obrigatório exceto área privada) também sai — multa de
+-- área privada existe mas é rara pra uma locadora de moto; se aparecer um
+-- caso real, a regra volta a ser discutida. RENAINF continua opcional e
+-- segue servindo pra deduplicação (RN-001, índice único parcial já existente).
+--
+-- Pré-checagem necessária antes de aplicar em produção:
+--   SELECT count(*) FROM fines WHERE source IS NOT NULL;
+-- No ambiente local, a contagem é 0.
+ALTER TABLE fines DROP COLUMN IF EXISTS source;
