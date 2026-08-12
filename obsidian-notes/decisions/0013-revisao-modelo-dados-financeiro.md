@@ -1,10 +1,16 @@
 # ADR 0013 — Revisão do modelo de dados financeiro: substituição de `incomes` por `payments`
 
-- **Status:** Aceita
+- **Status:** ⛔ Substituída
 - **Data:** 2026-07-19
 - **Autores:** Alan + agente IA
 - **Substitui:** —
-- **Substituída por:** —
+- **Substituída por:** [[decisions/0024-ledger-financeiro-com-contrapartida|ADR 0024]] (2026-08-12)
+
+> ⛔ **Esta decisão não vale mais.** Os dois gatilhos que ela própria nomeou em *Quando reavaliar* — parcelamento e estorno — viraram requisito, e `UNIQUE(billing_id)` os impede por construção. Substituída por `payment_allocations` N:N.
+>
+> ⚠️ **Correção factual:** a seção *Limites desta decisão* afirma que despesas "permanecem como `expenses` com `is_company_expense = true`, que já existem no schema". **Essa coluna nunca existiu** (verificado em `information_schema`) — por isso responsabilidade de despesa era inmodelável até a ADR 0024.
+>
+> Permanece válida a separação conceitual entre *ordem de pagamento* (cobrança) e *recibo* (pagamento).
 - **Relacionada:** [[decisions/0009-geracao-cobracas-upfront-vs-cron|ADR 0009]], [[PRDs/0008-modulo-financeiro|PRD 0008]], [[Specs/0008-modulo-financeiro|Spec 0008]]
 
 ## Contexto
