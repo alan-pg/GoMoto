@@ -34,15 +34,39 @@ describe('CnhFieldsSchema', () => {
 })
 
 describe('FineNoticeFieldsSchema', () => {
-  it('aceita objeto bem formado, incluindo amount numérico', () => {
+  it('aceita objeto bem formado, incluindo amount numérico e campos da NA (PRD 0013)', () => {
     const result = FineNoticeFieldsSchema.safeParse({
       license_plate: { value: 'ABC1234', confidence: 'high' },
       description: { value: 'Excesso de velocidade', confidence: 'high' },
       infraction_date: { value: '2026-01-01', confidence: 'high' },
-      due_date: { value: '2026-02-01', confidence: 'low' },
       amount: { value: 293.47, confidence: 'high' },
       ait_number: { value: 'A123456789', confidence: 'high' },
       infraction_location: { value: 'Av. Paulista', confidence: 'low' },
+      renainf_number: { value: '10581781538', confidence: 'high' },
+      notification_date: { value: '2026-02-01', confidence: 'high' },
+      prior_defense_deadline: { value: '2026-03-01', confidence: 'high' },
+      driver_identification_deadline: { value: '2026-03-01', confidence: 'high' },
+      senatran_infraction_code: { value: '7455', confidence: 'high' },
+      senatran_infraction_subcode: { value: '0', confidence: 'high' },
+      issuing_agency_name: { value: 'PREF. DE RJ RIO DE JANEIRO', confidence: 'high' },
+      issuing_agency_code: { value: '260010', confidence: 'high' },
+      competent_agency_code: { value: '260010', confidence: 'high' },
+      competent_agency_name: { value: 'PREF. DE RJ RIO DE JANEIRO', confidence: 'high' },
+      driver_name: { value: null, confidence: 'low' },
+      driver_cnh: { value: null, confidence: 'low' },
+      driver_cpf: { value: null, confidence: 'low' },
+      driver_document: { value: null, confidence: 'low' },
+      infraction_time: { value: '14:18', confidence: 'high' },
+      measurement_instrument_id: { value: '0580541121 - 1', confidence: 'high' },
+      traffic_agent_id: { value: '15515063', confidence: 'high' },
+      measured_speed: { value: 89, confidence: 'high' },
+      considered_speed: { value: 82, confidence: 'high' },
+      speed_limit: { value: 80, confidence: 'high' },
+      original_renainf_number: { value: null, confidence: 'low' },
+      infraction_municipality_code: { value: '6001', confidence: 'high' },
+      infraction_municipality_name: { value: 'RIO DE JANEIRO', confidence: 'high' },
+      infraction_state: { value: 'RJ', confidence: 'high' },
+      senatran_message: { value: null, confidence: 'low' },
     })
     expect(result.success).toBe(true)
   })

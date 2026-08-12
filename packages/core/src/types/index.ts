@@ -502,15 +502,41 @@ export interface Fine {
   responsible: 'customer' | 'company';
   observations: string | null;
   ait_number?: string | null;
-  infraction_code?: string | null;
   infraction_location?: string | null;
   points?: number | null;
-  source?: 'detran' | 'cetran' | 'municipal' | 'private_area' | 'other' | null;
-  ticket_url?: string | null;
+  // PRD 0013 — campos oficiais da NA (Notificação de Autuação) e da NP (Notificação de Penalidade)
+  renainf_number?: string | null;
+  notification_date?: string | null;
+  prior_defense_deadline?: string | null;
+  driver_identification_deadline?: string | null;
+  appeal_deadline?: string | null;
+  discounted_payment_deadline?: string | null;
+  senatran_infraction_code?: string | null;
+  issuing_agency_name?: string | null;
+  driver_name?: string | null;
+  driver_cnh?: string | null;
+  driver_cpf?: string | null;
+  driver_document?: string | null;
+  infraction_time?: string | null;
+  senatran_infraction_subcode?: string | null;
+  issuing_agency_code?: string | null;
+  competent_agency_code?: string | null;
+  competent_agency_name?: string | null;
+  measurement_instrument_id?: string | null;
+  traffic_agent_id?: string | null;
+  measured_speed?: number | null;
+  considered_speed?: number | null;
+  speed_limit?: number | null;
+  original_renainf_number?: string | null;
+  infraction_municipality_code?: string | null;
+  infraction_municipality_name?: string | null;
+  infraction_state?: string | null;
+  senatran_message?: string | null;
   created_at: string;
   updated_at: string;
   customers?: { name: string; phone: string } | null;
   vehicles?: { license_plate: string; model: string; make: string } | null;
+  fine_attachments?: { type: string }[];
 }
 
 /**
