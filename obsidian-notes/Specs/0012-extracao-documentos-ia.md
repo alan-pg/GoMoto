@@ -71,7 +71,7 @@ Nenhum serviço externo novo além do provedor de IA. Nenhuma mudança em Auth/S
 | Componente | Responsabilidade |
 |---|---|
 | `CustomerForm` / `FineForm` (Client) | Dispara upload, chama Server Action de extração, aplica resultado no estado do form, sinaliza confiança baixa, decide o anexo final no submit |
-| `extractCnhFields` / `extractFineNoticeFields` (Server Action) | Valida tipo/tamanho do arquivo (RNF-003) antes de gastar chamada de IA, aplica timeout de 15s (RNF-001), traduz erro do provedor em `ActionResult` |
+| `extractCnhFields` / `extractFineNoticeFields` (Server Action) | Valida tipo/tamanho do arquivo (RNF-003) antes de gastar chamada de IA, aplica timeout de 30s (RNF-001), traduz erro do provedor em `ActionResult` |
 | `extract.ts` (helper compartilhado) | Monta a chamada ao Gemini a partir do registry — não conhece Cliente/Multa, só `documentType` |
 | `registry.ts` (`packages/core`) | Única fonte de verdade de campos esperados + prompt por tipo de documento — extensão futura mexe só aqui |
 | `matchVehicleByPlate` (pura) | Recebe placa extraída + lista de veículos já carregada, devolve match ou `null` |
@@ -87,7 +87,7 @@ Nenhum serviço externo novo além do provedor de IA. Nenhuma mudança em Auth/S
 1. Operador seleciona arquivo (PDF/imagem) no `CustomerForm`, sem submeter o formulário ainda.
 2. Client valida tipo/tamanho no browser (feedback imediato) — validação definitiva acontece no Server Action, nunca só no client.
 3. Client monta `FormData { file }` e chama `extractCnhFields(formData)`.
-4. Server Action valida o `FormData`, busca a entrada `'cnh'` no registry (schema de campos + prompt), chama `generateObject` (model `google/gemini-...`, schema `CnhFieldsSchema`, arquivo + prompt como mensagem) com timeout de 15s.
+4. Server Action valida o `FormData`, busca a entrada `'cnh'` no registry (schema de campos + prompt), chama `generateObject` (model `google/gemini-...`, schema `CnhFieldsSchema`, arquivo + prompt como mensagem) com timeout de 30s.
 5. **Sucesso**: Gemini retorna objeto validado pelo schema (cada campo com `value` + `confidence`). Server Action calcula `fieldsFound`/`fieldsTotal`, retorna `{ ok: true, data: ExtractionResult }`.
    **Falha/timeout**: retorna `{ ok: false, error: { code: 'EXTRACTION_FAILED', message } }`.
 6. Client aplica o resultado: preenche o form, sinaliza campos `confidence: 'low'`, mostra "X de Y campos identificados" (RF-005), guarda o `File` original em memória (`pendingCnhFile`) pra anexar depois. Em caso de falha, mostra mensagem com "Tentar novamente" / "Preencher manualmente" (CA-010).
@@ -115,7 +115,7 @@ Nenhum serviço externo novo além do provedor de IA. Nenhuma mudança em Auth/S
 
 ### 3.3 Fluxos de falha
 
-- Timeout de 15s (RNF-001) ou erro do provedor → `EXTRACTION_FAILED`, client mostra mensagem + retry/manual (CA-010). Estado do form nunca é resetado pela chamada.
+- Timeout de 30s (RNF-001) ou erro do provedor → `EXTRACTION_FAILED`, client mostra mensagem + retry/manual (CA-010). Estado do form nunca é resetado pela chamada.
 - Documento ilegível ou tipo errado → Gemini retorna poucos/nenhum campo (`value: null`); `fieldsFound` baixo é exibido normalmente — resultado válido de baixo aproveitamento, não erro técnico.
 - Upload do arquivo final falha **depois** que `createCustomer`/`createFine` já teve sucesso → registro fica salvo sem o anexo. Não é atômico — mesma limitação que já existe hoje em qualquer fluxo de anexo (Storage não participa de transação com Postgres). Client avisa "cadastro salvo, mas anexo falhou" e permite reenviar sem duplicar o registro.
 - Conflito de concorrência: sem tratamento novo — mesmo comportamento que `createCustomer`/`createFine` já têm hoje.
@@ -254,7 +254,7 @@ Schemas vivem em `@gomoto/core`. **Nunca duplicados** em `apps/web`.
 |---|---|---|
 | `VALIDATION_ERROR` | Arquivo ausente, MIME não suportado, ou > 10MB (RNF-003) | Erro de validação exibido antes de chamar a IA — nem gasta a chamada |
 | `UNAUTHORIZED` | Sem sessão válida | Comportamento padrão já existente (redireciona pro login) |
-| `EXTRACTION_FAILED` | Timeout de 15s (RNF-001), erro do provedor Gemini, ou resposta fora do schema esperado | Mensagem amigável + "Tentar novamente" / "Preencher manualmente" (CA-010) |
+| `EXTRACTION_FAILED` | Timeout de 30s (RNF-001), erro do provedor Gemini, ou resposta fora do schema esperado | Mensagem amigável + "Tentar novamente" / "Preencher manualmente" (CA-010) |
 
 `EXTRACTION_FAILED` é um código novo, adicionado à união `ErrorCode` de `@gomoto/core` — cobre timeout e falha genérica do provedor com o mesmo tratamento de UI, já que o PRD (RF-009/CA-010) não distingue os dois casos.
 
@@ -306,7 +306,7 @@ N/A — feature não crítica. O PRD (§3.3) explicita que não há meta numéri
 
 ## 8. Performance e Escalabilidade
 
-N/A — sem requisitos materiais. Comportamento padrão Vercel (timeout de função 300s, folga grande sobre os 15s do RNF-001) + Supabase, processamento de um documento por vez (§3.4 do PRD, sem concorrência a otimizar).
+N/A — sem requisitos materiais. Comportamento padrão Vercel (timeout de função 300s, folga grande sobre os 30s do RNF-001) + Supabase, processamento de um documento por vez (§3.4 do PRD, sem concorrência a otimizar).
 
 ---
 
@@ -345,7 +345,7 @@ Primeira integração com IA externa do projeto — a lógica de dispatch (regis
 |---|---|---|
 | `extractFields('cnh', file)` chama `generateObject` com `CnhFieldsSchema` + prompt de CNH corretos | `apps/web/src/lib/document-extraction/extract.spec.ts` (Vitest, `generateObject` mockado) | Dispatch correto do registry |
 | Calcula `fieldsFound`/`fieldsTotal` a partir de um resultado com campos nulos | mesmo arquivo | RF-005 |
-| Timeout de 15s → retorna `EXTRACTION_FAILED`, nunca lança exceção | mesmo arquivo | RNF-001/CA-010 |
+| Timeout de 30s → retorna `EXTRACTION_FAILED`, nunca lança exceção | mesmo arquivo | RNF-001/CA-010 |
 | Erro do provedor (mock rejeitado) → retorna `EXTRACTION_FAILED` | mesmo arquivo | CA-010 |
 | Toda chamada `generateObject` inclui `providerOptions.gateway.disallowPromptTraining === true` | mesmo arquivo | RNF-005 |
 
@@ -401,7 +401,7 @@ Primeira integração com IA externa do projeto — a lógica de dispatch (regis
 | RF-009 | Falha/timeout → mensagem + retry/manual | §3.3, §5.3 | Integration: `extract.spec.ts::timeout-retorna-EXTRACTION_FAILED`; E2E: `document-extraction-cliente.spec.ts::extracao-falha-mensagem-retry` |
 | RF-010 | Anexa documento original ao registro após confirmação | §3.1, §4.1 | E2E: `document-extraction-cliente.spec.ts::apos-salvar-documento-anexado`, `document-extraction-multa.spec.ts::apos-salvar-documento-anexado` |
 | RF-011 | Preencher manualmente sem anexar documento | §3.2 | E2E: `document-extraction-cliente.spec.ts::sem-anexar-fluxo-manual-intacto` |
-| RNF-001 | Timeout de 15s | §3.1, §3.3, §6.1 | Integration: `extract.spec.ts::timeout-15s-retorna-EXTRACTION_FAILED` |
+| RNF-001 | Timeout de 30s | §3.1, §3.3, §6.1 | Integration: `extract.spec.ts::timeout-15s-retorna-EXTRACTION_FAILED` |
 | RNF-002 | Indisponibilidade nunca impede cadastro/multa | §3.2, §3.3 | E2E: `document-extraction-cliente.spec.ts::sem-anexar-fluxo-manual-intacto` |
 | RNF-003 | Aceita PDF/JPG/PNG/WEBP até 10MB | §5.2 | Unit: `types.spec.ts::rejeita-arquivo-grande`, `rejeita-mime-nao-suportado`; E2E: `document-extraction-cliente.spec.ts::anexa-arquivo-invalido` |
 | RNF-004 | Informa processamento por IA de terceiro | §6.4 | N/A — texto estático de UI, verificação por revisão de copy |

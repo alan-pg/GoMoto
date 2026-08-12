@@ -184,7 +184,7 @@ Esse retrabalho manual se repete a cada cliente novo e a cada multa lançada, se
 
 ## 8. Requisitos Não Funcionais
 
-- **RNF-001** — Sistema aguarda até 15 segundos pela resposta da extração antes de considerar falha e oferecer nova tentativa ou preenchimento manual.
+- **RNF-001** — Sistema aguarda até 30 segundos pela resposta da extração antes de considerar falha e oferecer nova tentativa ou preenchimento manual. *(Ajustado de 15s para 30s em 2026-08-11 — PRD 0013 ampliou o conjunto de campos extraídos da NA, o que passou a estourar o timeout original em chamada real.)*
 - **RNF-002** — Indisponibilidade do serviço de extração nunca impede o cadastro de cliente ou o lançamento de multa — o preenchimento manual continua disponível a qualquer momento.
 - **RNF-003** — Sistema aceita documentos nos formatos PDF, JPG, PNG e WEBP, com até 10MB por arquivo.
 - **RNF-004** — Sistema informa ao operador, de forma visível, que o conteúdo do documento anexado é processado por um serviço de IA de terceiro.
@@ -256,7 +256,7 @@ Esse retrabalho manual se repete a cada cliente novo e a cada multa lançada, se
 
 ### CA-010 (vincula RF-009)
 - **Dado** que o operador anexou um documento para extração
-- **Quando** o serviço de IA não responde em até 15 segundos ou retorna erro
+- **Quando** o serviço de IA não responde em até 30 segundos ou retorna erro
 - **Então** o sistema exibe uma mensagem amigável com as opções de tentar novamente ou preencher manualmente
 
 ### CA-011 (vincula RF-010)
