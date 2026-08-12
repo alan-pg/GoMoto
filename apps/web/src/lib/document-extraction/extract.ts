@@ -6,7 +6,10 @@ import { summarize, type RegistryFieldsOf } from './shared'
 
 // RNF-001. AI SDK aplica isso como timeout total da chamada (aborta e rejeita
 // se exceder) — não precisamos de Promise.race manual.
-export const EXTRACTION_TIMEOUT_MS = 15_000
+// Subiu de 15s pra 30s em 2026-08-11: o schema de fine_notice praticamente
+// dobrou (PRD 0013, ~32 campos) e passou a estourar os 15s originais em
+// chamada real ("Delay was aborted").
+export const EXTRACTION_TIMEOUT_MS = 30_000
 
 // Questão aberta na Spec 0012 §11.2: validar gemini-2.5-flash vs gemini-2.5-pro
 // com documentos reais antes de produção — string de config, troca não muda

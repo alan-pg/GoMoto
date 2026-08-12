@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { formatCurrency } from '@/lib/utils'
+import { isDriverUnidentified, calcFineUrgency } from '@gomoto/core'
 import { FineAttachments, type FineAttachment, type AttachmentType } from './_components/FineAttachments'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -13,19 +14,6 @@ function fmt(d: string | null | undefined) {
   return date.toLocaleDateString('pt-BR')
 }
 
-function calcStatus(fine: { status: string; due_date?: string | null }) {
-  if (fine.status === 'paid') return 'paid'
-  if (fine.due_date) {
-    const today = new Date(); today.setHours(0, 0, 0, 0)
-    const [y, m, d] = fine.due_date.split('-').map(Number)
-    const due = new Date(y, m - 1, d)
-    if (due < today) return 'overdue'
-    const diff = Math.ceil((due.getTime() - today.getTime()) / 86_400_000)
-    if (diff <= 7) return 'due_soon'
-  }
-  return 'pending'
-}
-
 const STATUS_CONFIG = {
   paid:     { label: 'Paga',     bg: 'bg-success-bg', text: 'text-success', border: 'border-success' },
   overdue:  { label: 'Vencida',  bg: 'bg-danger-bg', text: 'text-danger', border: 'border-danger' },
@@ -33,12 +21,23 @@ const STATUS_CONFIG = {
   pending:  { label: 'Pendente', bg: 'bg-info-bg', text: 'text-info', border: 'border-info' },
 }
 
-const SOURCE_LABELS: Record<string, string> = {
-  detran:       'DETRAN',
-  cetran:       'CETRAN',
-  municipal:    'Municipal (CET / SMTT)',
-  private_area: 'Área privada',
-  other:        'Outro',
+// Status da cobrança (billings) — domínio próprio, distinto do status da multa acima
+// (multa quitada junto ao órgão de trânsito ≠ cliente pagou a cobrança da empresa).
+const BILLING_STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
+  paid:      { label: 'Paga',      bg: 'bg-success-bg', text: 'text-success', border: 'border-success' },
+  overdue:   { label: 'Vencida',   bg: 'bg-danger-bg', text: 'text-danger', border: 'border-danger' },
+  pending:   { label: 'Pendente',  bg: 'bg-info-bg', text: 'text-info', border: 'border-info' },
+  cancelled: { label: 'Cancelada', bg: 'bg-surface-2', text: 'text-fg-mute', border: 'border-divider' },
+  prejudice: { label: 'Prejuízo',  bg: 'bg-warning-bg', text: 'text-warning', border: 'border-warning' },
+}
+
+function calcBillingStatus(status: string, dueDate: string | null) {
+  if (status === 'paid' || status === 'cancelled' || status === 'prejudice') return status
+  if (!dueDate) return 'pending'
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const [y, m, d] = dueDate.split('-').map(Number)
+  const due = new Date(y, m - 1, d)
+  return due < today ? 'overdue' : 'pending'
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -53,7 +52,7 @@ export default async function FineDetailPage({
   const tenantId  = await getCurrentTenantId(supabase)
   if (!tenantId) notFound()
 
-  const [fineResult, attachmentsResult] = await Promise.all([
+  const [fineResult, attachmentsResult, billingResult] = await Promise.all([
     supabase
       .from('fines')
       .select('*, customers(name, phone), vehicles(license_plate, make, model)')
@@ -64,14 +63,24 @@ export default async function FineDetailPage({
       .select('*')
       .eq('fine_id', id)
       .order('created_at', { ascending: true }),
+    supabase
+      .from('billings')
+      .select('id, description, original_amount, due_date, status, paid_at')
+      .eq('fine_id', id)
+      .neq('status', 'cancelled')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ])
 
   if (fineResult.error || !fineResult.data) notFound()
 
   const fine        = fineResult.data
   const rawAtts     = attachmentsResult.data ?? []
-  const status      = calcStatus(fine)
+  const billing     = billingResult.data
+  const status      = calcFineUrgency(fine)
   const statusCfg   = STATUS_CONFIG[status]
+  const driverUnidentified = isDriverUnidentified(fine, rawAtts)
 
   // Gerar signed URLs para todos os anexos
   const attachments: FineAttachment[] = await Promise.all(
@@ -132,10 +141,18 @@ export default async function FineDetailPage({
               <tbody>
                 {([
                   ['Descrição',         fine.description],
-                  ['Artigo (CTB)',       fine.infraction_code],
-                  ['Órgão autuador',    fine.source ? SOURCE_LABELS[fine.source] ?? fine.source : null],
+                  ['Código SENATRAN',   [fine.senatran_infraction_code, fine.senatran_infraction_subcode].filter(Boolean).join(' / ') || null],
+                  ['Órgão autuador',    fine.issuing_agency_name],
+                  ['Código do órgão',   fine.issuing_agency_code],
+                  ['Órgão competente',  fine.competent_agency_name],
+                  ['Código do órgão competente', fine.competent_agency_code],
                   ['Local',             fine.infraction_location],
+                  ['Município/UF',      [fine.infraction_municipality_name, fine.infraction_state].filter(Boolean).join(' / ') || null],
+                  ['Nº do equipamento/instrumento', fine.measurement_instrument_id],
+                  ['Matrícula do agente', fine.traffic_agent_id],
                   ['Nº do AIT',         fine.ait_number],
+                  ['RENAINF',           fine.renainf_number],
+                  ['RENAINF da multa original', fine.original_renainf_number],
                   ['Pontos na CNH',     fine.points != null ? `${fine.points} ponto${fine.points !== 1 ? 's' : ''}` : null],
                   ['Responsável',       fine.responsible === 'customer' ? 'Cliente' : 'Empresa'],
                 ] as [string, string | null | undefined][]).map(([label, value]) => (
@@ -156,7 +173,7 @@ export default async function FineDetailPage({
             <table className="w-full text-[13px]">
               <tbody>
                 {([
-                  ['Data da infração',  fmt(fine.infraction_date)],
+                  ['Data da infração',  fmt(fine.infraction_date) + (fine.infraction_time ? ` às ${fine.infraction_time.slice(0, 5)}` : '')],
                   ['Vencimento',        fmt(fine.due_date)],
                   ['Pago em',           fmt(fine.payment_date)],
                   ['Registrado em',     fmt(fine.created_at)],
@@ -170,6 +187,79 @@ export default async function FineDetailPage({
             </table>
           </div>
         </section>
+
+        {/* ── Prazos (NA/NP) ────────────────────────────────────────────────── */}
+        {(fine.notification_date || fine.prior_defense_deadline || fine.driver_identification_deadline
+          || fine.appeal_deadline || fine.discounted_payment_deadline) && (
+          <section>
+            <h2 className="text-[14px] font-bold text-primary mb-3">Prazos (NA/NP)</h2>
+            <div className="bg-surface rounded-xl overflow-hidden">
+              <table className="w-full text-[13px]">
+                <tbody>
+                  {([
+                    ['Data da notificação',              fmt(fine.notification_date)],
+                    ['Prazo — defesa prévia',            fmt(fine.prior_defense_deadline)],
+                    ['Prazo — identificação de condutor', fmt(fine.driver_identification_deadline)],
+                    ['Prazo — recurso',                  fmt(fine.appeal_deadline)],
+                    ['Vencimento com desconto',           fmt(fine.discounted_payment_deadline)],
+                  ] as [string, string][]).map(([label, value]) => (
+                    <tr key={label} className="border-b border-divider last:border-0">
+                      <td className="h-9 px-4 text-fg-mute w-44">{label}</td>
+                      <td className="h-9 px-4 text-fg">{value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* ── Condutor identificado no documento ──────────────────────────────── */}
+        {(fine.driver_name || fine.driver_cnh || fine.driver_cpf || fine.driver_document) && (
+          <section>
+            <h2 className="text-[14px] font-bold text-primary mb-3">Condutor identificado no documento</h2>
+            <div className="bg-surface rounded-xl overflow-hidden">
+              <table className="w-full text-[13px]">
+                <tbody>
+                  {([
+                    ['Nome', fine.driver_name],
+                    ['CNH',  fine.driver_cnh],
+                    ['CPF',  fine.driver_cpf],
+                    ['Outro documento', fine.driver_document],
+                  ] as [string, string | null][]).map(([label, value]) => (
+                    <tr key={label} className="border-b border-divider last:border-0">
+                      <td className="h-9 px-4 text-fg-mute w-44">{label}</td>
+                      <td className="h-9 px-4 text-fg">{value || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* ── Velocidade ────────────────────────────────────────────────────── */}
+        {(fine.measured_speed != null || fine.considered_speed != null || fine.speed_limit != null) && (
+          <section>
+            <h2 className="text-[14px] font-bold text-primary mb-3">Velocidade</h2>
+            <div className="bg-surface rounded-xl overflow-hidden">
+              <table className="w-full text-[13px]">
+                <tbody>
+                  {([
+                    ['Medição realizada',   fine.measured_speed != null ? `${fine.measured_speed} km/h` : null],
+                    ['Valor considerado',   fine.considered_speed != null ? `${fine.considered_speed} km/h` : null],
+                    ['Limite regulamentado', fine.speed_limit != null ? `${fine.speed_limit} km/h` : null],
+                  ] as [string, string | null][]).map(([label, value]) => (
+                    <tr key={label} className="border-b border-divider last:border-0">
+                      <td className="h-9 px-4 text-fg-mute w-44">{label}</td>
+                      <td className="h-9 px-4 text-fg">{value || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
         {/* ── Vínculo ───────────────────────────────────────────────────────── */}
         <section>
@@ -217,7 +307,7 @@ export default async function FineDetailPage({
                 </>
               ) : (
                 <div>
-                  <p className="text-[13px] text-fg-mute">Condutor não identificado</p>
+                  <p className="text-[13px] text-fg-mute">Sem cliente vinculado</p>
                   <Link
                     href={`/multas/${id}/editar`}
                     className="text-[12px] text-primary hover:underline"
@@ -230,20 +320,43 @@ export default async function FineDetailPage({
           </div>
         </section>
 
-        {/* ── Link do boleto ────────────────────────────────────────────────── */}
-        {fine.ticket_url && (
+        {/* ── Cobrança ──────────────────────────────────────────────────────── */}
+        {fine.responsible === 'customer' && (
           <section>
-            <h2 className="text-[14px] font-bold text-primary mb-3">Boleto / Notificação</h2>
-            <div className="bg-surface rounded-xl px-4 py-3">
-              <a
-                href={fine.ticket_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[13px] text-info hover:opacity-80 transition-opacity break-all"
-              >
-                {fine.ticket_url}
-              </a>
-            </div>
+            <h2 className="text-[14px] font-bold text-primary mb-3">Cobrança</h2>
+            {billing ? (
+              <div className="bg-surface rounded-xl p-4 flex items-center justify-between gap-4 flex-wrap">
+                <div>
+                  <p className="text-[13px] text-fg">{billing.description}</p>
+                  <p className="text-[12px] text-fg-mute mt-0.5">Vencimento: {fmt(billing.due_date)}</p>
+                  {billing.paid_at && (
+                    <p className="text-[12px] text-fg-mute">Pago em: {fmt(billing.paid_at)}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[15px] font-bold text-fg">{formatCurrency(Number(billing.original_amount))}</span>
+                  {(() => {
+                    const bStatus = calcBillingStatus(billing.status, billing.due_date)
+                    const bCfg = BILLING_STATUS_CONFIG[bStatus]
+                    return (
+                      <span className={`inline-flex items-center h-7 px-3 rounded-full text-[13px] font-medium border ${bCfg.bg} ${bCfg.text} ${bCfg.border}`}>
+                        {bCfg.label}
+                      </span>
+                    )
+                  })()}
+                  <Link
+                    href={`/cobrancas/${billing.id}`}
+                    className="text-[12px] text-primary hover:underline whitespace-nowrap"
+                  >
+                    Ver cobrança →
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-surface rounded-xl p-4">
+                <p className="text-[13px] text-fg-mute">Sem cobrança gerada ainda.</p>
+              </div>
+            )}
           </section>
         )}
 
@@ -253,6 +366,16 @@ export default async function FineDetailPage({
             <h2 className="text-[14px] font-bold text-primary mb-3">Observações</h2>
             <div className="bg-surface rounded-xl px-4 py-3">
               <p className="text-[13px] text-fg-mute whitespace-pre-wrap">{fine.observations}</p>
+            </div>
+          </section>
+        )}
+
+        {/* ── Mensagem SENATRAN ────────────────────────────────────────────────── */}
+        {fine.senatran_message && (
+          <section>
+            <h2 className="text-[14px] font-bold text-primary mb-3">Mensagem SENATRAN</h2>
+            <div className="bg-surface rounded-xl px-4 py-3">
+              <p className="text-[13px] text-fg-mute whitespace-pre-wrap">{fine.senatran_message}</p>
             </div>
           </section>
         )}
@@ -268,14 +391,15 @@ export default async function FineDetailPage({
           {/* Legenda dos tipos — contexto para o operador */}
           <div className="mb-4 px-4 py-3 bg-surface border border-border rounded-xl">
             <p className="text-[12px] text-fg-mute leading-relaxed">
-              <strong className="text-fg-mute">AIT</strong> — documento original da autuação.{' '}
-              <strong className="text-fg-mute">NIP</strong> — notificação que abre prazo de defesa (30 dias).{' '}
+              <strong className="text-fg-mute">NA</strong> — Notificação de Autuação, sempre existe, abre defesa prévia e identificação de condutor.{' '}
+              <strong className="text-fg-mute">NP</strong> — Notificação de Penalidade, chega depois se a responsabilidade não passar pro condutor.{' '}
               <strong className="text-fg-mute">Indicação de condutor</strong> — obrigatório para veículos de empresa no prazo do DENATRAN.{' '}
+              <strong className="text-fg-mute">Boleto</strong> — guia de pagamento com código de barras.{' '}
               <strong className="text-fg-mute">Comprovante</strong> — guarda sempre para contabilidade.
             </p>
           </div>
 
-          <FineAttachments fineId={id} attachments={attachments} />
+          <FineAttachments fineId={id} attachments={attachments} driverUnidentified={driverUnidentified} />
         </section>
 
       </div>

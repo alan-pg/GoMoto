@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import {
   FineSchema,
   ExtractDocumentFileSchema,
-  type ActionResult, type ExtractionResult, type FineNoticeFields,
+  type ActionResult, type ExtractionResult, type FineNoticeFields, type Fine, type LateChargeConfig,
 } from '@gomoto/core'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
@@ -17,7 +17,137 @@ async function getAuthenticatedUser() {
   return { supabase, user }
 }
 
-export async function createFine(rawData: unknown) {
+type Supabase = Awaited<ReturnType<typeof createClient>>
+
+export interface FineDuplicateMatch {
+  id: string
+  description: string
+  amount: number
+}
+
+/**
+ * RF-007/RN-001: procura multa existente do mesmo tenant com o mesmo RENAINF
+ * (preferencial) ou AIT (fallback, quando a multa não tem RENAINF — RN-002).
+ * Query fica inline (não em `@gomoto/data`) porque o barrel do pacote reexporta
+ * `context.tsx` (client-only, `createContext`) — importar em Server Action quebra
+ * o boundary Server/Client do Next.js. Nenhuma outra action deste arquivo importa
+ * `@gomoto/data`; todas fazem query direta com o `supabase` local, mesmo padrão.
+ */
+async function findDuplicateFine(
+  supabase: Supabase,
+  tenantId: string,
+  params: { renainfNumber?: string | null; aitNumber?: string | null },
+): Promise<FineDuplicateMatch | null> {
+  const { renainfNumber, aitNumber } = params
+  if (!renainfNumber && !aitNumber) return null
+
+  let query = supabase
+    .from('fines')
+    .select('id, description, amount')
+    .eq('tenant_id', tenantId)
+
+  query = renainfNumber ? query.eq('renainf_number', renainfNumber) : query.eq('ait_number', aitNumber as string)
+
+  const { data, error } = await query.maybeSingle()
+  if (error) throw error
+  return data as FineDuplicateMatch | null
+}
+
+// Mesmo default hardcoded usado em manutencao/[id]/actions.ts::confirmAutoBilling
+// (RF-017) — não existe leitura de FinancialSettingsSchema.late_charge_defaults do
+// tenant em nenhum dos dois fluxos hoje; mantendo consistente entre os dois.
+const DEFAULT_LATE_CHARGE_CONFIG: LateChargeConfig = {
+  late_fee_type:       'percentage',
+  late_fee_value:      0.02,
+  daily_interest_rate: 0.001,
+  grace_period_days:   3,
+}
+
+interface SyncFineBillingParams {
+  fineId: string
+  tenantId: string
+  responsible: 'customer' | 'company'
+  amount: number
+  dueDate: string | null
+  customerId: string | null
+  rentalId: string | null
+}
+
+type SyncFineBillingResult =
+  | { ok: true; billingId: string | null }
+  | { ok: false; error: string }
+
+/**
+ * Mantém `billings` (fine_id/source='fine') em sincronia com `responsible` e
+ * `amount` da multa — chamada em todo create/update, idempotente:
+ *  - responsible='company' → cancela cobrança ativa, se houver (bloqueia se
+ *    já paga: não se cancela um pagamento real, RN nova confirmada com o usuário).
+ *  - responsible='customer' → cria (se não existe) ou atualiza valor/vencimento
+ *    (se existe e ainda não foi paga — cobrança paga fica congelada).
+ */
+async function syncFineBilling(supabase: Supabase, params: SyncFineBillingParams): Promise<SyncFineBillingResult> {
+  const { fineId, tenantId, responsible, amount, dueDate, customerId, rentalId } = params
+
+  const { data: existing } = await supabase
+    .from('billings')
+    .select('id, status')
+    .eq('fine_id', fineId)
+    .eq('tenant_id', tenantId)
+    .neq('status', 'cancelled')
+    .maybeSingle()
+
+  if (responsible === 'company') {
+    if (!existing) return { ok: true, billingId: null }
+    if (existing.status === 'paid') {
+      return { ok: false, error: 'Não é possível mudar o responsável para empresa: a cobrança do cliente já foi paga.' }
+    }
+    const { error } = await supabase.from('billings').update({ status: 'cancelled' }).eq('id', existing.id)
+    if (error) return { ok: false, error: 'Erro ao cancelar cobrança existente' }
+    return { ok: true, billingId: null }
+  }
+
+  // responsible === 'customer'
+  if (!dueDate) return { ok: false, error: 'Data de vencimento é obrigatória para gerar a cobrança do cliente' }
+  if (!customerId) return { ok: false, error: 'Selecione o cliente (via locação) para gerar a cobrança' }
+
+  if (existing) {
+    if (existing.status === 'paid') return { ok: true, billingId: existing.id } // paga fica congelada
+    const { error } = await supabase
+      .from('billings')
+      .update({ original_amount: amount, due_date: dueDate, customer_id: customerId, lease_id: rentalId })
+      .eq('id', existing.id)
+    if (error) return { ok: false, error: 'Erro ao atualizar cobrança' }
+    return { ok: true, billingId: existing.id }
+  }
+
+  const { data: created, error } = await supabase
+    .from('billings')
+    .insert({
+      tenant_id:          tenantId,
+      fine_id:            fineId,
+      lease_id:           rentalId,
+      customer_id:        customerId,
+      description:        'Cobrança de multa',
+      original_amount:    amount,
+      due_date:            dueDate,
+      billing_type:       'one_time',
+      source:              'fine',
+      late_charge_config: DEFAULT_LATE_CHARGE_CONFIG,
+      status:              'pending',
+    })
+    .select('id')
+    .single()
+
+  if (error) return { ok: false, error: 'Erro ao gerar cobrança' }
+  return { ok: true, billingId: created.id }
+}
+
+type CreateFineResult =
+  | { error: string; details?: unknown }
+  | { error: string; code: 'DUPLICATE_FINE'; existingFineId: string }
+  | { data: Fine }
+
+export async function createFine(rawData: unknown, rentalId?: string | null): Promise<CreateFineResult> {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
 
@@ -27,6 +157,24 @@ export async function createFine(rawData: unknown) {
   const parsed = FineSchema.safeParse(rawData)
   if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
 
+  if (parsed.data.responsible === 'customer' && !parsed.data.due_date) {
+    return { error: 'Data de vencimento é obrigatória quando o responsável é o cliente' }
+  }
+
+  // RF-007/RN-001: RENAINF (ou AIT, na ausência) já identifica outra multa do tenant —
+  // trava final, cobre tanto o caso sem extração quanto RENAINF editado manualmente.
+  const duplicate = await findDuplicateFine(supabase, tenantId, {
+    renainfNumber: parsed.data.renainf_number,
+    aitNumber: parsed.data.ait_number,
+  })
+  if (duplicate) {
+    return {
+      error: 'Já existe uma multa com este RENAINF/AIT',
+      code: 'DUPLICATE_FINE' as const,
+      existingFineId: duplicate.id,
+    }
+  }
+
   const { data, error } = await supabase
     .from('fines')
     .insert({ ...parsed.data, status: 'pending', tenant_id: tenantId })
@@ -35,19 +183,63 @@ export async function createFine(rawData: unknown) {
 
   if (error) return { error: 'Erro ao registrar multa' }
 
+  // Gera a cobrança já na criação, se responsável=cliente. Multa já foi salva
+  // (sem risco de duplicar) — falha aqui não desfaz o cadastro, só fica sem
+  // cobrança até o operador editar e tentar de novo.
+  const billingSync = await syncFineBilling(supabase, {
+    fineId:      data.id,
+    tenantId,
+    responsible: parsed.data.responsible,
+    amount:      parsed.data.amount,
+    dueDate:     parsed.data.due_date ?? null,
+    customerId:  parsed.data.customer_id ?? null,
+    rentalId:    rentalId ?? null,
+  })
+  if (!billingSync.ok) {
+    console.error('[createFine] billing_sync_failed', { fine_id: data.id, error: billingSync.error })
+  }
+
   await logAction({ action: 'create', table: 'fines', recordId: data.id, newData: data })
   revalidatePath('/multas')
+  revalidatePath('/cobrancas')
   return { data }
 }
 
-export async function updateFine(id: string, rawData: unknown) {
+export async function updateFine(
+  id: string,
+  rawData: unknown,
+  rentalId?: string | null,
+): Promise<{ error: string; details?: unknown } | { data: Fine }> {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
+
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { error: 'Tenant não resolvido' }
 
   const parsed = FineSchema.partial().safeParse(rawData)
   if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
 
+  if (parsed.data.responsible === 'customer' && parsed.data.due_date === null) {
+    return { error: 'Data de vencimento é obrigatória quando o responsável é o cliente' }
+  }
+
   const { data: before } = await supabase.from('fines').select().eq('id', id).single()
+  if (!before) return { error: 'Multa não encontrada' }
+
+  // Sincroniza a cobrança ANTES de gravar a multa — se estiver bloqueado
+  // (cobrança já paga e responsável mudando pra empresa), a multa nem chega a
+  // ser alterada, evitando ficar com responsible='company' e cobrança de
+  // cliente paga ainda pendurada.
+  const billingSync = await syncFineBilling(supabase, {
+    fineId:      id,
+    tenantId,
+    responsible: parsed.data.responsible ?? before.responsible,
+    amount:      parsed.data.amount ?? before.amount,
+    dueDate:     parsed.data.due_date !== undefined ? parsed.data.due_date : before.due_date,
+    customerId:  parsed.data.customer_id !== undefined ? parsed.data.customer_id : before.customer_id,
+    rentalId:    rentalId ?? null,
+  })
+  if (!billingSync.ok) return { error: billingSync.error }
 
   const { data, error } = await supabase
     .from('fines')
@@ -60,6 +252,7 @@ export async function updateFine(id: string, rawData: unknown) {
 
   await logAction({ action: 'update', table: 'fines', recordId: id, oldData: before, newData: data })
   revalidatePath('/multas')
+  revalidatePath('/cobrancas')
   return { data }
 }
 
@@ -138,11 +331,16 @@ export async function deleteFineAttachment(attachmentId: string, fineId: string,
   return { success: true }
 }
 
+export type FineNoticeExtraction = ExtractionResult<FineNoticeFields> & {
+  /** RF-007: multa existente com o mesmo RENAINF/AIT, se houver — aviso antecipado antes de salvar. */
+  duplicateOf: FineDuplicateMatch | null
+}
+
 /**
- * PRD 0012/Spec 0012 §5.1 — extrai campos de uma notificação de multa (PDF)
- * via IA pra pré-preencher o FineForm. Não persiste nada (RN-001).
+ * PRD 0012/Spec 0012 §5.1 — extrai campos da NA (Notificação de Autuação, PRD
+ * 0013/RF-005) via IA pra pré-preencher o FineForm. Não persiste nada (RN-001).
  */
-export async function extractFineNoticeFields(formData: FormData): Promise<ActionResult<ExtractionResult<FineNoticeFields>>> {
+export async function extractFineNoticeFields(formData: FormData): Promise<ActionResult<FineNoticeExtraction>> {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) {
     return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
@@ -176,5 +374,12 @@ export async function extractFineNoticeFields(formData: FormData): Promise<Actio
   console.info('[extractFineNoticeFields] extraction_completed', {
     tenant_id: tenantId, outcome: 'ok', fields_found: result.fieldsFound, fields_total: result.fieldsTotal, latency_ms: latencyMs,
   })
-  return { ok: true, data: result }
+
+  // RF-007: aviso antecipado, antes mesmo de o operador salvar o formulário.
+  const duplicateOf = await findDuplicateFine(supabase, tenantId, {
+    renainfNumber: result.fields.renainf_number.value,
+    aitNumber: result.fields.ait_number.value,
+  })
+
+  return { ok: true, data: { ...result, duplicateOf } }
 }

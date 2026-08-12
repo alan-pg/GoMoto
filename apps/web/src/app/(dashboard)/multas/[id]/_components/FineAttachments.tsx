@@ -11,6 +11,7 @@ import { addFineAttachment, deleteFineAttachment } from '../../actions'
 export type AttachmentType =
   | 'ait'
   | 'nip'
+  | 'payment_slip'
   | 'payment_receipt'
   | 'appeal'
   | 'appeal_decision'
@@ -18,8 +19,9 @@ export type AttachmentType =
   | 'other'
 
 export const ATTACHMENT_TYPE_LABELS: Record<AttachmentType, string> = {
-  ait:               'AIT (Auto de Infração)',
-  nip:               'NIP (Notificação de Penalidade)',
+  ait:               'NA — Notificação de Autuação',
+  nip:               'NP — Notificação de Penalidade',
+  payment_slip:      'Boleto',
   payment_receipt:   'Comprovante de Pagamento',
   appeal:            'Recurso / Defesa Prévia',
   appeal_decision:   'Decisão do Recurso',
@@ -28,8 +30,9 @@ export const ATTACHMENT_TYPE_LABELS: Record<AttachmentType, string> = {
 }
 
 const ATTACHMENT_TYPE_HINT: Record<AttachmentType, string> = {
-  ait:               'Ticket original emitido pelo agente de trânsito',
-  nip:               'Notificação que abre o prazo de 30 dias para defesa',
+  ait:               'Documento que abre a multa — sempre existe, traz o prazo de defesa prévia e o de identificação do condutor',
+  nip:               'Chega depois da NA, só se a responsabilidade não passar pro condutor — traz o prazo de recurso e o vencimento com desconto',
+  payment_slip:      'Boleto/guia com código de barras para pagar a multa',
   payment_receipt:   'Comprovante de quitação — guarda para contabilidade e processos',
   appeal:            'Petição de recurso ou defesa prévia enviada ao órgão',
   appeal_decision:   'Resposta do órgão ao recurso (deferido ou indeferido)',
@@ -51,15 +54,17 @@ export interface FineAttachment {
 interface Props {
   fineId: string
   attachments: FineAttachment[]
+  /** RF-010: calculado server-side via `isDriverUnidentified` (@gomoto/core). */
+  driverUnidentified?: boolean
 }
 
 const UPLOAD_TYPES: AttachmentType[] = [
-  'ait', 'nip', 'payment_receipt', 'appeal', 'appeal_decision', 'driver_indication', 'other',
+  'ait', 'nip', 'payment_slip', 'payment_receipt', 'appeal', 'appeal_decision', 'driver_indication', 'other',
 ]
 
 // ─── FineAttachments ──────────────────────────────────────────────────────────
 
-export function FineAttachments({ fineId, attachments: initial }: Props) {
+export function FineAttachments({ fineId, attachments: initial, driverUnidentified }: Props) {
   const router       = useRouter()
   const supabase     = useSupabaseContext()
   const getTenantId  = useRequiredTenantId()
@@ -152,6 +157,16 @@ export function FineAttachments({ fineId, attachments: initial }: Props) {
 
   return (
     <div className="space-y-5">
+
+      {/* ── Badge: condutor não identificado (RF-010) ────────────────────── */}
+      {driverUnidentified && (
+        <div className="flex items-center gap-2 px-4 py-3 bg-danger-bg border border-danger rounded-xl">
+          <AlertCircle className="w-4 h-4 text-danger flex-shrink-0" />
+          <p className="text-[13px] text-danger">
+            Condutor não identificado — prazo em aberto. Registre a indicação de condutor (anexo abaixo) a qualquer momento.
+          </p>
+        </div>
+      )}
 
       {/* ── Upload ────────────────────────────────────────────────────────── */}
       <div className="bg-surface border border-border rounded-xl p-4 space-y-3">
