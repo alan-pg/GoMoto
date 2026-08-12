@@ -16,3 +16,7 @@ export * from './inspection'
 export * from './access-control'
 export * from './matchVehicleByPlate'
 export * from './fines'
+// Spec 0014 — novo domínio financeiro
+export * from './ledger'
+export * from './allocation'
+export * from './responsibility'
