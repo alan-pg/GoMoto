@@ -53,7 +53,7 @@ Uma terceira camada, por tenant e versionada, define a **classificação** para 
 | Documentos | Ordens de pagamento e recibos | `charges`, `charge_items`, `payables`, `payments`, `payment_allocations` |
 | Cronograma | Plano de cobrança da locação (mutável) | `rental_billing_schedules` |
 | Política | Encargo, inadimplência, crédito — tipadas e versionadas | `late_charge_policies`, `delinquency_policies`, `credit_policies` |
-| Classificação | Linha de DRE e base fiscal por tenant | `report_lines`, `tenant_account_mappings` |
+| Classificação | Linha de DRE e base fiscal por tenant | `report_lines` + default na conta, `tenant_account_mappings` como override |
 | Gateway | Provedor como dado | `payment_provider_accounts`, `payment_intents`, `gateway_events` |
 | Derivação | Saldos e estados calculados | Views |
 
@@ -158,6 +158,10 @@ CHECK (customer_amount = 0 OR reimbursement <> 'none')
 
 **`gateway_events` com `UNIQUE (provider, provider_event_id)`** — idempotência como propriedade do banco.
 
+**Classificação por default global + override** — decidido na implementação da migration 03, ajustando o desenho original. Semear mapeamento por tenant criaria a classe de falha "tenant novo sem mapeamento gera DRE vazio". Em vez disso, `financial_accounts.default_report_line_code` carrega o default conservador (repasse como recuperação de despesa, fora da base fiscal) e `tenant_account_mappings` é override opcional. `fn_resolve_report_line(tenant, conta, data)` faz o `COALESCE`, resolvendo o override vigente na data do fato. Trigger `fn_assert_account_configurable()` impede remapear conta estrutural — um tenant não consegue reclassificar caução ou caixa.
+
+**Tabelas do ledger não têm `updated_at`** — são append-only; um `updated_at` que nunca muda é ruído. Precedente: `vehicle_status_history` (ADR 0011), que também não tem.
+
 **`charges.late_charge_policy_id`** — ponteiro para a política vigente na emissão, não cópia de JSON.
 
 ### 3.5 Views
@@ -208,7 +212,7 @@ Vercel Cron → Route Handler idempotente, emitindo linhas com `period_start <= 
 |---|---|---|
 | 01 | `financial_enums` | Novos enums; drop dos obsoletos |
 | 02 | `financial_accounts_seed` | Catálogo global + 20 contas |
-| 03 | `report_lines_and_mappings` | `report_lines`, `tenant_account_mappings`, seed do mapeamento default (líquido) |
+| 03 | `report_lines_and_mappings` | `report_lines`, `tenant_account_mappings`, `fn_resolve_report_line()` |
 | 04 | `org_dimensions` | `branches`, `cost_centers` |
 | 05 | `financial_policies` | Três tabelas de política tipada + seed default |
 | 06 | `ledger_core` | Transações, lançamentos, invariante, imutabilidade |
