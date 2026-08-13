@@ -5,7 +5,9 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
-import type { ActionResult, LateChargeConfig } from '@gomoto/core'
+import { createCharge } from '@/lib/financial'
+import { ACCOUNTS } from '@gomoto/core'
+import type { ActionResult } from '@gomoto/core'
 
 const UUID_LOOSE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const uuid = () => z.string().regex(UUID_LOOSE, 'ID inválido')
@@ -58,7 +60,7 @@ export async function confirmAutoBilling(
     return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos', field: first?.path?.map(String).join('.') } }
   }
 
-  const { supabase, tenantId } = ctx
+  const { supabase, tenantId, user } = ctx
 
   if (parsed.data.action === 'refuse') {
     await logAction({ action: 'update', table: 'maintenances', recordId: parsed.data.maintenance_id, newData: { billing_refused: true } })
@@ -68,10 +70,13 @@ export async function confirmAutoBilling(
   // Resolve rental + customer
   let rentalId = parsed.data.rental_id
   let customerId: string | null = null
+  let vehicleId: string | null = null
 
   if (!rentalId) {
     const { data: maintenance } = await supabase
       .from('maintenances').select('vehicle_id').eq('id', parsed.data.maintenance_id).eq('tenant_id', tenantId).single()
+
+    vehicleId = maintenance?.vehicle_id ?? null
 
     if (maintenance?.vehicle_id) {
       const { data: rental } = await supabase
@@ -87,27 +92,39 @@ export async function confirmAutoBilling(
     customerId = rental?.customer_id ?? null
   }
 
-  const { data: billing, error } = await supabase
-    .from('billings')
-    .insert({
-      tenant_id:          tenantId,
-      lease_id:           rentalId,
-      customer_id:        customerId,
-      description:        'Cobrança de manutenção',
-      original_amount:    parsed.data.amount,
-      due_date:           parsed.data.due_date,
-      billing_type:       'one_time',
-      source:             'maintenance',
-      maintenance_id:     parsed.data.maintenance_id,
-      late_charge_config: parsed.data.late_charge_config as LateChargeConfig,
-      status:             'pending',
+  if (!customerId) {
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Locação sem cliente vinculado.' } }
+  }
+
+  // Repasse de manutenção credita conta de REPASSE, não receita: é custo da
+  // empresa recuperado do cliente (ADR 0024, R-03). A terceira e última cópia
+  // da lógica de sincronizar cobrança sai daqui.
+  let billing: { id: string }
+  try {
+    const charge = await createCharge(supabase, tenantId, {
+      customerId,
+      rentalId: rentalId ?? null,
+      dueDate: parsed.data.due_date,
+      sourceModule: 'maintenance',
+      sourceId: parsed.data.maintenance_id,
+      createdBy: user!.id,
+      items: [{
+        description: 'Manutenção',
+        credit_account_code: ACCOUNTS.MAINTENANCE_REIMBURSEMENT,
+        quantity: 1,
+        unit_amount: parsed.data.amount,
+        amount: parsed.data.amount,
+        source_module: 'maintenance',
+        source_id: parsed.data.maintenance_id,
+        vehicle_id: vehicleId,
+      }],
     })
-    .select('id')
-    .single()
+    billing = { id: charge.chargeId }
+  } catch (err) {
+    return { ok: false, error: { code: 'INTERNAL', message: String(err) } }
+  }
 
-  if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
-
-  await logAction({ action: 'create', table: 'billings', recordId: billing.id, newData: { source: 'maintenance', maintenance_id: parsed.data.maintenance_id } })
+  await logAction({ action: 'create', table: 'charges', recordId: billing.id, newData: { source: 'maintenance', maintenance_id: parsed.data.maintenance_id } })
   revalidatePath('/cobrancas')
   revalidatePath('/manutencao')
   return { ok: true, data: { confirmed: true, billing_id: billing.id } }

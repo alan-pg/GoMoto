@@ -22,19 +22,18 @@ function calcBillingStatus(status: string, dueDate: string) {
   return due < today ? 'overdue' : 'pending'
 }
 
+/** Linha de `charge_balances` — saldo derivado, não colunas do documento. */
 type BillingRow = {
-  id: string
-  status: string
-  original_amount: number
-  discount_amount: number | null
-  credit_applied: number | null
+  charge_id: string
+  status: 'open' | 'paid' | 'cancelled' | 'written_off'
+  total_amount: number
+  paid_amount: number
+  open_amount: number
+  is_overdue: boolean
+  days_overdue: number
   due_date: string
-  description: string | null
-  billing_type: string | null
-  source: string | null
-  customer: { id: string; name: string } | null
-  rental: { vehicle: { id: string; license_plate: string } | null } | null
-  lease_id: string | null
+  customer_id: string
+  rental_id: string | null
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -69,24 +68,26 @@ export default async function FinancialDashboardPage() {
   const [monthBillingsResult, overdueBillingsResult, vehiclesResult, delinquentResult] = await Promise.all([
     // Cobranças do mês corrente — caução fica de fora: é garantia/depósito,
     // não receita operacional, e já tem exibição própria em /locacoes/[id].
+    // Spec 0014: total, pago e em aberto vêm de `charge_balances`, derivados.
+    // A exclusão de caução deixa de ser filtro de query — a caução credita
+    // conta de PASSIVO e nunca entra em receita por construção (F-09).
     supabase
-      .from('billings')
-      .select('id, status, original_amount, discount_amount, credit_applied, due_date, description, billing_type, source, lease_id, customer:customers(id,name), rental:rentals(vehicle:vehicles(id,license_plate))')
+      .from('charge_balances')
+      .select('charge_id, status, total_amount, paid_amount, open_amount, is_overdue, days_overdue, due_date, customer_id, rental_id')
       .eq('tenant_id', tenantId)
       .neq('status', 'cancelled')
-      .neq('billing_type', 'deposit')
       .gte('due_date', monthStart)
       .lt('due_date', monthEnd)
       .order('due_date', { ascending: true }),
     // Cobranças vencidas (qualquer mês) — mesma exclusão de caução
+    // Atraso é DERIVADO: `is_overdue` já compara due_date com hoje. Antes o
+    // filtro era status='pending' + due_date, porque nada gravava 'overdue'.
     supabase
-      .from('billings')
-      .select('id, status, original_amount, discount_amount, credit_applied, due_date, description, billing_type, source, lease_id, customer:customers(id,name), rental:rentals(vehicle:vehicles(id,license_plate))')
+      .from('charge_balances')
+      .select('charge_id, status, total_amount, paid_amount, open_amount, is_overdue, days_overdue, due_date, customer_id, rental_id')
       .eq('tenant_id', tenantId)
-      .eq('status', 'pending')
-      .neq('billing_type', 'deposit')
-      .lt('due_date', monthStart)
-      .order('due_date', { ascending: true })
+      .eq('is_overdue', true)
+      .order('days_overdue', { ascending: false })
       .limit(50),
     // Veículos com aquisição cadastrada (para ROI)
     supabase
@@ -97,29 +98,58 @@ export default async function FinancialDashboardPage() {
       .order('created_at', { ascending: false })
       .limit(10),
     // Clientes inadimplentes
+    // Bloqueio é decisão humana e vive em `delinquency_blocks`; a coluna
+    // `customers.delinquency_status` era mantida por trigger inerte (F-04).
     supabase
-      .from('customers')
-      .select('id, name')
+      .from('delinquency_blocks')
+      .select('customer_id, customers(id, name)')
       .eq('tenant_id', tenantId)
-      .eq('delinquency_status', 'blocked'),
+      .is('unblocked_at', null),
   ])
 
   const monthBillings = (monthBillingsResult.data ?? []) as unknown as BillingRow[]
   const overdueBillings = (overdueBillingsResult.data ?? []) as unknown as BillingRow[]
   const vehicles = vehiclesResult.data ?? []
-  const delinquentCustomers = delinquentResult.data ?? []
+  type BlockRow = { customer_id: string; customers: { id: string; name: string } | { id: string; name: string }[] | null }
+  const delinquentCustomers = ((delinquentResult.data ?? []) as unknown as BlockRow[]).map((b) => {
+    const c = Array.isArray(b.customers) ? b.customers[0] : b.customers
+    return { id: c?.id ?? b.customer_id, name: c?.name ?? '—' }
+  })
 
   // KPIs do mês
-  const totalBilledMonth  = monthBillings.reduce((s, b) => s + b.original_amount, 0)
-  const totalPaidMonth    = monthBillings.filter(b => b.status === 'paid').reduce((s, b) => s + b.original_amount, 0)
-  const totalPendingMonth = monthBillings.filter(b => calcBillingStatus(b.status, b.due_date) === 'pending').reduce((s, b) => {
-    const base = b.original_amount - (b.discount_amount ?? 0) - (b.credit_applied ?? 0)
-    return s + Math.max(0, base)
-  }, 0)
-  const totalOverdueAll = overdueBillings.reduce((s, b) => {
-    const base = b.original_amount - (b.discount_amount ?? 0) - (b.credit_applied ?? 0)
-    return s + Math.max(0, base)
-  }, 0)
+  const totalBilledMonth  = monthBillings.reduce((s, b) => s + b.total_amount, 0)
+  const totalPaidMonth    = monthBillings.reduce((s, b) => s + b.paid_amount, 0)
+  const totalPendingMonth = monthBillings
+    .filter(b => b.status === 'open')
+    .reduce((s, b) => s + b.open_amount, 0)
+  const totalOverdueAll = overdueBillings.reduce((s, b) => s + b.open_amount, 0)
+
+  // Cliente e placa vêm em consulta separada: `charge_balances` já agrega por
+  // cobrança, e juntar tabelas ali reintroduziria o fan-out de F-01.
+  const allRows = [...monthBillings, ...overdueBillings]
+  const overdueCustomerIds = [...new Set(allRows.map(b => b.customer_id))]
+  const overdueRentalIds = [...new Set(allRows.map(b => b.rental_id).filter(Boolean))] as string[]
+
+  const [namesRes, platesRes] = await Promise.all([
+    overdueCustomerIds.length
+      ? supabase.from('customers').select('id, name').in('id', overdueCustomerIds)
+      : Promise.resolve({ data: [] }),
+    overdueRentalIds.length
+      ? supabase.from('rentals').select('id, vehicles(license_plate)').in('id', overdueRentalIds)
+      : Promise.resolve({ data: [] }),
+  ])
+
+  const nameById = new Map(
+    ((namesRes.data ?? []) as { id: string; name: string }[]).map(c => [c.id, c.name]),
+  )
+
+  type RentalVehicle = { id: string; vehicles: { license_plate: string } | { license_plate: string }[] | null }
+  const plateByRental = new Map(
+    ((platesRes.data ?? []) as unknown as RentalVehicle[]).map(r => {
+      const v = Array.isArray(r.vehicles) ? r.vehicles[0] : r.vehicles
+      return [r.id, v?.license_plate ?? null] as const
+    }),
+  )
 
   const monthLabel = now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
 
@@ -184,24 +214,23 @@ export default async function FinancialDashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {overdueBillings.map(b => {
-                    const net = Math.max(0, b.original_amount - (b.discount_amount ?? 0) - (b.credit_applied ?? 0))
-                    return (
-                      <tr key={b.id} className="border-b border-border last:border-0 hover:bg-surface-2">
-                        <td className="h-9 px-4">
-                          {b.customer ? (
-                            <Link href={`/clientes/${b.customer.id}`} className="text-fg-soft hover:text-primary">
-                              {b.customer.name}
-                            </Link>
-                          ) : <span className="text-fg-mute">—</span>}
-                        </td>
-                        <td className="h-9 px-4 font-mono text-fg-mute">{b.rental?.vehicle?.license_plate ?? '—'}</td>
-                        <td className="h-9 px-4 text-fg-mute">{SOURCE_LABELS[b.source ?? ''] ?? '—'}</td>
-                        <td className="h-9 px-4 text-danger">{fmt(b.due_date)}</td>
-                        <td className="h-9 px-4 text-right font-mono font-semibold text-danger">{formatCurrency(net)}</td>
-                      </tr>
-                    )
-                  })}
+                  {overdueBillings.map(b => (
+                    <tr key={b.charge_id} className="border-b border-border last:border-0 hover:bg-surface-2">
+                      <td className="h-9 px-4">
+                        <Link href={`/clientes/${b.customer_id}`} className="text-fg-soft hover:text-primary">
+                          {nameById.get(b.customer_id) ?? '—'}
+                        </Link>
+                      </td>
+                      <td className="h-9 px-4 font-mono text-fg-mute">
+                        {b.rental_id ? plateByRental.get(b.rental_id) ?? '—' : '—'}
+                      </td>
+                      <td className="h-9 px-4 text-fg-mute">{b.days_overdue}d</td>
+                      <td className="h-9 px-4 text-danger">{fmt(b.due_date)}</td>
+                      <td className="h-9 px-4 text-right font-mono font-semibold text-danger">
+                        {formatCurrency(b.open_amount)}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -237,24 +266,21 @@ export default async function FinancialDashboardPage() {
                 </thead>
                 <tbody>
                   {monthBillings.map(b => {
-                    const dynStatus = calcBillingStatus(b.status, b.due_date)
+                    // Atraso é derivado na view — sem recálculo aqui (Princípio 4).
+                    const dynStatus = b.is_overdue ? 'overdue' : b.status
                     const badge     = STATUS_BADGE[dynStatus] ?? STATUS_BADGE.pending
                     return (
-                      <tr key={b.id} className="border-b border-border last:border-0 hover:bg-surface-2">
+                      <tr key={b.charge_id} className="border-b border-border last:border-0 hover:bg-surface-2">
                         <td className="h-9 px-4">
-                          {b.customer ? (
-                            <Link href={`/cobrancas/${b.id}`} className="text-fg-soft hover:text-primary">
-                              {b.customer.name}
-                            </Link>
-                          ) : (
-                            <Link href={`/cobrancas/${b.id}`} className="text-fg-mute hover:text-primary">
-                              {b.description ?? '—'}
-                            </Link>
-                          )}
+                          <Link href={`/cobrancas/${b.charge_id}`} className="text-fg-soft hover:text-primary">
+                            {nameById.get(b.customer_id) ?? '—'}
+                          </Link>
                         </td>
-                        <td className="h-9 px-4 font-mono text-fg-mute">{b.rental?.vehicle?.license_plate ?? '—'}</td>
+                        <td className="h-9 px-4 font-mono text-fg-mute">
+                          {b.rental_id ? plateByRental.get(b.rental_id) ?? '—' : '—'}
+                        </td>
                         <td className="h-9 px-4 text-fg-soft">{fmt(b.due_date)}</td>
-                        <td className="h-9 px-4 text-right font-mono text-fg">{formatCurrency(b.original_amount)}</td>
+                        <td className="h-9 px-4 text-right font-mono text-fg">{formatCurrency(b.total_amount)}</td>
                         <td className="h-9 px-4">
                           <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge.bg} ${badge.text}`}>
                             {badge.label}

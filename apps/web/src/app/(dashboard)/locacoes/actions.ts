@@ -17,7 +17,13 @@ import {
   AttachSignedContractSchema,
   CreateRentalAdjustmentSchema,
   RegenerateRentalScheduleSchema,
-  generateCycleCharges,
+  generateSchedule,
+  ACCOUNTS,
+  classifyCustomerDelinquency,
+  canStartNewRental,
+  DEFAULT_DELINQUENCY_POLICY,
+  type DelinquencyFacts,
+  type DelinquencyPolicy,
   canRegisterPayment,
   canApplyDiscount,
   canEditDownPayment,
@@ -45,6 +51,7 @@ const UUID_LOOSE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const uuid = () => z.string().regex(UUID_LOOSE, 'ID inválido')
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (YYYY-MM-DD)')
 import { logAction } from '@/lib/audit'
+import { createCharge, cancelCharge, receivePayment, postTransaction, dimensionsOf } from '@/lib/financial'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 
 function revalidateRentalPaths() {
@@ -79,7 +86,11 @@ export async function createRental(
     }
   }
 
-  const charges = generateCycleCharges({
+  // Spec 0014: grava o PLANO, não documentos. Um rent-to-own de 2 anos cria 104
+  // linhas de cronograma em vez de 104 cobranças emitidas — "Total a receber"
+  // volta a significar emitido e não pago (F-10). A emissão vira trabalho do
+  // job diário, conforme o período chega.
+  const schedule = generateSchedule({
     start_date:   parsed.data.start_date,
     end_date:     parsed.data.end_date,
     cycle:        parsed.data.cycle,
@@ -88,34 +99,30 @@ export async function createRental(
     use_pro_rata: parsed.data.use_pro_rata,
   })
 
-  const { data: leaseId, error } = await supabase.rpc('create_rental_with_charges', {
-    p_tenant_id:          tenantId,
-    p_vehicle_id:         parsed.data.vehicle_id,
-    p_customer_id:        parsed.data.customer_id,
-    p_cycle:              parsed.data.cycle,
-    p_due_day:            parsed.data.due_day,
-    p_cycle_amount:       parsed.data.cycle_amount,
-    p_start_date:         parsed.data.start_date,
-    p_end_date:           parsed.data.end_date,
-    p_use_pro_rata:       parsed.data.use_pro_rata,
-    p_charges:            charges,
-    p_security_deposit:     parsed.data.security_deposit ?? null,
-    p_late_charge_config:   parsed.data.late_charge_config ?? null,
-    p_deposit_paid:         parsed.data.deposit_paid,
-    p_deposit_payment_date: parsed.data.deposit_payment_date ?? null,
-    p_deposit_due_date:     parsed.data.deposit_due_date ?? null,
-    p_checkin_checkout_inspection_profile_id: parsed.data.checkin_checkout_inspection_profile_id ?? null,
-    p_periodic_inspection_profile_id:         parsed.data.periodic_inspection_profile_id ?? null,
-    p_periodic_inspection_frequency_days:     parsed.data.periodic_inspection_frequency_days ?? null,
-    p_down_payment:              parsed.data.down_payment ?? null,
-    p_down_payment_paid:         parsed.data.down_payment_paid,
-    p_down_payment_payment_date: parsed.data.down_payment_payment_date ?? null,
-    p_down_payment_due_date:     parsed.data.down_payment_due_date ?? null,
+  const { data: leaseId, error } = await supabase.rpc('create_rental_with_schedule', {
+    p_tenant_id: tenantId,
+    p_rental: {
+      customer_id:   parsed.data.customer_id,
+      vehicle_id:    parsed.data.vehicle_id,
+      start_date:    parsed.data.start_date,
+      end_date:      parsed.data.end_date,
+      cycle:         parsed.data.cycle,
+      cycle_amount:  parsed.data.cycle_amount,
+      due_day:       parsed.data.due_day,
+      use_pro_rata:  parsed.data.use_pro_rata,
+      contract_type: parsed.data.contract_type ?? 'rental',
+      observations:  parsed.data.observations ?? null,
+      contract_template_id: parsed.data.contract_template_id ?? null,
+      checkin_checkout_inspection_profile_id: parsed.data.checkin_checkout_inspection_profile_id ?? null,
+      periodic_inspection_profile_id:         parsed.data.periodic_inspection_profile_id ?? null,
+      periodic_inspection_frequency_days:     parsed.data.periodic_inspection_frequency_days ?? null,
+    },
+    p_schedule: schedule,
   })
 
   if (error) {
-    if (error.message?.includes('VEHICLE_ALREADY_RENTED')) {
-      return { ok: false, error: { code: 'VEHICLE_ALREADY_RENTED', message: 'Veículo já possui locação ativa.' } }
+    if (error.message?.includes('VEHICLE_NOT_FOUND')) {
+      return { ok: false, error: { code: 'NOT_FOUND', message: 'Veículo não encontrado.' } }
     }
     if (error.message?.includes('could not obtain lock')) {
       return { ok: false, error: { code: 'VEHICLE_LOCKED', message: 'Tente novamente em instantes.' } }
@@ -123,19 +130,84 @@ export async function createRental(
     return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
   }
 
-  await logAction({ action: 'create', table: 'rentals', recordId: leaseId, newData: { charges_count: charges.length } })
+  const rentalId = leaseId as string
 
-  // Vínculo com o modelo de contrato usado para gerar o PDF — metadado
-  // informativo, sem necessidade de atomicidade com a RPC de cobranças.
-  if (parsed.data.contract_template_id) {
-    await supabase
-      .from('rentals')
-      .update({ contract_template_id: parsed.data.contract_template_id })
-      .eq('id', leaseId)
-      .eq('tenant_id', tenantId)
+  // Caução: cobrança que credita PASSIVO, não receita. É o mesmo mecanismo de
+  // cobrança, só que a conta creditada é `caucoes_a_devolver` — por isso a
+  // caução nunca aparece em faturamento, sem depender de filtro em query.
+  if (parsed.data.security_deposit && parsed.data.security_deposit > 0) {
+    try {
+      const depositCharge = await createCharge(supabase, tenantId, {
+        customerId: parsed.data.customer_id,
+        rentalId,
+        dueDate: parsed.data.deposit_due_date ?? parsed.data.start_date,
+        sourceModule: 'deposit',
+        sourceId: rentalId,
+        createdBy: user.id,
+        items: [{
+          description: 'Caução',
+          credit_account_code: ACCOUNTS.DEPOSITS_PAYABLE,
+          quantity: 1,
+          unit_amount: parsed.data.security_deposit,
+          amount: parsed.data.security_deposit,
+          source_module: 'deposit',
+          source_id: rentalId,
+        }],
+      })
+
+      await supabase.from('deposits').insert({
+        tenant_id:   tenantId,
+        rental_id:   rentalId,
+        customer_id: parsed.data.customer_id,
+        amount:      parsed.data.security_deposit,
+        charge_id:   depositCharge.chargeId,
+        received_at: parsed.data.deposit_paid ? (parsed.data.deposit_payment_date ?? null) : null,
+        registered_by: user.id,
+      })
+    } catch (err) {
+      return {
+        ok: false,
+        error: { code: 'INTERNAL_ERROR', message: `Locação criada, mas a caução falhou: ${String(err)}` },
+      }
+    }
   }
 
-  // Remove da fila ao iniciar locação (best-effort: não falha a locação se não houver entrada)
+  // Entrada: receita não reembolsável (Spec 0010), logo credita receita.
+  if (parsed.data.down_payment && parsed.data.down_payment > 0) {
+    try {
+      await createCharge(supabase, tenantId, {
+        customerId: parsed.data.customer_id,
+        rentalId,
+        dueDate: parsed.data.down_payment_due_date ?? parsed.data.start_date,
+        sourceModule: 'down_payment',
+        sourceId: rentalId,
+        createdBy: user.id,
+        items: [{
+          description: 'Entrada',
+          credit_account_code: ACCOUNTS.RENTAL_REVENUE,
+          quantity: 1,
+          unit_amount: parsed.data.down_payment,
+          amount: parsed.data.down_payment,
+          source_module: 'down_payment',
+          source_id: rentalId,
+        }],
+      })
+    } catch (err) {
+      return {
+        ok: false,
+        error: { code: 'INTERNAL_ERROR', message: `Locação criada, mas a entrada falhou: ${String(err)}` },
+      }
+    }
+  }
+
+  await logAction({
+    action: 'create',
+    table: 'rentals',
+    recordId: rentalId,
+    newData: { schedule_lines: schedule.length },
+  })
+
+  // Remove da fila ao iniciar locação (best-effort).
   await supabase
     .from('queue_entries')
     .delete()
@@ -145,7 +217,7 @@ export async function createRental(
   revalidateRentalPaths()
   revalidatePath('/locacoes/fila')
   revalidatePath('/veiculos')
-  return { ok: true, data: { lease_id: leaseId as string } }
+  return { ok: true, data: { lease_id: rentalId } }
 }
 
 // ---------------------------------------------------------------------------
@@ -190,77 +262,156 @@ export async function updateRental(
     if (rentalRow) {
       const { data: existingDeposit } = await supabase
         .from('deposits')
-        .select('id, amount, balance, status, billing_id')
+        .select('id, amount, charge_id')
         .eq('rental_id', leaseId)
         .eq('tenant_id', tenantId)
-        .in('status', ['pending', 'received'])
+        .is('closed_at', null)
         .maybeSingle()
 
-      if (existingDeposit?.status === 'pending') {
-        // Ainda não paga: muda o valor da cobrança pendente vinculada junto —
-        // a cobrança é a fonte de verdade até ser paga (registerPayment é
-        // quem libera o saldo, ver cobrancas/[id]/actions.ts).
-        await supabase
-          .from('deposits')
-          .update({ amount: data.security_deposit })
-          .eq('id', existingDeposit.id)
-          .eq('tenant_id', tenantId)
+      const dep = existingDeposit as { id: string; amount: number; charge_id: string | null } | null
 
-        if (existingDeposit.billing_id) {
-          await supabase
-            .from('billings')
-            .update({ original_amount: data.security_deposit })
-            .eq('id', existingDeposit.billing_id)
-            .eq('tenant_id', tenantId)
+      if (dep?.charge_id) {
+        const { data: bal } = await supabase
+          .from('charge_balances')
+          .select('paid_amount')
+          .eq('charge_id', dep.charge_id)
+          .maybeSingle()
+
+        const paid = (bal as { paid_amount: number } | null)?.paid_amount ?? 0
+
+        // Documento emitido é imutável (Princípio 5): alterar o valor da caução
+        // cancela a cobrança e emite outra. Com pagamento já alocado, recusa —
+        // ajustar exige estornar o recebimento antes.
+        if (paid > 0) {
+          return {
+            ok: false,
+            error: { code: 'CONFLICT', message: 'Caução já recebida não pode ser alterada. Estorne o recebimento primeiro.' },
+          }
         }
-      } else if (existingDeposit) {
-        // Já paga (ou outro estado) — cobrança já quitada é imutável
-        // (RNF-007); só o registro de caução é ajustado.
-        const usedAmount = existingDeposit.amount - existingDeposit.balance
-        const newBalance = Math.max(0, data.security_deposit - usedAmount)
-        await supabase
-          .from('deposits')
-          .update({ amount: data.security_deposit, balance: newBalance })
-          .eq('id', existingDeposit.id)
-          .eq('tenant_id', tenantId)
-      } else {
-        await supabase.from('deposits').insert({
-          tenant_id:   tenantId,
-          rental_id:   leaseId,
-          customer_id: rentalRow.customer_id,
-          amount:      data.security_deposit,
-          balance:     data.security_deposit,
-          status:      'received',
-          received_at: rentalRow.start_date ?? new Date().toISOString().slice(0, 10),
-        })
+
+        try {
+          await cancelCharge(supabase, tenantId, dep.charge_id, 'Valor da caução revisado', user.id)
+
+          const nova = await createCharge(supabase, tenantId, {
+            customerId: rentalRow.customer_id,
+            rentalId: leaseId,
+            dueDate: rentalRow.start_date ?? new Date().toISOString().slice(0, 10),
+            sourceModule: 'deposit',
+            sourceId: leaseId,
+            createdBy: user.id,
+            items: [{
+              description: 'Caução',
+              credit_account_code: ACCOUNTS.DEPOSITS_PAYABLE,
+              quantity: 1,
+              unit_amount: data.security_deposit,
+              amount: data.security_deposit,
+              source_module: 'deposit',
+              source_id: leaseId,
+            }],
+          })
+
+          await supabase
+            .from('deposits')
+            .update({ amount: data.security_deposit, charge_id: nova.chargeId })
+            .eq('id', dep.id)
+            .eq('tenant_id', tenantId)
+        } catch (err) {
+          return { ok: false, error: { code: 'INTERNAL_ERROR', message: String(err) } }
+        }
+      } else if (!dep) {
+        try {
+          const nova = await createCharge(supabase, tenantId, {
+            customerId: rentalRow.customer_id,
+            rentalId: leaseId,
+            dueDate: rentalRow.start_date ?? new Date().toISOString().slice(0, 10),
+            sourceModule: 'deposit',
+            sourceId: leaseId,
+            createdBy: user.id,
+            items: [{
+              description: 'Caução',
+              credit_account_code: ACCOUNTS.DEPOSITS_PAYABLE,
+              quantity: 1,
+              unit_amount: data.security_deposit,
+              amount: data.security_deposit,
+              source_module: 'deposit',
+              source_id: leaseId,
+            }],
+          })
+
+          await supabase.from('deposits').insert({
+            tenant_id:   tenantId,
+            rental_id:   leaseId,
+            customer_id: rentalRow.customer_id,
+            amount:      data.security_deposit,
+            charge_id:   nova.chargeId,
+            received_at: rentalRow.start_date ?? new Date().toISOString().slice(0, 10),
+            registered_by: user.id,
+          })
+        } catch (err) {
+          return { ok: false, error: { code: 'INTERNAL_ERROR', message: String(err) } }
+        }
       }
     }
   }
 
-  // Entrada (Spec 0010, RN-002): definida só na criação — edição nunca cria
-  // uma nova, só corrige a existente enquanto pendente (RF-005).
+  // Entrada: mesma regra. Documento emitido não se reescreve — a origem
+  // (source_module='down_payment') localiza a cobrança sem precisar de coluna
+  // dedicada como `billing_type` (F-11).
   if (data.down_payment != null) {
-    const { data: dp } = await supabase
-      .from('billings')
-      .select('id, status')
-      .eq('lease_id', leaseId)
+    const { data: item } = await supabase
+      .from('charge_items')
+      .select('charge_id')
       .eq('tenant_id', tenantId)
-      .eq('billing_type', 'down_payment')
+      .eq('source_module', 'down_payment')
+      .eq('source_id', leaseId)
       .maybeSingle()
 
-    if (dp) {
-      const check = canEditDownPayment(dp.status)
-      if (!check.ok) {
-        const msg = check.errorCode === 'DOWN_PAYMENT_ALREADY_PAID'
-          ? 'Entrada já paga não pode ser alterada.'
-          : 'Esta Entrada está cancelada.'
-        return { ok: false, error: { code: check.errorCode as 'DOWN_PAYMENT_ALREADY_PAID' | 'BILLING_CANCELLED', message: msg } }
+    const chargeId = (item as { charge_id: string } | null)?.charge_id ?? null
+
+    if (chargeId) {
+      const { data: bal } = await supabase
+        .from('charge_balances')
+        .select('paid_amount, status')
+        .eq('charge_id', chargeId)
+        .maybeSingle()
+
+      const b = bal as { paid_amount: number; status: string } | null
+
+      if (b && b.paid_amount > 0) {
+        return {
+          ok: false,
+          error: { code: 'DOWN_PAYMENT_ALREADY_PAID', message: 'Entrada já paga não pode ser alterada.' },
+        }
       }
-      await supabase
-        .from('billings')
-        .update({ original_amount: data.down_payment, due_date: data.down_payment_due_date ?? undefined })
-        .eq('id', dp.id)
-        .eq('tenant_id', tenantId)
+      if (b && b.status === 'cancelled') {
+        return { ok: false, error: { code: 'BILLING_CANCELLED', message: 'Esta Entrada está cancelada.' } }
+      }
+
+      const { data: rentalRow2 } = await supabase
+        .from('rentals').select('customer_id, start_date').eq('id', leaseId).single()
+
+      try {
+        await cancelCharge(supabase, tenantId, chargeId, 'Valor da entrada revisado', user.id)
+        await createCharge(supabase, tenantId, {
+          customerId: rentalRow2!.customer_id,
+          rentalId: leaseId,
+          dueDate: data.down_payment_due_date ?? rentalRow2!.start_date ?? new Date().toISOString().slice(0, 10),
+          sourceModule: 'down_payment',
+          sourceId: leaseId,
+          createdBy: user.id,
+          items: [{
+            description: 'Entrada',
+            credit_account_code: ACCOUNTS.RENTAL_REVENUE,
+            quantity: 1,
+            unit_amount: data.down_payment,
+            amount: data.down_payment,
+            source_module: 'down_payment',
+            source_id: leaseId,
+          }],
+        })
+      } catch (err) {
+        return { ok: false, error: { code: 'INTERNAL_ERROR', message: String(err) } }
+      }
     }
   }
 
@@ -389,80 +540,87 @@ export async function renewRental(
     return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Dados inválidos' } }
   }
 
-  // Buscar dados da locação para recalcular cobranças
   const { data: rental, error: rentalError } = await supabase
     .from('rentals')
-    .select('cycle, due_day, cycle_amount, use_pro_rata, end_date')
+    .select('cycle, due_day, cycle_amount, use_pro_rata, end_date, status')
     .eq('id', parsed.data.lease_id)
+    .eq('tenant_id', tenantId)
     .single()
 
   if (rentalError || !rental) {
-    return { ok: false, error: { code: 'RENTAL_NOT_ACTIVE', message: 'Locação não encontrada.' } }
+    return { ok: false, error: { code: 'NOT_FOUND', message: 'Locação não encontrada.' } }
+  }
+  if (rental.status !== 'active') {
+    return { ok: false, error: { code: 'RENTAL_NOT_ACTIVE', message: 'Locação não está ativa.' } }
   }
 
-  // Buscar última cobrança da locação
-  const { data: lastBilling } = await supabase
-    .from('billings')
-    .select('id, original_amount, status, due_date')
-    .eq('lease_id', parsed.data.lease_id)
+  // Spec 0014: renovar é ACRESCENTAR linhas ao cronograma. O modelo anterior
+  // precisava reconciliar a última cobrança pro rata — atualizar se não paga,
+  // gerar complementar se paga — porque documento e plano eram a mesma coisa.
+  // Aqui nada foi emitido ainda: basta continuar o plano.
+  const { data: lastLine } = await supabase
+    .from('rental_billing_schedules')
+    .select('sequence_number, period_end')
+    .eq('rental_id', parsed.data.lease_id)
     .eq('tenant_id', tenantId)
-    .order('due_date', { ascending: false })
+    .order('sequence_number', { ascending: false })
     .limit(1)
     .maybeSingle()
 
-  // Determinar ação complementar e ponto de renovação
-  let complementaryAction: Record<string, unknown> | null = null
-  let renewalStart = rental.end_date
+  const last = lastLine as { sequence_number: number; period_end: string } | null
+  const renewalStart = last?.period_end ?? rental.end_date
+  const offset = last?.sequence_number ?? 0
 
-  if (lastBilling && rental.cycle_amount) {
-    if (lastBilling.status !== 'paid' && lastBilling.original_amount !== rental.cycle_amount) {
-      // Última não paga com valor pro rata → recalcular para ciclo completo
-      complementaryAction = {
-        action:     'update',
-        billing_id: lastBilling.id,
-        amount:     rental.cycle_amount,
-      }
-    } else if (lastBilling.status === 'paid' && lastBilling.original_amount !== rental.cycle_amount) {
-      // Última paga pro rata → gerar complementar
-      const complementaryAmount = rental.cycle_amount - lastBilling.original_amount
-      complementaryAction = {
-        action:   'insert',
-        amount:   complementaryAmount,
-        due_date: lastBilling.due_date,
-      }
-    }
-    renewalStart = lastBilling.due_date
+  if (!rental.cycle || !rental.due_day || !rental.cycle_amount) {
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Locação sem ciclo definido.' } }
   }
 
-  // Gerar novas cobranças do ponto de renovação até nova data de fim
-  const newCharges = rental.cycle && rental.due_day && rental.cycle_amount
-    ? generateCycleCharges({
-        start_date:   renewalStart ?? rental.end_date,
-        end_date:     parsed.data.new_end_date,
-        cycle:        rental.cycle as 'weekly' | 'monthly',
-        due_day:      rental.due_day,
-        cycle_amount: rental.cycle_amount,
-        use_pro_rata: rental.use_pro_rata ?? true,
-      }).filter(c => c.due_date > (lastBilling?.due_date ?? rental.end_date))
-    : []
-
-  const { error } = await supabase.rpc('renew_rental', {
-    p_tenant_id:            tenantId,
-    p_lease_id:             parsed.data.lease_id,
-    p_new_end_date:         parsed.data.new_end_date,
-    p_complementary_action: complementaryAction,
-    p_new_charges:          newCharges,
+  const newLines = generateSchedule({
+    start_date:   renewalStart ?? rental.end_date!,
+    end_date:     parsed.data.new_end_date,
+    cycle:        rental.cycle as 'weekly' | 'monthly',
+    due_day:      rental.due_day,
+    cycle_amount: rental.cycle_amount,
+    use_pro_rata: rental.use_pro_rata ?? true,
   })
 
-  if (error) {
-    if (error.message?.includes('RENTAL_NOT_ACTIVE')) {
-      return { ok: false, error: { code: 'RENTAL_NOT_ACTIVE', message: 'Locação não está ativa.' } }
+  if (newLines.length > 0) {
+    const { error: insertError } = await supabase.from('rental_billing_schedules').insert(
+      newLines.map((l) => ({
+        tenant_id:       tenantId,
+        rental_id:       parsed.data.lease_id,
+        sequence_number: offset + l.sequence_number,
+        period_start:    l.period_start,
+        period_end:      l.period_end,
+        due_date:        l.due_date,
+        amount:          l.amount,
+      })),
+    )
+
+    if (insertError) {
+      return { ok: false, error: { code: 'INTERNAL_ERROR', message: insertError.message } }
     }
-    return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
   }
 
-  await logAction({ action: 'update', table: 'rentals', recordId: parsed.data.lease_id })
+  const { error: updateError } = await supabase
+    .from('rentals')
+    .update({ end_date: parsed.data.new_end_date })
+    .eq('id', parsed.data.lease_id)
+    .eq('tenant_id', tenantId)
+
+  if (updateError) {
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: updateError.message } }
+  }
+
+  await logAction({
+    action: 'update',
+    table: 'rentals',
+    recordId: parsed.data.lease_id,
+    newData: { new_end_date: parsed.data.new_end_date, added_lines: newLines.length },
+  })
+
   revalidateRentalPaths()
+  revalidatePath(`/locacoes/${parsed.data.lease_id}`)
   return { ok: true, data: undefined }
 }
 
@@ -485,44 +643,53 @@ export async function registerPayment(
     return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Dados inválidos' } }
   }
 
-  const { data: billing } = await supabase
-    .from('billings')
-    .select('status')
-    .eq('id', parsed.data.billing_id)
-    .single()
+  const { data: balance } = await supabase
+    .from('charge_balances')
+    .select('charge_id, customer_id, status, open_amount')
+    .eq('charge_id', parsed.data.billing_id)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
 
-  if (!billing) return { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Cobrança não encontrada' } }
+  const b = balance as {
+    charge_id: string; customer_id: string; status: string; open_amount: number
+  } | null
 
-  const check = canRegisterPayment(billing.status)
-  if (!check.ok) {
-    const msg = check.errorCode === 'BILLING_ALREADY_PAID'
-      ? 'Esta cobrança já foi paga.'
-      : 'Esta cobrança está cancelada.'
-    return { ok: false, error: { code: check.errorCode as 'BILLING_ALREADY_PAID' | 'BILLING_CANCELLED', message: msg } }
+  if (!b) return { ok: false, error: { code: 'NOT_FOUND', message: 'Cobrança não encontrada' } }
+  if (b.status === 'cancelled') {
+    return { ok: false, error: { code: 'BILLING_CANCELLED', message: 'Esta cobrança está cancelada.' } }
+  }
+  if (b.open_amount <= 0) {
+    return { ok: false, error: { code: 'BILLING_ALREADY_PAID', message: 'Esta cobrança já foi paga.' } }
   }
 
-  const { error } = await supabase
-    .from('billings')
-    .update({
-      status:         'paid',
-      paid_at:        parsed.data.paid_at,
-      payment_method: parsed.data.payment_method,
-      paid_by:        user.id,
+  try {
+    // Spec 0014: recebimento é do CLIENTE, alocado à cobrança. Antes esta action
+    // só trocava o status do documento, sem gerar linha em `payments` — e o
+    // painel financeiro, que soma `payments`, não enxergava o recebimento.
+    await receivePayment(supabase, tenantId, {
+      customerId: b.customer_id,
+      amount: b.open_amount,
+      method: parsed.data.payment_method,
+      paidAt: new Date(parsed.data.paid_at),
+      allocations: [{ chargeId: b.charge_id, amount: b.open_amount }],
+      receivedBy: user.id,
     })
-    .eq('id', parsed.data.billing_id)
-    .eq('tenant_id', tenantId)
+  } catch (err) {
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: String(err) } }
+  }
 
-  if (error) return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
-
-  await logAction({ action: 'update', table: 'billings', recordId: parsed.data.billing_id })
+  await logAction({ action: 'update', table: 'charges', recordId: parsed.data.billing_id })
   revalidatePath('/cobrancas')
   revalidatePath('/locacoes')
   return { ok: true, data: undefined }
 }
 
 // ---------------------------------------------------------------------------
-// applyDiscount — desconto em cobrança
+// applyDiscount — desconto como ITEM NEGATIVO da cobrança
 // ---------------------------------------------------------------------------
+// `billings.discount_amount` deixou de existir. Desconto passa a ser um item de
+// valor negativo, o que o torna rastreável como qualquer outra composição —
+// aparece no extrato, tem origem e entra no ledger.
 
 export async function applyDiscount(
   data: ApplyDiscount,
@@ -539,38 +706,75 @@ export async function applyDiscount(
     return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Dados inválidos' } }
   }
 
-  const { data: billing } = await supabase
-    .from('billings')
-    .select('status, original_amount')
-    .eq('id', parsed.data.billing_id)
-    .single()
+  const { data: balance } = await supabase
+    .from('charge_balances')
+    .select('charge_id, customer_id, rental_id, status, open_amount')
+    .eq('charge_id', parsed.data.billing_id)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
 
-  if (!billing) return { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Cobrança não encontrada' } }
+  const b = balance as {
+    charge_id: string; customer_id: string; rental_id: string | null
+    status: string; open_amount: number
+  } | null
 
-  const check = canApplyDiscount(billing.status, parsed.data.discount_amount, billing.original_amount ?? 0)
-  if (!check.ok) {
-    const msgMap: Record<string, string> = {
-      BILLING_CANCELLED:       'Esta cobrança está cancelada.',
-      DISCOUNT_EXCEEDS_AMOUNT: 'Desconto não pode ser maior que o valor da cobrança.',
-      BILLING_ALREADY_PAID:    'Esta cobrança já foi paga.',
-    }
-    return { ok: false, error: { code: check.errorCode as 'BILLING_CANCELLED' | 'DISCOUNT_EXCEEDS_AMOUNT', message: msgMap[check.errorCode] ?? 'Operação inválida' } }
+  if (!b) return { ok: false, error: { code: 'NOT_FOUND', message: 'Cobrança não encontrada' } }
+  if (b.status !== 'open') {
+    return { ok: false, error: { code: 'CONFLICT', message: 'Só cobrança em aberto admite desconto.' } }
+  }
+  if (parsed.data.discount_amount > b.open_amount) {
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Desconto maior que o saldo em aberto.' } }
   }
 
-  const { error } = await supabase
-    .from('billings')
-    .update({
-      discount_amount: parsed.data.discount_amount,
-      discount_reason: parsed.data.discount_reason,
-      discounted_by:   user.id,
-    })
-    .eq('id', parsed.data.billing_id)
-    .eq('tenant_id', tenantId)
+  const amount = -Math.abs(parsed.data.discount_amount)
+
+  const { error } = await supabase.from('charge_items').insert({
+    tenant_id: tenantId,
+    charge_id: b.charge_id,
+    description: parsed.data.discount_reason
+      ? `Desconto — ${parsed.data.discount_reason}`
+      : 'Desconto',
+    credit_account_code: ACCOUNTS.RENTAL_REVENUE,
+    quantity: 1,
+    unit_amount: amount,
+    amount,
+    source_module: 'discount',
+    source_id: b.charge_id,
+  })
 
   if (error) return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
 
-  await logAction({ action: 'update', table: 'billings', recordId: parsed.data.billing_id })
+  // Estorna a receita na proporção do desconto.
+  try {
+    await postTransaction(supabase, tenantId, {
+      event: {
+        type: 'charge_issuance_reversed',
+        amount: Math.abs(amount),
+        debit_account: ACCOUNTS.RENTAL_REVENUE,
+        dimensions: dimensionsOf({
+          customerId: b.customer_id,
+          rentalId: b.rental_id,
+          chargeId: b.charge_id,
+        }),
+      },
+      description: 'Desconto concedido',
+      sourceModule: 'discount',
+      sourceId: b.charge_id,
+      createdBy: user.id,
+    })
+  } catch (err) {
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: String(err) } }
+  }
+
+  await logAction({
+    action: 'update',
+    table: 'charges',
+    recordId: b.charge_id,
+    newData: { discount: parsed.data.discount_amount, reason: parsed.data.discount_reason },
+  })
+
   revalidatePath('/cobrancas')
+  revalidatePath('/locacoes')
   return { ok: true, data: undefined }
 }
 
@@ -593,10 +797,9 @@ export async function createOneTimeCharge(
     return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Dados inválidos' } }
   }
 
-  // Verificar que a locação está ativa (RN-029)
   const { data: rental } = await supabase
     .from('rentals')
-    .select('status, customer_id')
+    .select('status, customer_id, vehicle_id')
     .eq('id', parsed.data.lease_id)
     .eq('tenant_id', tenantId)
     .single()
@@ -605,27 +808,32 @@ export async function createOneTimeCharge(
     return { ok: false, error: { code: 'RENTAL_NOT_ACTIVE', message: 'Locação não está ativa.' } }
   }
 
-  const { data: billing, error } = await supabase
-    .from('billings')
-    .insert({
-      tenant_id:       tenantId,
-      lease_id:        parsed.data.lease_id,
-      customer_id:     rental.customer_id,
-      description:     parsed.data.description,
-      original_amount: parsed.data.amount,
-      due_date:        parsed.data.due_date,
-      billing_type:    'one_time',
-      status:          'pending',
+  try {
+    const charge = await createCharge(supabase, tenantId, {
+      customerId: rental.customer_id,
+      rentalId: parsed.data.lease_id,
+      dueDate: parsed.data.due_date,
+      sourceModule: 'manual',
+      sourceId: parsed.data.lease_id,
+      createdBy: user.id,
+      items: [{
+        description: parsed.data.description,
+        credit_account_code: ACCOUNTS.RENTAL_REVENUE,
+        quantity: 1,
+        unit_amount: parsed.data.amount,
+        amount: parsed.data.amount,
+        source_module: 'manual',
+        vehicle_id: rental.vehicle_id ?? null,
+      }],
     })
-    .select()
-    .single()
 
-  if (error) return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
-
-  await logAction({ action: 'create', table: 'billings', recordId: billing.id, newData: billing })
-  revalidatePath('/cobrancas')
-  revalidatePath('/locacoes')
-  return { ok: true, data: { billing_id: billing.id } }
+    await logAction({ action: 'create', table: 'charges', recordId: charge.chargeId })
+    revalidatePath('/cobrancas')
+    revalidatePath('/locacoes')
+    return { ok: true, data: { billing_id: charge.chargeId } }
+  } catch (err) {
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: String(err) } }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -865,50 +1073,51 @@ export async function createRentalWithDeposit(
     return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos', field: first?.path?.map(String).join('.') } }
   }
 
-  // Verifica bloqueio de inadimplência
-  const { data: customer } = await supabase
-    .from('customers').select('delinquency_status').eq('id', parsed.data.customer_id).eq('tenant_id', tenantId).single()
-  if (customer?.delinquency_status === 'blocked') {
-    return { ok: false, error: { code: 'FORBIDDEN', message: 'Cliente bloqueado por inadimplência.', field: 'customer_id' } }
+  // Bloqueio de inadimplência. Antes lia `customers.delinquency_status`, coluna
+  // mantida por um trigger que nunca disparava para o caso que importa — o
+  // campo ficava `current` para sempre, justamente para quem devia (F-04).
+  // Agora os fatos vêm da view e a classificação é função pura.
+  const [factsRes, policyRes, blockRes] = await Promise.all([
+    supabase
+      .from('customer_delinquency')
+      .select('overdue_count, max_days_overdue, overdue_amount')
+      .eq('customer_id', parsed.data.customer_id)
+      .maybeSingle(),
+    supabase
+      .from('delinquency_policies')
+      .select('late_days, delinquent_count, delinquent_days, blocked_count, blocked_days, auto_block')
+      .eq('tenant_id', tenantId)
+      .order('effective_from', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('delinquency_blocks')
+      .select('id')
+      .eq('customer_id', parsed.data.customer_id)
+      .eq('tenant_id', tenantId)
+      .is('unblocked_at', null)
+      .maybeSingle(),
+  ])
+
+  const status = classifyCustomerDelinquency(
+    factsRes.data as DelinquencyFacts | null,
+    (policyRes.data as DelinquencyPolicy | null) ?? DEFAULT_DELINQUENCY_POLICY,
+    !!blockRes.data,
+  )
+
+  if (!canStartNewRental(status)) {
+    return {
+      ok: false,
+      error: { code: 'FORBIDDEN', message: 'Cliente bloqueado por inadimplência.', field: 'customer_id' },
+    }
   }
 
-  const charges = generateCycleCharges({
-    start_date:   parsed.data.start_date,
-    end_date:     parsed.data.end_date,
-    cycle:        parsed.data.cycle,
-    due_day:      parsed.data.due_day,
-    cycle_amount: parsed.data.cycle_amount,
-    use_pro_rata: parsed.data.use_pro_rata,
-  })
-
-  const { data: leaseId, error } = await supabase.rpc('create_rental_with_charges', {
-    p_tenant_id:          tenantId,
-    p_vehicle_id:         parsed.data.vehicle_id,
-    p_customer_id:        parsed.data.customer_id,
-    p_cycle:              parsed.data.cycle,
-    p_due_day:            parsed.data.due_day,
-    p_cycle_amount:       parsed.data.cycle_amount,
-    p_start_date:         parsed.data.start_date,
-    p_end_date:           parsed.data.end_date,
-    p_use_pro_rata:       parsed.data.use_pro_rata,
-    p_charges:            charges,
-    p_security_deposit:   parsed.data.security_deposit ?? null,
-    p_deposit_received_at: parsed.data.deposit_received_at ?? null,
-    p_late_charge_config: (parsed.data.late_charge_config ?? null) as LateChargeConfig | null,
-  })
-
-  if (error) {
-    if (error.message?.includes('VEHICLE_ALREADY_RENTED')) return { ok: false, error: { code: 'VEHICLE_ALREADY_RENTED', message: 'Veículo já possui locação ativa.' } }
-    if (error.message?.includes('could not obtain lock')) return { ok: false, error: { code: 'VEHICLE_LOCKED', message: 'Tente novamente em instantes.' } }
-    return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
-  }
-
-  await logAction({ action: 'create', table: 'rentals', recordId: leaseId, newData: { charges_count: charges.length, has_deposit: !!parsed.data.security_deposit } })
-  await supabase.from('queue_entries').delete().eq('tenant_id', tenantId).eq('customer_id', parsed.data.customer_id)
-  revalidateRentalPaths()
-  revalidatePath('/locacoes/fila')
-  revalidatePath('/veiculos')
-  return { ok: true, data: { lease_id: leaseId as string } }
+  // A caução deixou de ser tratamento especial: `createRental` já a cria como
+  // cobrança que credita passivo. Delegar elimina a duplicação que existia aqui.
+  return createRental({
+    ...parsed.data,
+    deposit_payment_date: parsed.data.deposit_received_at ?? parsed.data.deposit_payment_date,
+  } as CreateRental)
 }
 
 // ---------------------------------------------------------------------------
@@ -942,50 +1151,107 @@ export async function closeRentalFinancial(
     return { ok: true, data: { complementary_billing_needed: false } }
   }
 
-  // Encontra a caução ativa da locação
+  // Saldo da caução vem do LEDGER, não de coluna: `deposits.balance` era
+  // mutável e nunca era atualizado (F-08). deposit_movements desaparece —
+  // movimento de caução é transação no ledger.
   const { data: deposit } = await supabase
     .from('deposits')
-    .select('id, amount, balance, status')
+    .select('id, amount, customer_id')
     .eq('rental_id', parsed.data.rental_id)
     .eq('tenant_id', tenantId)
-    .in('status', ['received', 'partially_returned'])
+    .is('closed_at', null)
     .limit(1)
     .maybeSingle()
 
-  if (!deposit) return { ok: false, error: { code: 'NOT_FOUND', message: 'Caução não encontrada para esta locação' } }
+  const dep = deposit as { id: string; amount: number; customer_id: string } | null
+  if (!dep) return { ok: false, error: { code: 'NOT_FOUND', message: 'Caução não encontrada para esta locação' } }
+
+  const { data: balanceRow } = await supabase
+    .from('deposit_balances')
+    .select('balance')
+    .eq('rental_id', parsed.data.rental_id)
+    .maybeSingle()
+
+  const balance = (balanceRow as { balance: number } | null)?.balance ?? 0
+  if (balance <= 0) {
+    return { ok: false, error: { code: 'CONFLICT', message: 'Caução sem saldo a movimentar.' } }
+  }
 
   const now = new Date().toISOString()
+  const dims = dimensionsOf({
+    customerId: dep.customer_id,
+    rentalId: parsed.data.rental_id,
+  })
 
-  if (parsed.data.deposit_action === 'full_return') {
-    await supabase.from('deposits').update({ status: 'fully_returned', balance: 0, closed_at: now }).eq('id', deposit.id).eq('tenant_id', tenantId)
-    await supabase.from('deposit_movements').insert({ tenant_id: tenantId, deposit_id: deposit.id, type: 'return', amount: deposit.balance, reason: null, movement_date: parsed.data.return_date })
-    await logAction({ action: 'update', table: 'deposits', recordId: deposit.id, newData: { status: 'fully_returned' } })
-    return { ok: true, data: { complementary_billing_needed: false } }
+  async function settle(returned: number, retained: number, reason: string | null) {
+    // Retenção: o passivo com o cliente vira quitação de dívida dele.
+    if (retained > 0) {
+      await postTransaction(supabase, tenantId!, {
+        event: { type: 'deposit_retained', amount: retained, dimensions: dims },
+        description: reason ? `Retenção de caução — ${reason}` : 'Retenção de caução',
+        sourceModule: 'deposit',
+        sourceId: dep!.id,
+        createdBy: user!.id,
+      })
+    }
+    // Devolução: sai do caixa e zera o passivo.
+    if (returned > 0) {
+      await postTransaction(supabase, tenantId!, {
+        event: { type: 'deposit_returned', amount: returned, dimensions: dims },
+        description: 'Devolução de caução',
+        sourceModule: 'deposit',
+        sourceId: dep!.id,
+        createdBy: user!.id,
+      })
+    }
   }
 
-  if (parsed.data.deposit_action === 'full_retention') {
-    await supabase.from('deposits').update({ status: 'fully_retained', balance: 0, closed_at: now }).eq('id', deposit.id).eq('tenant_id', tenantId)
-    await supabase.from('deposit_movements').insert({ tenant_id: tenantId, deposit_id: deposit.id, type: 'retention', amount: deposit.balance, reason: parsed.data.retention_reason, movement_date: now.split('T')[0] })
-    await logAction({ action: 'update', table: 'deposits', recordId: deposit.id, newData: { status: 'fully_retained' } })
-    return { ok: true, data: { complementary_billing_needed: false } }
+  try {
+    if (parsed.data.deposit_action === 'full_return') {
+      await settle(balance, 0, null)
+      await supabase.from('deposits').update({ closed_at: now }).eq('id', dep.id).eq('tenant_id', tenantId)
+      await logAction({ action: 'update', table: 'deposits', recordId: dep.id, newData: { returned: balance } })
+      revalidateRentalPaths()
+      return { ok: true, data: { complementary_billing_needed: false } }
+    }
+
+    if (parsed.data.deposit_action === 'full_retention') {
+      await settle(0, balance, parsed.data.retention_reason ?? null)
+      await supabase.from('deposits').update({ closed_at: now }).eq('id', dep.id).eq('tenant_id', tenantId)
+      await logAction({ action: 'update', table: 'deposits', recordId: dep.id, newData: { retained: balance } })
+      revalidateRentalPaths()
+      return { ok: true, data: { complementary_billing_needed: false } }
+    }
+
+    // partial_return
+    const { returned_amount, retained_amount, retention_reason } = parsed.data
+    const totalHandled = returned_amount + retained_amount
+    const shortfall = Math.max(0, totalHandled - balance)
+
+    if (totalHandled > balance) {
+      return {
+        ok: false,
+        error: { code: 'VALIDATION_ERROR', message: `Total movimentado excede o saldo da caução (${balance}).` },
+      }
+    }
+
+    await settle(returned_amount, retained_amount, retention_reason ?? null)
+    await supabase.from('deposits').update({ closed_at: now }).eq('id', dep.id).eq('tenant_id', tenantId)
+
+    await logAction({
+      action: 'update',
+      table: 'deposits',
+      recordId: dep.id,
+      newData: { returned_amount, retained_amount },
+    })
+    revalidateRentalPaths()
+    return {
+      ok: true,
+      data: { complementary_billing_needed: shortfall > 0, shortfall_amount: shortfall > 0 ? shortfall : undefined },
+    }
+  } catch (err) {
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: String(err) } }
   }
-
-  // partial_return
-  const { returned_amount, retained_amount, retention_reason, return_date } = parsed.data
-  const totalHandled = returned_amount + retained_amount
-  const shortfall = Math.max(0, totalHandled - deposit.balance)
-  const newBalance = Math.max(0, deposit.balance - retained_amount)
-
-  await supabase.from('deposits').update({ status: 'partially_returned', balance: newBalance, closed_at: now }).eq('id', deposit.id).eq('tenant_id', tenantId)
-
-  await supabase.from('deposit_movements').insert([
-    { tenant_id: tenantId, deposit_id: deposit.id, type: 'return', amount: returned_amount, reason: null, movement_date: return_date },
-    { tenant_id: tenantId, deposit_id: deposit.id, type: 'retention', amount: retained_amount, reason: retention_reason, movement_date: return_date },
-  ])
-
-  await logAction({ action: 'update', table: 'deposits', recordId: deposit.id, newData: { status: 'partially_returned', returned_amount, retained_amount } })
-  revalidateRentalPaths()
-  return { ok: true, data: { complementary_billing_needed: shortfall > 0, shortfall_amount: shortfall > 0 ? shortfall : undefined } }
 }
 
 // ---------------------------------------------------------------------------

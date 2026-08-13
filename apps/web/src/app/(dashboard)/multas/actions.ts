@@ -5,11 +5,13 @@ import { revalidatePath } from 'next/cache'
 import {
   FineSchema,
   ExtractDocumentFileSchema,
+  ACCOUNTS,
   type ActionResult, type ExtractionResult, type FineNoticeFields, type Fine, type LateChargeConfig,
 } from '@gomoto/core'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { extractFields } from '@/lib/document-extraction/extract'
+import { createCharge, cancelCharge } from '@/lib/financial'
 
 async function getAuthenticatedUser() {
   const supabase = await createClient()
@@ -71,6 +73,8 @@ interface SyncFineBillingParams {
   dueDate: string | null
   customerId: string | null
   rentalId: string | null
+  vehicleId?: string | null
+  userId?: string | null
 }
 
 type SyncFineBillingResult =
@@ -86,23 +90,46 @@ type SyncFineBillingResult =
  *    (se existe e ainda não foi paga — cobrança paga fica congelada).
  */
 async function syncFineBilling(supabase: Supabase, params: SyncFineBillingParams): Promise<SyncFineBillingResult> {
-  const { fineId, tenantId, responsible, amount, dueDate, customerId, rentalId } = params
+  const { fineId, tenantId, responsible, amount, dueDate, customerId, rentalId, vehicleId, userId } = params
 
-  const { data: existing } = await supabase
-    .from('billings')
-    .select('id, status')
-    .eq('fine_id', fineId)
+  // Origem por (source_module, source_id) — uniforme para todos os módulos.
+  // Antes era a coluna dedicada `billings.fine_id`, que obrigava DDL a cada
+  // módulo novo (F-11).
+  const { data: existingItem } = await supabase
+    .from('charge_items')
+    .select('charge_id')
     .eq('tenant_id', tenantId)
-    .neq('status', 'cancelled')
+    .eq('source_module', 'fine')
+    .eq('source_id', fineId)
     .maybeSingle()
+
+  const existingChargeId = (existingItem as { charge_id: string } | null)?.charge_id ?? null
+
+  let existing: { id: string; status: string; paid_amount: number } | null = null
+  if (existingChargeId) {
+    const { data } = await supabase
+      .from('charge_balances')
+      .select('charge_id, status, paid_amount')
+      .eq('charge_id', existingChargeId)
+      .maybeSingle()
+
+    const b = data as { charge_id: string; status: string; paid_amount: number } | null
+    if (b && b.status !== 'cancelled') {
+      existing = { id: b.charge_id, status: b.status, paid_amount: b.paid_amount }
+    }
+  }
 
   if (responsible === 'company') {
     if (!existing) return { ok: true, billingId: null }
-    if (existing.status === 'paid') {
-      return { ok: false, error: 'Não é possível mudar o responsável para empresa: a cobrança do cliente já foi paga.' }
+    if (existing.paid_amount > 0) {
+      return { ok: false, error: 'Não é possível mudar o responsável para empresa: o cliente já pagou parte desta cobrança.' }
     }
-    const { error } = await supabase.from('billings').update({ status: 'cancelled' }).eq('id', existing.id)
-    if (error) return { ok: false, error: 'Erro ao cancelar cobrança existente' }
+
+    try {
+      await cancelCharge(supabase, tenantId, existing.id, 'Multa passou a ser de responsabilidade da empresa', userId)
+    } catch (err) {
+      return { ok: false, error: `Erro ao cancelar cobrança: ${String(err)}` }
+    }
     return { ok: true, billingId: null }
   }
 
@@ -110,36 +137,43 @@ async function syncFineBilling(supabase: Supabase, params: SyncFineBillingParams
   if (!dueDate) return { ok: false, error: 'Data de vencimento é obrigatória para gerar a cobrança do cliente' }
   if (!customerId) return { ok: false, error: 'Selecione o cliente (via locação) para gerar a cobrança' }
 
+  // Documento emitido é imutável (Princípio 5): não se reescreve valor nem
+  // vencimento. Alterar a multa cancela a cobrança anterior e emite outra.
   if (existing) {
-    if (existing.status === 'paid') return { ok: true, billingId: existing.id } // paga fica congelada
-    const { error } = await supabase
-      .from('billings')
-      .update({ original_amount: amount, due_date: dueDate, customer_id: customerId, lease_id: rentalId })
-      .eq('id', existing.id)
-    if (error) return { ok: false, error: 'Erro ao atualizar cobrança' }
-    return { ok: true, billingId: existing.id }
+    if (existing.paid_amount > 0) return { ok: true, billingId: existing.id }
+
+    try {
+      await cancelCharge(supabase, tenantId, existing.id, 'Substituída por revisão da multa', userId)
+    } catch (err) {
+      return { ok: false, error: `Erro ao substituir cobrança: ${String(err)}` }
+    }
   }
 
-  const { data: created, error } = await supabase
-    .from('billings')
-    .insert({
-      tenant_id:          tenantId,
-      fine_id:            fineId,
-      lease_id:           rentalId,
-      customer_id:        customerId,
-      description:        'Cobrança de multa',
-      original_amount:    amount,
-      due_date:            dueDate,
-      billing_type:       'one_time',
-      source:              'fine',
-      late_charge_config: DEFAULT_LATE_CHARGE_CONFIG,
-      status:              'pending',
+  try {
+    // Repasse credita conta de REPASSE, não receita: a multa é custo da empresa
+    // recuperado do cliente, e a linha de DRE é política do tenant (R-03).
+    const charge = await createCharge(supabase, tenantId, {
+      customerId,
+      rentalId: rentalId ?? null,
+      dueDate,
+      sourceModule: 'fine',
+      sourceId: fineId,
+      createdBy: userId,
+      items: [{
+        description: 'Multa de trânsito',
+        credit_account_code: ACCOUNTS.FINE_REIMBURSEMENT,
+        quantity: 1,
+        unit_amount: amount,
+        amount,
+        source_module: 'fine',
+        source_id: fineId,
+        vehicle_id: vehicleId ?? null,
+      }],
     })
-    .select('id')
-    .single()
-
-  if (error) return { ok: false, error: 'Erro ao gerar cobrança' }
-  return { ok: true, billingId: created.id }
+    return { ok: true, billingId: charge.chargeId }
+  } catch (err) {
+    return { ok: false, error: `Erro ao gerar cobrança: ${String(err)}` }
+  }
 }
 
 type CreateFineResult =
