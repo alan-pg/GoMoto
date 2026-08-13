@@ -20,6 +20,7 @@ import {
 import {
   listOpenCharges,
   listChargesForCockpit,
+  listPayables,
   getChargeBalance,
   listChargeItems,
   listReceivables,
@@ -319,6 +320,32 @@ export function useRentalSchedule(rentalId: string | undefined) {
     queryFn: async () => {
       const lines = await listRentalSchedule(supabase, rentalId!)
       return { lines, contracted_backlog: contractedBacklog(lines) }
+    },
+  })
+}
+
+// ============================================================
+// Contas a pagar
+// ============================================================
+
+/**
+ * Despesas da empresa.
+ *
+ * `company_amount` é derivado do rateio: o que sobra depois da parte do
+ * cliente. Guardar os dois seria a mesma denormalização que o redesenho
+ * eliminou.
+ */
+export function usePayables() {
+  const supabase = useSupabaseContext()
+
+  return useQuery({
+    queryKey: ['payables'],
+    queryFn: async () => {
+      const rows = await listPayables(supabase)
+      return rows.map((p) => ({
+        ...p,
+        company_amount: Math.round((p.amount - p.customer_amount) * 100) / 100,
+      }))
     },
   })
 }

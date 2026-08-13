@@ -467,3 +467,39 @@ export async function getActiveDelinquencyPolicy(
   if (error) throw error
   return (data ?? null) as DelinquencyPolicyRow | null
 }
+
+// ============================================================
+// Contas a pagar
+// ============================================================
+
+export type PayableRow = {
+  id: string
+  tenant_id: string
+  description: string
+  expense_account_code: string
+  competence_date: string
+  due_date: string
+  amount: number
+  status: 'open' | 'paid' | 'cancelled'
+  paid_at: string | null
+  responsibility: 'company' | 'customer' | 'shared'
+  customer_id: string | null
+  customer_amount: number
+  reimbursement: 'none' | 'charge' | 'credit'
+  vehicle_id: string | null
+  rental_id: string | null
+  vendor_name: string | null
+  source_module: string
+  attachment_url: string | null
+  created_at: string
+}
+
+export async function listPayables(client: SupabaseClient): Promise<PayableRow[]> {
+  const { data, error } = await client
+    .from('payables')
+    .select('*')
+    .order('competence_date', { ascending: false })
+
+  if (error) throw error
+  return (data ?? []) as PayableRow[]
+}
