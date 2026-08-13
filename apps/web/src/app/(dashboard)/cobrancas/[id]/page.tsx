@@ -454,7 +454,9 @@ export default async function BillingDetailPage({
             billingId={id}
             status={dynStatus}
             amountDue={amountDue}
-            chargesWaived={billing.charges_waived ?? false}
+            accruedCharges={0}
+            isOverdue={false}
+            customerId={billing.customer_id ?? ''}
             availableCredits={availableCredits}
           />
         </section>

@@ -32,12 +32,8 @@ import { Modal } from '@/components/ui/Modal'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { usePayables, useCustomers, useVehicles, useActiveRentals } from '@gomoto/data'
 import { splitByPercentage } from '@gomoto/core'
-import {
-  createExpenseAction,
-  payExpenseAction,
-  cancelExpenseAction,
-  EXPENSE_CATEGORIES,
-} from './actions'
+import { createExpenseAction, payExpenseAction, cancelExpenseAction } from './actions'
+import { EXPENSE_CATEGORIES } from './categories'
 
 type PayableRow = NonNullable<ReturnType<typeof usePayables>['data']>[number]
 

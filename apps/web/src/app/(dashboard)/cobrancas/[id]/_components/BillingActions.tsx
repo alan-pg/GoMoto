@@ -4,7 +4,8 @@ import { useState, useTransition } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { formatCurrency } from '@/lib/utils'
-import { registerPayment, waiveCharges, applyCredit, cancelBilling } from '../actions'
+import { receivePaymentAction, cancelChargeAction } from '../../actions'
+import { applyCustomerCredits, consolidateLateCharge } from '../actions'
 
 interface AvailableCredit {
   id: string
@@ -16,9 +17,12 @@ interface AvailableCredit {
 
 interface BillingActionsProps {
   billingId: string
+  customerId: string
   status: string
   amountDue: number
-  chargesWaived: boolean
+  /** Encargo acumulado ainda não realizado — projetado até ser consolidado (R-06). */
+  accruedCharges: number
+  isOverdue: boolean
   availableCredits: AvailableCredit[]
 }
 
@@ -37,7 +41,7 @@ const CREDIT_ORIGIN_LABELS: Record<string, string> = {
   manual_adjustment: 'Ajuste manual',
 }
 
-export function BillingActions({ billingId, status, amountDue, chargesWaived, availableCredits }: BillingActionsProps) {
+export function BillingActions({ billingId, customerId, status, amountDue, accruedCharges, isOverdue, availableCredits }: BillingActionsProps) {
   const [isPending, startTransition] = useTransition()
   const [flashError, setFlashError] = useState<string | null>(null)
 
@@ -58,7 +62,7 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
   const [selectedCredit, setSelectedCredit] = useState(availableCredits[0]?.id ?? '')
   const [creditAmount, setCreditAmount]     = useState('')
 
-  const isActionable = status !== 'paid' && status !== 'cancelled'
+  const isActionable = status === 'open'
   const hasCredits = availableCredits.length > 0 && isActionable
 
   function handlePay() {
@@ -66,12 +70,15 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
     if (isNaN(amount) || amount <= 0) { setFlashError('Valor inválido'); return }
     setFlashError(null)
     startTransition(async () => {
-      const result = await registerPayment({
-        billing_id:     billingId,
+      // Recebimento é do cliente, alocado a esta cobrança. Valor menor que o
+      // devido é aceito: a cobrança segue em aberto com o saldo restante.
+      const result = await receivePaymentAction({
+        customer_id: customerId,
         amount,
-        payment_method: payMethod,
-        paid_at:        new Date().toISOString(),
-        notes:          payNotes || undefined,
+        method:      payMethod,
+        paid_at:     new Date().toISOString(),
+        notes:       payNotes || undefined,
+        allocations: [{ charge_id: billingId, amount: Math.min(amount, amountDue) }],
       })
       if (!result.ok) { setFlashError(result.error.message); return }
       setPayOpen(false)
@@ -83,7 +90,9 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
     if (waiveReason.trim().length < 5) { setFlashError('Motivo deve ter ao menos 5 caracteres'); return }
     setFlashError(null)
     startTransition(async () => {
-      const result = await waiveCharges({ billing_id: billingId, reason: waiveReason.trim() })
+      // O encargo projetado só vira receita quando consolidado (R-06); não
+      // existe mais "dispensar", porque nada foi lançado ainda.
+      const result = await consolidateLateCharge(billingId)
       if (!result.ok) { setFlashError(result.error.message); return }
       setWaiveOpen(false)
       setWaiveReason('')
@@ -96,7 +105,9 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
     if (isNaN(amount) || amount <= 0) { setFlashError('Valor inválido'); return }
     setFlashError(null)
     startTransition(async () => {
-      const result = await applyCredit({ billing_id: billingId, credit_id: selectedCredit, amount })
+      // A aplicação percorre todos os créditos do cliente e abate a cobrança
+      // de vencimento mais antigo — regra de applyCredits em @gomoto/core.
+      const result = await applyCustomerCredits(customerId)
       if (!result.ok) { setFlashError(result.error.message); return }
       setCreditOpen(false)
       setCreditAmount('')
@@ -106,7 +117,7 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
   function handleCancel() {
     setFlashError(null)
     startTransition(async () => {
-      const result = await cancelBilling({ billing_id: billingId })
+      const result = await cancelChargeAction({ charge_id: billingId, reason: 'Cancelada pelo operador' })
       if (!result.ok) { setFlashError(result.error.message); return }
       setCancelOpen(false)
     })
@@ -130,13 +141,13 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
             Registrar pagamento
           </button>
         )}
-        {isActionable && !chargesWaived && (
+        {isActionable && isOverdue && accruedCharges > 0 && (
           <button
             onClick={() => { setFlashError(null); setWaiveOpen(true) }}
             disabled={isPending}
             className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg disabled:opacity-50"
           >
-            Dispensar encargos
+            Consolidar encargo
           </button>
         )}
         {hasCredits && (

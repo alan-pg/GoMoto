@@ -503,3 +503,33 @@ export async function listPayables(client: SupabaseClient): Promise<PayableRow[]
   if (error) throw error
   return (data ?? []) as PayableRow[]
 }
+
+// ============================================================
+// Gateway de pagamento
+// ============================================================
+
+export type ProviderAccountRow = {
+  id: string
+  provider: string
+  external_account_id: string
+  is_default: boolean
+  active: boolean
+}
+
+/**
+ * Contas de provedor do tenant.
+ *
+ * `credentials` fica FORA do select: a coluna não tem GRANT para
+ * `authenticated`, só service_role a lê.
+ */
+export async function listProviderAccounts(
+  client: SupabaseClient,
+): Promise<ProviderAccountRow[]> {
+  const { data, error } = await client
+    .from('payment_provider_accounts')
+    .select('id, provider, external_account_id, is_default, active')
+    .eq('active', true)
+
+  if (error) throw error
+  return (data ?? []) as ProviderAccountRow[]
+}

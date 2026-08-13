@@ -23,7 +23,6 @@ import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import {
   CreatePayableSchema,
-  ACCOUNTS,
   type ActionResult,
   type ErrorCode,
   type AccountCode,
@@ -54,20 +53,6 @@ async function getContext(): Promise<Context> {
 function toMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Erro inesperado'
 }
-
-/**
- * Categorias de despesa, mapeadas às contas do plano.
- *
- * Substitui o `category VARCHAR(100)` de texto livre, que não tinha relação
- * nenhuma com o modelo financeiro.
- */
-export const EXPENSE_CATEGORIES: { value: AccountCode; label: string }[] = [
-  { value: ACCOUNTS.MAINTENANCE_EXPENSE,   label: 'Manutenção' },
-  { value: ACCOUNTS.DOCUMENTATION_EXPENSE, label: 'Documentação' },
-  { value: ACCOUNTS.INSURANCE_EXPENSE,     label: 'Seguro' },
-  { value: ACCOUNTS.FINE_EXPENSE,          label: 'Multa' },
-  { value: ACCOUNTS.OPERATIONAL_EXPENSE,   label: 'Operacional' },
-]
 
 /**
  * Cria a despesa e, havendo parte do cliente, o retorno correspondente.

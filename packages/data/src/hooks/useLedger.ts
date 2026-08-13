@@ -21,6 +21,7 @@ import {
   listOpenCharges,
   listChargesForCockpit,
   listPayables,
+  listProviderAccounts,
   getChargeBalance,
   listChargeItems,
   listReceivables,
@@ -346,6 +347,32 @@ export function usePayables() {
         ...p,
         company_amount: Math.round((p.amount - p.customer_amount) * 100) / 100,
       }))
+    },
+  })
+}
+
+// ============================================================
+// Gateway
+// ============================================================
+
+/**
+ * Provedores conectados.
+ *
+ * Substitui `usePaymentConnection`, que assumia um único provedor por tenant —
+ * o `UNIQUE(tenant_id)` de `payment_connections` impedia um segundo (F-13).
+ */
+export function useProviderAccounts() {
+  const supabase = useSupabaseContext()
+
+  return useQuery({
+    queryKey: ['payment-provider-accounts'],
+    queryFn: async () => {
+      const accounts = await listProviderAccounts(supabase)
+      return {
+        accounts,
+        is_connected: accounts.length > 0,
+        default_provider: accounts.find((a) => a.is_default)?.provider ?? null,
+      }
     },
   })
 }
