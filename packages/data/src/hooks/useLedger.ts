@@ -66,6 +66,13 @@ function today(): string {
 // Cobranças
 // ============================================================
 
+/** Linha do app do cliente: saldo + o que a tela precisa exibir. */
+export type MyChargeRow = ChargeWithDue & {
+  description: string
+  item_count: number
+  vehicle_plate: string | null
+}
+
 export type ChargeWithDue = ChargeBalanceRow & {
   accrued_total: number
   amount_due: number
@@ -373,6 +380,105 @@ export function useProviderAccounts() {
         is_connected: accounts.length > 0,
         default_provider: accounts.find((a) => a.is_default)?.provider ?? null,
       }
+    },
+  })
+}
+
+// ============================================================
+// App do cliente
+// ============================================================
+
+/**
+ * Cobranças do cliente autenticado.
+ *
+ * Não recebe `customerId`: a RLS já resolve. A política
+ * `customer_read_own_charges` filtra por `current_customer_ids()`, então uma
+ * consulta simples devolve apenas as cobranças do próprio usuário.
+ *
+ * `amount_due` vem pronto de `calculateAmountDue`. O app NÃO calcula valor —
+ * era exatamente aí que a divergência de F-05 sobrevivia: a tela repetia
+ * `original − desconto`, ignorando crédito e encargo, e mostrava um número
+ * diferente do cobrado.
+ */
+export function useMyCharges(onlyOpen = true) {
+  const supabase = useSupabaseContext()
+
+  return useQuery<MyChargeRow[]>({
+    queryKey: [KEY.charges, 'mine', onlyOpen],
+    queryFn: async () => {
+      let query = supabase
+        .from('charge_balances')
+        .select('*')
+        .order('due_date', { ascending: true })
+
+      if (onlyOpen) query = query.eq('status', 'open').gt('open_amount', 0)
+
+      const [{ data, error }, policy] = await Promise.all([
+        query,
+        getActiveLateChargePolicy(supabase, today()),
+      ])
+
+      if (error) throw error
+
+      const p: LateChargePolicy | null = policy
+        ? {
+            fee_type: policy.fee_type,
+            fee_value: policy.fee_value,
+            daily_interest_rate: policy.daily_interest_rate,
+            grace_period_days: policy.grace_period_days,
+            min_amount: policy.min_amount,
+          }
+        : null
+
+      const rows = (data ?? []) as ChargeBalanceRow[]
+      if (rows.length === 0) return []
+
+      // Descrição e placa: o app precisa disso para exibir, e `charge_balances`
+      // só agrega valores. Consultas separadas, nunca join na view — juntar
+      // itens ali dentro reintroduziria o fan-out de F-01.
+      const [itemsRes, rentalsRes] = await Promise.all([
+        supabase
+          .from('charge_items')
+          .select('charge_id, description, amount')
+          .in('charge_id', rows.map((r) => r.charge_id)),
+        supabase
+          .from('rentals')
+          .select('id, vehicles(license_plate)')
+          .in('id', [...new Set(rows.map((r) => r.rental_id).filter(Boolean))] as string[]),
+      ])
+
+      const itemsByCharge = new Map<string, { description: string; amount: number }[]>()
+      for (const i of (itemsRes.data ?? []) as { charge_id: string; description: string; amount: number }[]) {
+        const list = itemsByCharge.get(i.charge_id) ?? []
+        list.push(i)
+        itemsByCharge.set(i.charge_id, list)
+      }
+
+      type RentalVehicle = {
+        id: string
+        vehicles: { license_plate: string } | { license_plate: string }[] | null
+      }
+      const plateByRental = new Map(
+        ((rentalsRes.data ?? []) as unknown as RentalVehicle[]).map((r) => {
+          const v = Array.isArray(r.vehicles) ? r.vehicles[0] : r.vehicles
+          return [r.id, v?.license_plate ?? null] as const
+        }),
+      )
+
+      return rows.map((c) => {
+        const { accrued, amount_due } = calculateAmountDue(c, p)
+        const items = itemsByCharge.get(c.charge_id) ?? []
+        const principal = [...items].sort((a, b) => b.amount - a.amount)[0]
+
+        return {
+          ...c,
+          accrued_total: accrued.total,
+          amount_due,
+          description: principal?.description ?? 'Cobrança',
+          item_count: items.length,
+          vehicle_plate: c.rental_id ? plateByRental.get(c.rental_id) ?? null : null,
+        }
+      })
     },
   })
 }

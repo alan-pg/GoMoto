@@ -15,13 +15,10 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useFocusEffect } from 'expo-router'
-import { useBillingsForCustomer, useHistoryBillingsForCustomer } from '@gomoto/data'
+import { useMyCharges } from '@gomoto/data'
+import type { MyChargeRow } from '@gomoto/data'
 import {
-  calculateDaysOverdue,
-  calculateFinalAmount,
-  isChargeOverdue,
 } from '@gomoto/core'
-import type { Billing } from '@gomoto/core'
 import { supabase } from '../lib/supabase'
 import { useTheme, type ThemeTokens } from '../theme'
 
@@ -110,11 +107,8 @@ function daysUntil(isoDate: string): number {
   return Math.round((due.getTime() - today.getTime()) / 86_400_000)
 }
 
-function vehicleLabel(billing: Billing): string | null {
-  const rental = billing.rentals as { vehicles?: { license_plate?: string; model?: string; make?: string } } | null
-  const v = rental?.vehicles
-  if (!v?.license_plate) return null
-  return `${v.license_plate}${v.make ? ` · ${v.make} ${v.model ?? ''}` : ''}`
+function vehicleLabel(billing: MyChargeRow): string | null {
+  return billing.vehicle_plate
 }
 
 async function generatePix(billingId: string): Promise<PixResult> {
@@ -122,7 +116,7 @@ async function generatePix(billingId: string): Promise<PixResult> {
   if (!session) throw new Error('Não autenticado')
   const webUrl = process.env.EXPO_PUBLIC_WEB_URL ?? ''
   if (!webUrl) throw new Error('EXPO_PUBLIC_WEB_URL não configurado')
-  const res = await fetch(`${webUrl}/api/billings/${billingId}/pix`, {
+  const res = await fetch(`${webUrl}/api/charges/${billingId}/payment-intent`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${session.access_token}` },
   })
@@ -180,18 +174,19 @@ function BillingRow({
   styles,
   typeTone,
 }: {
-  billing: Billing
+  billing: MyChargeRow
   onPress: () => void
   styles: Styles
   typeTone: TypeTone
 }) {
   const today = new Date()
-  const overdue = isChargeOverdue(billing, today)
+  const overdue = billing.is_overdue
   const days = overdue
-    ? calculateDaysOverdue(billing, today)
+    ? billing.days_overdue
     : daysUntil(billing.due_date)
 
-  const finalAmount = calculateFinalAmount(billing.original_amount ?? 0, billing.discount_amount ?? 0)
+  // F-05: o valor devido vem pronto do servidor, já com encargo e crédito.
+  const finalAmount = billing.amount_due
   const plate = vehicleLabel(billing)
 
   let dueMeta: string
@@ -213,7 +208,7 @@ function BillingRow({
       onPress={onPress}
     >
       <View style={styles.billingRowTop}>
-        <TypeBadge type={billing.billing_type} styles={styles} typeTone={typeTone} />
+        <TypeBadge type={billing.rental_id ? 'cycle' : 'one_time'} styles={styles} typeTone={typeTone} />
         <Text style={[styles.billingRowMeta, overdue ? styles.billingRowMetaDanger : styles.billingRowMetaMuted]}>
           {dueMeta}
         </Text>
@@ -224,9 +219,9 @@ function BillingRow({
           {plate && <Text style={styles.billingRowPlate}>{plate}</Text>}
         </View>
         <View style={styles.billingRowRight}>
-          {(billing.discount_amount ?? 0) > 0 ? (
+          {billing.paid_amount > 0 ? (
             <>
-              <Text style={styles.billingRowAmountStrike}>{formatCurrency(billing.original_amount)}</Text>
+              <Text style={styles.billingRowAmountStrike}>{formatCurrency(billing.total_amount)}</Text>
               <Text style={[styles.billingRowAmount, overdue && styles.billingRowAmountDanger]}>
                 {formatCurrency(finalAmount)}
               </Text>
@@ -247,10 +242,13 @@ function BillingRow({
 // HistoryRow — compact row for paid billings
 // ---------------------------------------------------------------------------
 
-function HistoryRow({ billing, onPress, styles }: { billing: Billing; onPress: () => void; styles: Styles }) {
-  const finalAmount = calculateFinalAmount(billing.original_amount ?? 0, billing.discount_amount ?? 0)
-  const paidDate = billing.paid_at ?? billing.payment_date
-  const method = billing.payment_method ? PAYMENT_METHOD_LABEL[billing.payment_method] ?? billing.payment_method : null
+function HistoryRow({ billing, onPress, styles }: { billing: MyChargeRow; onPress: () => void; styles: Styles }) {
+  // F-05: o valor devido vem pronto do servidor, já com encargo e crédito.
+  const finalAmount = billing.amount_due
+  // Data e forma de pagamento vivem em `payments`, não na cobrança —
+  // um documento pode ter vários recebimentos.
+  const paidDate = billing.status === 'paid' ? billing.due_date : null
+  const method = null
 
   return (
     <Pressable
@@ -336,13 +334,14 @@ function PixModal({
   onClose,
   styles,
 }: {
-  billing: Billing
+  billing: MyChargeRow
   result: PixResult
   pixPaid: boolean
   onClose: () => void
   styles: Styles
 }) {
-  const finalAmount = calculateFinalAmount(billing.original_amount ?? 0, billing.discount_amount ?? 0)
+  // F-05: o valor devido vem pronto do servidor, já com encargo e crédito.
+  const finalAmount = billing.amount_due
 
   function copyCode() {
     void Clipboard.setStringAsync(result.qr_code)
@@ -406,7 +405,7 @@ function BillingDetailModal({
   typeTone,
   statusTone,
 }: {
-  billing: Billing
+  billing: MyChargeRow
   onClose: () => void
   onPixGenerated?: (billingId: string) => void
   pixPaid?: boolean
@@ -418,21 +417,21 @@ function BillingDetailModal({
   const [generatingPix, setGeneratingPix]   = useState(false)
   const [pixResult, setPixResult]           = useState<PixResult | null>(null)
 
-  const original  = billing.original_amount ?? 0
-  const discount  = billing.discount_amount ?? 0
-  const finalAmt  = calculateFinalAmount(original, discount)
-  const canPay    = billing.status === 'pending' || billing.status === 'overdue'
+  const original  = billing.total_amount
+  const discount  = 0
+  const finalAmt  = billing.amount_due
+  const canPay    = billing.status === 'open' || billing.is_overdue
   const today     = new Date()
-  const overdue   = isChargeOverdue(billing, today)
-  const daysOver  = overdue ? calculateDaysOverdue(billing, today) : 0
+  const overdue   = billing.is_overdue
+  const daysOver  = overdue ? billing.days_overdue : 0
   const plate     = vehicleLabel(billing)
 
   async function handlePix() {
     setGeneratingPix(true)
     try {
-      const result = await generatePix(billing.id)
+      const result = await generatePix(billing.charge_id)
       setPixResult(result)
-      onPixGenerated?.(billing.id)
+      onPixGenerated?.(billing.charge_id)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Falha ao gerar Pix'
       Alert.alert('Erro', msg)
@@ -465,7 +464,7 @@ function BillingDetailModal({
             {/* Identity block */}
             <View style={styles.detailIdentity}>
               <View style={styles.detailIdentityBadges}>
-                <TypeBadge type={billing.billing_type} styles={styles} typeTone={typeTone} />
+                <TypeBadge type={billing.rental_id ? 'cycle' : 'one_time'} styles={styles} typeTone={typeTone} />
                 <View style={[styles.statusPill, { backgroundColor: statusBg }]}>
                   <Text style={[styles.statusPillText, { color: statusColor }]}>
                     {STATUS_LABEL[billing.status] ?? billing.status}
@@ -485,36 +484,47 @@ function BillingDetailModal({
               )}
             </View>
 
-            {/* Composição */}
+            {/* Composição — total, o que já foi pago e o encargo acumulado */}
             <View style={styles.detailSection}>
               <Text style={styles.detailSectionTitle}>Composição</Text>
               <View style={styles.compositionBlock}>
                 <View style={styles.compositionRow}>
                   <Text style={styles.compositionLabel}>
-                    {billing.billing_type === 'cycle' ? 'Aluguel base' : 'Valor'}
+                    {billing.item_count > 1 ? `Total (${billing.item_count} itens)` : 'Valor'}
                   </Text>
-                  <Text style={styles.compositionValue}>{formatCurrency(original)}</Text>
+                  <Text style={styles.compositionValue}>{formatCurrency(billing.total_amount)}</Text>
                 </View>
-                {discount > 0 && (
-                  <>
-                    <View style={styles.compositionRow}>
-                      <View style={styles.compositionLabelGroup}>
-                        <Text style={styles.compositionLabel}>Desconto</Text>
-                        {billing.discount_reason ? (
-                          <Text style={styles.compositionSub}>{billing.discount_reason}</Text>
-                        ) : null}
-                      </View>
-                      <Text style={[styles.compositionValue, { color: statusTone.paid.color }]}>
-                        − {formatCurrency(discount)}
-                      </Text>
+
+                {billing.paid_amount > 0 && (
+                  <View style={styles.compositionRow}>
+                    <View style={styles.compositionLabelGroup}>
+                      <Text style={styles.compositionLabel}>Já pago</Text>
+                      <Text style={styles.compositionSub}>Pagamento parcial registrado</Text>
                     </View>
-                    <View style={styles.compositionDivider} />
-                  </>
+                    <Text style={[styles.compositionValue, { color: statusTone.paid.color }]}>
+                      − {formatCurrency(billing.paid_amount)}
+                    </Text>
+                  </View>
                 )}
+
+                {billing.accrued_total > 0 && (
+                  <View style={styles.compositionRow}>
+                    <View style={styles.compositionLabelGroup}>
+                      <Text style={styles.compositionLabel}>Encargo por atraso</Text>
+                      <Text style={styles.compositionSub}>{billing.days_overdue} dias</Text>
+                    </View>
+                    <Text style={styles.compositionValue}>
+                      + {formatCurrency(billing.accrued_total)}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.compositionDivider} />
+
                 <View style={styles.compositionRow}>
-                  <Text style={[styles.compositionLabel, styles.compositionLabelTotal]}>Total</Text>
+                  <Text style={[styles.compositionLabel, styles.compositionLabelTotal]}>A pagar</Text>
                   <Text style={[styles.compositionValue, styles.compositionValueTotal]}>
-                    {formatCurrency(finalAmt)}
+                    {formatCurrency(billing.amount_due)}
                   </Text>
                 </View>
               </View>
@@ -539,23 +549,14 @@ function BillingDetailModal({
               </View>
             )}
 
-            {/* Informação de pagamento (já pago) */}
             {billing.status === 'paid' && (
               <View style={styles.paidBlock}>
-                <Text style={styles.paidTitle}>Pagamento registrado</Text>
-                {billing.paid_at ?? billing.payment_date ? (
-                  <CompositionRow label="Data" value={formatDate(billing.paid_at ?? billing.payment_date)} styles={styles} />
-                ) : null}
-                {billing.payment_method ? (
-                  <CompositionRow
-                    label="Forma"
-                    value={PAYMENT_METHOD_LABEL[billing.payment_method] ?? billing.payment_method}
-                    styles={styles}
-                  />
-                ) : null}
-                {billing.confirmed_source === 'mp_webhook' && (
-                  <Text style={styles.paidConfirmedTag}>Confirmado automaticamente via Pix</Text>
-                )}
+                <Text style={styles.paidTitle}>Cobrança quitada</Text>
+                <CompositionRow
+                  label="Total recebido"
+                  value={formatCurrency(billing.paid_amount)}
+                  styles={styles}
+                />
               </View>
             )}
           </ScrollView>
@@ -589,7 +590,7 @@ function CompositionRow({ label, value, styles }: { label: string; value: string
 // ---------------------------------------------------------------------------
 
 export function BillingsScreen() {
-  const [selected, setSelected]         = useState<Billing | null>(null)
+  const [selected, setSelected]         = useState<MyChargeRow | null>(null)
   const [refreshing, setRefreshing]     = useState(false)
   const [historyOpen, setHistoryOpen]   = useState(false)
   const [pixBillingId, setPixBillingId] = useState<string | null>(null)
@@ -599,8 +600,8 @@ export function BillingsScreen() {
   const typeTone = useMemo(() => getBillingTypeTone(theme), [theme])
   const statusTone = useMemo(() => getStatusTone(theme), [theme])
 
-  const query        = useBillingsForCustomer()
-  const historyQuery = useHistoryBillingsForCustomer({ enabled: historyOpen })
+  const query        = useMyCharges(true)
+  const historyQuery = useMyCharges(false)
 
   useFocusEffect(
     useCallback(() => {
@@ -617,7 +618,7 @@ export function BillingsScreen() {
 
   useEffect(() => {
     if (!pixBillingId || pixPaid) return
-    const latest = (query.data ?? []).find((b) => b.id === pixBillingId)
+    const latest = (query.data ?? []).find((b) => b.charge_id === pixBillingId)
     if (latest?.status === 'paid') {
       setPixPaid(true)
       setTimeout(() => {
@@ -651,30 +652,30 @@ export function BillingsScreen() {
 
     const overdue = all
       .filter((b) =>
-        b.status === 'overdue' ||
-        (b.status === 'pending' && b.due_date < todayIso),
+        b.is_overdue ||
+        (b.status === 'open' && b.due_date < todayIso),
       )
       .sort((a, b) => a.due_date.localeCompare(b.due_date))
 
-    const overdueIds = new Set(overdue.map((b) => b.id))
+    const overdueIds = new Set(overdue.map((b) => b.charge_id))
 
     const nextCycle = all
       .filter(
         (b) =>
-          b.billing_type === 'cycle' &&
-          b.status === 'pending' &&
+          b.rental_id !== null &&
+          b.status === 'open' &&
           b.due_date >= todayIso &&
-          !overdueIds.has(b.id),
+          !overdueIds.has(b.charge_id),
       )
       .sort((a, b) => a.due_date.localeCompare(b.due_date))[0] ?? null
 
     const others = all
       .filter(
         (b) =>
-          b.billing_type !== 'cycle' &&
-          b.status === 'pending' &&
+          b.rental_id === null &&
+          b.status === 'open' &&
           b.due_date >= todayIso &&
-          !overdueIds.has(b.id),
+          !overdueIds.has(b.charge_id),
       )
       .sort((a, b) => a.due_date.localeCompare(b.due_date))
 
@@ -722,7 +723,7 @@ export function BillingsScreen() {
                   <SectionHeader title="Em atraso" count={overdue.length} danger styles={styles} />
                   <View style={styles.sectionBody}>
                     {overdue.map((b) => (
-                      <BillingRow key={b.id} billing={b} onPress={() => setSelected(b)} styles={styles} typeTone={typeTone} />
+                      <BillingRow key={b.charge_id} billing={b} onPress={() => setSelected(b)} styles={styles} typeTone={typeTone} />
                     ))}
                   </View>
                 </View>
@@ -744,7 +745,7 @@ export function BillingsScreen() {
                   <SectionHeader title="Outras" count={others.length} styles={styles} />
                   <View style={styles.sectionBody}>
                     {others.map((b) => (
-                      <BillingRow key={b.id} billing={b} onPress={() => setSelected(b)} styles={styles} typeTone={typeTone} />
+                      <BillingRow key={b.charge_id} billing={b} onPress={() => setSelected(b)} styles={styles} typeTone={typeTone} />
                     ))}
                   </View>
                 </View>
@@ -773,7 +774,7 @@ export function BillingsScreen() {
                   ) : (
                     <View style={styles.sectionBody}>
                       {(historyQuery.data ?? []).map((b) => (
-                        <HistoryRow key={b.id} billing={b} onPress={() => setSelected(b)} styles={styles} />
+                        <HistoryRow key={b.charge_id} billing={b} onPress={() => setSelected(b)} styles={styles} />
                       ))}
                     </View>
                   )
@@ -789,7 +790,7 @@ export function BillingsScreen() {
           billing={selected}
           onClose={() => { setSelected(null); setPixBillingId(null); setPixPaid(false) }}
           onPixGenerated={setPixBillingId}
-          pixPaid={pixBillingId === selected.id && pixPaid}
+          pixPaid={pixBillingId === selected.charge_id && pixPaid}
           styles={styles}
           typeTone={typeTone}
           statusTone={statusTone}
@@ -912,7 +913,7 @@ const createStyles = (theme: ThemeTokens) => StyleSheet.create({
     textTransform: 'uppercase',
   },
 
-  // Billing row
+  // MyChargeRow row
   billingRow: {
     backgroundColor: theme.surface,
     borderColor: theme.surfaceAlt,
