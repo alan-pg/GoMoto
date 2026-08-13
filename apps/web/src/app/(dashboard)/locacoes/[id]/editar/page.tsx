@@ -28,11 +28,13 @@ export default async function EditRentalPage({
       .in('status', ['pending', 'received'])
       .maybeSingle(),
     supabase
-      .from('billings')
-      .select('original_amount, status, due_date')
-      .eq('lease_id', id)
+      // Origem por (source_module, source_id) — uniforme. A coluna dedicada
+      // `billing_type` exigia DDL a cada tipo novo (F-11).
+      .from('charge_items')
+      .select('amount, charge:charges(id, status, due_date)')
       .eq('tenant_id', tenantId)
-      .eq('billing_type', 'down_payment')
+      .eq('source_module', 'down_payment')
+      .eq('source_id', id)
       .maybeSingle(),
   ])
 

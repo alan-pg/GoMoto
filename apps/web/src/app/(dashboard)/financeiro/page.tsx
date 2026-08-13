@@ -12,16 +12,6 @@ function fmt(d: string | null | undefined) {
   return date.toLocaleDateString('pt-BR')
 }
 
-function calcBillingStatus(status: string, dueDate: string) {
-  if (status === 'paid')      return 'paid'
-  if (status === 'cancelled') return 'cancelled'
-  if (status === 'prejudice') return 'prejudice'
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const [y, m, d] = dueDate.split('-').map(Number)
-  const due = new Date(y, m - 1, d)
-  return due < today ? 'overdue' : 'pending'
-}
-
 /** Linha de `charge_balances` — saldo derivado, não colunas do documento. */
 type BillingRow = {
   charge_id: string
@@ -100,21 +90,34 @@ export default async function FinancialDashboardPage() {
     // Clientes inadimplentes
     // Bloqueio é decisão humana e vive em `delinquency_blocks`; a coluna
     // `customers.delinquency_status` era mantida por trigger inerte (F-04).
+    // Log append-only: a última ação por cliente define o estado atual.
     supabase
       .from('delinquency_blocks')
-      .select('customer_id, customers(id, name)')
+      .select('customer_id, action, acted_at, customers(id, name)')
       .eq('tenant_id', tenantId)
-      .is('unblocked_at', null),
+      .order('acted_at', { ascending: false }),
   ])
 
   const monthBillings = (monthBillingsResult.data ?? []) as unknown as BillingRow[]
   const overdueBillings = (overdueBillingsResult.data ?? []) as unknown as BillingRow[]
   const vehicles = vehiclesResult.data ?? []
-  type BlockRow = { customer_id: string; customers: { id: string; name: string } | { id: string; name: string }[] | null }
-  const delinquentCustomers = ((delinquentResult.data ?? []) as unknown as BlockRow[]).map((b) => {
-    const c = Array.isArray(b.customers) ? b.customers[0] : b.customers
-    return { id: c?.id ?? b.customer_id, name: c?.name ?? '—' }
-  })
+  type BlockRow = {
+    customer_id: string; action: string
+    customers: { id: string; name: string } | { id: string; name: string }[] | null
+  }
+  // Já vem ordenado por acted_at desc: a primeira ocorrência de cada cliente é
+  // a ação mais recente.
+  const latestByCustomer = new Map<string, BlockRow>()
+  for (const b of (delinquentResult.data ?? []) as unknown as BlockRow[]) {
+    if (!latestByCustomer.has(b.customer_id)) latestByCustomer.set(b.customer_id, b)
+  }
+
+  const delinquentCustomers = [...latestByCustomer.values()]
+    .filter((b) => b.action === 'block')
+    .map((b) => {
+      const c = Array.isArray(b.customers) ? b.customers[0] : b.customers
+      return { id: c?.id ?? b.customer_id, name: c?.name ?? '—' }
+    })
 
   // KPIs do mês
   const totalBilledMonth  = monthBillings.reduce((s, b) => s + b.total_amount, 0)
@@ -179,7 +182,7 @@ export default async function FinancialDashboardPage() {
           <div className="rounded-xl bg-surface p-4">
             <p className="text-[12px] text-fg-mute">Pendente no mês</p>
             <p className="mt-1 text-xl font-bold text-info">{formatCurrency(totalPendingMonth)}</p>
-            <p className="mt-0.5 text-[12px] text-fg-mute">{monthBillings.filter(b => calcBillingStatus(b.status, b.due_date) === 'pending').length} pendentes</p>
+            <p className="mt-0.5 text-[12px] text-fg-mute">{monthBillings.filter(b => b.status === 'open' && !b.is_overdue).length} pendentes</p>
           </div>
           <div className="rounded-xl bg-surface p-4">
             <p className="text-[12px] text-fg-mute">Vencidas (total)</p>

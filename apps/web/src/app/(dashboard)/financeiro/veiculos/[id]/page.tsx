@@ -36,12 +36,14 @@ export default async function VehicleROIPage({
     // de fora, é garantia/depósito, não receita operacional. `billings` não
     // tem vehicle_id direto (só lease_id) — filtra via join com rentals.
     supabase
-      .from('billings')
-      .select('original_amount, discount_amount, source, due_date, rentals!inner(vehicle_id)')
-      .eq('rentals.vehicle_id', id)
+      // Spec 0014: receita do veículo vem da POSIÇÃO no ledger. Somar
+      // billings pagas incluía caução e entrada como faturamento (F-09) e
+      // ignorava repasse. Aqui a caução nem aparece: credita passivo.
+      .from('vehicle_financial_position')
+      .select('operating_revenue, gross_costs, reimbursed, net_result, maintenance_cost, documentation_cost, insurance_cost, fines_cost, acquisition_cost')
+      .eq('vehicle_id', id)
       .eq('tenant_id', tenantId)
-      .eq('status', 'paid')
-      .neq('source', 'deposit'),
+      .maybeSingle(),
     // Custo: manutenções finalizadas
     supabase
       .from('maintenances')
@@ -64,12 +66,18 @@ export default async function VehicleROIPage({
   if (vehicleResult.error || !vehicleResult.data) notFound()
 
   const vehicle = vehicleResult.data
-  const paidBillings = paidBillingsResult.data ?? []
+  // Posição do veículo agregada do ledger — uma linha, não uma lista.
+  type Position = {
+    operating_revenue: number; gross_costs: number; reimbursed: number; net_result: number
+    maintenance_cost: number; documentation_cost: number; insurance_cost: number
+    fines_cost: number; acquisition_cost: number
+  }
+  const position = (paidBillingsResult.data ?? null) as unknown as Position | null
   const maintenances = (maintenanceCostResult.data ?? []) as { cost: number; completed_at: string | null; description: string | null }[]
   const fines = (fineCostResult.data ?? []) as { amount: number; payment_date: string | null; description: string | null }[]
 
   // ── Cálculos de ROI ───────────────────────────────────────────────────────
-  const totalRevenue = paidBillings.reduce((s, b) => s + (b.original_amount - (b.discount_amount ?? 0)), 0)
+  const totalRevenue = position?.operating_revenue ?? 0
   const totalMaintenanceCost = maintenances.reduce((s, m) => s + (m.cost ?? 0), 0)
   const totalFineCost = fines.reduce((s, f) => s + (f.amount ?? 0), 0)
   const totalCost = totalMaintenanceCost + totalFineCost
@@ -82,10 +90,11 @@ export default async function VehicleROIPage({
     : null
 
   // Receita por fonte
-  const revenueBySource: Record<string, number> = {}
-  for (const b of paidBillings) {
-    const src = b.source ?? 'unknown'
-    revenueBySource[src] = (revenueBySource[src] ?? 0) + (b.original_amount - (b.discount_amount ?? 0))
+  // Composição vem das contas do plano, não de um campo `source` na cobrança.
+  // Repasse aparece separado de receita: reduz custo, não fatura (R-03).
+  const revenueBySource: Record<string, number> = {
+    cycle:      position?.operating_revenue ?? 0,
+    reimbursed: position?.reimbursed ?? 0,
   }
 
   const SOURCE_LABELS: Record<string, string> = {

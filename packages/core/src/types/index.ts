@@ -424,7 +424,6 @@ export interface Billing {
   /** @deprecated Use rentals join. */
   contracts?: { id: string } | null;
   rentals?: { id: string } | null;
-  billing_pix?: Array<{ status: string; expires_at: string; mp_payment_id: string }> | null;
 }
 
 /**

@@ -39,8 +39,7 @@ export function useCreateVehicleObligation() {
     ) => createVehicleObligation(supabase, { ...payload, tenant_id: getTenantId() }),
     onSuccess: (ob) => {
       qc.invalidateQueries({ queryKey: [KEY, 'by-vehicle', ob.vehicle_id] })
-      qc.invalidateQueries({ queryKey: ['vehicle_cost_summary'] })
-      qc.invalidateQueries({ queryKey: ['vehicle_financial_events'] })
+      qc.invalidateQueries({ queryKey: ['vehicle-position'] })
     },
   })
 }
@@ -59,8 +58,7 @@ export function useUpdateVehicleObligation() {
     onSuccess: (ob) => {
       qc.invalidateQueries({ queryKey: [KEY, 'by-vehicle', ob.vehicle_id] })
       qc.invalidateQueries({ queryKey: [KEY, ob.id] })
-      qc.invalidateQueries({ queryKey: ['vehicle_cost_summary'] })
-      qc.invalidateQueries({ queryKey: ['vehicle_financial_events'] })
+      qc.invalidateQueries({ queryKey: ['vehicle-position'] })
     },
   })
 }
@@ -72,8 +70,7 @@ export function useDeleteVehicleObligation() {
     mutationFn: (id: string) => deleteVehicleObligation(supabase, id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY] })
-      qc.invalidateQueries({ queryKey: ['vehicle_cost_summary'] })
-      qc.invalidateQueries({ queryKey: ['vehicle_financial_events'] })
+      qc.invalidateQueries({ queryKey: ['vehicle-position'] })
     },
   })
 }

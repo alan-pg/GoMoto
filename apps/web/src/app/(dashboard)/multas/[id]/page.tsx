@@ -31,15 +31,6 @@ const BILLING_STATUS_CONFIG: Record<string, { label: string; bg: string; text: s
   prejudice: { label: 'Prejuízo',  bg: 'bg-warning-bg', text: 'text-warning', border: 'border-warning' },
 }
 
-function calcBillingStatus(status: string, dueDate: string | null) {
-  if (status === 'paid' || status === 'cancelled' || status === 'prejudice') return status
-  if (!dueDate) return 'pending'
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const [y, m, d] = dueDate.split('-').map(Number)
-  const due = new Date(y, m - 1, d)
-  return due < today ? 'overdue' : 'pending'
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function FineDetailPage({
@@ -64,10 +55,10 @@ export default async function FineDetailPage({
       .eq('fine_id', id)
       .order('created_at', { ascending: true }),
     supabase
-      .from('billings')
-      .select('id, description, original_amount, due_date, status, paid_at')
-      .eq('fine_id', id)
-      .neq('status', 'cancelled')
+      .from('charge_items')
+      .select('amount, description, charge:charges(id, status, due_date)')
+      .eq('source_module', 'fine')
+      .eq('source_id', id)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -77,7 +68,27 @@ export default async function FineDetailPage({
 
   const fine        = fineResult.data
   const rawAtts     = attachmentsResult.data ?? []
-  const billing     = billingResult.data
+  // Normaliza o join (o supabase-js infere array) e monta a forma que o JSX
+  // consome. `paid_at` sai do documento: pagamento vive em `payments`.
+  type FineItem = {
+    amount: number; description: string
+    charge: { id: string; status: string; due_date: string } | { id: string; status: string; due_date: string }[] | null
+  }
+  const rawFineItem = billingResult.data as unknown as FineItem | null
+  const fineCharge = rawFineItem
+    ? (Array.isArray(rawFineItem.charge) ? rawFineItem.charge[0] : rawFineItem.charge)
+    : null
+
+  const billing = rawFineItem && fineCharge
+    ? {
+        id: fineCharge.id,
+        status: fineCharge.status,
+        due_date: fineCharge.due_date,
+        description: rawFineItem.description,
+        original_amount: rawFineItem.amount,
+        paid_at: fineCharge.status === 'paid' ? fineCharge.due_date : null,
+      }
+    : null
   const status      = calcFineUrgency(fine)
   const statusCfg   = STATUS_CONFIG[status]
   const driverUnidentified = isDriverUnidentified(fine, rawAtts)
@@ -336,7 +347,12 @@ export default async function FineDetailPage({
                 <div className="flex items-center gap-3">
                   <span className="text-[15px] font-bold text-fg">{formatCurrency(Number(billing.original_amount))}</span>
                   {(() => {
-                    const bStatus = calcBillingStatus(billing.status, billing.due_date)
+                    // Atraso derivado do vencimento — não há status 'overdue'
+                    // armazenado (Princípio 4).
+                    const hoje = new Date().toISOString().slice(0, 10)
+                    const bStatus = billing.status === 'open' && billing.due_date < hoje
+                      ? 'overdue'
+                      : billing.status === 'open' ? 'pending' : billing.status
                     const bCfg = BILLING_STATUS_CONFIG[bStatus]
                     return (
                       <span className={`inline-flex items-center h-7 px-3 rounded-full text-[13px] font-medium border ${bCfg.bg} ${bCfg.text} ${bCfg.border}`}>

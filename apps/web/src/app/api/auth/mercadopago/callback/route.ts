@@ -58,15 +58,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL(`${REDIRECT_BASE}?payment=error&reason=token_exchange`, req.url))
   }
 
-  const { error } = await supabase.from('payment_connections').upsert(
+  // Spec 0014: credenciais em `payment_provider_accounts`, com o provedor como
+  // dado. `payment_connections` tinha UNIQUE(tenant_id) e impedia um segundo
+  // gateway (F-13); aqui a chave é (tenant, provider, conta externa).
+  const { error } = await supabase.from('payment_provider_accounts').upsert(
     {
-      tenant_id:        tenantId,
-      mp_user_id:       tokens.mp_user_id,
-      mp_account_email: tokens.mp_account_email,
-      access_token:     tokens.access_token,
-      refresh_token:    tokens.refresh_token,
+      tenant_id:           tenantId,
+      provider:            'mercadopago',
+      external_account_id: tokens.mp_user_id,
+      credentials: {
+        access_token:  tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        account_email: tokens.mp_account_email,
+      },
+      is_default: true,
+      active:     true,
     },
-    { onConflict: 'tenant_id' },
+    { onConflict: 'tenant_id,provider,external_account_id' },
   )
 
   if (error) {
@@ -74,19 +82,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL(`${REDIRECT_BASE}?payment=error&reason=db_error`, req.url))
   }
 
-  // Expirar Pixes ativos da conta anterior: ao trocar de conta MP os QR codes antigos
-  // apontam para o mp_user_id anterior e o webhook não conseguiria resolver o tenant.
+  // Tentativas pendentes da conta anterior apontam para outra conta externa e
+  // o webhook não conseguiria resolver o tenant.
   await supabase
-    .from('billing_pix')
+    .from('payment_intents')
     .update({ status: 'expired' })
     .eq('tenant_id', tenantId)
-    .eq('status', 'active')
+    .eq('provider', 'mercadopago')
+    .eq('status', 'pending')
 
   serverLog('info', 'mp_oauth.connected', { tenant_id: tenantId, mp_user_id: tokens.mp_user_id })
 
   await logAction({
     action: 'connect_payment',
-    table: 'payment_connections',
+    table: 'payment_provider_accounts',
     newData: { tenant_id: tenantId, mp_user_id: tokens.mp_user_id, mp_account_email: tokens.mp_account_email },
   })
 

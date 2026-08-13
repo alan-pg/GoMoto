@@ -121,21 +121,23 @@ async function getDashboardData() {
     supabase.from('customers').select('*', { count: 'exact', head: true }).eq('active', true),
     // Caução fica fora destas agregações: é garantia/depósito, não receita
     // operacional, e um caução vencida não deve marcar o cliente como inadimplente.
-    supabase.from('billings').select('customer_id').neq('billing_type', 'deposit').or(`status.eq.overdue,and(status.eq.pending,due_date.lt.${today})`),
-    supabase.from('billings').select('original_amount, discount_amount, status, due_date').neq('billing_type', 'deposit').in('status', ['pending', 'overdue']),
-    supabase.from('billings').select('id, original_amount, due_date, customers(name)').neq('billing_type', 'deposit').or(`status.eq.overdue,and(status.eq.pending,due_date.lt.${today})`).order('due_date', { ascending: true }).limit(5),
-    supabase.from('billings').select('original_amount').eq('status', 'paid').neq('billing_type', 'deposit').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
+    // Atraso derivado: `is_overdue` compara due_date com hoje. Antes a query
+    // fazia esse OR porque nada gravava status='overdue' (F-04/F-12).
+    supabase.from('charge_balances').select('customer_id').eq('is_overdue', true),
+    supabase.from('charge_balances').select('open_amount, status, due_date, is_overdue').eq('status', 'open').gt('open_amount', 0),
+    supabase.from('charge_balances').select('charge_id, open_amount, due_date, customer_id').eq('is_overdue', true).order('days_overdue', { ascending: false }).limit(5),
+    supabase.from('charge_balances').select('paid_amount').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
     supabase.from('rentals').select('id, cycle_amount, end_date, customers(name), vehicles(model, make, license_plate)').eq('status', 'active').order('created_at', { ascending: false }).limit(5),
     supabase.from('maintenance_records').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
     supabase.from('rentals').select('*', { count: 'exact', head: true }).eq('status', 'active').gte('end_date', today).lte('end_date', in15Days),
-    supabase.from('billings').select('*', { count: 'exact', head: true }).eq('status', 'pending').neq('billing_type', 'deposit').eq('due_date', today),
-    supabase.from('billings').select('*', { count: 'exact', head: true }).eq('status', 'pending').neq('billing_type', 'deposit').eq('due_date', tomorrow),
+    supabase.from('charge_balances').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('due_date', today),
+    supabase.from('charge_balances').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('due_date', tomorrow),
     supabase.from('vehicles').select('model, make, license_plate').eq('status', 'available').lte('updated_at', sevenDaysAgo).limit(3),
     supabase.from('maintenances').select('id, scheduled_date, type, vehicles(model, make, license_plate)').eq('completed', false).gte('scheduled_date', today).lte('scheduled_date', in7Days).order('scheduled_date', { ascending: true }).limit(5),
     supabase.from('queue_entries').select('id, created_at, position, customers(name)').order('position', { ascending: true }).limit(5),
     supabase.from('payments').select('amount, paid_at').gte('paid_at', sixMonthsAgo).lte('paid_at', lastDayOfMonth),
-    supabase.from('expenses').select('amount, date').gte('date', sixMonthsAgo).lte('date', lastDayOfMonth),
-    supabase.from('billings').select('status, original_amount, due_date').neq('billing_type', 'deposit').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
+    supabase.from('payables').select('amount, customer_amount, competence_date').gte('competence_date', sixMonthsAgo).lte('competence_date', lastDayOfMonth),
+    supabase.from('charge_balances').select('status, total_amount, due_date, is_overdue').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
   ])
 
   // Fleet
@@ -147,18 +149,14 @@ async function getDashboardData() {
 
   // Financial — total receivable covers ALL months, not just current
   const allReceivable = allReceivableRes.data ?? []
-  const totalReceivable = allReceivable.reduce((sum, row) => {
-    const final = Number(row.original_amount) - Number(row.discount_amount ?? 0)
-    return sum + Math.max(0, final)
-  }, 0)
+  // Saldo em aberto vem derivado; nada aqui recompõe valor a partir de
+  // desconto ou crédito, e o atraso não é recalculado na tela (Princípio 4).
+  const totalReceivable = allReceivable.reduce((sum, row) => sum + Number(row.open_amount ?? 0), 0)
   const overdueTotal = allReceivable
-    .filter((row) => row.status === 'overdue' || (row.status === 'pending' && (row as { due_date: string }).due_date < today))
-    .reduce((sum, row) => {
-      const final = Number(row.original_amount) - Number(row.discount_amount ?? 0)
-      return sum + Math.max(0, final)
-    }, 0)
+    .filter((row) => row.is_overdue)
+    .reduce((sum, row) => sum + Number(row.open_amount ?? 0), 0)
   const paidThisMonth = (paidThisMonthRes.data ?? []).reduce(
-    (sum, row) => sum + (Number(row.original_amount) || 0),
+    (sum, row) => sum + (Number(row.paid_amount) || 0),
     0,
   )
   const monthlyForecast = (activeRentalsRes.data ?? []).reduce(
@@ -218,8 +216,11 @@ async function getDashboardData() {
     if (key in revenueByMonth) revenueByMonth[key] += Number(row.amount) || 0
   })
   ;(sixMonthExpensesRes.data ?? []).forEach((row) => {
-    const key = row.date.substring(0, 7)
-    if (key in expensesByMonth) expensesByMonth[key] += Number(row.amount) || 0
+    const key = row.competence_date.substring(0, 7)
+    // Custo da EMPRESA: o total menos a parte repassada ao cliente. Somar
+    // `amount` cheio contaria como custo o que é recuperado (R-03).
+    const companyShare = Number(row.amount ?? 0) - Number(row.customer_amount ?? 0)
+    if (key in expensesByMonth) expensesByMonth[key] += companyShare
   })
   const monthlyChartData = Object.keys(revenueByMonth).map((key) => {
     const [, month] = key.split('-')
@@ -236,11 +237,11 @@ async function getDashboardData() {
     overdue: { count: 0, total: 0 },
   }
   ;(billingsByStatusRes.data ?? []).forEach((row) => {
-    const effectiveStatus =
-      row.status === 'pending' && (row as { due_date: string }).due_date < today ? 'overdue' : row.status
+    // 'open' + is_overdue → vencida; 'open' sem atraso → pendente.
+    const effectiveStatus = row.is_overdue ? 'overdue' : row.status === 'open' ? 'pending' : row.status
     if (effectiveStatus in billingStatusMap) {
       billingStatusMap[effectiveStatus].count++
-      billingStatusMap[effectiveStatus].total += Number(row.original_amount) || 0
+      billingStatusMap[effectiveStatus].total += Number(row.total_amount) || 0
     }
   })
   const billingChartData = [

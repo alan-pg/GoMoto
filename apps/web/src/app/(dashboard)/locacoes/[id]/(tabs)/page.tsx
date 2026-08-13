@@ -3,7 +3,6 @@ import {
   ChevronRight, Users, Bike,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
-import { effectiveBillingStatus, netBillingAmount } from '@/lib/billing-status'
 import { getRentalCore } from './_lib/get-rental-core'
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -16,39 +15,77 @@ export default async function RentalDetailPage({
   const { id } = await params
   const { rental, tenantId, supabase } = await getRentalCore(id)
 
-  const [billingsResult, depositResult] = await Promise.all([
+  const [billingsResult, depositResult, depositBalanceResult, downPaymentResult] = await Promise.all([
     supabase
-      .from('billings')
-      .select('*')
-      .eq('lease_id', id)
+      .from('charge_balances')
+      .select('charge_id, status, total_amount, paid_amount, open_amount, is_overdue, days_overdue, due_date')
+      .eq('rental_id', id)
       .eq('tenant_id', tenantId)
       .order('due_date', { ascending: true }),
+    // `deposits.balance` deixou de existir: saldo vem de deposit_balances.
     supabase
       .from('deposits')
-      .select('amount, balance, status, received_at')
+      .select('amount, received_at, closed_at')
       .eq('rental_id', id)
       .eq('tenant_id', tenantId)
       .maybeSingle(),
+    // Saldo da caução: derivado do ledger, não coluna mutável (F-08).
+    supabase
+      .from('deposit_balances')
+      .select('balance')
+      .eq('rental_id', id)
+      .maybeSingle(),
+    // Entrada localizada pela ORIGEM do item. `billing_type` não existe mais:
+    // a origem vive no item, não no documento (F-11).
+    supabase
+      .from('charge_items')
+      .select('amount, charge:charges(id, status, due_date)')
+      .eq('tenant_id', tenantId)
+      .eq('source_module', 'down_payment')
+      .eq('source_id', id)
+      .maybeSingle(),
   ])
 
-  const billings    = billingsResult.data ?? []
-  const deposit     = depositResult.data as { amount: number; balance: number; status: string; received_at: string } | null
+  type ChargeRow = {
+    charge_id: string; status: 'open' | 'paid' | 'cancelled' | 'written_off'
+    total_amount: number; paid_amount: number; open_amount: number
+    is_overdue: boolean; days_overdue: number; due_date: string
+  }
+  const billings = (billingsResult.data ?? []) as unknown as ChargeRow[]
+
+  const depositRow = depositResult.data as { amount: number; received_at: string; closed_at: string | null } | null
+  const depositBalance = (depositBalanceResult.data as { balance: number } | null)?.balance ?? 0
+  const deposit = depositRow
+    ? {
+        amount: depositRow.amount,
+        balance: depositBalance,
+        status: depositRow.closed_at ? 'closed' : 'received',
+        received_at: depositRow.received_at,
+      }
+    : null
+
+  type DownPaymentItem = {
+    amount: number
+    charge: { id: string; status: string; due_date: string } | { id: string; status: string; due_date: string }[] | null
+  }
+  const rawDp = downPaymentResult.data as unknown as DownPaymentItem | null
+  const dpCharge = rawDp ? (Array.isArray(rawDp.charge) ? rawDp.charge[0] : rawDp.charge) : null
 
   // Totais financeiros — mesma regra de @/lib/billing-status usada em /financeiro,
   // para os dois nunca mostrarem números divergentes.
-  const totalPaid = billings
-    .filter(b => b.status === 'paid')
-    .reduce((s, b) => s + netBillingAmount(b), 0)
+  // Saldos vêm derivados de `charge_balances`; nada aqui recalcula atraso nem
+  // recompõe valor a partir de desconto ou crédito (Princípios 2 e 4).
+  const totalPaid = billings.reduce((s, b) => s + b.paid_amount, 0)
   const totalPending = billings
-    .filter(b => effectiveBillingStatus(b) === 'pending')
-    .reduce((s, b) => s + netBillingAmount(b), 0)
-  const overdueBillings = billings.filter(b => effectiveBillingStatus(b) === 'overdue')
-  const totalOverdue = overdueBillings.reduce((s, b) => s + netBillingAmount(b), 0)
+    .filter(b => b.status === 'open' && !b.is_overdue)
+    .reduce((s, b) => s + b.open_amount, 0)
+  const overdueBillings = billings.filter(b => b.is_overdue)
+  const totalOverdue = overdueBillings.reduce((s, b) => s + b.open_amount, 0)
   const overdueCount = overdueBillings.length
 
-  // Entrada (Spec 0010) — cobrança comum em `billings`, sem tabela própria
-  // (ao contrário da Caução, que tem saldo/movimentações em `deposits`).
-  const downPayment = billings.find(b => b.billing_type === 'down_payment')
+  const downPayment = rawDp && dpCharge
+    ? { amount: rawDp.amount, status: dpCharge.status, due_date: dpCharge.due_date }
+    : null
 
   return (
     <>
@@ -92,11 +129,11 @@ export default async function RentalDetailPage({
         <div className="rounded-xl bg-surface p-4">
           <p className="text-[12px] text-fg-mute">Entrada</p>
           <p className="mt-1 text-xl font-bold text-fg">
-            {downPayment ? formatCurrency(netBillingAmount(downPayment)) : '—'}
+            {downPayment ? formatCurrency(downPayment.amount) : '—'}
           </p>
           {downPayment && downPayment.status !== 'paid' && (
             <p className="mt-0.5 text-[12px] text-fg-mute">
-              {effectiveBillingStatus(downPayment) === 'overdue' ? 'Vencida' : 'Pendente'}
+              {downPayment.due_date < new Date().toISOString().slice(0, 10) ? 'Vencida' : 'Pendente'}
             </p>
           )}
         </div>

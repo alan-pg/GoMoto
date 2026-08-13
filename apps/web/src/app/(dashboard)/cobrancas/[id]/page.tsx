@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
+import { calculateAccruedCharges, type LateChargePolicy } from '@gomoto/core'
 import { formatCurrency } from '@/lib/utils'
 import { calculateLateCharges } from '@gomoto/core'
 import type { LateChargeConfig } from '@gomoto/core'
@@ -143,67 +144,161 @@ export default async function BillingDetailPage({
   const tenantId = await getCurrentTenantId(supabase)
   if (!tenantId) notFound()
 
-  const [billingResult, paymentsResult, lateChargesResult, creditAppsResult] = await Promise.all([
+  // Spec 0014: saldo e atraso vêm de `charge_balances`, derivados. A composição
+  // do documento são os ITENS — `late_charges` e `credit_applications` deixaram
+  // de existir: encargo é calculado até ser realizado (R-06), e aplicação de
+  // crédito é transação no ledger.
+  const [balanceResult, itemsResult, allocationsResult] = await Promise.all([
     supabase
-      .from('billings')
-      .select('*, rental:rentals(id, customer:customers(id,name,phone), vehicle:vehicles(id,license_plate,make,model))')
-      .eq('id', id)
+      .from('charge_balances')
+      .select('*')
+      .eq('charge_id', id)
       .eq('tenant_id', tenantId)
-      .single(),
+      .maybeSingle(),
     supabase
-      .from('payments')
-      .select('id, amount, payment_method, paid_at, notes')
-      .eq('billing_id', id)
+      .from('charge_items')
+      .select('id, description, credit_account_code, quantity, unit_amount, amount, source_module, created_at')
+      .eq('charge_id', id)
       .eq('tenant_id', tenantId)
-      .order('paid_at', { ascending: false }),
+      .order('created_at', { ascending: true }),
     supabase
-      .from('late_charges')
-      .select('id, fee, interest, total, days_overdue, captured_at')
-      .eq('billing_id', id)
-      .eq('tenant_id', tenantId)
-      .order('captured_at', { ascending: false }),
-    supabase
-      .from('credit_applications')
-      .select('id, amount, is_auto, created_at, credit:customer_credits(origin, reason)')
-      .eq('billing_id', id)
+      .from('payment_allocations')
+      .select('id, amount, created_at, payment:payments(id, amount, method, paid_at, notes, reversed_at)')
+      .eq('charge_id', id)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false }),
   ])
 
-  if (billingResult.error || !billingResult.data) notFound()
+  if (balanceResult.error || !balanceResult.data) notFound()
 
-  const billing = billingResult.data as unknown as BillingRow
-  const payments = (paymentsResult.data ?? []) as unknown as PaymentRow[]
-  const lateCharges = (lateChargesResult.data ?? []) as unknown as LateChargeRow[]
-  const creditApps = (creditAppsResult.data ?? []) as unknown as CreditApplicationRow[]
-
-  // Fetch available credits for this customer
-  let availableCredits: CreditRow[] = []
-  if (billing.customer_id) {
-    const { data } = await supabase
-      .from('customer_credits')
-      .select('id, amount, available_balance, origin, reason')
-      .eq('customer_id', billing.customer_id)
-      .eq('tenant_id', tenantId)
-      .gt('available_balance', 0)
-      .order('created_at', { ascending: true })
-    availableCredits = (data ?? []) as unknown as CreditRow[]
+  const balance = balanceResult.data as unknown as {
+    charge_id: string; customer_id: string; rental_id: string | null
+    charge_number: number; status: 'open' | 'paid' | 'cancelled' | 'written_off'
+    issue_date: string; due_date: string
+    total_amount: number; paid_amount: number; open_amount: number
+    is_overdue: boolean; days_overdue: number
   }
 
-  const dynStatus = calcStatus(billing.status, billing.due_date)
-  const statusCfg = STATUS_CONFIG[dynStatus] ?? STATUS_CONFIG.pending
-  const baseAmount = billing.original_amount - (billing.discount_amount ?? 0)
-  const creditApplied = billing.credit_applied ?? 0
-  const amountDue = Math.max(0, baseAmount - creditApplied)
+  const items = (itemsResult.data ?? []) as unknown as {
+    id: string; description: string; credit_account_code: string
+    quantity: number; unit_amount: number; amount: number
+    source_module: string; created_at: string
+  }[]
 
-  // On-the-fly charges calculation
-  const isOverdue = dynStatus === 'overdue'
-  const chargesCalc = (isOverdue && billing.late_charge_config && !billing.charges_waived)
-    ? calculateLateCharges(billing.late_charge_config, baseAmount, billing.due_date)
+  type AllocRow = {
+    id: string; amount: number; created_at: string
+    payment: { id: string; amount: number; method: string; paid_at: string; notes: string | null; reversed_at: string | null }
+      | { id: string; amount: number; method: string; paid_at: string; notes: string | null; reversed_at: string | null }[]
+      | null
+  }
+  const payments = ((allocationsResult.data ?? []) as unknown as AllocRow[]).map((a) => {
+    const p = Array.isArray(a.payment) ? a.payment[0] : a.payment
+    return {
+      id: a.id,
+      amount: a.amount,
+      payment_method: p?.method ?? '—',
+      paid_at: p?.paid_at ?? a.created_at,
+      notes: p?.notes ?? null,
+      reversed: !!p?.reversed_at,
+    }
+  })
+
+  // Cliente e veículo em consulta separada: `charge_balances` agrega por
+  // cobrança, e juntar tabelas ali reintroduziria o fan-out de F-01.
+  const [customerRes, rentalRes] = await Promise.all([
+    supabase.from('customers').select('id, name, phone').eq('id', balance.customer_id).maybeSingle(),
+    balance.rental_id
+      ? supabase.from('rentals').select('id, vehicles(id, license_plate, make, model)').eq('id', balance.rental_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ])
+
+  const customer = customerRes.data as { id: string; name: string; phone: string | null } | null
+  type RentalVehicle = { id: string; vehicles: { id: string; license_plate: string; make: string; model: string } | { id: string; license_plate: string; make: string; model: string }[] | null }
+  const rentalRow = rentalRes.data as unknown as RentalVehicle | null
+  const vehicle = rentalRow
+    ? (Array.isArray(rentalRow.vehicles) ? rentalRow.vehicles[0] : rentalRow.vehicles)
     : null
 
-  const customer = billing.rental?.customer ?? null
-  const vehicle  = billing.rental?.vehicle ?? null
+  // Saldo de crédito do cliente — derivado, não coluna.
+  const { data: creditBalanceRow } = await supabase
+    .from('customer_credit_balances')
+    .select('balance')
+    .eq('customer_id', balance.customer_id)
+    .maybeSingle()
+
+  const creditBalance = (creditBalanceRow as { balance: number } | null)?.balance ?? 0
+
+  const { data: creditRows } = await supabase
+    .from('customer_credits')
+    .select('id, amount, origin, reason, expires_at')
+    .eq('customer_id', balance.customer_id)
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: true })
+
+  const availableCredits = ((creditRows ?? []) as { id: string; amount: number; origin: string; reason: string }[])
+    .map((c) => ({ ...c, available_balance: creditBalance }))
+
+  // Encargo acumulado: projetado até ser consolidado (R-06).
+  const { data: chargeRow } = await supabase
+    .from('charges')
+    .select('late_charge_policy_id')
+    .eq('id', id)
+    .maybeSingle()
+
+  const policyId = (chargeRow as { late_charge_policy_id: string | null } | null)?.late_charge_policy_id
+  let accrued = { fee: 0, interest: 0, total: 0, days_overdue: 0, grace_period_active: false, days_since_due: 0 }
+
+  if (policyId && balance.is_overdue) {
+    const { data: policyRow } = await supabase
+      .from('late_charge_policies')
+      .select('fee_type, fee_value, daily_interest_rate, grace_period_days, min_amount')
+      .eq('id', policyId)
+      .maybeSingle()
+
+    if (policyRow) {
+      accrued = calculateAccruedCharges(
+        policyRow as LateChargePolicy, balance.open_amount, balance.due_date,
+      )
+    }
+  }
+
+  const amountDue = Math.max(0, balance.open_amount + accrued.total)
+  const statusCfg = STATUS_CONFIG[balance.is_overdue ? 'overdue' : balance.status] ?? STATUS_CONFIG.pending
+  const isOverdue = balance.is_overdue
+
+  // Encargo já calculado acima a partir da política fixada na emissão.
+  const lateChargesList: { id: string; fee: number; interest: number; total: number; days_overdue: number; captured_at: string }[] = []
+  const creditAppsList: { id: string; amount: number; is_auto: boolean; created_at: string; credit: { origin: string; reason: string } | null }[] = []
+  const chargesCalc = accrued.total > 0 ? accrued : null
+
+  // Alias com a forma que o JSX desta página consome. O item de maior valor
+  // representa a cobrança no título — no modelo novo a descrição vive nos
+  // ITENS, não no documento.
+  const principalItem = [...items].sort((a, b) => b.amount - a.amount)[0]
+  const billing = {
+    id: balance.charge_id,
+    charge_number: balance.charge_number,
+    // billing_type e source saíram: a origem vive nos ITENS. O item principal
+    // representa a cobrança quando a tela precisa de um rótulo único (F-11).
+    billing_type: balance.rental_id ? 'cycle' : 'one_time',
+    source: principalItem?.source_module ?? 'manual',
+    paid_at: balance.status === 'paid' ? balance.due_date : null,
+    payment_method: null as string | null,
+    // Dispensa de encargo não existe mais: o encargo é projetado e só vira
+    // receita quando consolidado (R-06) — não há o que dispensar.
+    waiver_reason: null as string | null,
+    lease_id: balance.rental_id,
+    description: principalItem?.description ?? `Cobrança #${balance.charge_number}`,
+    original_amount: balance.total_amount,
+    discount_amount: 0,
+    credit_applied: 0,
+    due_date: balance.due_date,
+    status: balance.status,
+    customer_id: balance.customer_id,
+    charges_waived: false,
+  }
+  const baseAmount = balance.total_amount
+  const creditApplied = 0
 
   return (
     <div className="min-h-screen bg-bg">
@@ -235,8 +330,8 @@ export default async function BillingDetailPage({
           {creditApplied > 0 ? (
             <span className="text-[14px] text-fg-mute">− {formatCurrency(creditApplied)} crédito</span>
           ) : null}
-          {amountDue > 0 && dynStatus !== 'paid' && dynStatus !== 'cancelled' && (
-            <span className={`text-[14px] font-semibold ${dynStatus === 'overdue' ? 'text-danger' : 'text-info'}`}>
+          {amountDue > 0 && (balance.is_overdue ? 'overdue' : balance.status) !== 'paid' && (balance.is_overdue ? 'overdue' : balance.status) !== 'cancelled' && (
+            <span className={`text-[14px] font-semibold ${(balance.is_overdue ? 'overdue' : balance.status) === 'overdue' ? 'text-danger' : 'text-info'}`}>
               = {formatCurrency(amountDue)} a pagar
             </span>
           )}
@@ -380,11 +475,11 @@ export default async function BillingDetailPage({
         </section>
 
         {/* ── Encargos capturados ───────────────────────────────────────── */}
-        {lateCharges.length > 0 && (
+        {lateChargesList.length > 0 && (
           <section>
             <h2 className="mb-3 text-[14px] font-bold text-primary">
               Encargos registrados
-              <span className="ml-2 text-[12px] font-normal text-fg-mute">({lateCharges.length})</span>
+              <span className="ml-2 text-[12px] font-normal text-fg-mute">({lateChargesList.length})</span>
             </h2>
             <div className="overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
@@ -398,7 +493,7 @@ export default async function BillingDetailPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {lateCharges.map(lc => (
+                  {lateChargesList.map(lc => (
                     <tr key={lc.id} className="border-b border-border last:border-0 hover:bg-surface-2">
                       <td className="h-9 px-4 text-fg-soft">{fmtDatetime(lc.captured_at)}</td>
                       <td className="h-9 px-4 text-right font-mono text-fg">{formatCurrency(lc.fee)}</td>
@@ -414,11 +509,11 @@ export default async function BillingDetailPage({
         )}
 
         {/* ── Créditos aplicados ────────────────────────────────────────── */}
-        {creditApps.length > 0 && (
+        {creditAppsList.length > 0 && (
           <section>
             <h2 className="mb-3 text-[14px] font-bold text-primary">
               Créditos aplicados
-              <span className="ml-2 text-[12px] font-normal text-fg-mute">({creditApps.length})</span>
+              <span className="ml-2 text-[12px] font-normal text-fg-mute">({creditAppsList.length})</span>
             </h2>
             <div className="overflow-hidden rounded-xl border border-divider">
               <table className="w-full text-[13px]">
@@ -431,7 +526,7 @@ export default async function BillingDetailPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {creditApps.map(ca => (
+                  {creditAppsList.map(ca => (
                     <tr key={ca.id} className="border-b border-border last:border-0 hover:bg-surface-2">
                       <td className="h-9 px-4 text-fg-soft">{fmt(ca.created_at)}</td>
                       <td className="h-9 px-4 text-fg-mute">
@@ -452,7 +547,7 @@ export default async function BillingDetailPage({
           <h2 className="mb-3 text-[14px] font-bold text-primary">Ações</h2>
           <BillingActions
             billingId={id}
-            status={dynStatus}
+            status={(balance.is_overdue ? 'overdue' : balance.status)}
             amountDue={amountDue}
             accruedCharges={0}
             isOverdue={false}

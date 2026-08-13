@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { formatCurrency } from '@/lib/utils'
 import {
-  effectiveBillingStatus, netBillingAmount, BILLING_STATUS_BADGE, BILLING_TYPE_LABEL,
+  BILLING_STATUS_BADGE, BILLING_TYPE_LABEL,
 } from '@/lib/billing-status'
 import { getRentalCore } from '../_lib/get-rental-core'
 import { fmt } from '../_lib/shared'
@@ -13,16 +13,16 @@ function fmtDatetime(d: string | null | undefined) {
   return new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 }
 
+/** Linha de `charge_balances` — saldo derivado, não colunas do documento. */
 type BillingRow = {
-  id: string
-  status: string
-  original_amount: number
-  discount_amount: number | null
-  credit_applied: number | null
+  charge_id: string
+  status: 'open' | 'paid' | 'cancelled' | 'written_off'
+  total_amount: number
+  paid_amount: number
+  open_amount: number
+  is_overdue: boolean
+  days_overdue: number
   due_date: string
-  billing_type: string | null
-  source: string | null
-  description: string | null
 }
 
 type DepositMovementRow = {
@@ -64,9 +64,10 @@ export default async function RentalFinancialTab({
 
   const [billingsResult, depositResult, depositMovementsResult, adjustmentsResult] = await Promise.all([
     supabase
-      .from('billings')
-      .select('id, status, original_amount, discount_amount, credit_applied, due_date, billing_type, source, description')
-      .eq('lease_id', id)
+      // Saldo derivado; atraso vem de `is_overdue`, sem recálculo na tela.
+      .from('charge_balances')
+      .select('charge_id, status, total_amount, paid_amount, open_amount, is_overdue, days_overdue, due_date')
+      .eq('rental_id', id)
       .eq('tenant_id', tenantId)
       .neq('status', 'cancelled')
       .order('due_date', { ascending: true }),
@@ -75,13 +76,15 @@ export default async function RentalFinancialTab({
       .select('amount, balance, status')
       .eq('rental_id', id)
       .eq('tenant_id', tenantId)
-      .in('status', ['pending', 'received'])
+      .is('closed_at', null)
       .maybeSingle(),
+    // Movimento de caução é transação no ledger, não tabela própria.
     supabase
-      .from('deposit_movements')
-      .select('id, movement_type, amount, reason, created_at')
+      .from('financial_entries')
+      .select('id, amount, direction, created_at, transaction:financial_transactions(event_type, description)')
       .eq('rental_id', id)
       .eq('tenant_id', tenantId)
+      .eq('account_code', 'caucoes_a_devolver')
       .order('created_at', { ascending: false }),
     supabase
       .from('rental_adjustments')
@@ -99,26 +102,38 @@ export default async function RentalFinancialTab({
   // ── Totais ────────────────────────────────────────────────────────────────
   // Mesma regra de @/lib/billing-status usada em /locacoes/[id], para os dois
   // nunca mostrarem números divergentes.
-  const totalPaid = billings
-    .filter(b => b.status === 'paid')
-    .reduce((s, b) => s + netBillingAmount(b), 0)
-  const totalPending = billings
-    .filter(b => effectiveBillingStatus(b) === 'pending')
-    .reduce((s, b) => s + netBillingAmount(b), 0)
-  const totalOverdue = billings
-    .filter(b => effectiveBillingStatus(b) === 'overdue')
-    .reduce((s, b) => s + netBillingAmount(b), 0)
-  const totalBilled = billings.reduce((s, b) => s + b.original_amount, 0)
+  // Saldos derivados de `charge_balances`. Os helpers de @/lib/billing-status
+  // recalculavam atraso e recompunham valor a partir de desconto/crédito —
+  // ambos deixaram de existir como colunas (Princípios 2 e 4).
+  const totalPaid    = billings.reduce((s, b) => s + b.paid_amount, 0)
+  const totalPending = billings.filter(b => b.status === 'open' && !b.is_overdue)
+    .reduce((s, b) => s + b.open_amount, 0)
+  const totalOverdue = billings.filter(b => b.is_overdue)
+    .reduce((s, b) => s + b.open_amount, 0)
+  const totalBilled  = billings.reduce((s, b) => s + b.total_amount, 0)
 
-  // Caução: usa deposits.amount/balance como source of truth; deposit_movements para histórico detalhado.
-  // Se ainda pendente (cobrança não paga), nada foi recebido de fato — mesmo a
-  // linha em `deposits` já existindo com o valor contratado.
-  const depositReceived  = deposit != null
-    ? (deposit.status === 'pending' ? 0 : deposit.amount)
-    : depositMovements.filter(m => m.movement_type === 'received').reduce((s, m) => s + m.amount, 0)
-  const depositReturned  = depositMovements.filter(m => ['returned', 'partial_return'].includes(m.movement_type)).reduce((s, m) => s + m.amount, 0)
-  const depositRetained  = depositMovements.filter(m => m.movement_type === 'retained').reduce((s, m) => s + m.amount, 0)
-  const depositBalance   = deposit?.balance ?? (depositReceived - depositReturned - depositRetained)
+  // Caução: movimentos são LANÇAMENTOS na conta de passivo. Crédito aumenta o
+  // passivo (recebimento), débito reduz (devolução ou retenção).
+  type DepositEntry = {
+    id: string; amount: number; direction: 'debit' | 'credit'; created_at: string
+    transaction: { event_type: string; description: string } | { event_type: string; description: string }[] | null
+  }
+  const depositEntries = depositMovements as unknown as DepositEntry[]
+  const entryEvent = (e: DepositEntry) => {
+    const t = Array.isArray(e.transaction) ? e.transaction[0] : e.transaction
+    return t?.event_type ?? ''
+  }
+
+  const depositReceived = depositEntries
+    .filter(e => e.direction === 'credit')
+    .reduce((s, e) => s + e.amount, 0)
+  const depositReturned = depositEntries
+    .filter(e => entryEvent(e) === 'deposit_returned')
+    .reduce((s, e) => s + e.amount, 0)
+  const depositRetained = depositEntries
+    .filter(e => entryEvent(e) === 'deposit_retained')
+    .reduce((s, e) => s + e.amount, 0)
+  const depositBalance = depositReceived - depositReturned - depositRetained
 
   const MOVEMENT_TYPE_LABELS: Record<string, string> = {
     received:       'Recebida',
@@ -280,30 +295,36 @@ export default async function RentalFinancialTab({
               <thead>
                 <tr className="border-b border-divider bg-surface">
                   <th className="h-9 px-4 text-left font-medium text-fg-mute">Vencimento</th>
-                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Tipo</th>
-                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Origem</th>
-                  <th className="h-9 px-4 text-right font-medium text-fg-mute">Valor</th>
+                  <th className="h-9 px-4 text-right font-medium text-fg-mute">Pago</th>
+                  <th className="h-9 px-4 text-right font-medium text-fg-mute">Em aberto</th>
+                  <th className="h-9 px-4 text-right font-medium text-fg-mute">Total</th>
                   <th className="h-9 px-4 font-medium text-fg-mute">Status</th>
                   <th className="h-9 px-4"></th>
                 </tr>
               </thead>
               <tbody>
                 {billings.map(b => {
-                  const dynStatus = effectiveBillingStatus(b)
+                  // Atraso derivado; 'open' sem atraso é pendente.
+                  const dynStatus = b.is_overdue ? 'overdue' : b.status === 'open' ? 'pending' : b.status
                   const badge     = BILLING_STATUS_BADGE[dynStatus] ?? BILLING_STATUS_BADGE.pending
                   return (
-                    <tr key={b.id} className="border-b border-border last:border-0 hover:bg-surface-2">
-                      <td className="h-9 px-4 text-fg-soft">{fmt(b.due_date)}</td>
-                      <td className="h-9 px-4 text-fg-mute">{BILLING_TYPE_LABEL[b.billing_type ?? 'one_time'] ?? '—'}</td>
-                      <td className="h-9 px-4 text-fg-mute">{SOURCE_LABELS[b.source ?? ''] ?? '—'}</td>
-                      <td className="h-9 px-4 text-right font-mono text-fg">{formatCurrency(b.original_amount)}</td>
+                    <tr key={b.charge_id} className="border-b border-border last:border-0 hover:bg-surface-2">
+                      <td className="h-9 px-4 text-fg-soft">
+                        {fmt(b.due_date)}
+                        {b.is_overdue && <span className="ml-2 text-danger">{b.days_overdue}d</span>}
+                      </td>
+                      <td className="h-9 px-4 text-right font-mono text-fg-mute">
+                        {b.paid_amount > 0 ? formatCurrency(b.paid_amount) : '—'}
+                      </td>
+                      <td className="h-9 px-4 text-right font-mono text-fg-soft">{formatCurrency(b.open_amount)}</td>
+                      <td className="h-9 px-4 text-right font-mono text-fg">{formatCurrency(b.total_amount)}</td>
                       <td className="h-9 px-4">
                         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge.bg} ${badge.text}`}>
                           {badge.label}
                         </span>
                       </td>
                       <td className="h-9 px-4 text-right">
-                        <Link href={`/cobrancas/${b.id}`} className="text-[12px] text-fg-mute transition-colors hover:text-primary">
+                        <Link href={`/cobrancas/${b.charge_id}`} className="text-[12px] text-fg-mute transition-colors hover:text-primary">
                           Ver →
                         </Link>
                       </td>

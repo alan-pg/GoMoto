@@ -61,31 +61,38 @@ export async function disconnectPaymentAction() {
   }
 
   const { data: conn } = await ctx.supabase
-    .from('payment_connections')
-    .select('mp_user_id')
+    .from('payment_provider_accounts')
+    .select('id, external_account_id')
     .eq('tenant_id', ctx.tenantId)
+    .eq('provider', 'mercadopago')
     .maybeSingle()
 
   if (!conn) return { ok: false, error: { code: 'NOT_FOUND', message: 'Nenhuma integração ativa' } }
 
+  const account = conn as { id: string; external_account_id: string }
+
+  // Desativa em vez de apagar: `payment_intents` referencia a conta, e o
+  // histórico de tentativas precisa continuar rastreável (Princípio 3).
   const { error } = await ctx.supabase
-    .from('payment_connections')
-    .delete()
+    .from('payment_provider_accounts')
+    .update({ active: false, is_default: false })
+    .eq('id', account.id)
     .eq('tenant_id', ctx.tenantId)
 
   if (error) return { ok: false, error: { code: 'INTERNAL', message: 'Erro ao desconectar' } }
 
-  // Expirar Pixes ativos: QR codes da conta desconectada não podem mais ser confirmados via webhook.
+  // Tentativas pendentes não podem mais ser confirmadas pelo webhook.
   await ctx.supabase
-    .from('billing_pix')
+    .from('payment_intents')
     .update({ status: 'expired' })
     .eq('tenant_id', ctx.tenantId)
-    .eq('status', 'active')
+    .eq('provider_account_id', account.id)
+    .eq('status', 'pending')
 
   await logAction({
     action: 'disconnect_payment',
-    table: 'payment_connections',
-    oldData: { tenant_id: ctx.tenantId, mp_user_id: conn.mp_user_id },
+    table: 'payment_provider_accounts',
+    oldData: { tenant_id: ctx.tenantId, external_account_id: account.external_account_id },
   })
 
   revalidatePath('/configuracoes')

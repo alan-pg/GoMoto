@@ -1090,19 +1090,22 @@ export async function createRentalWithDeposit(
       .order('effective_from', { ascending: false })
       .limit(1)
       .maybeSingle(),
+    // `delinquency_blocks` é log append-only com action block/unblock (ADR 0011),
+    // não uma linha com data de desbloqueio: bloqueado = última ação é 'block'.
     supabase
       .from('delinquency_blocks')
-      .select('id')
+      .select('action')
       .eq('customer_id', parsed.data.customer_id)
       .eq('tenant_id', tenantId)
-      .is('unblocked_at', null)
+      .order('acted_at', { ascending: false })
+      .limit(1)
       .maybeSingle(),
   ])
 
   const status = classifyCustomerDelinquency(
     factsRes.data as DelinquencyFacts | null,
     (policyRes.data as DelinquencyPolicy | null) ?? DEFAULT_DELINQUENCY_POLICY,
-    !!blockRes.data,
+    (blockRes.data as { action: string } | null)?.action === 'block',
   )
 
   if (!canStartNewRental(status)) {
