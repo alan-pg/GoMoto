@@ -27,6 +27,33 @@ describe('buildLedgerEntries — matriz de eventos (Spec 0014 §3.3)', () => {
       .toEqual([ACCOUNTS.RECEIVABLE, ACCOUNTS.RENTAL_REVENUE])
   })
 
+  it('charge_issuance_reversed inverte exatamente a emissão', () => {
+    const emitido = buildLedgerEntries({
+      type: 'charge_issued', amount: 500, credit_account: ACCOUNTS.RENTAL_REVENUE,
+    })
+    const estornado = buildLedgerEntries({
+      type: 'charge_issuance_reversed', amount: 500, debit_account: ACCOUNTS.RENTAL_REVENUE,
+    })
+
+    const porConta = new Map<string, number>()
+    for (const e of [...emitido, ...estornado]) {
+      porConta.set(e.account_code, (porConta.get(e.account_code) ?? 0) + signedAmount(e))
+    }
+    for (const saldo of porConta.values()) expect(saldo).toBe(0)
+  })
+
+  it('cancelamento credita RECEBÍVEL, não contas a pagar', () => {
+    // Regressão: a primeira versão do cancelamento reaproveitou payable_created,
+    // que credita contas_a_pagar — transformava dívida do cliente em dívida da
+    // empresa com fornecedor.
+    const [debito, credito] = pairOf({
+      type: 'charge_issuance_reversed', amount: 200, debit_account: ACCOUNTS.FINE_REIMBURSEMENT,
+    })
+    expect(debito).toBe(ACCOUNTS.FINE_REIMBURSEMENT)
+    expect(credito).toBe(ACCOUNTS.RECEIVABLE)
+    expect(credito).not.toBe(ACCOUNTS.PAYABLE)
+  })
+
   it('payment_received: caixa contra recebível', () => {
     expect(pairOf({ type: 'payment_received', amount: 500 }))
       .toEqual([ACCOUNTS.CASH, ACCOUNTS.RECEIVABLE])
@@ -131,6 +158,7 @@ describe('buildLedgerEntries — matriz de eventos (Spec 0014 §3.3)', () => {
 describe('buildLedgerEntries — invariante de balanço (Princípio 1)', () => {
   const eventos: LedgerEvent[] = [
     { type: 'charge_issued', amount: 500, credit_account: ACCOUNTS.RENTAL_REVENUE },
+    { type: 'charge_issuance_reversed', amount: 500, debit_account: ACCOUNTS.RENTAL_REVENUE },
     { type: 'payment_received', amount: 500 },
     { type: 'payment_reversed', amount: 500 },
     { type: 'deposit_received', amount: 800 },
@@ -159,7 +187,7 @@ describe('buildLedgerEntries — invariante de balanço (Princípio 1)', () => {
   it('cobre todas as variantes de LedgerEvent', () => {
     // Se um evento novo entrar no union sem teste, este número quebra e obriga
     // a atualizar a matriz.
-    expect(new Set(eventos.map((e) => e.type)).size).toBe(15)
+    expect(new Set(eventos.map((e) => e.type)).size).toBe(16)
   })
 
   it('valor zero ou negativo é rejeitado', () => {

@@ -73,6 +73,11 @@ export type LedgerEntry = LedgerDimensions & {
 export type LedgerEvent =
   /** Emissão de cobrança. A conta creditada vem do item (receita ou repasse). */
   | { type: 'charge_issued'; amount: number; credit_account: AccountCode; dimensions?: LedgerDimensions }
+  /**
+   * Estorno da emissão — cancelamento de cobrança. Inverte `charge_issued`:
+   * debita a conta que fora creditada e credita o recebível.
+   */
+  | { type: 'charge_issuance_reversed'; amount: number; debit_account: AccountCode; dimensions?: LedgerDimensions }
   /** Recebimento, total ou parcial — a diferença é só o valor. */
   | { type: 'payment_received'; amount: number; dimensions?: LedgerDimensions }
   /** Estorno de pagamento: inverte o recebimento. */
@@ -132,6 +137,9 @@ function translate(event: LedgerEvent, d: LedgerDimensions): LedgerEntry[] {
     // virar receita, e a linha de DRE é política do tenant (ADR 0024).
     case 'charge_issued':
       return pair(ACCOUNTS.RECEIVABLE, event.credit_account, amount, d)
+
+    case 'charge_issuance_reversed':
+      return pair(event.debit_account, ACCOUNTS.RECEIVABLE, amount, d)
 
     case 'payment_received':
       return pair(ACCOUNTS.CASH, ACCOUNTS.RECEIVABLE, amount, d)
