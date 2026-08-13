@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AlertTriangle, X, ChevronRight } from 'lucide-react'
 
-import { useBillings } from '@gomoto/data'
+import { useOpenCharges, useDepositBalance, useRentalSchedule } from '@gomoto/data'
 import {
   getEarlyTerminationImpact,
   CONTRACT_TERMINATION_FINE_BRL,
@@ -27,18 +27,34 @@ export function TerminateForm({ rental }: TerminateFormProps) {
   )
   const [error, setError] = useState('')
 
-  const billingsQuery = useBillings({ lease_id: rental.id })
-  const billings      = billingsQuery.data ?? []
+  // Spec 0014: a apuração passa a olhar três coisas distintas — o que foi
+  // emitido e não pago, o saldo de caução, e o cronograma ainda não emitido.
+  // Antes, `useBillings` misturava documento e plano numa lista só.
+  const chargesQuery  = useOpenCharges(rental.customer_id ?? undefined)
+  const depositQuery  = useDepositBalance(rental.id)
+  const scheduleQuery = useRentalSchedule(rental.id)
+
+  const openCharges = useMemo(
+    () => (chargesQuery.data ?? []).filter(c => c.rental_id === rental.id),
+    [chargesQuery.data, rental.id],
+  )
+
+  const openAmount     = openCharges.reduce((s, c) => s + c.amount_due, 0)
+  const depositBalance = depositQuery.data ?? 0
+  const backlog        = scheduleQuery.data?.contracted_backlog ?? 0
 
   const impact = useMemo(() => {
     if (!rental.start_date) return null
     return getEarlyTerminationImpact(
-      billings.map(b => ({ due_date: b.due_date, status: b.status })),
+      openCharges.map(c => ({ due_date: c.due_date, status: 'pending' })),
       new Date(),
       rental.start_date,
       rental.contract_type ?? 'rental',
     )
-  }, [billings, rental.start_date, rental.contract_type])
+  }, [openCharges, rental.start_date, rental.contract_type])
+
+  /** Encerrar com débito em aberto exige confirmação explícita (F-08). */
+  const [force, setForce] = useState(false)
 
   const newStatus =
     rental.contract_type === 'rent_to_own' && impact && !impact.within_minimum
@@ -52,6 +68,7 @@ export function TerminateForm({ rental }: TerminateFormProps) {
         lease_id:         rental.id,
         termination_date: terminationDate,
         new_status:       newStatus,
+        force,
       })
       if (!result.ok) { setError(result.error.message); return }
       router.push('/locacoes')
@@ -77,7 +94,7 @@ export function TerminateForm({ rental }: TerminateFormProps) {
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={isPending || !terminationDate}
+          disabled={isPending || !terminationDate || (openAmount > 0 && !force)}
           className="inline-flex h-8 items-center rounded-full bg-danger-bg px-5 text-[13px] font-bold text-danger transition-opacity hover:opacity-80 disabled:opacity-60"
         >
           {isPending ? 'Encerrando…' : 'Confirmar Encerramento'}
@@ -107,6 +124,46 @@ export function TerminateForm({ rental }: TerminateFormProps) {
             className="h-9 w-full rounded-lg border border-border bg-surface-2 px-3 text-[13px] text-fg outline-none transition-all focus:border-primary"
           />
         </div>
+
+        {/* Apuração financeira — pré-requisito do encerramento (F-08) */}
+        <div className="rounded-xl bg-surface p-4 text-[13px]">
+          <p className="mb-2 font-semibold text-fg">Apuração financeira</p>
+
+          <div className="flex justify-between py-0.5">
+            <span className="text-fg-mute">Cobranças em aberto</span>
+            <span className="tabular-nums">{formatCurrency(openAmount)}</span>
+          </div>
+          <div className="flex justify-between py-0.5">
+            <span className="text-fg-mute">Saldo de caução</span>
+            <span className="tabular-nums">{formatCurrency(depositBalance)}</span>
+          </div>
+          <div className="flex justify-between py-0.5">
+            <span className="text-fg-mute">Cronograma a cancelar</span>
+            <span className="tabular-nums">{formatCurrency(backlog)}</span>
+          </div>
+
+          {depositBalance > 0 && (
+            <p className="mt-2 border-t border-border pt-2 text-[12px] text-fg-mute">
+              A caução permanece como passivo até ser retida ou devolvida — o encerramento
+              não a movimenta sozinho.
+            </p>
+          )}
+        </div>
+
+        {openAmount > 0 && (
+          <label className="flex items-start gap-2 rounded-lg border border-danger bg-danger-bg px-3 py-2.5 text-[13px] text-danger">
+            <input
+              type="checkbox"
+              checked={force}
+              onChange={e => setForce(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Encerrar mesmo com {formatCurrency(openAmount)} em aberto. As cobranças
+              continuam cobráveis após o encerramento.
+            </span>
+          </label>
+        )}
 
         {/* Alertas de impacto */}
         {impact && (

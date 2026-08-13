@@ -5,6 +5,7 @@ import { effectiveBillingStatus } from '@/lib/billing-status'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import {
+  AdjustScheduleSchema,
   RentalSchema,
   RenewRentalSchema,
   TerminateRentalSchema,
@@ -334,19 +335,34 @@ export async function terminateRental(
     newStatus = 'transferred'
   }
 
-  const { error } = await supabase.rpc('terminate_rental', {
+  // Spec 0014: a RPC agora APURA antes de encerrar e recusa débito em aberto
+  // sem p_force. Antes, cancelava pendentes e liberava o veículo sem olhar
+  // dívida nem caução (F-08).
+  const { data: settlement, error } = await supabase.rpc('terminate_rental', {
     p_tenant_id:        tenantId,
     p_lease_id:         parsed.data.lease_id,
     p_termination_date: parsed.data.termination_date,
     p_new_status:       newStatus,
+    p_force:            parsed.data.force ?? false,
   })
 
   if (error) {
     if (error.message?.includes('RENTAL_NOT_ACTIVE')) {
       return { ok: false, error: { code: 'RENTAL_NOT_ACTIVE', message: 'Locação não está ativa.' } }
     }
+    if (error.message?.includes('RENTAL_HAS_OPEN_CHARGES')) {
+      return {
+        ok: false,
+        error: {
+          code: 'CONFLICT',
+          message: 'Há cobranças em aberto. Quite, cancele ou confirme o encerramento mesmo assim.',
+        },
+      }
+    }
     return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
   }
+
+  void settlement
 
   await logAction({ action: 'update', table: 'rentals', recordId: parsed.data.lease_id })
   revalidateRentalPaths()
@@ -973,12 +989,20 @@ export async function closeRentalFinancial(
 }
 
 // ---------------------------------------------------------------------------
-// adjustRental — reajusta valor do ciclo e encargos, com histórico (RF-027–031)
+// adjustRentalSchedule — reajuste sobre o CRONOGRAMA (Spec 0014 / ADR 0024)
 // ---------------------------------------------------------------------------
+// A reversão da ADR 0009 simplifica drasticamente este fluxo. Antes existiam
+// duas operações: `adjustRental`, que reescrevia o valor de billings emitidos,
+// e `regenerateRentalSchedule`, que cancelava documentos pendentes e regerava
+// — porque o cronograma e o documento eram a mesma coisa.
+//
+// Agora o reajuste toca apenas linhas `scheduled`. Período já emitido é
+// documento imutável (Princípio 5): ajustá-lo exige cobrança complementar ou
+// renegociação, nunca reescrita.
 
-export async function adjustRental(
+export async function adjustRentalSchedule(
   input: unknown,
-): Promise<ActionResult<{ updated_billings_count: number }>> {
+): Promise<ActionResult<{ updated_lines: number }>> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
@@ -986,182 +1010,47 @@ export async function adjustRental(
   const tenantId = await getCurrentTenantId(supabase)
   if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não encontrado' } }
 
-  const parsed = CreateRentalAdjustmentSchema.safeParse(input)
+  const parsed = AdjustScheduleSchema.safeParse(input)
   if (!parsed.success) {
     const first = parsed.error.issues[0]
-    return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos', field: first?.path?.map(String).join('.') } }
+    return {
+      ok: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: first?.message ?? 'Dados inválidos',
+        field: first?.path?.map(String).join('.'),
+      },
+    }
   }
 
-  const { data: rental } = await supabase
-    .from('rentals').select('id, status, cycle_amount').eq('id', parsed.data.rental_id).eq('tenant_id', tenantId).single()
-
-  if (!rental) return { ok: false, error: { code: 'NOT_FOUND', message: 'Locação não encontrada' } }
-  if (rental.status !== 'active') {
-    return { ok: false, error: { code: 'FORBIDDEN', message: 'Somente locações ativas podem ser reajustadas.' } }
-  }
-
-  // RN-025/RN-026: só cobranças de ciclo pendentes entram no reajuste — pagas,
-  // vencidas e canceladas são preservadas. O banco nunca grava status='overdue'
-  // literalmente (é derivado em runtime, ver @/lib/billing-status) — status='pending'
-  // sozinho não basta pra saber se já venceu, por isso filtramos due_date também.
-  const { data: candidateBillings, error: fetchErr } = await supabase
-    .from('billings')
-    .select('id, original_amount, due_date, status')
-    .eq('lease_id', parsed.data.rental_id)
-    .eq('tenant_id', tenantId)
-    .eq('billing_type', 'cycle')
-    .eq('status', 'pending')
-
-  if (fetchErr) return { ok: false, error: { code: 'INTERNAL_ERROR', message: fetchErr.message } }
-
-  const pendingBillings = (candidateBillings ?? []).filter(b => effectiveBillingStatus(b) === 'pending')
-
-  // RN-027: recalcula proporcionalmente (preserva cobranças pro rata como fração do novo valor)
-  const billingUpdates = pendingBillings.map(b => ({
-    billing_id: b.id,
-    new_amount: calculateAdjustedBillingAmount(b.original_amount, rental.cycle_amount ?? 0, parsed.data.new_cycle_amount),
-  }))
-
-  const { data: updatedCount, error: rpcErr } = await supabase.rpc('adjust_rental', {
-    p_tenant_id:              tenantId,
-    p_lease_id:               parsed.data.rental_id,
-    p_new_cycle_amount:       parsed.data.new_cycle_amount,
-    p_new_late_charge_config: parsed.data.new_late_charge_config ?? null,
-    p_justification:          parsed.data.justification,
-    p_adjusted_by:            user.id,
-    p_billing_updates:        billingUpdates,
+  const { data: count, error } = await supabase.rpc('adjust_rental_schedule', {
+    p_tenant_id:      tenantId,
+    p_rental_id:      parsed.data.rental_id,
+    p_new_amount:     parsed.data.new_amount,
+    p_effective_from: parsed.data.effective_from,
+    p_justification:  parsed.data.justification,
+    p_adjusted_by:    user.id,
   })
 
-  if (rpcErr) {
-    if (rpcErr.message?.includes('RENTAL_NOT_ACTIVE')) {
-      return { ok: false, error: { code: 'RENTAL_NOT_ACTIVE', message: 'Locação não está ativa.' } }
+  if (error) {
+    if (error.message?.includes('RENTAL_NOT_FOUND')) {
+      return { ok: false, error: { code: 'NOT_FOUND', message: 'Locação não encontrada.' } }
     }
-    return { ok: false, error: { code: 'INTERNAL_ERROR', message: rpcErr.message } }
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
   }
 
-  const count = (updatedCount as number | null) ?? 0
-
-  await logAction({ action: 'update', table: 'rentals', recordId: parsed.data.rental_id, newData: { new_cycle_amount: parsed.data.new_cycle_amount, updated_billings_count: count } })
-  revalidateRentalPaths()
-  revalidatePath(`/locacoes/${parsed.data.rental_id}`)
-  revalidatePath(`/locacoes/${parsed.data.rental_id}/financeiro`)
-  return { ok: true, data: { updated_billings_count: count } }
-}
-
-// ---------------------------------------------------------------------------
-// regenerateRentalSchedule — muda ciclo/dia de vencimento/pro rata: cancela
-// as cobranças pendentes futuras (que não batem mais com o novo padrão),
-// estorna crédito aplicado nelas, e regera a partir do ponto de corte.
-// ---------------------------------------------------------------------------
-
-export async function regenerateRentalSchedule(
-  input: unknown,
-): Promise<ActionResult<{ cancelled_count: number; created_count: number }>> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
-
-  const tenantId = await getCurrentTenantId(supabase)
-  if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não encontrado' } }
-
-  const parsed = RegenerateRentalScheduleSchema.safeParse(input)
-  if (!parsed.success) {
-    const first = parsed.error.issues[0]
-    return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos', field: first?.path?.map(String).join('.') } }
-  }
-
-  const { data: rental } = await supabase
-    .from('rentals')
-    .select('id, status, start_date, end_date')
-    .eq('id', parsed.data.rental_id)
-    .eq('tenant_id', tenantId)
-    .single()
-
-  if (!rental) return { ok: false, error: { code: 'NOT_FOUND', message: 'Locação não encontrada' } }
-  if (rental.status !== 'active') {
-    return { ok: false, error: { code: 'FORBIDDEN', message: 'Somente locações ativas podem ser reajustadas.' } }
-  }
-  if (!rental.start_date || !rental.end_date) {
-    return { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Locação sem data de início/fim definida.' } }
-  }
-
-  const { data: billings, error: fetchErr } = await supabase
-    .from('billings')
-    .select('id, due_date, status, discount_amount, credit_applied')
-    .eq('lease_id', parsed.data.rental_id)
-    .eq('tenant_id', tenantId)
-    .eq('billing_type', 'cycle')
-
-  if (fetchErr) return { ok: false, error: { code: 'INTERNAL_ERROR', message: fetchErr.message } }
-
-  const allBillings = billings ?? []
-  const today = new Date()
-  const cutoff = computeScheduleRegenerationCutoff(allBillings, today)
-
-  // Mesmo critério de "pendente de verdade" usado em adjustRental — pending
-  // com due_date já passado é vencida na prática (overdue nunca é gravado).
-  const toCancel = allBillings.filter(b => effectiveBillingStatus(b) === 'pending')
-  const cancelIds = toCancel.map(b => b.id)
-
-  let creditReversals: { credit_id: string; amount: number }[] = []
-  if (cancelIds.length > 0) {
-    const { data: applications, error: creditErr } = await supabase
-      .from('credit_applications')
-      .select('credit_id, amount')
-      .in('billing_id', cancelIds)
-      .eq('tenant_id', tenantId)
-      .is('reversed_at', null)
-
-    if (creditErr) return { ok: false, error: { code: 'INTERNAL_ERROR', message: creditErr.message } }
-
-    const byCredit = new Map<string, number>()
-    for (const a of applications ?? []) {
-      byCredit.set(a.credit_id, (byCredit.get(a.credit_id) ?? 0) + a.amount)
-    }
-    creditReversals = Array.from(byCredit, ([credit_id, amount]) => ({ credit_id, amount }))
-  }
-
-  const regenerateFrom = cutoff ?? rental.start_date
-  const newCharges = generateCycleCharges({
-    start_date:   regenerateFrom,
-    end_date:     rental.end_date,
-    cycle:        parsed.data.new_cycle,
-    due_day:      parsed.data.new_due_day,
-    cycle_amount: parsed.data.new_cycle_amount,
-    use_pro_rata: parsed.data.new_use_pro_rata,
-  }).filter(c => c.due_date > regenerateFrom)
-
-  const { data: rpcResult, error: rpcErr } = await supabase.rpc('regenerate_rental_schedule', {
-    p_tenant_id:              tenantId,
-    p_lease_id:               parsed.data.rental_id,
-    p_new_cycle:              parsed.data.new_cycle,
-    p_new_due_day:            parsed.data.new_due_day,
-    p_new_cycle_amount:       parsed.data.new_cycle_amount,
-    p_new_use_pro_rata:       parsed.data.new_use_pro_rata,
-    p_new_late_charge_config: parsed.data.new_late_charge_config ?? null,
-    p_justification:          parsed.data.justification,
-    p_adjusted_by:            user.id,
-    p_cancel_billing_ids:     cancelIds,
-    p_credit_reversals:       creditReversals,
-    p_new_charges:            newCharges,
-  })
-
-  if (rpcErr) {
-    if (rpcErr.message?.includes('RENTAL_NOT_ACTIVE')) {
-      return { ok: false, error: { code: 'RENTAL_NOT_ACTIVE', message: 'Locação não está ativa.' } }
-    }
-    return { ok: false, error: { code: 'INTERNAL_ERROR', message: rpcErr.message } }
-  }
-
-  const result = (rpcResult as { cancelled_count: number; created_count: number }[] | null)?.[0]
-    ?? { cancelled_count: 0, created_count: 0 }
+  const updated = (count as number | null) ?? 0
 
   await logAction({
-    action: 'update', table: 'rentals', recordId: parsed.data.rental_id,
-    newData: { new_cycle: parsed.data.new_cycle, new_due_day: parsed.data.new_due_day, ...result },
+    action: 'update',
+    table: 'rental_billing_schedules',
+    recordId: parsed.data.rental_id,
+    newData: { new_amount: parsed.data.new_amount, updated_lines: updated },
   })
+
   revalidateRentalPaths()
   revalidatePath(`/locacoes/${parsed.data.rental_id}`)
   revalidatePath(`/locacoes/${parsed.data.rental_id}/financeiro`)
-  return { ok: true, data: result }
+  return { ok: true, data: { updated_lines: updated } }
 }
+

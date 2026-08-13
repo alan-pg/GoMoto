@@ -83,6 +83,12 @@ export const TerminateRentalSchema = z.object({
   lease_id:         z.string().uuid(),
   termination_date: dateString,
   new_status:       z.enum(['closed', 'transferred']).default('closed'),
+  /**
+   * Spec 0014 / F-08: sem `force`, a RPC recusa encerrar locação com cobrança
+   * em aberto. A apuração financeira passa a ser pré-requisito do
+   * encerramento, não consequência.
+   */
+  force:            z.boolean().optional().default(false),
 })
 
 export type TerminateRental = z.infer<typeof TerminateRentalSchema>

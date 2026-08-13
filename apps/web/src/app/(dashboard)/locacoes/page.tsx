@@ -7,7 +7,7 @@ import {
   CalendarClock, ChevronRight, Users,
 } from 'lucide-react'
 
-import { useRentals, useBillings } from '@gomoto/data'
+import { useRentals, useOverdueCharges } from '@gomoto/data'
 import { PageTitle } from '@/components/layout/PageTitle'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import type { Rental } from '@gomoto/core'
@@ -75,10 +75,10 @@ type TabId = 'active' | 'closed'
 
 export default function LocacoesPage() {
   const rentalsQuery  = useRentals()
-  const billingsQuery = useBillings({ overdue: true })
+  const overdueQuery = useOverdueCharges()
 
   const rentals  = useMemo(() => (rentalsQuery.data  ?? []) as Rental[], [rentalsQuery.data])
-  const billings = useMemo(() => billingsQuery.data ?? [], [billingsQuery.data])
+  const overdueCharges = useMemo(() => overdueQuery.data ?? [], [overdueQuery.data])
 
   const [tab,    setTab]    = useState<TabId>('active')
   const [search, setSearch] = useState('')
@@ -100,11 +100,12 @@ export default function LocacoesPage() {
       return end >= today && end <= in30
     }).length
 
-    const overdueIds  = new Set(billings.map(b => b.lease_id))
+    // Atraso é derivado em charge_balances; nada aqui recalcula data.
+    const overdueIds  = new Set(overdueCharges.map(c => c.rental_id).filter(Boolean))
     const withOverdue = active.filter(r => overdueIds.has(r.id)).length
 
     return { total: active.length, monthlyRevenue, endingSoon, withOverdue }
-  }, [rentals, billings])
+  }, [rentals, overdueCharges])
 
   // ── Filtro
   const filtered = useMemo(() => {
@@ -278,9 +279,7 @@ export default function LocacoesPage() {
                 {filtered.map(r => {
                   const badge = STATUS_BADGE[r.status] ?? STATUS_BADGE.closed
                   const days  = daysUntil(r.end_date)
-                  const hasOverdue = billings.some(
-                    b => b.lease_id === r.id && (b.status === 'overdue' || b.status === 'pending')
-                  )
+                  const hasOverdue = overdueCharges.some(c => c.rental_id === r.id)
                   const endingSoon = days !== null && days >= 0 && days <= 30 && r.status === 'active'
 
                   return (
