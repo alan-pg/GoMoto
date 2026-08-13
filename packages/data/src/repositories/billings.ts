@@ -21,14 +21,14 @@ export async function listBillings(
   if (filter?.status)   q = q.eq('status', filter.status)
   if (filter?.billing_type) q = q.eq('billing_type', filter.billing_type)
   if (filter?.overdue) {
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toISOString().split('T')[0]!
     q = q.eq('status', 'pending').lt('due_date', today)
   }
 
   const { data, error } = await q
   if (error) throw error
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = new Date().toISOString().split('T')[0]!
   return ((data ?? []) as Billing[]).map((b) =>
     b.status === 'pending' && b.due_date < today ? { ...b, status: 'overdue' as const } : b,
   )
@@ -76,7 +76,7 @@ export async function listBillingsForCustomer(
 
   if (error) throw error
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = new Date().toISOString().split('T')[0]!
   return ((data ?? []) as Billing[]).map((b) =>
     b.status === 'pending' && b.due_date < today ? { ...b, status: 'overdue' as const } : b,
   )

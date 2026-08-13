@@ -110,9 +110,13 @@ export function useFinancialDashboard(month: string) {
   return useQuery<FinancialDashboard>({
     queryKey: ['financial-dashboard', month],
     queryFn: async () => {
-      const [year, mon] = month.split('-').map(Number)
+      // Índices explícitos: sob `noUncheckedIndexedAccess`, desestruturar
+      // produz `number | undefined`.
+      const parts = month.split('-')
+      const year = Number(parts[0])
+      const mon = Number(parts[1])
       const firstDay = `${month}-01`
-      const lastDay = new Date(year, mon, 0).toISOString().split('T')[0]
+      const lastDay = new Date(year, mon, 0).toISOString().split('T')[0]!
 
       const [overdueRes, receivableRes, receivedRes, expensesRes] = await Promise.all([
         supabase

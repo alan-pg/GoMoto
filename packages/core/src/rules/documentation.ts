@@ -23,7 +23,9 @@ function parseIsoDate(iso: string): Date {
 }
 
 function toIsoDate(d: Date): string {
-  return d.toISOString().split('T')[0]
+  // split sempre devolve ao menos um elemento para uma string ISO válida;
+  // o `?? ''` existe para satisfazer `noUncheckedIndexedAccess`.
+  return d.toISOString().split('T')[0] ?? ''
 }
 
 /**

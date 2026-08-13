@@ -56,8 +56,10 @@ export function calculateLateCharges(
 const MS_PER_DAY = 86_400_000
 
 function parseDateLocal(yyyymmdd: string): Date {
-  const [y, m, d] = yyyymmdd.split('-').map(Number)
-  return new Date(y, m - 1, d)
+  // Índices explícitos: sob `noUncheckedIndexedAccess`, desestruturar produz
+  // `number | undefined`.
+  const parts = yyyymmdd.split('-')
+  return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
 }
 
 function toDateOnly(date: Date): Date {

@@ -2,8 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
-    "outDir": "./dist",
-    "rootDir": "./src",
+    "noEmit": true,
     "paths": {
       "@gomoto/core": ["../core/src/index.ts"],
       "@gomoto/core/*": ["../core/src/*"]
