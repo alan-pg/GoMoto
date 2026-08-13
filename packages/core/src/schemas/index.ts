@@ -307,3 +307,4 @@ export const MaintenancePlanItemSchema = z.object({
   { message: 'Informe ao menos um intervalo (km ou dias)', path: ['interval_km'] },
 )
 
+export * from './ledger'

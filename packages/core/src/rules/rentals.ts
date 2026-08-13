@@ -167,6 +167,13 @@ export interface CycleCharge {
   amount:       number
   billing_type: BillingType
   description:  string
+  /**
+   * Início e fim do período coberto. Já eram calculados para montar a
+   * descrição; expostos para alimentar `rental_billing_schedules`
+   * (Spec 0014) sem duplicar a lógica de pro rata.
+   */
+  period_start: string
+  period_end:   string
 }
 
 export interface CycleChargeInput {
@@ -311,6 +318,8 @@ export function generateCycleCharges(input: CycleChargeInput): CycleCharge[] {
       amount,
       billing_type: 'cycle',
       description:  makeCycleDescription(input.cycle, start, end, amount, input.cycle_amount),
+      period_start: formatIsoDate(start),
+      period_end:   formatIsoDate(end),
     })
     return charges
   }
@@ -353,6 +362,8 @@ export function generateCycleCharges(input: CycleChargeInput): CycleCharge[] {
       amount,
       billing_type: 'cycle',
       description:  makeCycleDescription(input.cycle, periodStart, periodEnd, amount, input.cycle_amount),
+      period_start: formatIsoDate(periodStart),
+      period_end:   formatIsoDate(periodEnd),
     })
   }
 
