@@ -1,274 +1,229 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+/**
+ * Server Actions do detalhe da cobrança (Spec 0014 / ADR 0024).
+ *
+ * Aplicação de crédito e consolidação de encargo. O recebimento e o ciclo de
+ * vida do documento ficam em `../actions.ts`.
+ */
+
 import { revalidatePath } from 'next/cache'
-import { z } from 'zod'
-import { calculateLateCharges } from '@gomoto/core'
-import type { LateChargeConfig } from '@gomoto/core'
+import { createClient } from '@/lib/supabase/server'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
-import type { ActionResult } from '@gomoto/core'
+import {
+  applyCredits,
+  calculateAccruedCharges,
+  type ActionResult,
+  type ErrorCode,
+  type AvailableCredit,
+  type ChargeBalance,
+  type LateChargePolicy,
+} from '@gomoto/core'
+import { postTransaction, dimensionsOf, realizeLateCharge } from '@/lib/financial'
 
-// Zod 4 uuid() é estrito (RFC 4122 variant). IDs do seed local usam formatos
-// não-RFC e falhariam na validação; usamos regex frouxo — FK do banco garante existência.
-const UUID_LOOSE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const uuid = () => z.string().regex(UUID_LOOSE, 'ID inválido')
-const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (YYYY-MM-DD)')
+type Failure = { ok: false; error: { code: ErrorCode; message: string } }
 
-async function getAuth() {
+function fail(code: ErrorCode, message: string): Failure {
+  return { ok: false, error: { code, message } }
+}
+
+type Context =
+  | { ok: true; supabase: Awaited<ReturnType<typeof createClient>>; userId: string; tenantId: string }
+  | { ok: false; failure: Failure }
+
+async function getContext(): Promise<Context> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'UNAUTHORIZED' as const }
+  if (!user) return { ok: false, failure: fail('UNAUTHORIZED', 'Não autorizado') }
+
   const tenantId = await getCurrentTenantId(supabase)
-  if (!tenantId) return { error: 'UNAUTHORIZED' as const }
-  return { supabase, user, tenantId }
+  if (!tenantId) return { ok: false, failure: fail('FORBIDDEN', 'Empresa não resolvida') }
+
+  return { ok: true, supabase, userId: user.id, tenantId }
 }
 
-// ============================================================
-// registerPayment — registra pagamento na tabela `payments` (ADR 0013)
-// Captura encargos em `late_charges` e marca billing como 'paid'
-// ============================================================
+function toMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'Erro inesperado'
+}
 
-const RegisterPaymentSchema = z.object({
-  billing_id: uuid(),
-  amount:     z.number().positive(),
-  payment_method: z.enum(['pix', 'cash', 'credit_card', 'debit_card', 'bank_transfer', 'other']),
-  paid_at:    z.string().datetime(),
-  notes:      z.string().max(500).optional(),
-})
+/**
+ * Aplica os créditos disponíveis do cliente às cobranças em aberto.
+ *
+ * Substitui `fn_auto_apply_credit`, que aplicava um único crédito, sobrescrevia
+ * o acumulado em vez de somar e engolia qualquer falha com
+ * `EXCEPTION WHEN OTHERS` — perdendo dinheiro em silêncio (F-06).
+ *
+ * Aqui a regra vive em `applyCredits` de @gomoto/core: percorre todos os
+ * créditos não expirados e abate a cobrança de vencimento mais antigo.
+ */
+export async function applyCustomerCredits(
+  customerId: string,
+): Promise<ActionResult<{ applied: number; total: number }>> {
+  const ctx = await getContext()
+  if (!ctx.ok) return ctx.failure
 
-export async function registerPayment(
-  input: unknown,
-): Promise<ActionResult<{ payment_id: string }>> {
-  const ctx = await getAuth()
-  if ('error' in ctx) return { ok: false, error: { code: 'UNAUTHORIZED' as const, message: 'Não autorizado' } }
+  try {
+    const [creditsRes, chargesRes] = await Promise.all([
+      ctx.supabase
+        .from('customer_credits')
+        .select('id, amount, expires_at')
+        .eq('tenant_id', ctx.tenantId)
+        .eq('customer_id', customerId),
+      ctx.supabase
+        .from('charge_balances')
+        .select('charge_id, due_date, total_amount, paid_amount, open_amount')
+        .eq('tenant_id', ctx.tenantId)
+        .eq('customer_id', customerId)
+        .eq('status', 'open')
+        .gt('open_amount', 0),
+    ])
 
-  const parsed = RegisterPaymentSchema.safeParse(input)
-  if (!parsed.success) {
-    const first = parsed.error.issues[0]
-    return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos', field: first?.path?.map(String).join('.') } }
-  }
+    if (creditsRes.error) return fail('INTERNAL', creditsRes.error.message)
+    if (chargesRes.error) return fail('INTERNAL', chargesRes.error.message)
 
-  const { supabase, user, tenantId } = ctx
+    // Saldo real vem da view; a tabela guarda só o valor concedido.
+    const { data: balanceRow } = await ctx.supabase
+      .from('customer_credit_balances')
+      .select('balance')
+      .eq('customer_id', customerId)
+      .maybeSingle()
 
-  const { data: billing, error: billingErr } = await supabase
-    .from('billings')
-    .select('id, status, billing_type, original_amount, discount_amount, credit_applied, late_charge_config, due_date, lease_id, customer_id')
-    .eq('id', parsed.data.billing_id)
-    .eq('tenant_id', tenantId)
-    .single()
+    const totalBalance = (balanceRow as { balance: number } | null)?.balance ?? 0
+    if (totalBalance <= 0) {
+      return { ok: true, data: { applied: 0, total: 0 } }
+    }
 
-  if (billingErr || !billing) return { ok: false, error: { code: 'NOT_FOUND', message: 'Cobrança não encontrada' } }
+    const rawCredits = (creditsRes.data ?? []) as {
+      id: string; amount: number; expires_at: string | null
+    }[]
 
-  if (billing.status === 'paid') return { ok: false, error: { code: 'CONFLICT', message: 'Cobrança já paga' } }
-  if (billing.status === 'cancelled') return { ok: false, error: { code: 'CONFLICT', message: 'Cobrança cancelada' } }
-
-  const baseAmount = (billing.original_amount ?? 0) - (billing.discount_amount ?? 0)
-  const chargesCalc = billing.late_charge_config
-    ? calculateLateCharges(billing.late_charge_config as LateChargeConfig, baseAmount, billing.due_date)
-    : null
-
-  const { data: payment, error: payErr } = await supabase
-    .from('payments')
-    .insert({
-      tenant_id: tenantId,
-      billing_id: parsed.data.billing_id,
-      customer_id: billing.customer_id,
-      amount: parsed.data.amount,
-      payment_method: parsed.data.payment_method,
-      paid_at: parsed.data.paid_at,
-      received_by: user.id,
-      notes: parsed.data.notes ?? null,
+    // O saldo é do cliente como um todo; distribui proporcionalmente entre os
+    // créditos concedidos para decidir qual usar primeiro.
+    let restante = totalBalance
+    const credits: AvailableCredit[] = rawCredits.map((c) => {
+      const available = Math.min(c.amount, Math.max(0, restante))
+      restante = round2(restante - available)
+      return { id: c.id, amount: c.amount, available, expires_at: c.expires_at }
     })
-    .select('id')
-    .single()
 
-  if (payErr) return { ok: false, error: { code: 'INTERNAL', message: payErr.message } }
+    const charges = (chargesRes.data ?? []) as ChargeBalance[]
+    const { applications } = applyCredits(credits, charges)
 
-  // Captura snapshot de encargos no momento do pagamento (RNF-009)
-  if (chargesCalc && !chargesCalc.grace_period_active && chargesCalc.total > 0) {
-    await supabase.from('late_charges').insert({
-      tenant_id: tenantId,
-      billing_id: parsed.data.billing_id,
-      fee_amount: chargesCalc.fee,
-      interest_amount: chargesCalc.interest,
-      days_overdue: chargesCalc.days_overdue,
-      snapshot_config: billing.late_charge_config,
-      captured_at: parsed.data.paid_at,
+    if (applications.length === 0) {
+      return { ok: true, data: { applied: 0, total: 0 } }
+    }
+
+    let total = 0
+    for (const app of applications) {
+      const charge = charges.find((c) => c.charge_id === app.charge_id)
+
+      await postTransaction(ctx.supabase, ctx.tenantId, {
+        event: {
+          type: 'credit_applied',
+          amount: app.amount,
+          dimensions: dimensionsOf({ customerId, chargeId: app.charge_id }),
+        },
+        description: `Crédito abatido — cobrança em aberto`,
+        sourceModule: 'credit',
+        sourceId: app.credit_id,
+        createdBy: ctx.userId,
+      })
+
+      total = round2(total + app.amount)
+
+      // Cobrança totalmente coberta pelo crédito é quitada.
+      if (charge && round2(charge.open_amount - app.amount) <= 0) {
+        await ctx.supabase
+          .from('charges')
+          .update({ status: 'paid' })
+          .eq('id', app.charge_id)
+          .eq('tenant_id', ctx.tenantId)
+      }
+    }
+
+    await logAction({
+      action: 'update',
+      table: 'customer_credits',
+      recordId: customerId,
+      newData: { applications: applications.length, total },
     })
+
+    revalidatePath('/cobrancas')
+    revalidatePath('/clientes')
+    return { ok: true, data: { applied: applications.length, total } }
+  } catch (err) {
+    return fail('INTERNAL', toMessage(err))
   }
-
-  await supabase
-    .from('billings')
-    .update({ status: 'paid', paid_at: parsed.data.paid_at, payment_method: parsed.data.payment_method })
-    .eq('id', parsed.data.billing_id)
-    .eq('tenant_id', tenantId)
-
-  // Cobrança de caução paga → libera o saldo pro cliente (gatilho da caução
-  // ainda-não-paga virar disponível, ver locacoes/actions.ts::createRental).
-  if (billing.billing_type === 'deposit') {
-    await supabase
-      .from('deposits')
-      .update({ status: 'received', balance: billing.original_amount, received_at: parsed.data.paid_at })
-      .eq('billing_id', parsed.data.billing_id)
-      .eq('tenant_id', tenantId)
-  }
-
-  await logAction({ action: 'create', table: 'payments', recordId: payment.id, newData: { billing_id: parsed.data.billing_id, amount: parsed.data.amount } })
-  revalidatePath('/cobrancas')
-  revalidatePath('/locacoes')
-  if (billing.lease_id) revalidatePath(`/locacoes/${billing.lease_id}`)
-  return { ok: true, data: { payment_id: payment.id } }
 }
 
-// ============================================================
-// waiveCharges — dispensa encargos de uma cobrança (RF-015, RN-014)
-// Irreversível: registra snapshot de encargos zerando fee/interest
-// ============================================================
+/**
+ * Consolida o encargo acumulado como item da cobrança.
+ *
+ * Enquanto não consolidado, o encargo é valor projetado — não há receita de
+ * juros antes de o juro ser efetivamente cobrado (R-06).
+ */
+export async function consolidateLateCharge(
+  chargeId: string,
+): Promise<ActionResult<{ amount: number }>> {
+  const ctx = await getContext()
+  if (!ctx.ok) return ctx.failure
 
-const WaiveChargesSchema = z.object({
-  billing_id: uuid(),
-  reason:     z.string().min(5, 'Motivo deve ter ao menos 5 caracteres').max(500),
-})
+  try {
+    const { data: balance, error } = await ctx.supabase
+      .from('charge_balances')
+      .select('charge_id, due_date, total_amount, paid_amount, open_amount, is_overdue')
+      .eq('charge_id', chargeId)
+      .eq('tenant_id', ctx.tenantId)
+      .maybeSingle()
 
-export async function waiveCharges(input: unknown): Promise<ActionResult<void>> {
-  const ctx = await getAuth()
-  if ('error' in ctx) return { ok: false, error: { code: 'UNAUTHORIZED' as const, message: 'Não autorizado' } }
+    if (error) return fail('INTERNAL', error.message)
+    if (!balance) return fail('NOT_FOUND', 'Cobrança não encontrada')
 
-  const parsed = WaiveChargesSchema.safeParse(input)
-  if (!parsed.success) {
-    const first = parsed.error.issues[0]
-    return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos', field: first?.path?.map(String).join('.') } }
+    const b = balance as ChargeBalance & { is_overdue: boolean }
+    if (!b.is_overdue) return fail('CONFLICT', 'Cobrança não está vencida')
+
+    const { data: charge } = await ctx.supabase
+      .from('charges')
+      .select('late_charge_policy_id')
+      .eq('id', chargeId)
+      .maybeSingle()
+
+    const policyId = (charge as { late_charge_policy_id: string | null } | null)?.late_charge_policy_id
+    if (!policyId) return fail('CONFLICT', 'Cobrança sem política de encargo definida')
+
+    const { data: policyRow } = await ctx.supabase
+      .from('late_charge_policies')
+      .select('fee_type, fee_value, daily_interest_rate, grace_period_days, min_amount')
+      .eq('id', policyId)
+      .maybeSingle()
+
+    if (!policyRow) return fail('NOT_FOUND', 'Política de encargo não encontrada')
+
+    const accrued = calculateAccruedCharges(
+      policyRow as LateChargePolicy, b.open_amount, b.due_date,
+    )
+
+    if (accrued.total <= 0) {
+      return fail('CONFLICT', 'Não há encargo a consolidar (período de carência)')
+    }
+
+    await realizeLateCharge(ctx.supabase, ctx.tenantId, chargeId, accrued.total, ctx.userId)
+
+    await logAction({
+      action: 'update',
+      table: 'charges',
+      recordId: chargeId,
+      newData: { late_charge_realized: accrued.total, days_overdue: accrued.days_overdue },
+    })
+
+    revalidatePath('/cobrancas')
+    return { ok: true, data: { amount: accrued.total } }
+  } catch (err) {
+    return fail('INTERNAL', toMessage(err))
   }
-
-  const { supabase, user, tenantId } = ctx
-
-  const { data: billing, error: billingErr } = await supabase
-    .from('billings')
-    .select('id, status, charges_waived')
-    .eq('id', parsed.data.billing_id)
-    .eq('tenant_id', tenantId)
-    .single()
-
-  if (billingErr || !billing) return { ok: false, error: { code: 'NOT_FOUND', message: 'Cobrança não encontrada' } }
-  if (billing.status === 'paid') return { ok: false, error: { code: 'CONFLICT', message: 'Cobrança já paga — encargos não podem ser dispensados' } }
-  if (billing.charges_waived) return { ok: false, error: { code: 'CONFLICT', message: 'Encargos já dispensados' } }
-
-  const { error } = await supabase
-    .from('billings')
-    .update({ charges_waived: true, waiver_reason: parsed.data.reason, waiver_by: user.id, waiver_at: new Date().toISOString() })
-    .eq('id', parsed.data.billing_id)
-    .eq('tenant_id', tenantId)
-
-  if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
-
-  await logAction({ action: 'update', table: 'billings', recordId: parsed.data.billing_id, newData: { charges_waived: true, waiver_reason: parsed.data.reason } })
-  revalidatePath('/cobrancas')
-  return { ok: true, data: undefined }
 }
 
-// ============================================================
-// applyCredit — aplica crédito do cliente em uma cobrança (RF-023–025)
-// ============================================================
-
-const ApplyCreditSchema = z.object({
-  billing_id: uuid(),
-  credit_id:  uuid(),
-  amount:     z.number().positive(),
-})
-
-export async function applyCredit(
-  input: unknown,
-): Promise<ActionResult<{ new_amount_due: number }>> {
-  const ctx = await getAuth()
-  if ('error' in ctx) return { ok: false, error: { code: 'UNAUTHORIZED' as const, message: 'Não autorizado' } }
-
-  const parsed = ApplyCreditSchema.safeParse(input)
-  if (!parsed.success) {
-    const first = parsed.error.issues[0]
-    return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos', field: first?.path?.map(String).join('.') } }
-  }
-
-  const { supabase, tenantId } = ctx
-
-  const [billingRes, creditRes] = await Promise.all([
-    supabase.from('billings').select('id, status, original_amount, discount_amount, credit_applied').eq('id', parsed.data.billing_id).eq('tenant_id', tenantId).single(),
-    supabase.from('customer_credits').select('id, available_balance').eq('id', parsed.data.credit_id).eq('tenant_id', tenantId).single(),
-  ])
-
-  if (billingRes.error || !billingRes.data) return { ok: false, error: { code: 'NOT_FOUND', message: 'Cobrança não encontrada' } }
-  if (creditRes.error || !creditRes.data) return { ok: false, error: { code: 'NOT_FOUND', message: 'Crédito não encontrado' } }
-
-  const billing = billingRes.data
-  const credit = creditRes.data
-
-  if (billing.status === 'paid') return { ok: false, error: { code: 'CONFLICT', message: 'Cobrança já paga' } }
-
-  const baseAmount = (billing.original_amount ?? 0) - (billing.discount_amount ?? 0)
-  const alreadyApplied = billing.credit_applied ?? 0
-  const maxApplicable = Math.max(0, baseAmount - alreadyApplied)
-
-  if (parsed.data.amount > credit.available_balance) {
-    return { ok: false, error: { code: 'CONFLICT', message: 'Valor excede saldo disponível do crédito' } }
-  }
-  if (parsed.data.amount > maxApplicable) {
-    return { ok: false, error: { code: 'CONFLICT', message: 'Valor excede saldo da cobrança' } }
-  }
-
-  const newCreditApplied = alreadyApplied + parsed.data.amount
-
-  const [updateBilling, updateCredit] = await Promise.all([
-    supabase.from('billings').update({ credit_applied: newCreditApplied }).eq('id', parsed.data.billing_id).eq('tenant_id', tenantId),
-    supabase.from('customer_credits').update({ available_balance: credit.available_balance - parsed.data.amount }).eq('id', parsed.data.credit_id).eq('tenant_id', tenantId),
-  ])
-
-  if (updateBilling.error) return { ok: false, error: { code: 'INTERNAL', message: updateBilling.error.message } }
-  if (updateCredit.error) return { ok: false, error: { code: 'INTERNAL', message: updateCredit.error.message } }
-
-  await supabase.from('credit_applications').insert({
-    tenant_id: tenantId,
-    credit_id: parsed.data.credit_id,
-    billing_id: parsed.data.billing_id,
-    amount: parsed.data.amount,
-    is_auto: false,
-  })
-
-  await logAction({ action: 'create', table: 'credit_applications', recordId: parsed.data.billing_id, newData: { credit_id: parsed.data.credit_id, amount: parsed.data.amount } })
-  revalidatePath('/cobrancas')
-  return { ok: true, data: { new_amount_due: Math.max(0, baseAmount - newCreditApplied) } }
-}
-
-// ============================================================
-// cancelBilling — cancelamento manual de cobrança (status 'cancelled')
-// ============================================================
-
-const CancelBillingSchema = z.object({
-  billing_id: uuid(),
-  reason:     z.string().min(3).max(300).optional(),
-})
-
-export async function cancelBilling(input: unknown): Promise<ActionResult<void>> {
-  const ctx = await getAuth()
-  if ('error' in ctx) return { ok: false, error: { code: 'UNAUTHORIZED' as const, message: 'Não autorizado' } }
-
-  const parsed = CancelBillingSchema.safeParse(input)
-  if (!parsed.success) return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Dados inválidos' } }
-
-  const { supabase, tenantId } = ctx
-
-  const { data: billing } = await supabase
-    .from('billings').select('id, status').eq('id', parsed.data.billing_id).eq('tenant_id', tenantId).single()
-
-  if (!billing) return { ok: false, error: { code: 'NOT_FOUND', message: 'Cobrança não encontrada' } }
-  if (billing.status === 'paid') return { ok: false, error: { code: 'CONFLICT', message: 'Cobrança já paga' } }
-
-  const { error } = await supabase
-    .from('billings').update({ status: 'cancelled' }).eq('id', parsed.data.billing_id).eq('tenant_id', tenantId)
-
-  if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
-
-  await logAction({ action: 'update', table: 'billings', recordId: parsed.data.billing_id, newData: { status: 'cancelled' } })
-  revalidatePath('/cobrancas')
-  revalidatePath('/locacoes')
-  return { ok: true, data: undefined }
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
 }
