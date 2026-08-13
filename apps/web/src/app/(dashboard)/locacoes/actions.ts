@@ -152,6 +152,9 @@ export async function createRental(
           amount: parsed.data.security_deposit,
           source_module: 'deposit',
           source_id: rentalId,
+          // Sem a dimensão veículo, o lançamento não entra em
+          // vehicle_financial_position e a moto aparece sem receita.
+          vehicle_id: parsed.data.vehicle_id,
         }],
       })
 
@@ -164,6 +167,23 @@ export async function createRental(
         received_at: parsed.data.deposit_paid ? (parsed.data.deposit_payment_date ?? null) : null,
         registered_by: user.id,
       })
+
+      // Marcada como já recebida no cadastro: registra o pagamento de fato.
+      // Sem isto a cobrança nasceria "em aberto" apesar de o operador ter dito
+      // que a caução foi paga — e o dinheiro não entraria no caixa.
+      if (parsed.data.deposit_paid) {
+        await receivePayment(supabase, tenantId, {
+          customerId: parsed.data.customer_id,
+          amount: parsed.data.security_deposit,
+          method: 'cash',
+          paidAt: parsed.data.deposit_payment_date
+            ? new Date(parsed.data.deposit_payment_date)
+            : new Date(),
+          allocations: [{ chargeId: depositCharge.chargeId, amount: parsed.data.security_deposit }],
+          receivedBy: user.id,
+          notes: 'Caução recebida no cadastro da locação',
+        })
+      }
     } catch (err) {
       return {
         ok: false,
@@ -175,7 +195,7 @@ export async function createRental(
   // Entrada: receita não reembolsável (Spec 0010), logo credita receita.
   if (parsed.data.down_payment && parsed.data.down_payment > 0) {
     try {
-      await createCharge(supabase, tenantId, {
+      const downPaymentCharge = await createCharge(supabase, tenantId, {
         customerId: parsed.data.customer_id,
         rentalId,
         dueDate: parsed.data.down_payment_due_date ?? parsed.data.start_date,
@@ -190,8 +210,23 @@ export async function createRental(
           amount: parsed.data.down_payment,
           source_module: 'down_payment',
           source_id: rentalId,
+          vehicle_id: parsed.data.vehicle_id,
         }],
       })
+
+      if (parsed.data.down_payment_paid) {
+        await receivePayment(supabase, tenantId, {
+          customerId: parsed.data.customer_id,
+          amount: parsed.data.down_payment,
+          method: 'cash',
+          paidAt: parsed.data.down_payment_payment_date
+            ? new Date(parsed.data.down_payment_payment_date)
+            : new Date(),
+          allocations: [{ chargeId: downPaymentCharge.chargeId, amount: parsed.data.down_payment }],
+          receivedBy: user.id,
+          notes: 'Entrada recebida no cadastro da locação',
+        })
+      }
     } catch (err) {
       return {
         ok: false,
@@ -491,7 +526,7 @@ export async function terminateRental(
   // dívida nem caução (F-08).
   const { data: settlement, error } = await supabase.rpc('terminate_rental', {
     p_tenant_id:        tenantId,
-    p_lease_id:         parsed.data.lease_id,
+    p_rental_id:        parsed.data.lease_id,
     p_termination_date: parsed.data.termination_date,
     p_new_status:       newStatus,
     p_force:            parsed.data.force ?? false,

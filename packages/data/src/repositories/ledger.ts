@@ -533,3 +533,26 @@ export async function listProviderAccounts(
   if (error) throw error
   return (data ?? []) as ProviderAccountRow[]
 }
+
+/**
+ * Cobranças em aberto de uma LOCAÇÃO.
+ *
+ * Distinta de `listOpenCharges`, que é por cliente: a apuração de encerramento
+ * precisa do que pertence àquela locação, sem depender de o componente ter o
+ * `customer_id` em mãos.
+ */
+export async function listOpenChargesByRental(
+  client: SupabaseClient,
+  rentalId: string,
+): Promise<ChargeBalanceRow[]> {
+  const { data, error } = await client
+    .from('charge_balances')
+    .select('*')
+    .eq('rental_id', rentalId)
+    .eq('status', 'open')
+    .gt('open_amount', 0)
+    .order('due_date', { ascending: true })
+
+  if (error) throw error
+  return (data ?? []) as ChargeBalanceRow[]
+}

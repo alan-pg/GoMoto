@@ -239,10 +239,6 @@ export async function cleanupTestCustomersByName(namePattern: string): Promise<v
  * Remove entradas (incomes) cujo lessee bate com o padrão (SQL ILIKE).
  * Usado para limpar entradas órfãs quando o teste falha antes do step DELETE.
  */
-export async function cleanupTestIncomesByLessee(lesseePattern: string): Promise<void> {
-  const sb = await getSupabase()
-  await sb.from('incomes').delete().ilike('lessee', lesseePattern)
-}
 
 /**
  * Remove um contrato de teste e o cliente associado.

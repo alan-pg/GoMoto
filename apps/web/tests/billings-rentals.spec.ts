@@ -1,212 +1,168 @@
 import { test, expect } from '@playwright/test'
 import {
-  TEST_TAG,
-  createTestVehicle,
-  deleteTestVehicle,
-  createTestCustomer,
-  deleteTestCustomer,
-  createTestContract,
-  deleteTestContract,
-  waitForPageLoad,
-  getSupabase,
-  getTestTenantId,
+  TEST_TAG, getSupabase, getTestTenantId, createTestVehicle, deleteTestVehicle,
+  createTestCustomer, deleteTestCustomer, waitForPageLoad,
 } from './helpers'
 
-// ---------------------------------------------------------------------------
-// Setup
-// ---------------------------------------------------------------------------
+/**
+ * Cobranças de locação — filtros e encerramento antecipado (Spec 0014).
+ *
+ * RN-003 (Spec 0010) ganha uma expressão mais limpa no modelo novo. Antes,
+ * "cancelar cobranças futuras preservando Entrada e Caução" exigia excluir
+ * `billing_type IN ('deposit','down_payment')` do UPDATE — a regra vivia num
+ * filtro de query.
+ *
+ * Agora ela cai por si: período futuro ainda é linha de CRONOGRAMA e é
+ * cancelado; Entrada e Caução são DOCUMENTOS emitidos e, por serem imutáveis
+ * (Princípio 5), sobrevivem sem tratamento especial.
+ */
+
+const RUN_ID = Date.now().toString(36)
 
 let vehicleId = ''
-let customerId   = ''
-let contractId   = ''
+let customerId = ''
+let rentalId = ''
 
-test.describe('Cobranças — filtros e novo campo original_amount', () => {
-  test.beforeAll(async () => {
-    const moto     = await createTestVehicle()
-    vehicleId   = moto.id
-    const customer = await createTestCustomer()
-    customerId     = customer.id
-    const contract = await createTestContract(vehicleId)
-    contractId     = contract.contractId
-  })
-
-  test.afterAll(async () => {
-    await deleteTestContract(contractId, customerId)
-    await deleteTestVehicle(vehicleId)
-  })
-
-  // RF-024 — Filtro de status
+test.describe('Cobranças — filtros da listagem', () => {
   test('filtro por status exibe apenas cobranças do status selecionado', async ({ page }) => {
     await page.goto('/cobrancas')
     await waitForPageLoad(page)
 
-    // Clicar na aba "Pendentes"
-    await page.getByRole('button', { name: /pendentes/i }).click()
-    // Aguarda que os registros visíveis sejam apenas pendentes
+    await page.getByRole('button', { name: 'Vencidas' }).click()
+
     const rows = page.locator('tbody tr')
     const count = await rows.count()
-    if (count > 0) {
-      // Cada linha visível deve ter badge pendente
-      await expect(rows.first()).toBeVisible()
+
+    for (let i = 0; i < count; i++) {
+      const row = rows.nth(i)
+      const text = await row.textContent()
+      if (text?.includes('Nenhuma cobrança')) continue
+      // A aba de vencidas só mostra linha com atraso — derivado de due_date,
+      // não de status armazenado (Princípio 4).
+      await expect(row).toContainText(/\d+d/)
     }
   })
 
-  // RF-024 — Tab de Prejuízo (nomenclatura atualizada de 'loss' → 'prejudice')
-  test('aba de prejuízo existe e é clicável', async ({ page }) => {
+  test('aba de encerradas agrupa canceladas e baixadas', async ({ page }) => {
     await page.goto('/cobrancas')
     await waitForPageLoad(page)
 
-    const tabPrejuizo = page.getByRole('button', { name: /prejuízo/i })
-    await expect(tabPrejuizo).toBeVisible()
-    await tabPrejuizo.click()
-    // Não deve quebrar — estado deve mudar normalmente
-    await expect(tabPrejuizo).toBeVisible()
+    // 'prejudice' virou 'written_off', e cancelamento entrou no mesmo grupo:
+    // ambos saem de contas a receber.
+    await page.getByRole('button', { name: 'Encerradas' }).click()
+    await expect(page.getByRole('button', { name: 'Encerradas' })).toBeVisible()
   })
 })
 
-// ---------------------------------------------------------------------------
-// Encerramento antecipado — RN-003 (Spec 0010): Entrada e Caução pendentes
-// com vencimento futuro sobrevivem; cobrança de ciclo futura é cancelada.
-// ---------------------------------------------------------------------------
-
-test.describe('Cobranças de Locação — encerramento antecipado preserva garantias pendentes (RN-003)', () => {
-  let vehicleId = ''
-  let customerId = ''
-  let leaseId = ''
-
+test.describe('Encerramento antecipado preserva garantias emitidas (RN-003)', () => {
   test.beforeAll(async () => {
-    vehicleId = (await createTestVehicle()).id
-    customerId = (await createTestCustomer()).id
+    const vehicle = await createTestVehicle()
+    const customer = await createTestCustomer()
+    vehicleId = vehicle.id
+    customerId = customer.id
   })
 
   test.afterAll(async () => {
-    const sb = await getSupabase()
-    if (leaseId) await sb.from('rentals').delete().eq('id', leaseId)
-    await deleteTestVehicle(vehicleId)
-    await deleteTestCustomer(customerId)
+    await deleteTestCustomer(customerId).catch(() => {})
+    await deleteTestVehicle(vehicleId).catch(() => {})
   })
 
-  // RF-014, RF-015 — cobrança de ciclo futura é cancelada.
-  // RN-003 — Entrada e Caução pendentes com vencimento futuro sobrevivem.
-  test('encerramento antecipado cancela cobrança de ciclo futura e preserva Entrada e Caução pendentes', async ({ page }) => {
+  test('cancela cronograma futuro e preserva Entrada e Caução', async ({ page }) => {
     const sb = await getSupabase()
     const tenantId = await getTestTenantId()
 
-    const { data: newLeaseId, error } = await sb.rpc('create_rental_with_charges', {
+    // Locação com um período já vencido e dois futuros.
+    const { data: newRentalId, error } = await sb.rpc('create_rental_with_schedule', {
       p_tenant_id: tenantId,
-      p_vehicle_id: vehicleId,
-      p_customer_id: customerId,
-      p_cycle: 'monthly',
-      p_due_day: 10,
-      p_cycle_amount: 500,
-      p_start_date: '2026-08-10',
-      p_end_date: '2026-11-10',
-      p_use_pro_rata: true,
-      p_charges: [{ amount: 500, due_date: '2026-09-10', billing_type: 'cycle' }],
-      p_security_deposit: 300,
-      p_deposit_paid: false,
-      p_deposit_due_date: '2026-10-01',
-      p_down_payment: 150,
-      p_down_payment_paid: false,
-      p_down_payment_due_date: '2026-10-01',
+      p_rental: {
+        customer_id: customerId,
+        vehicle_id: vehicleId,
+        start_date: '2026-08-10',
+        end_date: '2026-11-10',
+        cycle: 'monthly',
+        cycle_amount: 500,
+        due_day: 10,
+        use_pro_rata: false,
+        contract_type: 'rental',
+      },
+      p_schedule: [
+        { sequence_number: 1, period_start: '2026-08-10', period_end: '2026-09-09', due_date: '2026-08-10', amount: 500 },
+        { sequence_number: 2, period_start: '2026-09-10', period_end: '2026-10-09', due_date: '2026-09-10', amount: 500 },
+        { sequence_number: 3, period_start: '2026-10-10', period_end: '2026-11-09', due_date: '2026-10-10', amount: 500 },
+      ],
     })
-    if (error) throw new Error(`Erro ao criar locação de teste via RPC: ${error.message}`)
-    leaseId = newLeaseId as string
+    if (error) throw new Error(`Erro ao criar locação: ${error.message}`)
+    rentalId = newRentalId as string
 
-    // Encerra em 2026-08-20 — antes do vencimento da cobrança de ciclo
-    // (2026-09-10) e das garantias pendentes (2026-10-01).
-    await page.goto(`/locacoes/${leaseId}/encerrar`)
+    // Caução e Entrada nascem como cobranças EMITIDAS. A caução credita
+    // passivo; a entrada credita receita (Spec 0010).
+    for (const g of [
+      { desc: `${TEST_TAG} Caução ${RUN_ID}`, account: 'caucoes_a_devolver', amount: 300, mod: 'deposit' },
+      { desc: `${TEST_TAG} Entrada ${RUN_ID}`, account: 'receita_locacao', amount: 150, mod: 'down_payment' },
+    ]) {
+      const { data: n } = await sb.rpc('fn_next_charge_number', { p_tenant_id: tenantId })
+
+      const { data: charge, error: chErr } = await sb
+        .from('charges')
+        .insert({
+          tenant_id: tenantId, customer_id: customerId, rental_id: rentalId,
+          charge_number: n as number, due_date: '2026-10-01',
+        })
+        .select('id')
+        .single()
+      if (chErr) throw new Error(`Erro ao criar cobrança de ${g.mod}: ${chErr.message}`)
+
+      await sb.from('charge_items').insert({
+        tenant_id: tenantId, charge_id: (charge as { id: string }).id,
+        description: g.desc, credit_account_code: g.account,
+        quantity: 1, unit_amount: g.amount, amount: g.amount,
+        source_module: g.mod, source_id: rentalId,
+      })
+    }
+
+    // Encerra antes do vencimento dos períodos futuros.
+    await page.goto(`/locacoes/${rentalId}/encerrar`)
     await waitForPageLoad(page)
     await page.locator('input[type=date]').first().fill('2026-08-20')
+
+    // A apuração é carregada por hook: espera o valor em aberto aparecer antes
+    // de procurar a confirmação. Sem isso o teste lê a tela ainda vazia.
+    // O valor aparece duas vezes — no painel e no aviso de confirmação —
+    // então a asserção é sobre a linha do painel, não sobre o texto solto.
+    const linhaAberto = page.locator('div', { hasText: /^Cobranças em aberto/ }).last()
+    await expect(linhaAberto).toContainText('R$ 450,00', { timeout: 10_000 })
+
+    // Com débito em aberto, encerrar exige confirmação explícita (F-08).
+    const force = page.locator('input[type=checkbox]')
+    await expect(force).toBeVisible({ timeout: 10_000 })
+    await force.check()
+
     await page.getByRole('button', { name: 'Confirmar Encerramento' }).click()
     await page.waitForURL(/\/locacoes\/?$/, { timeout: 15_000 })
 
-    const { data: billings } = await sb
-      .from('billings')
-      .select('billing_type, status')
-      .eq('lease_id', leaseId)
+    // Cronograma futuro cancelado.
+    const { data: schedule } = await sb
+      .from('rental_billing_schedules')
+      .select('sequence_number, status')
+      .eq('rental_id', rentalId)
+      .order('sequence_number')
 
-    const cycle       = billings?.find(b => b.billing_type === 'cycle')
-    const deposit      = billings?.find(b => b.billing_type === 'deposit')
-    const downPayment = billings?.find(b => b.billing_type === 'down_payment')
+    const lines = (schedule ?? []) as { sequence_number: number; status: string }[]
+    expect(lines.find((l) => l.sequence_number === 2)?.status).toBe('cancelled')
+    expect(lines.find((l) => l.sequence_number === 3)?.status).toBe('cancelled')
 
-    expect(cycle?.status).toBe('cancelled')
-    expect(deposit?.status).toBe('pending')
-    expect(downPayment?.status).toBe('pending')
-  })
-})
+    // Garantias sobrevivem: são documentos emitidos, e o encerramento não
+    // toca em documento (Princípio 5).
+    const { data: charges } = await sb
+      .from('charge_balances')
+      .select('charge_id, status, open_amount')
+      .eq('rental_id', rentalId)
 
-// ---------------------------------------------------------------------------
-// Stub tests — implementar quando locacoes/page.tsx tiver UI de locação
-// ---------------------------------------------------------------------------
-
-test.describe.skip('Cobranças de Locação — ciclo de vida (stub)', () => {
-  // RF-025, RN-015 — Baixa manual
-  test('baixa manual muda status para paid com data e forma registrados', async ({ page }) => {
-    await page.goto('/cobrancas')
-    // TODO: criar cobrança de teste → registrar pagamento → verificar
-    expect(true).toBe(true)
-  })
-
-  // RF-026, RN-017 — Bloquear segunda baixa
-  test('bloqueia segunda baixa em cobrança já paga', async ({ page }) => {
-    await page.goto('/cobrancas')
-    // TODO: cobrança paga → tentar pagar novamente → verificar mensagem de erro
-    expect(true).toBe(true)
-  })
-
-  // RF-029, RF-030, RF-031 — Desconto
-  test('desconto preserva valor original e exibe valor final = original - desconto', async ({ page }) => {
-    await page.goto('/cobrancas')
-    // TODO: aplicar desconto e verificar campos
-    expect(true).toBe(true)
-  })
-
-  test('bloqueia desconto maior que valor original', async ({ page }) => {
-    await page.goto('/cobrancas')
-    // TODO: tentar desconto > original_amount
-    expect(true).toBe(true)
-  })
-
-  // RF-027, RN-029 — Cobrança avulsa
-  test('cobrança avulsa criada vinculada a locação ativa', async ({ page }) => {
-    await page.goto('/locacoes')
-    // TODO: criar cobrança avulsa via UI da locação
-    expect(true).toBe(true)
-  })
-
-  // RF-014, RF-015 — Encerramento antecipado cancela cobranças futuras
-  test('encerramento antecipado cancela cobranças futuras e preserva vencidas e pagas', async ({ page }) => {
-    await page.goto('/locacoes')
-    // TODO: encerrar locação e verificar cobranças
-    expect(true).toBe(true)
-  })
-
-  // RF-037 — Alerta de cobranças vencidas ao encerrar
-  test('alerta exibe N cobranças vencidas abertas ao encerrar', async ({ page }) => {
-    await page.goto('/locacoes')
-    // TODO: verificar alerta de impacto no modal de encerramento
-    expect(true).toBe(true)
-  })
-
-  // RF-039, RN-036 — Multa ao encerrar dentro da vigência mínima
-  test('alerta de multa ao encerrar Rental com menos de 3 meses', async ({ page }) => {
-    await page.goto('/locacoes')
-    // TODO: encerrar locação com < 3 meses e verificar alerta de multa
-    expect(true).toBe(true)
-  })
-
-  // RN-037 — Rent-to-Own cumprido → status transferred
-  test('Rent-to-Own com 2 anos cumpridos resulta em status transferred', async ({ page }) => {
-    await page.goto('/locacoes')
-    // TODO: rent_to_own com data cumprida → encerrar → status transferred
-    expect(true).toBe(true)
-  })
-
-  // RF-022 — Histórico por locação
-  test('histórico por locação exibe todas as cobranças da locação', async ({ page }) => {
-    await page.goto('/locacoes')
-    // TODO: abrir histórico de cobranças de uma locação específica
-    expect(true).toBe(true)
+    const abertas = (charges ?? []) as { status: string; open_amount: number }[]
+    expect(abertas.length).toBe(2)
+    for (const c of abertas) {
+      expect(c.status).toBe('open')
+      expect(Number(c.open_amount)).toBeGreaterThan(0)
+    }
   })
 })

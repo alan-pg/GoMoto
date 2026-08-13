@@ -22,6 +22,7 @@ import {
   listChargesForCockpit,
   listPayables,
   listProviderAccounts,
+  listOpenChargesByRental,
   getChargeBalance,
   listChargeItems,
   listReceivables,
@@ -480,5 +481,16 @@ export function useMyCharges(onlyOpen = true) {
         }
       })
     },
+  })
+}
+
+/** Cobranças em aberto da locação — base da apuração de encerramento (F-08). */
+export function useRentalOpenCharges(rentalId: string | undefined) {
+  const supabase = useSupabaseContext()
+
+  return useQuery({
+    queryKey: [KEY.charges, 'rental-open', rentalId],
+    enabled: !!rentalId,
+    queryFn: () => listOpenChargesByRental(supabase, rentalId!),
   })
 }

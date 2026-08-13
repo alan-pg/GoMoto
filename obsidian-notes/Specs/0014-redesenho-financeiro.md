@@ -221,14 +221,16 @@ Vercel Cron → Route Handler idempotente, emitindo linhas com `period_start <= 
 | 09 | `payments_and_allocations` | Drop e recriação sem `UNIQUE(billing_id)` |
 | 10 | `payables` | Contas a pagar com rateio em valores |
 | 11 | `deposits_credits_rewrite` | Sem colunas de saldo |
-| 12 | `gateway_abstraction` | Intents, contas de provedor, inbox |
+| 12 | `gateway_abstraction` | Intents, contas de provedor, inbox. **Também dropa** `billing_pix` e `payment_connections` — agrupar substituto e substituído deixa a mudança legível de uma vez |
 | 13 | `fiscal_documents` | Documentos fiscais |
 | 14 | `financial_views` | Todas as views de §3.5 |
-| 15 | `drop_legacy_financial` | Drop das tabelas, views e funções listadas em §1 |
+| 15 | `drop_legacy_financial` | Drop das tabelas, views e funções listadas em §1 (o gateway legado saiu na 12) |
 | 16 | `operational_cleanup` | `fines`/`maintenances`/`vehicle_obligations` ganham `payable_id`; `customers` perde `delinquency_status` |
-| 17 | `rpc_rewrite` | `create_rental_with_schedule`, `issue_due_charges`, `terminate_rental` com apuração, `adjust_rental` sobre cronograma |
+| 17 | `rpc_rewrite` | `create_rental_with_schedule`, `issue_due_charges`, `terminate_rental` com apuração, `adjust_rental_schedule` sobre cronograma |
+| 18 | `post_financial_transaction` | Escrita atômica no ledger. Sem ela, transação e pernas iriam em statements separados e uma falha deixaria transação órfã |
+| 19 | `fix_financial_views_null_aggregates` | `COALESCE` nos agregados: `SUM(...) FILTER` devolve NULL sem linhas, e um veículo com receita e sem despesa mostrava resultado vazio |
 
-**Corte natural de escopo:** após a migration 17 + `@gomoto/core`, a base está pronta e testada. Telas podem ir em ciclo seguinte.
+**Job de emissão:** consequência direta da reversão da ADR 0009. Vercel Cron diário (`/api/cron/issue-charges`, 06:00) converte linha de cronograma em cobrança quando o período chega. Fail-closed sem `CRON_SECRET`.
 
 ---
 
@@ -250,7 +252,7 @@ Vercel Cron → Route Handler idempotente, emitindo linhas com `period_start <= 
 | Invariante (SQL) | Inserir perna solta e esperar falha no commit; tentar `UPDATE`/`DELETE` em lançamento e esperar exceção |
 | Reconciliação | `SUM(amount_signed) = 0` em 100% das transações do seed; `charge_balances.paid_amount` = soma das alocações |
 | Integração | Webhook: evento duplicado não gera segundo pagamento; refund gera estorno |
-| E2E (Playwright) | 16 specs reescritas. Corrigir junto o helper `daysAgo()` de `packages/core/src/rules/charges.spec.ts`, que usa relógio real |
+| E2E (Playwright) | Specs financeiras reescritas para o domínio novo: pagamento parcial, rateio em valores, encerramento com apuração, ausência de editar/excluir. `entradas.spec.ts` removida — testava a rota `/entradas` e a tabela `incomes`, ambas inexistentes desde a ADR 0013 |
 
 **Portões:** `pnpm db:reset` → `pnpm typecheck` → `pnpm test` → `pnpm build` (com dev server parado) → `pnpm --filter web test:e2e`.
 

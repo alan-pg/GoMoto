@@ -99,6 +99,7 @@ export default async function VehicleROIPage({
 
   const SOURCE_LABELS: Record<string, string> = {
     cycle:        'Locação (ciclos)',
+    reimbursed:   'Repasses recuperados',
     fine:         'Cobranças de multa',
     maintenance:  'Cobranças de manutenção',
     expense:      'Despesas',

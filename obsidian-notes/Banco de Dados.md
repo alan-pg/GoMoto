@@ -2,11 +2,11 @@
 
 Backend [[Supabase]] (PostgreSQL). Local: `http://127.0.0.1:54321` (Docker). Cloud: produção, só recebe mudança via `supabase db push` controlado por humano.
 
-> 🚧 **Redesenho financeiro em andamento.** O domínio financeiro está sendo substituído por um ledger de movimentos com contrapartida — ver [[decisions/0024-ledger-financeiro-com-contrapartida|ADR 0024]] e [[Specs/0014-redesenho-financeiro|Spec 0014]]. As tabelas marcadas ⛔ abaixo serão removidas. Esta nota descreve o estado **atual** e é atualizada conforme as migrations avançam.
+> ✅ **Redesenho financeiro concluído.** O domínio financeiro roda sobre um ledger de movimentos com contrapartida — ver [[decisions/0024-ledger-financeiro-com-contrapartida|ADR 0024]] e [[Specs/0014-redesenho-financeiro|Spec 0014]].
 
 ## Panorama
 
-45 objetos em `public` (43 tabelas + 2 views), 94 migrations versionadas em `supabase/migrations/`.
+64 objetos em `public` (57 tabelas + 7 views), 113 migrations versionadas em `supabase/migrations/`.
 
 ## Multi-tenancy
 
@@ -38,23 +38,56 @@ Exceções deliberadas — catálogos globais sem `tenant_id`: `permission_modul
 | `processes` | Base de conhecimento Q&A interna |
 | `audit_logs` | Log de ações (`logAction`) |
 
-## Financeiro (estado atual)
+## Financeiro — ledger
 
-| Tabela | Função | Destino |
-|---|---|---|
-| `billings` | Cobranças ao cliente | ⛔ → `charges` + `charge_items` |
-| `payments` | Recibo de quitação, 1:1 com cobrança | ↻ recriada sem `UNIQUE(billing_id)` |
-| `expenses` | Despesas da empresa | ⛔ → `payables` |
-| `deposits` / `deposit_movements` | Caução com saldo em coluna | ↻ saldo passa a ser derivado |
-| `customer_credits` / `credit_applications` | Créditos do cliente | ↻ saldo derivado |
-| `late_charges` | Snapshot único de encargo | ⛔ encargo passa a ser calculado |
-| `billing_pix` | Cobrança PIX (acoplada ao Mercado Pago) | ⛔ → `payment_intents` |
-| `payment_connections` | Credenciais MP, uma por tenant | ⛔ → `payment_provider_accounts` |
-| `rental_adjustments` | Histórico de reajuste | ↻ passa a atuar sobre cronograma |
-| `delinquency_blocks` | Bloqueio manual de cliente | ✓ permanece |
-| `vehicle_obligations` | IPVA, licenciamento, taxas | ↻ perde colunas de dinheiro |
+O núcleo é imutável e balanceado. **Saldo nunca é coluna**: todo saldo é agregação de lançamentos, e atraso é derivado de `due_date`, não armazenado.
 
-**Views:** `vehicle_cost_summary` e `vehicle_financial_events` — ambas ⛔. A primeira tem bug de fan-out confirmado (cruza 4 `LEFT JOIN` irmãos e soma; erro medido de 5×).
+### Núcleo
+
+| Tabela | Função |
+|---|---|
+| `financial_accounts` | Plano de contas — **catálogo global**, sem `tenant_id` (precedente: `permissions`) |
+| `financial_transactions` | Fato financeiro. Append-only; correção é estorno via `reverses_transaction_id` |
+| `financial_entries` | Pernas de débito/crédito. `amount_signed` gerada; `SUM = 0` por transação, garantido por `CONSTRAINT TRIGGER DEFERRABLE` |
+
+### Documentos
+
+| Tabela | Função |
+|---|---|
+| `rental_billing_schedules` | **Plano** de cobrança da locação — mutável, é onde o reajuste atua |
+| `charges` / `charge_items` | **Documento** emitido, imutável. Cobrança composta: origem rastreada por item via `(source_module, source_id)` |
+| `payments` / `payment_allocations` | Recebimento N:N — habilita pagamento parcial e um pagamento cobrindo várias cobranças |
+| `payables` | Contas a pagar com responsabilidade e rateio **em valores**, nunca percentual |
+| `deposits` / `customer_credits` | Documentos sem coluna de saldo — o saldo vem das views |
+
+### Política e classificação
+
+| Tabela | Função |
+|---|---|
+| `late_charge_policies`, `delinquency_policies`, `credit_policies` | Política **tipada e versionada**; o documento fixa a versão por ponteiro |
+| `report_lines` + `tenant_account_mappings` | Linha de DRE e base fiscal **por tenant** — o ledger registra o fato, o tenant escolhe a classificação |
+| `branches`, `cost_centers` | Dimensões organizacionais |
+
+### Gateway
+
+`payment_provider_accounts` (multi-provedor por tenant), `payment_intents`, `gateway_events` (inbox com `UNIQUE(provider, provider_event_id)` — idempotência é propriedade do banco).
+
+### Views — tudo derivado
+
+| View | Entrega |
+|---|---|
+| `charge_balances` | total, pago, em aberto, `is_overdue`, `days_overdue` |
+| `customer_delinquency` | fatos de inadimplência por cliente |
+| `deposit_balances`, `customer_credit_balances` | saldos agregados do ledger |
+| `vehicle_financial_position` | receita, custo bruto, repassado, `net_result` por veículo |
+| `rental_financial_result` | resultado da locação |
+| `income_statement` | DRE resolvido pela política vigente na **data do fato** |
+
+Todas usam `LEFT JOIN LATERAL` com subconsulta agregada — nunca `JOIN` irmão seguido de `SUM`. É essa forma que torna inexpressável o fan-out que inflava `vehicle_cost_summary` em 5×.
+
+### RPCs
+
+`post_financial_transaction` (escrita atômica no ledger), `create_rental_with_schedule`, `issue_due_charges` (job diário), `adjust_rental_schedule`, `terminate_rental` (com apuração).
 
 ## Operações
 

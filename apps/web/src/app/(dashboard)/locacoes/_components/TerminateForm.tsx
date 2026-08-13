@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AlertTriangle, X, ChevronRight } from 'lucide-react'
 
-import { useOpenCharges, useDepositBalance, useRentalSchedule } from '@gomoto/data'
+import { useRentalOpenCharges, useDepositBalance, useRentalSchedule } from '@gomoto/data'
 import {
   getEarlyTerminationImpact,
   CONTRACT_TERMINATION_FINE_BRL,
@@ -30,16 +30,16 @@ export function TerminateForm({ rental }: TerminateFormProps) {
   // Spec 0014: a apuração passa a olhar três coisas distintas — o que foi
   // emitido e não pago, o saldo de caução, e o cronograma ainda não emitido.
   // Antes, `useBillings` misturava documento e plano numa lista só.
-  const chargesQuery  = useOpenCharges(rental.customer_id ?? undefined)
+  const chargesQuery  = useRentalOpenCharges(rental.id)
   const depositQuery  = useDepositBalance(rental.id)
   const scheduleQuery = useRentalSchedule(rental.id)
 
-  const openCharges = useMemo(
-    () => (chargesQuery.data ?? []).filter(c => c.rental_id === rental.id),
-    [chargesQuery.data, rental.id],
-  )
+  // Consulta por LOCAÇÃO, não por cliente: antes o valor em aberto dependia de
+  // `rental.customer_id` estar presente, e sem ele a apuração mostrava zero e o
+  // encerramento falhava sem explicação.
+  const openCharges = useMemo(() => chargesQuery.data ?? [], [chargesQuery.data])
 
-  const openAmount     = openCharges.reduce((s, c) => s + c.amount_due, 0)
+  const openAmount     = openCharges.reduce((s, c) => s + c.open_amount, 0)
   const depositBalance = depositQuery.data ?? 0
   const backlog        = scheduleQuery.data?.contracted_backlog ?? 0
 

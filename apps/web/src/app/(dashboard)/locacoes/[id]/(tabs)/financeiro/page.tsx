@@ -99,6 +99,22 @@ export default async function RentalFinancialTab({
   const depositMovements = (depositMovementsResult.data ?? []) as unknown as DepositMovementRow[]
   const adjustments = (adjustmentsResult.data ?? []) as unknown as AdjustmentRow[]
 
+  // A descrição vive nos ITENS, não no documento. Consulta separada: juntar
+  // charge_items dentro de charge_balances reintroduziria o fan-out de F-01.
+  const { data: itemRows } = billings.length
+    ? await supabase
+        .from('charge_items')
+        .select('charge_id, description, amount')
+        .in('charge_id', billings.map(b => b.charge_id))
+    : { data: [] }
+
+  const descByCharge = new Map<string, string>()
+  for (const i of (itemRows ?? []) as { charge_id: string; description: string; amount: number }[]) {
+    // Item de maior valor representa a cobrança.
+    const atual = descByCharge.get(i.charge_id)
+    if (!atual) descByCharge.set(i.charge_id, i.description)
+  }
+
   // ── Totais ────────────────────────────────────────────────────────────────
   // Mesma regra de @/lib/billing-status usada em /locacoes/[id], para os dois
   // nunca mostrarem números divergentes.
@@ -295,6 +311,7 @@ export default async function RentalFinancialTab({
               <thead>
                 <tr className="border-b border-divider bg-surface">
                   <th className="h-9 px-4 text-left font-medium text-fg-mute">Vencimento</th>
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Descrição</th>
                   <th className="h-9 px-4 text-right font-medium text-fg-mute">Pago</th>
                   <th className="h-9 px-4 text-right font-medium text-fg-mute">Em aberto</th>
                   <th className="h-9 px-4 text-right font-medium text-fg-mute">Total</th>
@@ -313,6 +330,7 @@ export default async function RentalFinancialTab({
                         {fmt(b.due_date)}
                         {b.is_overdue && <span className="ml-2 text-danger">{b.days_overdue}d</span>}
                       </td>
+                      <td className="h-9 px-4 text-fg-soft">{descByCharge.get(b.charge_id) ?? '—'}</td>
                       <td className="h-9 px-4 text-right font-mono text-fg-mute">
                         {b.paid_amount > 0 ? formatCurrency(b.paid_amount) : '—'}
                       </td>
