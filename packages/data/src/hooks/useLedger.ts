@@ -19,6 +19,7 @@ import {
 } from '@gomoto/core'
 import {
   listOpenCharges,
+  listChargesForCockpit,
   getChargeBalance,
   listChargeItems,
   listReceivables,
@@ -130,6 +131,41 @@ export function useChargeDetail(chargeId: string | undefined) {
 
       const { accrued, amount_due } = calculateAmountDue(balance, p)
       return { ...balance, items, accrued, amount_due }
+    },
+  })
+}
+
+/**
+ * Listagem do cockpit, com encargo aplicado a cada linha.
+ *
+ * `amount_due` é o valor a apresentar e a cobrar; `open_amount` é só o
+ * principal em aberto.
+ */
+export function useChargesList() {
+  const supabase = useSupabaseContext()
+
+  return useQuery({
+    queryKey: [KEY.charges, 'cockpit'],
+    queryFn: async () => {
+      const [rows, policy] = await Promise.all([
+        listChargesForCockpit(supabase),
+        getActiveLateChargePolicy(supabase, today()),
+      ])
+
+      const p: LateChargePolicy | null = policy
+        ? {
+            fee_type: policy.fee_type,
+            fee_value: policy.fee_value,
+            daily_interest_rate: policy.daily_interest_rate,
+            grace_period_days: policy.grace_period_days,
+            min_amount: policy.min_amount,
+          }
+        : null
+
+      return rows.map((r) => {
+        const { accrued, amount_due } = calculateAmountDue(r, p)
+        return { ...r, accrued_total: accrued.total, amount_due }
+      })
     },
   })
 }

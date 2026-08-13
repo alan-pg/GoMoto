@@ -166,6 +166,87 @@ export async function listReceivables(
   return (data ?? []) as ChargeBalanceRow[]
 }
 
+export type ChargeListRow = ChargeBalanceRow & {
+  customer_name: string
+  customer_phone: string | null
+  vehicle_plate: string | null
+  item_count: number
+  primary_description: string
+}
+
+/**
+ * Listagem para o cockpit: saldo da view enriquecido com cliente, veículo e
+ * descrição do item principal.
+ *
+ * Duas consultas em vez de join na view: `charge_balances` já agrega por
+ * cobrança, e juntar `charge_items` ali dentro reintroduziria o fan-out que o
+ * redesenho eliminou (F-01).
+ */
+export async function listChargesForCockpit(
+  client: SupabaseClient,
+): Promise<ChargeListRow[]> {
+  const { data: balances, error } = await client
+    .from('charge_balances')
+    .select('*')
+    .order('due_date', { ascending: true })
+
+  if (error) throw error
+  const rows = (balances ?? []) as ChargeBalanceRow[]
+  if (rows.length === 0) return []
+
+  const chargeIds = rows.map((r) => r.charge_id)
+  const customerIds = [...new Set(rows.map((r) => r.customer_id))]
+  const rentalIds = [...new Set(rows.map((r) => r.rental_id).filter(Boolean))] as string[]
+
+  const [itemsRes, customersRes, rentalsRes] = await Promise.all([
+    client.from('charge_items').select('charge_id, description, amount').in('charge_id', chargeIds),
+    client.from('customers').select('id, name, phone').in('id', customerIds),
+    rentalIds.length
+      ? client.from('rentals').select('id, vehicles(license_plate)').in('id', rentalIds)
+      : Promise.resolve({ data: [], error: null }),
+  ])
+
+  const itemsByCharge = new Map<string, { description: string; amount: number }[]>()
+  for (const i of (itemsRes.data ?? []) as { charge_id: string; description: string; amount: number }[]) {
+    const list = itemsByCharge.get(i.charge_id) ?? []
+    list.push({ description: i.description, amount: i.amount })
+    itemsByCharge.set(i.charge_id, list)
+  }
+
+  const customerById = new Map(
+    ((customersRes.data ?? []) as { id: string; name: string; phone: string | null }[])
+      .map((c) => [c.id, c]),
+  )
+
+  // `rentals.vehicle_id → vehicles.id` é muitos-para-um, então o PostgREST
+  // devolve objeto; a inferência do supabase-js supõe array. Tratamos as duas
+  // formas para não depender dessa suposição.
+  type RentalVehicle = { id: string; vehicles: { license_plate: string } | { license_plate: string }[] | null }
+
+  const plateByRental = new Map(
+    ((rentalsRes.data ?? []) as unknown as RentalVehicle[]).map((r) => {
+      const v = Array.isArray(r.vehicles) ? r.vehicles[0] : r.vehicles
+      return [r.id, v?.license_plate ?? null] as const
+    }),
+  )
+
+  return rows.map((r) => {
+    const items = itemsByCharge.get(r.charge_id) ?? []
+    // Item de maior valor representa a cobrança na listagem.
+    const principal = [...items].sort((a, b) => b.amount - a.amount)[0]
+    const customer = customerById.get(r.customer_id)
+
+    return {
+      ...r,
+      customer_name: customer?.name ?? '—',
+      customer_phone: customer?.phone ?? null,
+      vehicle_plate: r.rental_id ? plateByRental.get(r.rental_id) ?? null : null,
+      item_count: items.length,
+      primary_description: principal?.description ?? 'Cobrança',
+    }
+  })
+}
+
 /** Cobranças em aberto e vencidas — base do aging. */
 export async function listOverdueCharges(
   client: SupabaseClient,
