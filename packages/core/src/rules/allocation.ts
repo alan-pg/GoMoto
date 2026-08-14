@@ -39,7 +39,23 @@ export type ChargeBalance = {
   total_amount: number
   paid_amount: number
   open_amount: number
+  /**
+   * `charge_status` da ADR 0024. União inline de propósito: o `ChargeStatus`
+   * exportado por `types/index` ainda descreve o enum antigo
+   * (`pending`/`overdue`/`prejudice`), preso a um tipo que espelha a tabela
+   * `billings` já removida — reaproveitá-lo aqui espalharia o engano.
+   */
+  status?: 'open' | 'paid' | 'cancelled' | 'written_off'
 }
+
+/**
+ * Estados em que a cobrança saiu de contas a receber e não há o que cobrar.
+ *
+ * `charge_balances.open_amount` é a aritmética do documento (itens − alocado) e
+ * continua devolvendo saldo para uma cobrança baixada — correto para registrar
+ * a perda, e perigoso se lido como valor cobrável.
+ */
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['paid', 'cancelled', 'written_off'])
 
 export type AvailableCredit = {
   id: string
@@ -129,10 +145,24 @@ export function calculateAccruedCharges(
  * mobile e pela criação de intent no gateway.
  */
 export function calculateAmountDue(
-  balance: Pick<ChargeBalance, 'open_amount' | 'due_date'>,
+  balance: Pick<ChargeBalance, 'open_amount' | 'due_date'> & { status?: string },
   policy: LateChargePolicy | null | undefined,
   asOf: Date = new Date(),
 ): { open_amount: number; accrued: AccruedCharges; amount_due: number } {
+  // Cobrança encerrada não deve nada, e sobre ela não corre encargo. Sem isto,
+  // uma baixada de 2020 aparecia devendo o principal mais juros que cresciam
+  // todo dia — e, pior, a criação de intent no gateway aceitaria gerar
+  // pagamento para uma dívida já reconhecida como perda.
+  if (balance.status !== undefined && TERMINAL_STATUSES.has(balance.status)) {
+    return {
+      open_amount: balance.open_amount,
+      // Sem política, a função devolve o acumulado zerado — é o mesmo "nada a
+      // acrescer" que vale aqui, sem uma segunda construção do objeto.
+      accrued: calculateAccruedCharges(null, balance.open_amount, balance.due_date, asOf),
+      amount_due: 0,
+    }
+  }
+
   const accrued = calculateAccruedCharges(policy, balance.open_amount, balance.due_date, asOf)
   const amount_due = Math.max(0, round2(balance.open_amount + accrued.total))
   return { open_amount: balance.open_amount, accrued, amount_due }

@@ -70,6 +70,36 @@ describe('calculateAccruedCharges', () => {
 })
 
 describe('calculateAmountDue — fonte única do valor devido (F-05)', () => {
+  it.each(['written_off', 'cancelled', 'paid'] as const)(
+    'cobrança %s não deve nada e não acumula encargo',
+    (status) => {
+      // Regressão: a tela de cobranças exibia baixadas de 2020 devendo R$545,18
+      // (principal R$300 + R$245,18 de juros que cresciam todo dia) sobre
+      // dívida já reconhecida como perda. `open_amount` continua sendo a
+      // aritmética do documento — quem lê precisa considerar o status.
+      const r = calculateAmountDue(
+        { open_amount: 300, due_date: '2020-01-01', status },
+        POLICY,
+        HOJE,
+      )
+      expect(r.amount_due).toBe(0)
+      expect(r.accrued.total).toBe(0)
+      // O saldo do documento é preservado: é ele que registra o valor perdido.
+      expect(r.open_amount).toBe(300)
+    },
+  )
+
+  it('cobrança aberta e vencida segue devendo principal + encargo', () => {
+    // Contraprova do caso acima: o status é o que muda o resultado, não a data.
+    const r = calculateAmountDue(
+      { open_amount: 300, due_date: '2020-01-01', status: 'open' },
+      POLICY,
+      HOJE,
+    )
+    expect(r.amount_due).toBeGreaterThan(300)
+    expect(r.accrued.total).toBeGreaterThan(0)
+  })
+
   it('cobrança em dia deve o saldo em aberto, sem encargo', () => {
     const r = calculateAmountDue({ open_amount: 500, due_date: '2026-08-20' }, POLICY, HOJE)
     expect(r.amount_due).toBe(500)
