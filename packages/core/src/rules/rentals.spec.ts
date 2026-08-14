@@ -80,6 +80,36 @@ describe('generateCycleCharges — mensal', () => {
     expect(charges[1]?.amount).toBe(300)
   })
 
+  it('não perde ciclo quando há ponta no início E no fim', () => {
+    // Regressão: com ponta nos dois lados, os períodos são um a mais que os
+    // vencimentos. O laço antigo emitia uma cobrança por vencimento e dava à
+    // última o valor da ponta final — o ciclo cheio que ela deveria representar
+    // desaparecia. 01/09→01/12 a R$600 saía com 3 cobranças e R$1.200.
+    const charges = generateCycleCharges({
+      start_date:   '2026-09-01',  // antes do dia 10
+      end_date:     '2026-12-01',  // depois do último dia 10
+      cycle:        'monthly',
+      due_day:      10,
+      cycle_amount: 600,
+      use_pro_rata: true,
+    })
+
+    expect(charges).toHaveLength(4)
+
+    const total = charges.reduce((s, c) => s + c.amount, 0)
+    expect(total).toBe(1800)
+
+    // Dois ciclos cheios no meio, pontas proporcionais nas bordas.
+    expect(charges.map((c) => c.amount)).toEqual([180, 600, 600, 420])
+
+    // E os períodos cobrem a locação inteira, sem buraco entre eles.
+    expect(charges[0]?.period_start).toBe('2026-09-01')
+    expect(charges[charges.length - 1]?.period_end).toBe('2026-12-01')
+    for (let i = 1; i < charges.length; i++) {
+      expect(charges[i]?.period_start).toBe(charges[i - 1]?.period_end)
+    }
+  })
+
   it('aplica pro rata na última cobrança quando fim != vencimento', () => {
     const charges = generateCycleCharges({
       start_date:   '2025-01-10',

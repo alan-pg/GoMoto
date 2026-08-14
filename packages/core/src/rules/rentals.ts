@@ -324,41 +324,71 @@ export function generateCycleCharges(input: CycleChargeInput): CycleCharge[] {
     return charges
   }
 
-  const lastDue = dueDates[dueDates.length - 1]!
-
-  for (let i = 0; i < dueDates.length; i++) {
-    const due     = dueDates[i]!
-    const isFirst = i === 0
-    const isLast  = i === dueDates.length - 1
-
-    let amount: number
-
-    if (!input.use_pro_rata) {
-      amount = input.cycle_amount
-    } else if (isFirst && isLast) {
-      const cycleDays = cycleLengthDays(input.cycle, due, input.due_day)
-      const totalDays = dateDiffDays(start, end)
-      amount = calculateProRataValue(input.cycle_amount, totalDays, cycleDays)
-    } else if (isFirst && start.getTime() < due.getTime()) {
-      const cycleDays = cycleLengthDays(input.cycle, due, input.due_day)
-      const days = dateDiffDays(start, due)
-      amount = calculateProRataValue(input.cycle_amount, days, cycleDays)
-    } else if (isLast && lastDue.getTime() < end.getTime()) {
-      const next = nextDueDate(lastDue, input.cycle, input.due_day)
-      const cycleDays = dateDiffDays(lastDue, next)
-      const days = dateDiffDays(lastDue, end)
-      amount = calculateProRataValue(input.cycle_amount, days, cycleDays)
-    } else {
-      amount = input.cycle_amount
+  // Sem pro rata, cobra-se um ciclo cheio por vencimento e as pontas são
+  // ignoradas (RN-011) — é a semântica de "mensalidade", não de diária.
+  if (!input.use_pro_rata) {
+    for (let i = 0; i < dueDates.length; i++) {
+      const due = dueDates[i]!
+      const periodStart = i === 0 ? start : dueDates[i - 1]!
+      charges.push({
+        due_date:     formatIsoDate(due),
+        amount:       input.cycle_amount,
+        billing_type: 'cycle',
+        description:  makeCycleDescription(input.cycle, periodStart, due, input.cycle_amount, input.cycle_amount),
+        period_start: formatIsoDate(periodStart),
+        period_end:   formatIsoDate(due),
+      })
     }
+    return charges
+  }
 
-    // periodStart = start_date para o primeiro billing; due_date anterior para os demais
-    const periodStart = i === 0 ? start : dueDates[i - 1]!
-    // periodEnd = end_date da locação para o último billing pro-rata; due_date corrente para os demais
-    const periodEnd = (isLast && lastDue.getTime() < end.getTime()) ? end : due
+  /**
+   * Com pro rata, a unidade é o PERÍODO, não o vencimento.
+   *
+   * Antes o laço emitia uma cobrança por vencimento e, quando havia ponta no
+   * início E no fim, os períodos eram um a mais que os vencimentos: a última
+   * cobrança recebia o valor da ponta final e o ciclo cheio que ela deveria
+   * representar sumia. Uma locação de 01/09 a 01/12 a R$600 (vencimento dia 10)
+   * saía com 3 cobranças somando R$1.200 em vez de 4 somando R$1.800 — um mês
+   * inteiro não faturado, sempre que o contrato começa fora do dia de
+   * vencimento.
+   *
+   * As fronteiras são início, vencimentos internos e fim; cada intervalo entre
+   * duas fronteiras é uma cobrança, vencendo no fim do próprio período.
+   */
+  const boundaries: Date[] = [start]
+  for (const due of dueDates) {
+    if (due.getTime() > start.getTime()) boundaries.push(due)
+  }
+  const lastBoundary = boundaries[boundaries.length - 1]!
+  if (end.getTime() > lastBoundary.getTime()) boundaries.push(end)
+
+  const isDueDate = (d: Date) => dueDates.some((due) => due.getTime() === d.getTime())
+
+  for (let i = 0; i < boundaries.length - 1; i++) {
+    const periodStart = boundaries[i]!
+    const periodEnd   = boundaries[i + 1]!
+
+    // Período delimitado por dois vencimentos é ciclo cheio (RN-010). Qualquer
+    // outro é ponta, e a fração usa como referência o ciclo que a contém.
+    const isFullCycle = isDueDate(periodStart) && isDueDate(periodEnd)
+
+    const amount = isFullCycle
+      ? input.cycle_amount
+      : calculateProRataValue(
+          input.cycle_amount,
+          dateDiffDays(periodStart, periodEnd),
+          isDueDate(periodStart)
+            // Ponta final: o ciclo de referência é o que começaria no último
+            // vencimento e seguiria até o próximo.
+            ? cycleLengthDays(input.cycle, periodStart, input.due_day)
+            // Ponta inicial: o ciclo de referência é o que termina no primeiro
+            // vencimento (RN-008).
+            : cycleLengthDays(input.cycle, periodEnd, input.due_day),
+        )
 
     charges.push({
-      due_date:     formatIsoDate(due),
+      due_date:     formatIsoDate(periodEnd),
       amount,
       billing_type: 'cycle',
       description:  makeCycleDescription(input.cycle, periodStart, periodEnd, amount, input.cycle_amount),

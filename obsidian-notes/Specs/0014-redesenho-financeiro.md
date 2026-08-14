@@ -336,6 +336,7 @@ e está registrado para não se perder:
 | P-3 | Sem alerta de linha `scheduled` vencida e não emitida | §4.3 | Falha silenciosa do job passa despercebida |
 | ~~P-4~~ | ~~Invariante do ledger não tem teste automatizado~~ | §7, linha "Invariante (SQL)" | ✅ **Resolvida** em `tests/ledger-invariants.spec.ts` (5 casos) |
 | P-5 | Webhook sem teste automatizado | §7, linha "Integração" | Refund e idempotência estão **implementados** na Edge Function, mas nada os exercita |
+| P-8 | `blockCustomer`/`unblockCustomer` sem chamador na UI | Achado testando as telas (2026-08-13) | As actions existem e estão corretas, mas não há botão. Foi por isso que um bug nelas sobreviveu meses sem ninguém notar. Construir a UI é escopo de produto — onde fica o botão, quem pode usar — e ficou para decisão |
 | ~~P-6~~ | ~~Sem teste de isolamento por tenant nas tabelas novas~~ | §6 chamava de obrigatório | ✅ **Resolvida** em `tests/tenant-isolation-financeiro.spec.ts` (24 casos) |
 | P-7 | Reconciliação testada só no escopo da spec E2E | §7 pedia 100% das transações | `cobrancas.spec.ts` valida `SUM = 0` apenas nas transações que ela cria |
 
@@ -362,6 +363,27 @@ invariantes que só existiam como acordo:
   tenant — sem ele, uma sessão morta faria os 20 casos passarem lendo vazio.
   O cleanup é best-effort por construção: cobrança emitida e lançamento não são
   apagáveis, e prendem junto cliente, veículo e locação.
+
+---
+
+## 10.2 Achados do teste no navegador (2026-08-13)
+
+Percorrer as telas com o plugin do Chrome encontrou seis defeitos que nenhum
+portão pegou — os três níveis de teste passavam verdes com todos eles no lugar.
+Cinco foram corrigidos na mesma sessão.
+
+| Achado | Natureza |
+|---|---|
+| **Bloqueio por inadimplência não era aplicado.** A trava vivia em `createRentalWithDeposit`, que nenhum componente chama; o `RentalForm` usa `createRental` direto. Cliente bloqueado abria locação nova pela tela — reproduzido ao vivo | F-04 estava só de lugar trocado. Trava movida para `createRental` |
+| **Ciclo inteiro não faturado.** Com ponta no início E no fim, os períodos são um a mais que os vencimentos; a última cobrança recebia o valor da ponta final e o ciclo cheio sumia. 01/09→01/12 a R$600 gerava 3 cobranças e R$1.200 em vez de 4 e R$1.800 | Pré-existente. `generateCycleCharges` passa a gerar por **período**, não por vencimento, no caminho pro rata |
+| Enum `charge_status` novo com mapas de rótulo antigos: lista imprimia `open` cru, detalhe exibia cobrança **baixada** como "Pendente" | Drift da própria ADR 0024 |
+| Cobrança baixada exibia "R$ 300,00 a pagar" | `open_amount` é a aritmética do documento e segue devolvendo o saldo de uma baixada — certo para registrar a perda, errado como valor cobrável |
+| Painel: coluna "Origem" exibia dias de atraso; card "Pendente no mês" somava as vencidas enquanto a contagem as excluía | Rótulo e dupla contagem com o card "Vencidas" |
+| `blockCustomer`/`unblockCustomer` sem chamador na UI | Registrado como P-8 |
+
+A lição que fica: os portões deste repo medem compilação, regra pura e fluxo
+automatizado — nenhum deles percorre a tela como um operador. Uma trava colocada
+numa função que ninguém chama passa por todos os três.
 
 ---
 
