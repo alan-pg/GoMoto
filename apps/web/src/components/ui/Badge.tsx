@@ -73,11 +73,14 @@ const statusLabels: Record<string, { label: string; variant: BadgeVariant }> = {
   maintenance: { label: 'Manutenção', variant: 'warning' },
   inactive: { label: 'Inativa', variant: 'muted' },
   
-  /** Status Financeiros e Cobranças */
+  /** Status Financeiros e Cobranças (charge_status — ADR 0024) */
+  open: { label: 'Em aberto', variant: 'info' },
   paid: { label: 'Pago', variant: 'success' },
-  pending: { label: 'Pendente', variant: 'warning' },
   overdue: { label: 'Vencido', variant: 'danger' },
-  prejudice: { label: 'Prejuízo', variant: 'orange' },
+  written_off: { label: 'Baixado', variant: 'orange' },
+  /** `pending` e `prejudice` saíram do enum na ADR 0024; mantidos só porque
+   *  `pending` ainda nomeia estado de outros domínios (vistoria, manutenção). */
+  pending: { label: 'Pendente', variant: 'warning' },
 
   /** Status de Manutenção */
   completed: { label: 'Concluída', variant: 'success' },

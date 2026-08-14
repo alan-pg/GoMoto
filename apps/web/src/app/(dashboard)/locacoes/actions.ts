@@ -63,6 +63,54 @@ function revalidateRentalPaths() {
 // createRental — criação de locação com cobranças via RPC atômico
 // ---------------------------------------------------------------------------
 
+/**
+ * Cliente impedido de abrir locação nova.
+ *
+ * Os fatos vêm da view `customer_delinquency` e a decisão é função pura —
+ * antes isto lia `customers.delinquency_status`, coluna mantida por um trigger
+ * que nunca disparava para o caso que importa: ficava 'current' para sempre,
+ * justamente para quem devia (F-04).
+ *
+ * `delinquency_blocks` é log append-only com `action` block/unblock, não uma
+ * linha com data de desbloqueio: bloqueado = a última ação registrada é 'block'.
+ */
+async function isCustomerBlocked(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string,
+  customerId: string,
+): Promise<boolean> {
+  const [factsRes, policyRes, blockRes] = await Promise.all([
+    supabase
+      .from('customer_delinquency')
+      .select('overdue_count, max_days_overdue, overdue_amount')
+      .eq('customer_id', customerId)
+      .maybeSingle(),
+    supabase
+      .from('delinquency_policies')
+      .select('late_days, delinquent_count, delinquent_days, blocked_count, blocked_days, auto_block')
+      .eq('tenant_id', tenantId)
+      .order('effective_from', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('delinquency_blocks')
+      .select('action')
+      .eq('customer_id', customerId)
+      .eq('tenant_id', tenantId)
+      .order('acted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
+
+  const status = classifyCustomerDelinquency(
+    factsRes.data as DelinquencyFacts | null,
+    (policyRes.data as DelinquencyPolicy | null) ?? DEFAULT_DELINQUENCY_POLICY,
+    (blockRes.data as { action: string } | null)?.action === 'block',
+  )
+
+  return !canStartNewRental(status)
+}
+
 export async function createRental(
   data: CreateRental,
 ): Promise<ActionResult<{ lease_id: string }>> {
@@ -83,6 +131,20 @@ export async function createRental(
         message: firstError?.message ?? 'Dados inválidos',
         field: firstError?.path?.map(String).join('.'),
       },
+    }
+  }
+
+  // Bloqueio de inadimplência (F-04). Fica AQUI, e não em
+  // `createRentalWithDeposit`, porque é este o caminho que a UI usa: o
+  // `RentalForm` chama `createRental` direto. Enquanto a trava morava só no
+  // wrapper — que nenhum componente chama — um cliente bloqueado conseguia
+  // abrir locação nova pela tela, e a inadimplência seguia inerte na prática,
+  // só tinha mudado de lugar.
+  const blocked = await isCustomerBlocked(supabase, tenantId, parsed.data.customer_id)
+  if (blocked) {
+    return {
+      ok: false,
+      error: { code: 'FORBIDDEN', message: 'Cliente bloqueado por inadimplência.', field: 'customer_id' },
     }
   }
 
@@ -1108,50 +1170,8 @@ export async function createRentalWithDeposit(
     return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos', field: first?.path?.map(String).join('.') } }
   }
 
-  // Bloqueio de inadimplência. Antes lia `customers.delinquency_status`, coluna
-  // mantida por um trigger que nunca disparava para o caso que importa — o
-  // campo ficava `current` para sempre, justamente para quem devia (F-04).
-  // Agora os fatos vêm da view e a classificação é função pura.
-  const [factsRes, policyRes, blockRes] = await Promise.all([
-    supabase
-      .from('customer_delinquency')
-      .select('overdue_count, max_days_overdue, overdue_amount')
-      .eq('customer_id', parsed.data.customer_id)
-      .maybeSingle(),
-    supabase
-      .from('delinquency_policies')
-      .select('late_days, delinquent_count, delinquent_days, blocked_count, blocked_days, auto_block')
-      .eq('tenant_id', tenantId)
-      .order('effective_from', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    // `delinquency_blocks` é log append-only com action block/unblock (ADR 0011),
-    // não uma linha com data de desbloqueio: bloqueado = última ação é 'block'.
-    supabase
-      .from('delinquency_blocks')
-      .select('action')
-      .eq('customer_id', parsed.data.customer_id)
-      .eq('tenant_id', tenantId)
-      .order('acted_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ])
-
-  const status = classifyCustomerDelinquency(
-    factsRes.data as DelinquencyFacts | null,
-    (policyRes.data as DelinquencyPolicy | null) ?? DEFAULT_DELINQUENCY_POLICY,
-    (blockRes.data as { action: string } | null)?.action === 'block',
-  )
-
-  if (!canStartNewRental(status)) {
-    return {
-      ok: false,
-      error: { code: 'FORBIDDEN', message: 'Cliente bloqueado por inadimplência.', field: 'customer_id' },
-    }
-  }
-
   // A caução deixou de ser tratamento especial: `createRental` já a cria como
-  // cobrança que credita passivo. Delegar elimina a duplicação que existia aqui.
+  // cobrança que credita passivo — e é lá que a trava de inadimplência mora.
   return createRental({
     ...parsed.data,
     deposit_payment_date: parsed.data.deposit_received_at ?? parsed.data.deposit_payment_date,

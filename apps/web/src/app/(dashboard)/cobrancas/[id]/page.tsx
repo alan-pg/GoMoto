@@ -80,23 +80,21 @@ function fmtDatetime(d: string | null | undefined) {
   return new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 }
 
-function calcStatus(status: string, dueDate: string) {
-  if (status === 'paid')      return 'paid'
-  if (status === 'cancelled') return 'cancelled'
-  if (status === 'prejudice') return 'prejudice'
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const [y, m, d] = dueDate.split('-').map(Number)
-  const due = new Date(y, m - 1, d)
-  return due < today ? 'overdue' : 'pending'
+/**
+ * `charge_status` da ADR 0024: open | paid | cancelled | written_off.
+ * `overdue` não é status armazenado — é derivado de `due_date` (Princípio 4) e
+ * entra aqui só como chave de exibição, vindo de `charge_balances.is_overdue`.
+ */
+const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
+  open:        { label: 'Em aberto', bg: 'bg-info-bg',    text: 'text-info',    border: 'border-info' },
+  paid:        { label: 'Paga',      bg: 'bg-success-bg', text: 'text-success', border: 'border-success' },
+  overdue:     { label: 'Vencida',   bg: 'bg-danger-bg',  text: 'text-danger',  border: 'border-danger' },
+  cancelled:   { label: 'Cancelada', bg: 'bg-surface-2',  text: 'text-fg-mute', border: 'border-divider' },
+  written_off: { label: 'Baixada',   bg: 'bg-warning-bg', text: 'text-warning', border: 'border-warning' },
 }
 
-const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
-  paid:      { label: 'Paga',      bg: 'bg-success-bg', text: 'text-success', border: 'border-success' },
-  overdue:   { label: 'Vencida',   bg: 'bg-danger-bg', text: 'text-danger', border: 'border-danger' },
-  pending:   { label: 'Pendente',  bg: 'bg-info-bg', text: 'text-info', border: 'border-info' },
-  cancelled: { label: 'Cancelada', bg: 'bg-surface-2', text: 'text-fg-mute', border: 'border-divider' },
-  prejudice: { label: 'Prejuízo',  bg: 'bg-warning-bg', text: 'text-warning', border: 'border-warning' },
-}
+/** Fora destes, a cobrança saiu de contas a receber e não há o que cobrar. */
+const TERMINAL_STATUSES = new Set(['paid', 'cancelled', 'written_off'])
 
 const BILLING_TYPE_LABELS: Record<string, string> = {
   cycle:         'Ciclo',
@@ -262,8 +260,13 @@ export default async function BillingDetailPage({
     }
   }
 
-  const amountDue = Math.max(0, balance.open_amount + accrued.total)
-  const statusCfg = STATUS_CONFIG[balance.is_overdue ? 'overdue' : balance.status] ?? STATUS_CONFIG.pending
+  // Cobrança encerrada não tem valor a cobrar. `charge_balances.open_amount` é
+  // a aritmética do documento (total − alocado) e continua devolvendo o saldo
+  // de uma cobrança baixada — o que é correto para registrar a perda, e errado
+  // de exibir como "a pagar". Quem lê o saldo precisa olhar o status junto.
+  const isTerminal = TERMINAL_STATUSES.has(balance.status)
+  const amountDue = isTerminal ? 0 : Math.max(0, balance.open_amount + accrued.total)
+  const statusCfg = STATUS_CONFIG[balance.is_overdue ? 'overdue' : balance.status] ?? STATUS_CONFIG.open
   const isOverdue = balance.is_overdue
 
   // Encargo já calculado acima a partir da política fixada na emissão.

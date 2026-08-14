@@ -122,8 +122,11 @@ export default async function FinancialDashboardPage() {
   // KPIs do mês
   const totalBilledMonth  = monthBillings.reduce((s, b) => s + b.total_amount, 0)
   const totalPaidMonth    = monthBillings.reduce((s, b) => s + b.paid_amount, 0)
+  // Mesmo filtro da contagem exibida no card. Somar todas as `open` incluía as
+  // vencidas, que já aparecem no card "Vencidas" — o valor contava duas vezes e
+  // não batia com o "N pendentes" logo abaixo dele.
   const totalPendingMonth = monthBillings
-    .filter(b => b.status === 'open')
+    .filter(b => b.status === 'open' && !b.is_overdue)
     .reduce((s, b) => s + b.open_amount, 0)
   const totalOverdueAll = overdueBillings.reduce((s, b) => s + b.open_amount, 0)
 
@@ -211,7 +214,7 @@ export default async function FinancialDashboardPage() {
                   <tr className="border-b border-divider bg-surface">
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Cliente</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Veículo</th>
-                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Origem</th>
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Atraso</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Vencimento</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Valor</th>
                   </tr>
