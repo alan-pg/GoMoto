@@ -61,10 +61,10 @@ export default async function CustomerDetailPage({
       .order('created_at', { ascending: false }),
     supabase
       .from('delinquency_blocks')
-      .select('action, reason, performed_by, created_at')
+      .select('action, reason, actor_id, acted_at')
       .eq('customer_id', id)
       .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false })
+      .order('acted_at', { ascending: false })
       .limit(5),
   ])
 
@@ -74,7 +74,7 @@ export default async function CustomerDetailPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rental = rentalResult.data as (Rental & { vehicle?: { license_plate: string; make: string; model: string } | null }) | null
   const credits = (creditsResult.data ?? []) as { id: string; amount: number; available_balance: number; origin: string; reason: string; created_at: string }[]
-  const delinquencyBlocks = (delinquencyBlocksResult.data ?? []) as { action: string; reason: string; performed_by: string; created_at: string }[]
+  const delinquencyBlocks = (delinquencyBlocksResult.data ?? []) as { action: string; reason: string; actor_id: string; acted_at: string }[]
 
   const CREDIT_ORIGIN_LABELS: Record<string, string> = {
     maintenance_refund: 'Estorno manutenção',
@@ -85,7 +85,9 @@ export default async function CustomerDetailPage({
     block:   'Bloqueado',
     unblock: 'Desbloqueado',
   }
-  const isBlocked = customer.delinquency_status === 'blocked'
+  // Bloqueado = última ação do log é 'block'. `customers.delinquency_status`
+  // saiu na ADR 0024 — era mantida por trigger inerte (F-04).
+  const isBlocked = delinquencyBlocks[0]?.action === 'block'
 
   const [cnhSignedUrl, residencySignedUrl] = await Promise.all([
     getSignedUrl(supabase, customer.drivers_license_photo_url),
@@ -423,7 +425,7 @@ export default async function CustomerDetailPage({
                         {DELINQUENCY_ACTION_LABELS[b.action] ?? b.action}
                       </td>
                       <td className="h-9 px-4 text-fg-mute">
-                        {new Date(b.created_at).toLocaleDateString('pt-BR')}
+                        {new Date(b.acted_at).toLocaleDateString('pt-BR')}
                       </td>
                       <td className="h-9 max-w-[240px] truncate px-4 text-fg-mute">{b.reason}</td>
                     </tr>

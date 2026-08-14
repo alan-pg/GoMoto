@@ -247,7 +247,9 @@ export interface Customer {
   document_photo_url?: string | null;
   // Gestão
   payment_status?: string | null;
-  delinquency_status?: 'current' | 'overdue' | 'blocked' | null;
+  // `delinquency_status` saiu na ADR 0024: era coluna de estado mantida por
+  // trigger inerte. Inadimplência é derivada da view `customer_delinquency`;
+  // bloqueio é a última ação em `delinquency_blocks`.
   observations?: string | null;
   documents?: Document[];
   in_queue: boolean;

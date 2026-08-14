@@ -130,9 +130,20 @@ Especificação executável: cada linha é um caso de teste em `packages/core/sr
 | `late_charge_realized` | contas_a_receber | receita_encargos_atraso |
 | `charge_written_off` | perda_inadimplencia | contas_a_receber |
 | `payment_reversed` | contas_a_receber | caixa_e_bancos |
+| `charge_issuance_reversed` | conta de crédito original | contas_a_receber |
+| `payable_paid` | contas_a_pagar | caixa_e_bancos |
 | `vehicle_acquired` | frota_veiculos | contas_a_pagar |
 | `depreciation_posted` | despesa_depreciacao | depreciacao_acumulada |
 | `vehicle_sold` | caixa_e_bancos | receita_venda_ativo |
+
+Dois eventos nasceram na implementação, não no desenho:
+
+- **`charge_issuance_reversed`** — cancelar cobrança emitida precisa desfazer a
+  emissão creditando **contas_a_receber** contra a conta que a emissão creditou.
+  A primeira versão reusou `payable_created`, que credita `contas_a_pagar`:
+  cancelar uma cobrança transformava dívida de cliente em dívida com fornecedor.
+- **`payable_paid`** — pagar conta a pagar é fato distinto de criá-la; sem ele o
+  passivo nascia e nunca era liquidado.
 
 ### 3.4 DDL
 
@@ -185,7 +196,7 @@ Todas usam `LEFT JOIN LATERAL` com subconsulta agregada, nunca `JOIN` irmão seg
 
 | Função | Responsabilidade |
 |---|---|
-| `buildLedgerEntries(event)` | Traduz evento de domínio em pernas de débito/crédito. Cobre as 17 linhas de §3.3 |
+| `buildLedgerEntries(event)` | Traduz evento de domínio em pernas de débito/crédito. Cobre as 19 linhas de §3.3 |
 | `calculateAmountDue(charge, policy, asOf)` | Total + encargo acumulado − crédito. **Fonte única** — consumida por web, Route Handler do mobile e criação de intent |
 | `calculateAccruedCharges(policy, principal, dueDate, asOf)` | Encargo projetado; não vira lançamento até ser realizado |
 | `allocatePayment(payment, openCharges)` | Aloca por vencimento mais antigo |
@@ -248,7 +259,7 @@ Vercel Cron → Route Handler idempotente, emitindo linhas com `period_start <= 
 
 | Nível | Cobertura |
 |---|---|
-| Unit (Vitest) | As 17 linhas de §3.3 via `buildLedgerEntries`; `calculateAmountDue` com crédito e encargo; `allocatePayment` parcial e múltiplo; `splitResponsibility` com centavo ímpar; `classifyDelinquency` por limiar |
+| Unit (Vitest) | As 19 linhas de §3.3 via `buildLedgerEntries`; `calculateAmountDue` com crédito e encargo; `allocatePayment` parcial e múltiplo; `splitResponsibility` com centavo ímpar; `classifyDelinquency` por limiar |
 | Invariante (SQL) | Inserir perna solta e esperar falha no commit; tentar `UPDATE`/`DELETE` em lançamento e esperar exceção |
 | Reconciliação | `SUM(amount_signed) = 0` em 100% das transações do seed; `charge_balances.paid_amount` = soma das alocações |
 | Integração | Webhook: evento duplicado não gera segundo pagamento; refund gera estorno |
@@ -309,6 +320,28 @@ Nenhuma dessas otimizações deve ser feita antes de medir. Todas são invisíve
 | F-18 colunas nullable | `NOT NULL` + `CHECK` em todo valor monetário |
 | F-19 `billing_type='fine'` morto | Enum eliminado |
 | F-20 nota desatualizada | `Banco de Dados.md` reescrita nesta entrega |
+
+---
+
+## 10.1 Pendências após a implementação
+
+Auditoria de 2026-08-13 conferindo o planejado contra o código. Os 20 achados
+(F-01…F-20) e as 19 migrations estão entregues; o que segue aberto é secundário
+e está registrado para não se perder:
+
+| # | Pendência | Origem | Impacto |
+|---|---|---|---|
+| P-1 | `payment_provider_accounts.credentials` em texto puro | §6 previa cifrar com `pgcrypto` | Não regride (o legado também era texto puro), mas era a oportunidade de corrigir |
+| P-2 | Sem emissão manual de cobrança pelo operador | §4.3 | Se o Cron falhar, só resta esperar o dia seguinte |
+| P-3 | Sem alerta de linha `scheduled` vencida e não emitida | §4.3 | Falha silenciosa do job passa despercebida |
+| P-4 | Invariante do ledger não tem teste automatizado | §7, linha "Invariante (SQL)" | Verificada à mão (perna solta rejeitada, `UPDATE`/`DELETE` bloqueados); sem teste, uma migration futura pode afrouxar sem ninguém notar |
+| P-5 | Webhook sem teste automatizado | §7, linha "Integração" | Refund e idempotência estão **implementados** na Edge Function, mas nada os exercita |
+| P-6 | Sem teste de isolamento por tenant nas tabelas novas | §6 chamava de obrigatório | RLS existe e está habilitada em 100% das tabelas com `tenant_id`; falta o teste que prova |
+| P-7 | Reconciliação testada só no escopo da spec E2E | §7 pedia 100% das transações | `cobrancas.spec.ts` valida `SUM = 0` apenas nas transações que ela cria |
+
+Nenhuma bloqueia o uso do sistema. P-4 e P-6 são as que mais deixam a entrega
+exposta a regressão futura, porque protegem invariantes que hoje só existem
+como acordo.
 
 ---
 

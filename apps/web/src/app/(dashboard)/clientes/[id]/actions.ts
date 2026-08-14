@@ -19,6 +19,34 @@ async function getAuth() {
   return { supabase, user, tenantId }
 }
 
+/**
+ * `delinquency_blocks` é log append-only com `action` block/unblock — não há
+ * coluna de estado. Bloqueado = a última ação registrada é 'block'.
+ *
+ * Antes isso era lido de `customers.delinquency_status`, coluna removida pela
+ * ADR 0024 (era mantida por trigger inerte: ficava 'current' para sempre,
+ * inclusive para quem devia — F-04).
+ *
+ * Não exportada: arquivo `'use server'` só pode exportar função async que seja
+ * Server Action de fato.
+ */
+async function isBlocked(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string,
+  customerId: string,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from('delinquency_blocks')
+    .select('action')
+    .eq('customer_id', customerId)
+    .eq('tenant_id', tenantId)
+    .order('acted_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  return (data as { action: string } | null)?.action === 'block'
+}
+
 // ============================================================
 // createCustomerCredit — lança crédito para o cliente (RF-022)
 // ============================================================
@@ -92,28 +120,24 @@ export async function blockCustomer(input: unknown): Promise<ActionResult<void>>
   const { supabase, user, tenantId } = ctx
 
   const { data: customer } = await supabase
-    .from('customers').select('id, delinquency_status').eq('id', parsed.data.customer_id).eq('tenant_id', tenantId).single()
+    .from('customers').select('id').eq('id', parsed.data.customer_id).eq('tenant_id', tenantId).single()
 
   if (!customer) return { ok: false, error: { code: 'NOT_FOUND', message: 'Cliente não encontrado' } }
-  if (customer.delinquency_status === 'blocked') return { ok: false, error: { code: 'CONFLICT', message: 'Cliente já está bloqueado' } }
+  if (await isBlocked(supabase, tenantId, parsed.data.customer_id)) {
+    return { ok: false, error: { code: 'CONFLICT', message: 'Cliente já está bloqueado' } }
+  }
 
-  const { error } = await supabase
-    .from('customers')
-    .update({ delinquency_status: 'blocked' })
-    .eq('id', parsed.data.customer_id)
-    .eq('tenant_id', tenantId)
-
-  if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
-
-  await supabase.from('delinquency_blocks').insert({
+  const { error } = await supabase.from('delinquency_blocks').insert({
     tenant_id:   tenantId,
     customer_id: parsed.data.customer_id,
     action:      'block',
     reason:      parsed.data.reason,
-    performed_by: user.id,
+    actor_id:    user.id,
   })
 
-  await logAction({ action: 'update', table: 'customers', recordId: parsed.data.customer_id, newData: { delinquency_status: 'blocked', reason: parsed.data.reason } })
+  if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
+
+  await logAction({ action: 'create', table: 'delinquency_blocks', recordId: parsed.data.customer_id, newData: { action: 'block', reason: parsed.data.reason } })
   revalidatePath(`/clientes/${parsed.data.customer_id}`)
   revalidatePath('/clientes')
   return { ok: true, data: undefined }
@@ -141,28 +165,24 @@ export async function unblockCustomer(input: unknown): Promise<ActionResult<void
   const { supabase, user, tenantId } = ctx
 
   const { data: customer } = await supabase
-    .from('customers').select('id, delinquency_status').eq('id', parsed.data.customer_id).eq('tenant_id', tenantId).single()
+    .from('customers').select('id').eq('id', parsed.data.customer_id).eq('tenant_id', tenantId).single()
 
   if (!customer) return { ok: false, error: { code: 'NOT_FOUND', message: 'Cliente não encontrado' } }
-  if (customer.delinquency_status !== 'blocked') return { ok: false, error: { code: 'CONFLICT', message: 'Cliente não está bloqueado' } }
+  if (!(await isBlocked(supabase, tenantId, parsed.data.customer_id))) {
+    return { ok: false, error: { code: 'CONFLICT', message: 'Cliente não está bloqueado' } }
+  }
 
-  const { error } = await supabase
-    .from('customers')
-    .update({ delinquency_status: 'current' })
-    .eq('id', parsed.data.customer_id)
-    .eq('tenant_id', tenantId)
+  const { error } = await supabase.from('delinquency_blocks').insert({
+    tenant_id:   tenantId,
+    customer_id: parsed.data.customer_id,
+    action:      'unblock',
+    reason:      parsed.data.justification,
+    actor_id:    user.id,
+  })
 
   if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
 
-  await supabase.from('delinquency_blocks').insert({
-    tenant_id:    tenantId,
-    customer_id:  parsed.data.customer_id,
-    action:       'unblock',
-    reason:       parsed.data.justification,
-    performed_by: user.id,
-  })
-
-  await logAction({ action: 'update', table: 'customers', recordId: parsed.data.customer_id, newData: { delinquency_status: 'current', justification: parsed.data.justification } })
+  await logAction({ action: 'create', table: 'delinquency_blocks', recordId: parsed.data.customer_id, newData: { action: 'unblock', justification: parsed.data.justification } })
   revalidatePath(`/clientes/${parsed.data.customer_id}`)
   revalidatePath('/clientes')
   return { ok: true, data: undefined }
