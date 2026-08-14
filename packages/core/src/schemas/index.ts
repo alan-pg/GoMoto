@@ -102,19 +102,6 @@ export const CustomerSchema = z.object({
   departure_reason: z.string().trim().max(1000).optional().nullable(),
 })
 
-export const BillingSchema = z.object({
-  lease_id:        z.string().uuid().optional().nullable(),
-  customer_id:     z.string().uuid().optional().nullable(),
-  description:     z.string().trim().min(1).max(300).optional().nullable(),
-  original_amount: z.number().positive().max(9999999),
-  discount_amount: z.number().min(0).max(9999999).optional().nullable(),
-  billing_type:    z.enum(['cycle', 'one_time', 'complementary', 'fine']).optional(),
-  due_date:        dateString,
-  status:          z.enum(['pending', 'paid', 'overdue', 'cancelled', 'prejudice']).optional(),
-  paid_at:         dateString.optional().nullable(),
-  payment_method:  z.enum(['pix', 'cash', 'credit_card', 'debit_card', 'bank_transfer']).optional().nullable(),
-  observations:    z.string().trim().max(2000).optional().nullable(),
-})
 
 export const ExpenseSchema = z.object({
   description: z.string().trim().min(1).max(300),

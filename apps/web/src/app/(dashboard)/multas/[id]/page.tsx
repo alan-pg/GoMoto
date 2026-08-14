@@ -23,12 +23,13 @@ const STATUS_CONFIG = {
 
 // Status da cobrança (billings) — domínio próprio, distinto do status da multa acima
 // (multa quitada junto ao órgão de trânsito ≠ cliente pagou a cobrança da empresa).
+/** `charge_status` (ADR 0024) + `overdue`, que é derivado, não armazenado. */
 const BILLING_STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
-  paid:      { label: 'Paga',      bg: 'bg-success-bg', text: 'text-success', border: 'border-success' },
-  overdue:   { label: 'Vencida',   bg: 'bg-danger-bg', text: 'text-danger', border: 'border-danger' },
-  pending:   { label: 'Pendente',  bg: 'bg-info-bg', text: 'text-info', border: 'border-info' },
-  cancelled: { label: 'Cancelada', bg: 'bg-surface-2', text: 'text-fg-mute', border: 'border-divider' },
-  prejudice: { label: 'Prejuízo',  bg: 'bg-warning-bg', text: 'text-warning', border: 'border-warning' },
+  open:        { label: 'Em aberto', bg: 'bg-info-bg',    text: 'text-info',    border: 'border-info' },
+  overdue:     { label: 'Vencida',   bg: 'bg-danger-bg',  text: 'text-danger',  border: 'border-danger' },
+  paid:        { label: 'Paga',      bg: 'bg-success-bg', text: 'text-success', border: 'border-success' },
+  cancelled:   { label: 'Cancelada', bg: 'bg-surface-2',  text: 'text-fg-mute', border: 'border-divider' },
+  written_off: { label: 'Baixada',   bg: 'bg-warning-bg', text: 'text-warning', border: 'border-warning' },
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -352,8 +353,11 @@ export default async function FineDetailPage({
                     const hoje = new Date().toISOString().slice(0, 10)
                     const bStatus = billing.status === 'open' && billing.due_date < hoje
                       ? 'overdue'
-                      : billing.status === 'open' ? 'pending' : billing.status
-                    const bCfg = BILLING_STATUS_CONFIG[bStatus]
+                      : billing.status
+                    // Fallback obrigatório: sem ele, um status fora do mapa
+                    // (era o caso de `written_off`) derruba a página inteira na
+                    // linha seguinte, ao ler `.bg` de undefined.
+                    const bCfg = BILLING_STATUS_CONFIG[bStatus] ?? BILLING_STATUS_CONFIG.open
                     return (
                       <span className={`inline-flex items-center h-7 px-3 rounded-full text-[13px] font-medium border ${bCfg.bg} ${bCfg.text} ${bCfg.border}`}>
                         {bCfg.label}

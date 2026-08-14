@@ -321,9 +321,12 @@ export default async function RentalFinancialTab({
               </thead>
               <tbody>
                 {billings.map(b => {
-                  // Atraso derivado; 'open' sem atraso é pendente.
-                  const dynStatus = b.is_overdue ? 'overdue' : b.status === 'open' ? 'pending' : b.status
-                  const badge     = BILLING_STATUS_BADGE[dynStatus] ?? BILLING_STATUS_BADGE.pending
+                  // Atraso é derivado, não status armazenado (Princípio 4); o
+                  // resto é o próprio `charge_status`. O mapeamento de 'open'
+                  // para 'pending' que existia aqui vinha do enum antigo e
+                  // fazia cobrança BAIXADA cair no fallback e exibir "Pendente".
+                  const dynStatus = b.is_overdue ? 'overdue' : b.status
+                  const badge     = BILLING_STATUS_BADGE[dynStatus] ?? BILLING_STATUS_BADGE.open
                   return (
                     <tr key={b.charge_id} className="border-b border-border last:border-0 hover:bg-surface-2">
                       <td className="h-9 px-4 text-fg-soft">

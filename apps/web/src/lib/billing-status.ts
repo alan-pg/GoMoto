@@ -1,37 +1,27 @@
-import { isChargeOverdue, type ChargeStatus } from '@gomoto/core'
+/**
+ * Rótulos de cobrança para as telas de locação.
+ *
+ * O que existia aqui antes descrevia o modelo anterior à ADR 0024:
+ *
+ * - `effectiveBillingStatus` derivava atraso em runtime porque o banco só
+ *   gravava 'overdue' às vezes. Hoje `charge_balances.is_overdue` já entrega
+ *   isso derivado de `due_date` (Princípio 4), e a função só tinha um
+ *   importador — que nunca a chamava.
+ * - `netBillingAmount` somava `original_amount − discount_amount −
+ *   credit_applied`, três colunas da tabela `billings` removida. Sem nenhum
+ *   consumidor, devolvia 0 para qualquer entrada do modelo novo.
+ */
 
 /**
- * Status "vivo" de uma cobrança para exibição. O banco só grava 'overdue'
- * quando já persistido; 'pending' com due_date no passado é derivado em
- * runtime via isChargeOverdue (@gomoto/core) — mesma regra usada no cálculo
- * de inadimplência, para as telas de locação nunca divergirem entre si.
+ * `charge_status` (ADR 0024) mais `overdue`, que não é status armazenado: vem
+ * de `charge_balances.is_overdue` e a tela resolve antes de indexar aqui.
  */
-export function effectiveBillingStatus(billing: { status: string; due_date: string }): string {
-  if (billing.status === 'paid' || billing.status === 'cancelled' || billing.status === 'prejudice') {
-    return billing.status
-  }
-  return isChargeOverdue({ status: billing.status as ChargeStatus, due_date: billing.due_date }) ? 'overdue' : 'pending'
-}
-
-/** Valor líquido de uma cobrança: original − desconto − crédito aplicado. */
-export function netBillingAmount(billing: {
-  original_amount?: number | null
-  amount?: number | null
-  discount_amount?: number | null
-  credit_applied?: number | null
-}): number {
-  const base = billing.original_amount ?? billing.amount ?? 0
-  const discount = billing.discount_amount ?? 0
-  const credit = billing.credit_applied ?? 0
-  return Math.max(0, base - discount - credit)
-}
-
 export const BILLING_STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  paid:      { bg: 'bg-success-bg', text: 'text-success', label: 'Paga' },
-  overdue:   { bg: 'bg-danger-bg',  text: 'text-danger',  label: 'Vencida' },
-  pending:   { bg: 'bg-info-bg',    text: 'text-info',    label: 'Pendente' },
-  cancelled: { bg: 'bg-surface-2',  text: 'text-fg-mute', label: 'Cancelada' },
-  prejudice: { bg: 'bg-warning-bg', text: 'text-warning', label: 'Prejuízo' },
+  open:        { bg: 'bg-info-bg',    text: 'text-info',    label: 'Em aberto' },
+  overdue:     { bg: 'bg-danger-bg',  text: 'text-danger',  label: 'Vencida' },
+  paid:        { bg: 'bg-success-bg', text: 'text-success', label: 'Paga' },
+  cancelled:   { bg: 'bg-surface-2',  text: 'text-fg-mute', label: 'Cancelada' },
+  written_off: { bg: 'bg-warning-bg', text: 'text-warning', label: 'Baixada' },
 }
 
 export const BILLING_TYPE_LABEL: Record<string, string> = {

@@ -29,9 +29,14 @@ export interface Document {
 
 /**
  * @type ChargeStatus
- * @description Determina o estado financeiro de uma cobrança gerada pelo sistema.
+ * @description Estado de uma cobrança emitida (`charge_status`, ADR 0024).
+ *
+ * `overdue` não está aqui de propósito: atraso é derivado de `due_date`
+ * (Princípio 4) e chega pelas telas via `charge_balances.is_overdue`, nunca
+ * como valor armazenado. A união anterior — pending/overdue/prejudice —
+ * descrevia a tabela `billings`, removida no redesenho.
  */
-export type ChargeStatus = 'pending' | 'paid' | 'overdue' | 'cancelled' | 'prejudice';
+export type ChargeStatus = 'open' | 'paid' | 'cancelled' | 'written_off';
 
 
 /**
@@ -388,44 +393,6 @@ export interface Process {
   order: number;
   created_at: string;
   updated_at: string;
-}
-
-/**
- * @interface Billing
- * @description Cobrança gerada para um cliente, vinculada a uma locação.
- */
-export interface Billing {
-  id: string;
-  tenant_id: string;
-  /** @deprecated Use lease_id. */
-  contract_id?: string | null;
-  lease_id?: string | null;
-  customer_id?: string | null;
-  fine_id?: string | null;
-  description?: string | null;
-  /** @deprecated Use original_amount. */
-  amount?: number | null;
-  original_amount?: number | null;
-  discount_amount?: number | null;
-  discount_reason?: string | null;
-  credit_applied?: number | null;
-  billing_type?: 'cycle' | 'one_time' | 'complementary' | 'fine' | null;
-  due_date: string;
-  status: ChargeStatus;
-  /** @deprecated Use paid_at. */
-  payment_date?: string | null;
-  paid_at?: string | null;
-  payment_method?: 'pix' | 'cash' | 'credit_card' | 'debit_card' | 'bank_transfer' | null;
-  confirmed_source?: 'mp_webhook' | 'manual' | null;
-  paid_by?: string | null;
-  discounted_by?: string | null;
-  observations?: string | null;
-  created_at: string;
-  updated_at: string;
-  customers?: { name: string; phone: string } | null;
-  /** @deprecated Use rentals join. */
-  contracts?: { id: string } | null;
-  rentals?: { id: string } | null;
 }
 
 /**

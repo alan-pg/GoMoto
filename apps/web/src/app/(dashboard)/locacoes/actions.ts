@@ -1,7 +1,6 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { effectiveBillingStatus } from '@/lib/billing-status'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import {
@@ -24,9 +23,6 @@ import {
   DEFAULT_DELINQUENCY_POLICY,
   type DelinquencyFacts,
   type DelinquencyPolicy,
-  canRegisterPayment,
-  canApplyDiscount,
-  canEditDownPayment,
   isRentalTerminationWithinMinimum,
   calculateAdjustedBillingAmount,
   computeScheduleRegenerationCutoff,

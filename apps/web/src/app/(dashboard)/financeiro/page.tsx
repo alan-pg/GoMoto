@@ -35,12 +35,13 @@ const SOURCE_LABELS: Record<string, string> = {
   deposit:     'Caução',
 }
 
+/** `charge_status` (ADR 0024) + `overdue`, que é derivado, não armazenado. */
 const STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  paid:      { bg: 'bg-success-bg', text: 'text-success', label: 'Paga' },
-  overdue:   { bg: 'bg-danger-bg', text: 'text-danger', label: 'Vencida' },
-  pending:   { bg: 'bg-info-bg', text: 'text-info', label: 'Pendente' },
-  cancelled: { bg: 'bg-surface-2', text: 'text-fg-mute', label: 'Cancelada' },
-  prejudice: { bg: 'bg-warning-bg', text: 'text-warning', label: 'Prejuízo' },
+  open:        { bg: 'bg-info-bg',    text: 'text-info',    label: 'Em aberto' },
+  overdue:     { bg: 'bg-danger-bg',  text: 'text-danger',  label: 'Vencida' },
+  paid:        { bg: 'bg-success-bg', text: 'text-success', label: 'Paga' },
+  cancelled:   { bg: 'bg-surface-2',  text: 'text-fg-mute', label: 'Cancelada' },
+  written_off: { bg: 'bg-warning-bg', text: 'text-warning', label: 'Baixada' },
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -274,7 +275,7 @@ export default async function FinancialDashboardPage() {
                   {monthBillings.map(b => {
                     // Atraso é derivado na view — sem recálculo aqui (Princípio 4).
                     const dynStatus = b.is_overdue ? 'overdue' : b.status
-                    const badge     = STATUS_BADGE[dynStatus] ?? STATUS_BADGE.pending
+                    const badge     = STATUS_BADGE[dynStatus] ?? STATUS_BADGE.open
                     return (
                       <tr key={b.charge_id} className="border-b border-border last:border-0 hover:bg-surface-2">
                         <td className="h-9 px-4">

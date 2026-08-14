@@ -39,21 +39,22 @@ type PixResult = {
 // Constants
 // ---------------------------------------------------------------------------
 
+// `charge_status` (ADR 0024) + `overdue`, derivado de `is_overdue`.
 const STATUS_LABEL: Record<string, string> = {
-  pending:   'Pendente',
-  paid:      'Pago',
-  overdue:   'Vencida',
-  cancelled: 'Cancelada',
-  prejudice: 'Prejuízo',
+  open:        'Em aberto',
+  overdue:     'Vencida',
+  paid:        'Pago',
+  cancelled:   'Cancelada',
+  written_off: 'Baixada',
 }
 
 function getStatusTone(theme: ThemeTokens): Record<string, { color: string; bg: string }> {
   return {
-    pending:   { color: theme.pending, bg: theme.pendingBg },
-    paid:      { color: theme.success, bg: theme.successBg },
-    overdue:   { color: theme.warning, bg: theme.warningBg },
-    cancelled: { color: theme.textMute, bg: theme.surfaceAlt },
-    prejudice: { color: theme.danger, bg: theme.dangerBg },
+    open:        { color: theme.pending, bg: theme.pendingBg },
+    overdue:     { color: theme.warning, bg: theme.warningBg },
+    paid:        { color: theme.success, bg: theme.successBg },
+    cancelled:   { color: theme.textMute, bg: theme.surfaceAlt },
+    written_off: { color: theme.danger, bg: theme.dangerBg },
   }
 }
 
@@ -440,8 +441,10 @@ function BillingDetailModal({
     }
   }
 
-  const statusColor = statusTone[billing.status]?.color ?? statusTone.cancelled.color
-  const statusBg    = statusTone[billing.status]?.bg ?? statusTone.cancelled.bg
+  // Atraso não é status armazenado (Princípio 4): vem de `is_overdue`.
+  const statusKey   = billing.is_overdue ? 'overdue' : billing.status
+  const statusColor = statusTone[statusKey]?.color ?? statusTone.open.color
+  const statusBg    = statusTone[statusKey]?.bg ?? statusTone.open.bg
 
   return (
     <>
@@ -467,7 +470,7 @@ function BillingDetailModal({
                 <TypeBadge type={billing.rental_id ? 'cycle' : 'one_time'} styles={styles} typeTone={typeTone} />
                 <View style={[styles.statusPill, { backgroundColor: statusBg }]}>
                   <Text style={[styles.statusPillText, { color: statusColor }]}>
-                    {STATUS_LABEL[billing.status] ?? billing.status}
+                    {STATUS_LABEL[statusKey] ?? statusKey}
                   </Text>
                 </View>
               </View>

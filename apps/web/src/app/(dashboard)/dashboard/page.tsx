@@ -175,9 +175,8 @@ async function getDashboardData() {
       : 0
 
   // Multiple overdue customers alert (conditional second query)
-  const multipleOverdueCustomerIds = identifyCustomersWithMultipleOverdueCharges(
-    overdueCustomersData.map((row) => ({ customer_id: row.customer_id, status: 'overdue' })),
-  )
+  // A query já filtra `is_overdue`; as linhas vão direto, sem inventar status.
+  const multipleOverdueCustomerIds = identifyCustomersWithMultipleOverdueCharges(overdueCustomersData)
   let multipleOverdueCustomers: { name: string }[] = []
   if (multipleOverdueCustomerIds.length > 0) {
     const { data } = await supabase

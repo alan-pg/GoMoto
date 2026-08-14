@@ -33,18 +33,6 @@ export interface LateChargesCalculation {
 // Cobrança enriquecida com encargos calculados (RF-014)
 // ============================================================
 
-export interface BillingWithCharges {
-  id: string
-  original_amount: number
-  discount_amount: number
-  credit_applied: number
-  charges_waived: boolean
-  late_charge_config: LateChargeConfig | null
-  status: 'pending' | 'paid' | 'overdue' | 'cancelled' | 'prejudice'
-  due_date: string
-  charges: LateChargesCalculation | null
-  amount_due: number
-}
 
 // ============================================================
 // Resumo financeiro da locação (RF-045–046)
