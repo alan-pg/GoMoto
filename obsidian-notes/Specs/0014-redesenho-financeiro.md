@@ -334,14 +334,34 @@ e está registrado para não se perder:
 | P-1 | `payment_provider_accounts.credentials` em texto puro | §6 previa cifrar com `pgcrypto` | Não regride (o legado também era texto puro), mas era a oportunidade de corrigir |
 | P-2 | Sem emissão manual de cobrança pelo operador | §4.3 | Se o Cron falhar, só resta esperar o dia seguinte |
 | P-3 | Sem alerta de linha `scheduled` vencida e não emitida | §4.3 | Falha silenciosa do job passa despercebida |
-| P-4 | Invariante do ledger não tem teste automatizado | §7, linha "Invariante (SQL)" | Verificada à mão (perna solta rejeitada, `UPDATE`/`DELETE` bloqueados); sem teste, uma migration futura pode afrouxar sem ninguém notar |
+| ~~P-4~~ | ~~Invariante do ledger não tem teste automatizado~~ | §7, linha "Invariante (SQL)" | ✅ **Resolvida** em `tests/ledger-invariants.spec.ts` (5 casos) |
 | P-5 | Webhook sem teste automatizado | §7, linha "Integração" | Refund e idempotência estão **implementados** na Edge Function, mas nada os exercita |
-| P-6 | Sem teste de isolamento por tenant nas tabelas novas | §6 chamava de obrigatório | RLS existe e está habilitada em 100% das tabelas com `tenant_id`; falta o teste que prova |
+| ~~P-6~~ | ~~Sem teste de isolamento por tenant nas tabelas novas~~ | §6 chamava de obrigatório | ✅ **Resolvida** em `tests/tenant-isolation-financeiro.spec.ts` (24 casos) |
 | P-7 | Reconciliação testada só no escopo da spec E2E | §7 pedia 100% das transações | `cobrancas.spec.ts` valida `SUM = 0` apenas nas transações que ela cria |
 
-Nenhuma bloqueia o uso do sistema. P-4 e P-6 são as que mais deixam a entrega
-exposta a regressão futura, porque protegem invariantes que hoje só existem
-como acordo.
+Nenhuma bloqueia o uso do sistema.
+
+**P-4 e P-6 foram executadas em 2026-08-13**, por serem as que protegiam
+invariantes que só existiam como acordo:
+
+- **P-4 — `tests/ledger-invariants.spec.ts`.** As duas guardas de
+  `trg_entries_balanced` são distintas e ambas ficam cobertas: perna sem
+  contrapartida (`< 2 pernas`) e soma diferente de zero com duas pernas — esta
+  última é o erro que um bug no serviço produziria, e a contagem não pega.
+  Mais imutabilidade: `UPDATE` e `DELETE` em lançamento levantam exceção
+  (diferente de `audit_logs`, onde a RLS devolve 0 linhas em silêncio), e
+  transação com lançamento não pode ser apagada. Roda com `service_role` de
+  propósito: se o invariante resiste a quem ignora RLS, resiste a qualquer
+  caminho do app.
+
+- **P-6 — `tests/tenant-isolation-financeiro.spec.ts`.** As 20 tabelas do
+  redesenho, uma linha real semeada no tenant 2 em cada, e o cliente do tenant 1
+  tentando ler por id, varrer por `tenant_id`, atualizar e apagar. Inclui as 7
+  views (prova o `security_invoker`) e o INSERT com `tenant_id` forjado.
+  Tem **caso de controle**: o mesmo cliente precisa enxergar a linha do próprio
+  tenant — sem ele, uma sessão morta faria os 20 casos passarem lendo vazio.
+  O cleanup é best-effort por construção: cobrança emitida e lançamento não são
+  apagáveis, e prendem junto cliente, veículo e locação.
 
 ---
 
