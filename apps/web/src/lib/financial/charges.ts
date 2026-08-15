@@ -52,6 +52,13 @@ export async function createCharge(
   const total = round2(params.items.reduce((sum, i) => sum + i.amount, 0))
   if (total <= 0) throw new Error('Cobrança precisa ter valor maior que zero')
 
+  // Sem veículo no lançamento, a cobrança some do resultado por veículo. Quem
+  // cria a cobrança nem sempre tem o veículo à mão — a avulsa, por exemplo, só
+  // pede cliente e locação —, então quando a cobrança está vinculada a uma
+  // locação o veículo é derivado dela. Item que já traz o seu manda; isto é
+  // apenas o piso.
+  const vehicleId = await resolveVehicleId(supabase, tenantId, params)
+
   const { data: numberData, error: numberError } = await supabase.rpc(
     'fn_next_charge_number',
     { p_tenant_id: tenantId },
@@ -91,7 +98,7 @@ export async function createCharge(
       amount: i.amount,
       source_module: i.source_module,
       source_id: i.source_id ?? null,
-      vehicle_id: i.vehicle_id ?? null,
+      vehicle_id: i.vehicle_id ?? vehicleId,
       cost_center_id: i.cost_center_id ?? null,
     })),
   )
@@ -118,7 +125,7 @@ export async function createCharge(
           customerId: params.customerId,
           rentalId: params.rentalId,
           chargeId,
-          vehicleId: params.items.find((i) => i.vehicle_id)?.vehicle_id ?? null,
+          vehicleId,
         }),
       },
       description: `Cobrança #${chargeNumber}`,
@@ -330,6 +337,36 @@ async function reverseChargeIssuance(
       createdBy: opts.createdBy,
     })
   }
+}
+
+/**
+ * Veículo a atribuir à cobrança.
+ *
+ * Ordem: o que o item declarar vence; senão, o veículo da locação vinculada.
+ *
+ * Existe porque `vehicle_financial_position` agrega por
+ * `financial_entries.vehicle_id`, e lançamento sem essa dimensão simplesmente
+ * não aparece no resultado do veículo. Quem cria a cobrança nem sempre tem o
+ * veículo em mãos — a cobrança avulsa pede cliente e locação, não veículo —, e
+ * o resultado era receita real sumindo do relatório sem nenhum erro visível.
+ */
+async function resolveVehicleId(
+  supabase: SupabaseClient,
+  tenantId: string,
+  params: CreateChargeParams,
+): Promise<string | null> {
+  const doItem = params.items.find((i) => i.vehicle_id)?.vehicle_id
+  if (doItem) return doItem
+  if (!params.rentalId) return null
+
+  const { data } = await supabase
+    .from('rentals')
+    .select('vehicle_id')
+    .eq('id', params.rentalId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  return (data as { vehicle_id: string | null } | null)?.vehicle_id ?? null
 }
 
 async function resolveLateChargePolicy(
