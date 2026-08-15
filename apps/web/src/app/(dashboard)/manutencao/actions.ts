@@ -76,7 +76,10 @@ export async function createMaintenance(rawData: unknown) {
     .select()
     .single()
 
-  if (error) return { error: 'Erro ao registrar manutenção' }
+  if (error) {
+    console.error('[createMaintenance] insert failed', error)
+    return { error: `Erro ao registrar manutenção: ${error.message}` }
+  }
 
   await logAction({ action: 'create', table: 'maintenances', recordId: data.id, newData: data })
   revalidatePath('/manutencao')
@@ -99,7 +102,10 @@ export async function updateMaintenance(id: string, rawData: unknown) {
     .select()
     .single()
 
-  if (error) return { error: 'Erro ao atualizar manutenção' }
+  if (error) {
+    console.error('[updateMaintenance] update failed', error)
+    return { error: `Erro ao atualizar manutenção: ${error.message}` }
+  }
 
   await logAction({ action: 'update', table: 'maintenances', recordId: id, oldData: before, newData: data })
   revalidatePath('/manutencao')
@@ -113,7 +119,10 @@ export async function deleteMaintenance(id: string) {
   const { data: before } = await supabase.from('maintenances').select().eq('id', id).single()
   const { error } = await supabase.from('maintenances').delete().eq('id', id)
 
-  if (error) return { error: 'Erro ao excluir manutenção' }
+  if (error) {
+    console.error('[deleteMaintenance] delete failed', error)
+    return { error: `Erro ao excluir manutenção: ${error.message}` }
+  }
 
   await logAction({ action: 'delete', table: 'maintenances', recordId: id, oldData: before })
   revalidatePath('/manutencao')

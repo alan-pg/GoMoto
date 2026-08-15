@@ -64,7 +64,14 @@ export async function createVehicle(
         error: { code: 'VALIDATION_ERROR', message: 'Esta placa já está cadastrada.', field: 'license_plate' },
       }
     }
-    return { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Erro ao cadastrar veículo' } }
+    // A mensagem do banco vai junto: engolir o motivo já custou horas de
+    // depuração num bug idêntico no cadastro de multas. Se o insert quebra por
+    // coluna removida ou constraint, quem está na tela precisa ver o quê.
+    console.error('[createVehicle] insert failed', insertError)
+    return {
+      ok: false,
+      error: { code: 'INTERNAL_ERROR', message: `Erro ao cadastrar veículo: ${insertError.message}` },
+    }
   }
 
   try {

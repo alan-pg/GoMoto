@@ -119,12 +119,16 @@ function Field({
   children: React.ReactNode
   className?: string
 }) {
+  // O `<label>` ENVOLVE o controle. Antes ele era irmão, sem `htmlFor`: nada
+  // associava rótulo e campo, então leitor de tela anunciava um input sem nome
+  // e `getByLabel` não encontrava nada — foi por isso que os testes deste form
+  // acabaram presos a placeholder e posição.
   return (
-    <div className={className}>
-      <label className={labelCls}>{label}</label>
+    <label className={`block ${className ?? ''}`}>
+      <span className={labelCls}>{label}</span>
       {children}
       {error && <p className="text-[12px] text-danger mt-1">{error}</p>}
-    </div>
+    </label>
   )
 }
 

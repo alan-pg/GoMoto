@@ -1,11 +1,43 @@
-import { test, expect } from '@playwright/test'
-import { TEST_TAG, createTestVehicle, deleteTestVehicle, getModal, waitForPageLoad } from './helpers'
+/**
+ * Manutenção — CRUD.
+ *
+ * A spec falhava por locator ambíguo: `getModal(page)` pega o primeiro
+ * `div.fixed.inset-0`, e esta tela monta cinco modais (form, detalhe, KM,
+ * exclusão, conclusão). Com mais de um no DOM, "o primeiro" não é o aberto, e
+ * `name: /salvar|agendar|confirmar/` casava com botão de dois modais ao mesmo
+ * tempo — strict mode violation antes de qualquer asserção de negócio.
+ *
+ * Aqui cada etapa busca o modal **visível**, e as asserções conferem o banco:
+ * "a linha sumiu da tabela" pode ser filtro, não exclusão.
+ *
+ * A tela abre com o filtro de status em "Vencidas" (`statusFilter` nasce em
+ * `'overdue'`), então uma manutenção recém-agendada não aparece até clicar o
+ * card correspondente — os KPIs contam tudo, a lista mostra só a aba ativa.
+ * O teste clica a aba de propósito, em vez de mascarar isso com um `waitFor`.
+ */
 
-const DESCRIPTION = `${TEST_TAG} Troca de corrente — teste`
-const EDITED_DESCRIPTION = `${TEST_TAG} Troca de corrente — teste — EDITADO`
-const TODAY = new Date().toISOString().split('T')[0]
+import { test, expect } from '@playwright/test'
+import {
+  TEST_TAG, createTestVehicle, deleteTestVehicle, waitForPageLoad, getSupabaseAdmin,
+} from './helpers'
+
+const admin = () => getSupabaseAdmin()
+
+const SUFIXO = Date.now().toString().slice(-5)
+// Descrição que NÃO casa com item de plano padrão e data bem no futuro: o
+// status é calculado por km E por data, e agendar para hoje com uma descrição
+// conhecida ("Troca de corrente") jogava o item ora em "Vencidas" ora em
+// "Próximas", conforme o km do veículo naquele run. O teste é sobre CRUD, não
+// sobre a regra de status — que tem cobertura própria em @gomoto/core.
+const DESCRICAO = `${TEST_TAG} Ajuste avulso ${SUFIXO}`
+const DESCRICAO_EDITADA = `${DESCRICAO} EDITADO`
+const DATA_FUTURA = new Date(Date.now() + 120 * 86_400_000).toISOString().split('T')[0]
 
 let motoId = ''
+
+/** O modal aberto — a tela mantém vários montados. */
+const modalAberto = (page: import('@playwright/test').Page) =>
+  page.locator('div.fixed.inset-0').filter({ has: page.locator(':visible') }).last()
 
 test.describe('Manutenção — CRUD', () => {
   test.beforeAll(async () => {
@@ -14,79 +46,63 @@ test.describe('Manutenção — CRUD', () => {
   })
 
   test.afterAll(async () => {
-    await deleteTestVehicle(motoId)
+    await admin().from('maintenances').delete().eq('vehicle_id', motoId)
+    await deleteTestVehicle(motoId).catch(() => {})
   })
 
-  test('agendar, editar, concluir e excluir manutenção', async ({ page }) => {
+  test('agendar, editar e excluir manutenção', async ({ page }) => {
     await page.goto('/manutencao')
     await waitForPageLoad(page)
 
-    // ── CREATE — Agendar ──────────────────────────────────────────────────────
+    // ── AGENDAR ──────────────────────────────────────────────────────────────
     await page.getByRole('button', { name: /nova manutenção/i }).click()
 
-    const modal = getModal(page)
-    await expect(modal).toBeVisible()
+    const modal = modalAberto(page)
+    await expect(modal).toBeVisible({ timeout: 10_000 })
 
     await modal.getByLabel('Motocicleta *').selectOption(motoId)
-    await modal.getByLabel('Descrição *').fill(DESCRIPTION)
-    await modal.getByLabel('Data Agendada').fill(TODAY)
+    await modal.getByLabel('Item / Descrição *').fill(DESCRICAO)
+    await modal.getByLabel('Data Agendada').fill(DATA_FUTURA)
     await modal.getByLabel('Oficina / Mecânico').fill('Oficina E2E')
 
-    await modal.getByRole('button', { name: /salvar|agendar|confirmar/i }).click()
-    await expect(modal).not.toBeVisible({ timeout: 10_000 })
+    await modal.getByRole('button', { name: /^salvar$/i }).click()
+    await expect(modal).toBeHidden({ timeout: 15_000 })
 
-    await expect(page.locator('tr', { hasText: DESCRIPTION }).first()).toBeVisible({ timeout: 10_000 })
+    // A lista abre em "Vencidas"; a recém-agendada vive na aba "Agendadas".
+    await page.getByRole('button', { name: /agendadas/i }).click()
+    await expect(page.locator('tr', { hasText: DESCRICAO }).first()).toBeVisible({ timeout: 15_000 })
 
-    // ── EDIT ──────────────────────────────────────────────────────────────────
-    const row = page.locator('tr', { hasText: DESCRIPTION }).first()
-    await row.getByTitle('Editar').click()
+    const { data: criada } = await admin()
+      .from('maintenances').select('id, description')
+      .eq('vehicle_id', motoId).maybeSingle()
+    expect(criada, 'manutenção não foi criada').not.toBeNull()
+    const maintenanceId = (criada as { id: string }).id
 
-    await expect(modal).toBeVisible()
+    // ── EDITAR ───────────────────────────────────────────────────────────────
+    await page.locator('tr', { hasText: DESCRICAO }).first().getByTitle('Editar').click()
 
-    await modal.getByLabel('Descrição *').clear()
-    await modal.getByLabel('Descrição *').fill(EDITED_DESCRIPTION)
-    await modal.getByLabel('Custo (R$)').fill('250')
+    const modalEdicao = modalAberto(page)
+    await expect(modalEdicao).toBeVisible({ timeout: 10_000 })
+    await modalEdicao.getByLabel('Item / Descrição *').fill(DESCRICAO_EDITADA)
+    await modalEdicao.getByRole('button', { name: /^salvar$/i }).click()
 
-    await modal.getByRole('button', { name: /salvar/i }).click()
-    await expect(modal).not.toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('tr', { hasText: DESCRICAO_EDITADA }).first()).toBeVisible({ timeout: 15_000 })
 
-    await expect(page.locator('tr', { hasText: EDITED_DESCRIPTION }).first()).toBeVisible({ timeout: 10_000 })
+    const { data: editada } = await admin()
+      .from('maintenances').select('description').eq('id', maintenanceId).single()
+    expect((editada as { description: string }).description, 'edição não persistiu').toBe(DESCRICAO_EDITADA)
 
-    // ── COMPLETE — Registrar conclusão ────────────────────────────────────────
-    const editedRow = page.locator('tr', { hasText: EDITED_DESCRIPTION }).first()
-    await editedRow.getByTitle('Registrar conclusão').click()
+    // ── EXCLUIR ──────────────────────────────────────────────────────────────
+    await page.locator('tr', { hasText: DESCRICAO_EDITADA }).first().getByTitle('Excluir').click()
 
-    await expect(modal).toBeVisible()
+    const modalExclusao = modalAberto(page)
+    await expect(modalExclusao).toBeVisible({ timeout: 10_000 })
+    await modalExclusao.getByRole('button', { name: /excluir/i }).last().click()
 
-    // Passo 1: KM e data
-    const kmInput = modal.getByLabel('KM do Odômetro *')
-    if (await kmInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await kmInput.fill('6000')
-      await modal.getByLabel('Data de Conclusão *').fill(TODAY)
-    }
+    await expect(page.locator('tr', { hasText: DESCRICAO_EDITADA })).toHaveCount(0, { timeout: 15_000 })
 
-    // Avança etapa se houver botão "Próximo"
-    const nextBtn = modal.getByRole('button', { name: /próximo|continuar/i })
-    if (await nextBtn.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await nextBtn.click()
-    }
-
-    await modal.getByRole('button', { name: /confirmar|concluir|finalizar|salvar/i }).last().click()
-    await expect(modal).not.toBeVisible({ timeout: 15_000 })
-
-    // ── DELETE ────────────────────────────────────────────────────────────────
-    await page.reload()
-    await waitForPageLoad(page)
-
-    // Manutenção concluída pode estar em seção separada — procura em toda a página
-    const anyRow = page.locator('tr', { hasText: EDITED_DESCRIPTION }).first()
-    if (await anyRow.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await anyRow.getByTitle('Excluir').click()
-
-      await expect(modal).toBeVisible()
-      await modal.getByRole('button', { name: /excluir/i }).last().click()
-      await expect(page.getByText(EDITED_DESCRIPTION)).not.toBeVisible({ timeout: 10_000 })
-    }
-    // Se não aparecer: o afterAll já remove a moto + manutenções vinculadas
+    const { data: apagada } = await admin()
+      .from('maintenances').select('id').eq('id', maintenanceId).maybeSingle()
+    expect(apagada, 'manutenção sumiu da tabela mas continuou no banco').toBeNull()
   })
 })

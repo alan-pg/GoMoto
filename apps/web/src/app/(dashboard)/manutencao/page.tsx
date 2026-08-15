@@ -647,7 +647,9 @@ export default function MaintenancePage() {
           completed: false,
           completed_date: null,
           actual_km: null,
-          cost: null,
+          // `cost` saiu de `maintenances` na ADR 0024: custo é fato financeiro
+          // e vive no payable. Enquanto continuou no payload, AGENDAR
+          // manutenção falhava — e o erro ia para um `alert()`.
         }
     try {
       const res = editingMaintenance

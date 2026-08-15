@@ -27,7 +27,12 @@ let _tenantId: string | null = null
 let _uniqueSeq = 0
 function uniqueSuffix(digits: number): string {
   _uniqueSeq += 1
-  return `${Date.now()}${_uniqueSeq}`.slice(-digits)
+  // O contador é por PROCESSO. Com workers paralelos, dois processos no mesmo
+  // milissegundo e na mesma posição da sequência geravam o mesmo sufixo — e o
+  // RENAVAM, que é único por tenant, estourava. O ruído aleatório resolve a
+  // colisão entre processos; o contador segue resolvendo dentro de um.
+  const noise = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
+  return `${Date.now()}${_uniqueSeq}${noise}`.slice(-digits)
 }
 
 /**
@@ -80,11 +85,32 @@ export async function getTestTenantId(): Promise<string> {
  * Cria um cliente de teste diretamente no banco (in_queue=false → aparece em /clientes).
  * Retorna o ID gerado.
  */
+/**
+ * Completa 9 dígitos com os dois verificadores, gerando um CPF que passa na
+ * mesma validação que a tela usa.
+ */
+function withCpfCheckDigits(base9: string): string {
+  const digits = base9.slice(0, 9).split('').map(Number)
+  const digit = (weightStart: number) => {
+    const sum = digits.reduce((acc, d, i) => acc + d * (weightStart - i), 0)
+    const rest = (sum * 10) % 11
+    return rest === 10 ? 0 : rest
+  }
+  const d1 = digit(10)
+  digits.push(d1)
+  const d2 = digit(11)
+  return `${base9.slice(0, 9)}${d1}${d2}`
+}
+
 export async function createTestCustomer(): Promise<{ id: string; name: string }> {
   const sb = await getSupabase()
   const tenantId = await getTestTenantId()
   const ts = uniqueSuffix(9)
-  const cpf = `${ts}00`
+  // CPF com dígito verificador correto. O fixture gravava `${ts}00`, que entra
+  // pelo service_role mas NÃO passa no schema: qualquer edição do cliente pela
+  // tela era rejeitada com "CPF inválido", e o teste de edição morria num erro
+  // do próprio fixture.
+  const cpf = withCpfCheckDigits(ts)
   const name = `${TEST_TAG} Cliente ${ts}`
   const { data, error } = await sb
     .from('customers')

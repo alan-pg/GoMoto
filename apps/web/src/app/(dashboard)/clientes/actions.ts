@@ -1,5 +1,6 @@
 'use server'
 
+import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
@@ -27,6 +28,18 @@ async function getAuthenticatedUser() {
   return { supabase, user }
 }
 
+/**
+ * "Dados inválidos" não diz em qual campo. `details` já vinha no retorno e a
+ * tela nunca o exibiu, então o operador via uma frase e nada mais — e o
+ * diagnóstico virava tentativa e erro campo a campo.
+ */
+function firstIssue(error: z.ZodError): string {
+  const issue = error.issues[0]
+  if (!issue) return 'Dados inválidos'
+  const campo = issue.path.map(String).join('.')
+  return campo ? `${campo}: ${issue.message}` : issue.message
+}
+
 export async function createCustomer(rawData: unknown) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
@@ -35,7 +48,7 @@ export async function createCustomer(rawData: unknown) {
   if (!tenantId) return { error: 'Tenant não encontrado' }
 
   const parsed = CustomerSchema.safeParse(rawData)
-  if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
+  if (!parsed.success) return { error: firstIssue(parsed.error), details: parsed.error.flatten() }
 
   const { data, error } = await supabase
     .from('customers')
@@ -73,7 +86,7 @@ export async function updateCustomer(id: string, rawData: unknown) {
   if (!user) return { error: 'Não autorizado' }
 
   const parsed = CustomerSchema.partial().safeParse(rawData)
-  if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
+  if (!parsed.success) return { error: firstIssue(parsed.error), details: parsed.error.flatten() }
 
   const { data: before } = await supabase.from('customers').select().eq('id', id).single()
 
