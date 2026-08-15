@@ -114,8 +114,6 @@ export async function confirmAutoBilling(
         quantity: 1,
         unit_amount: parsed.data.amount,
         amount: parsed.data.amount,
-        source_module: 'maintenance',
-        source_id: parsed.data.maintenance_id,
         vehicle_id: vehicleId,
       }],
     })

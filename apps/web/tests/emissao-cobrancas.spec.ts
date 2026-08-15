@@ -84,13 +84,34 @@ async function emitir(leadDays = 0) {
 async function cronograma(rentalId: string) {
   const { data } = await admin()
     .from('rental_billing_schedules')
-    .select('id, sequence_number, status, charge_id, amount, due_date')
+    .select('id, sequence_number, status, amount, due_date')
     .eq('rental_id', rentalId)
     .order('sequence_number')
   return (data ?? []) as {
     id: string; sequence_number: number; status: string
-    charge_id: string | null; amount: number; due_date: string
+    amount: number; due_date: string
   }[]
+}
+
+/**
+ * Cobrança emitida a partir de uma linha de cronograma.
+ *
+ * A navegação passou a ser pela ORIGEM: `schedules.charge_id` apontava de volta
+ * para a cobrança que já aponta para a linha, e dois lados que podem divergir
+ * sem nada garantindo é duplicação. `charges.source_id` é uniforme para todas
+ * as origens e tem índice.
+ */
+async function cobrancaDaLinha(scheduleId: string) {
+  const { data } = await admin()
+    .from('charges')
+    .select('id, due_date, status, late_charge_policy_id, customer_id, rental_id')
+    .eq('source_module', 'rental')
+    .eq('source_id', scheduleId)
+    .maybeSingle()
+  return data as {
+    id: string; due_date: string; status: string
+    late_charge_policy_id: string | null; customer_id: string; rental_id: string
+  } | null
 }
 
 test.describe('Emissão de cobranças a partir do cronograma', () => {
@@ -137,32 +158,23 @@ test.describe('Emissão de cobranças a partir do cronograma', () => {
 
     const [linha] = await cronograma(rentalId)
     expect(linha!.status).toBe('issued')
-    expect(linha!.charge_id).not.toBeNull()
 
-    const { data: charge } = await admin()
-      .from('charges')
-      .select('due_date, status, late_charge_policy_id, customer_id, rental_id')
-      .eq('id', linha!.charge_id!)
-      .single()
+    const c = await cobrancaDaLinha(linha!.id)
+    expect(c, 'linha emitida sem cobrança correspondente').not.toBeNull()
 
-    const c = charge as {
-      due_date: string; status: string; late_charge_policy_id: string | null
-      customer_id: string; rental_id: string
-    }
-
-    expect(c.due_date).toBe(vencimento)
-    expect(c.status).toBe('open')
-    expect(c.customer_id).toBe(customerId)
-    expect(c.rental_id).toBe(rentalId)
+    expect(c!.due_date).toBe(vencimento)
+    expect(c!.status).toBe('open')
+    expect(c!.customer_id).toBe(customerId)
+    expect(c!.rental_id).toBe(rentalId)
 
     // A política de encargo é CONGELADA na emissão: mudar a política depois não
     // pode reescrever o que já foi cobrado.
-    expect(c.late_charge_policy_id).not.toBeNull()
+    expect(c!.late_charge_policy_id).not.toBeNull()
 
     const { data: items } = await admin()
       .from('charge_items')
       .select('amount, credit_account_code, source_module, vehicle_id')
-      .eq('charge_id', linha!.charge_id!)
+      .eq('charge_id', c!.id)
 
     const it = (items ?? []) as {
       amount: number; credit_account_code: string; source_module: string; vehicle_id: string | null
@@ -186,8 +198,7 @@ test.describe('Emissão de cobranças a partir do cronograma', () => {
 
     await emitir()
     const depoisDaPrimeira = await cronograma(rentalId)
-    const chargeId = depoisDaPrimeira[0]!.charge_id
-    expect(chargeId).not.toBeNull()
+    expect(await cobrancaDaLinha(depoisDaPrimeira[0]!.id)).not.toBeNull()
 
     // Segunda execução: a linha já está `issued`, então não entra no filtro.
     const segunda = await emitir()
@@ -295,13 +306,15 @@ test.describe('Emissão de cobranças a partir do cronograma', () => {
 
     const [linha] = await cronograma(rentalId)
     expect(linha!.status).toBe('issued')
-    expect(linha!.charge_id).not.toBeNull()
+
+    const cobranca = await cobrancaDaLinha(linha!.id)
+    expect(cobranca, 'linha emitida sem cobrança').not.toBeNull()
 
     // Documento e lançamento existem juntos — nunca um sem o outro.
     const { data: entries } = await admin()
       .from('financial_entries')
       .select('account_code, direction, amount, vehicle_id')
-      .eq('charge_id', linha!.charge_id!)
+      .eq('charge_id', cobranca!.id)
 
     const rows = (entries ?? []) as {
       account_code: string; direction: string; amount: number; vehicle_id: string | null

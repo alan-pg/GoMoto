@@ -55,7 +55,7 @@ O núcleo é imutável e balanceado. **Saldo nunca é coluna**: todo saldo é ag
 | Tabela | Função |
 |---|---|
 | `rental_billing_schedules` | **Plano** de cobrança da locação — mutável, é onde o reajuste atua |
-| `charges` / `charge_items` | **Documento** emitido, imutável. Cobrança composta: origem rastreada por item via `(source_module, source_id)` |
+| `charges` / `charge_items` | **Documento** emitido, imutável. Uma cobrança cobra **uma coisa só**: a origem é do documento, e o item a herda — trigger recusa item de outra origem, e índice único impede a mesma origem gerar duas cobranças vivas |
 | `payments` / `payment_allocations` | Recebimento N:N — habilita pagamento parcial e um pagamento cobrindo várias cobranças |
 | `payables` | Contas a pagar com responsabilidade e rateio **em valores**, nunca percentual |
 | `deposits` / `customer_credits` | Documentos sem coluna de saldo — o saldo vem das views |

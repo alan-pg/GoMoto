@@ -31,10 +31,10 @@ export const ChargeItemSchema = z.object({
   quantity: z.number().positive().default(1),
   unit_amount: money,
   amount: money,
-  source_module: z.string().min(1),
-  source_id: z.string().uuid().nullable().optional(),
+  // A origem NÃO é declarada por item: ela é do documento, e o item a herda.
+  // Uma cobrança cobra uma coisa só (ADR 0024) — aceitar origem por item
+  // permitiria expressar o contrário, e o banco recusaria só depois.
   vehicle_id: z.string().uuid().nullable().optional(),
-  cost_center_id: z.string().uuid().nullable().optional(),
 })
 
 export const CreateChargeSchema = z.object({

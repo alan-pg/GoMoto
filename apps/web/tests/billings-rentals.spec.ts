@@ -102,22 +102,29 @@ test.describe('Encerramento antecipado preserva garantias emitidas (RN-003)', ()
     ]) {
       const { data: n } = await sb.rpc('fn_next_charge_number', { p_tenant_id: tenantId })
 
+      // Origem única por garantia. Caução e Entrada nascem da mesma locação,
+      // então precisam de identificadores distintos — e o item tem que repetir
+      // exatamente a origem do documento, ou a trigger o recusa.
+      const origem = crypto.randomUUID()
+
       const { data: charge, error: chErr } = await sb
         .from('charges')
         .insert({
           tenant_id: tenantId, customer_id: customerId, rental_id: rentalId,
           charge_number: n as number, due_date: '2026-10-01',
+          source_module: g.mod, source_id: origem,
         })
         .select('id')
         .single()
       if (chErr) throw new Error(`Erro ao criar cobrança de ${g.mod}: ${chErr.message}`)
 
-      await sb.from('charge_items').insert({
+      const { error: itemErr } = await sb.from('charge_items').insert({
         tenant_id: tenantId, charge_id: (charge as { id: string }).id,
         description: g.desc, credit_account_code: g.account,
         quantity: 1, unit_amount: g.amount, amount: g.amount,
-        source_module: g.mod, source_id: rentalId,
+        source_module: g.mod, source_id: origem,
       })
+      if (itemErr) throw new Error(`Erro ao criar item de ${g.mod}: ${itemErr.message}`)
     }
 
     // Encerra antes do vencimento dos períodos futuros.

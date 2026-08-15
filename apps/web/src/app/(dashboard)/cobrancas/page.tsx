@@ -367,9 +367,10 @@ export default function CobrancasPage() {
                   <td className="px-4">{c.customer_name}</td>
                   <td className="px-4">
                     {c.primary_description}
-                    {c.item_count > 1 && (
-                      <span className="ml-1 text-[var(--fg-mute)]">+{c.item_count - 1}</span>
-                    )}
+                    {/* O "+N" sinalizava cobrança composta. Com a regra de
+                        origem única não existe mais composta: o único item a
+                        mais possível é o encargo por atraso, que já aparece na
+                        coluna DEVIDO como "+R$ x". */}
                     {c.vehicle_plate && (
                       <span className="ml-2 text-[var(--fg-mute)]">{c.vehicle_plate}</span>
                     )}

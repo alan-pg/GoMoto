@@ -74,6 +74,8 @@ export async function createCharge(
       customer_id: params.customerId,
       rental_id: params.rentalId ?? null,
       charge_number: chargeNumber,
+      source_module: params.sourceModule,
+      source_id: params.sourceId ?? null,
       due_date: params.dueDate,
       issue_date: params.issueDate ?? new Date().toISOString().slice(0, 10),
       late_charge_policy_id: policyId,
@@ -94,8 +96,11 @@ export async function createCharge(
       quantity: i.quantity,
       unit_amount: i.unit_amount,
       amount: i.amount,
-      source_module: i.source_module,
-      source_id: i.source_id ?? null,
+      // Origem vem do DOCUMENTO, não do item. Aceitar por item permitia
+      // divergir — e a regra é que uma cobrança cobra uma coisa só. A trigger
+      // `trg_charge_item_origin` recusaria, mas melhor não deixar expressável.
+      source_module: params.sourceModule,
+      source_id: params.sourceId ?? null,
       vehicle_id: i.vehicle_id ?? vehicleId,
     })),
   )

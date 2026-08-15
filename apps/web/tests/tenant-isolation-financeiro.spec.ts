@@ -85,12 +85,14 @@ test.describe('Isolamento por tenant — tabelas do redesenho financeiro (Spec 0
 
     const chargeId = await seed('charges', {
       tenant_id: TENANT_2, customer_id: customerId, charge_number: chargeNumber as number, due_date: '2026-09-01',
+      source_module: 'rental', source_id: rentalId,
     })
     cleanup.push({ table: 'charges', id: chargeId })
 
     cleanup.push({ table: 'charge_items', id: await seed('charge_items', {
       tenant_id: TENANT_2, charge_id: chargeId, description: `${TEST_TAG} Item T2`,
-      credit_account_code: 'receita_locacao', quantity: 1, unit_amount: 100, amount: 100, source_module: 'rental',
+      credit_account_code: 'receita_locacao', quantity: 1, unit_amount: 100, amount: 100,
+      source_module: 'rental', source_id: rentalId,
     }) })
 
     cleanup.push({ table: 'rental_billing_schedules', id: await seed('rental_billing_schedules', {

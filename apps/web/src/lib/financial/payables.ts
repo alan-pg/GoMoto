@@ -148,8 +148,6 @@ export async function createPayable(
             quantity: 1,
             unit_amount: split.customer_amount,
             amount: split.customer_amount,
-            source_module: params.sourceModule,
-            source_id: payableId,
             vehicle_id: params.vehicleId ?? null,
                 },
         ],

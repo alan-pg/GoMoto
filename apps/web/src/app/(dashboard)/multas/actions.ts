@@ -213,8 +213,6 @@ async function syncFineBilling(supabase: Supabase, params: SyncFineBillingParams
         quantity: 1,
         unit_amount: amount,
         amount,
-        source_module: 'fine',
-        source_id: fineId,
         vehicle_id: vehicleId ?? null,
       }],
     })

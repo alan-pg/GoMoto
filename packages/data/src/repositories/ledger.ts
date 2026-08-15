@@ -170,7 +170,6 @@ export type ChargeListRow = ChargeBalanceRow & {
   customer_name: string
   customer_phone: string | null
   vehicle_plate: string | null
-  item_count: number
   primary_description: string
 }
 
@@ -233,7 +232,10 @@ export async function listChargesForCockpit(
   return rows.map((r) => {
     const items = itemsByCharge.get(r.charge_id) ?? []
     // Item de maior valor representa a cobrança na listagem.
-    const principal = [...items].sort((a, b) => b.amount - a.amount)[0]
+    // Uma cobrança cobra uma coisa só (ADR 0024): a descrição é a do item, sem
+    // eleição por maior valor. O que pode haver a mais é o encargo por atraso,
+    // acessório da mesma dívida — e ele já aparece na coluna de valor devido.
+    const principal = items.find((i) => !i.description.startsWith('Encargo')) ?? items[0]
     const customer = customerById.get(r.customer_id)
 
     return {
@@ -241,7 +243,6 @@ export async function listChargesForCockpit(
       customer_name: customer?.name ?? '—',
       customer_phone: customer?.phone ?? null,
       vehicle_plate: r.rental_id ? plateByRental.get(r.rental_id) ?? null : null,
-      item_count: items.length,
       primary_description: principal?.description ?? 'Cobrança',
     }
   })

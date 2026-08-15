@@ -208,8 +208,6 @@ export async function createRental(
           quantity: 1,
           unit_amount: parsed.data.security_deposit,
           amount: parsed.data.security_deposit,
-          source_module: 'deposit',
-          source_id: rentalId,
           // Sem a dimensão veículo, o lançamento não entra em
           // vehicle_financial_position e a moto aparece sem receita.
           vehicle_id: parsed.data.vehicle_id,
@@ -266,8 +264,6 @@ export async function createRental(
           quantity: 1,
           unit_amount: parsed.data.down_payment,
           amount: parsed.data.down_payment,
-          source_module: 'down_payment',
-          source_id: rentalId,
           vehicle_id: parsed.data.vehicle_id,
         }],
       })
@@ -398,8 +394,6 @@ export async function updateRental(
               quantity: 1,
               unit_amount: data.security_deposit,
               amount: data.security_deposit,
-              source_module: 'deposit',
-              source_id: leaseId,
             }],
           })
 
@@ -426,8 +420,6 @@ export async function updateRental(
               quantity: 1,
               unit_amount: data.security_deposit,
               amount: data.security_deposit,
-              source_module: 'deposit',
-              source_id: leaseId,
             }],
           })
 
@@ -498,8 +490,6 @@ export async function updateRental(
             quantity: 1,
             unit_amount: data.down_payment,
             amount: data.down_payment,
-            source_module: 'down_payment',
-            source_id: leaseId,
           }],
         })
       } catch (err) {
@@ -831,8 +821,6 @@ export async function applyDiscount(
     quantity: 1,
     unit_amount: amount,
     amount,
-    source_module: 'discount',
-    source_id: b.charge_id,
   })
 
   if (error) return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
@@ -915,7 +903,6 @@ export async function createOneTimeCharge(
         quantity: 1,
         unit_amount: parsed.data.amount,
         amount: parsed.data.amount,
-        source_module: 'manual',
         vehicle_id: rental.vehicle_id ?? null,
       }],
     })

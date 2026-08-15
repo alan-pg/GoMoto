@@ -205,4 +205,85 @@ test.describe('Ledger — invariantes do banco (ADR 0024)', () => {
 
     expect(still).not.toBeNull()
   })
+
+  test('item de origem estranha não entra na cobrança', async () => {
+    // "Uma cobrança cobra uma coisa só" era acordo verbal: todo chamador já
+    // passava uma origem única, mas nada impedia o contrário. Acordo verbal é
+    // o que este redesenho vem substituindo por invariante.
+    const tenantId = await getTestTenantId()
+
+    const { data: customer } = await admin()
+      .from('customers')
+      .insert({ tenant_id: tenantId, name: `${TEST_TAG} Origem única`, in_queue: false })
+      .select('id')
+      .single()
+    const customerId = (customer as { id: string }).id
+
+    const { data: n } = await admin().rpc('fn_next_charge_number', { p_tenant_id: tenantId })
+    const fonte = crypto.randomUUID()
+
+    const { data: charge } = await admin()
+      .from('charges')
+      .insert({
+        tenant_id: tenantId, customer_id: customerId, charge_number: n as number,
+        due_date: '2026-12-01', source_module: 'fine', source_id: fonte,
+      })
+      .select('id')
+      .single()
+    const chargeId = (charge as { id: string }).id
+
+    // Item da própria origem: entra.
+    const { error: okErr } = await admin().from('charge_items').insert({
+      tenant_id: tenantId, charge_id: chargeId, description: `${TEST_TAG} Multa`,
+      credit_account_code: 'repasse_multa', quantity: 1, unit_amount: 100, amount: 100,
+      source_module: 'fine', source_id: fonte,
+    })
+    expect(okErr, okErr?.message).toBeNull()
+
+    // Item de OUTRA origem: recusado. É o caso que a regra proíbe — misturar
+    // aluguel com multa no mesmo documento.
+    const { error: mixErr } = await admin().from('charge_items').insert({
+      tenant_id: tenantId, charge_id: chargeId, description: `${TEST_TAG} Aluguel`,
+      credit_account_code: 'receita_locacao', quantity: 1, unit_amount: 600, amount: 600,
+      source_module: 'rental', source_id: crypto.randomUUID(),
+    })
+    expect(mixErr, 'item de outra origem foi aceito').not.toBeNull()
+    expect(mixErr!.message).toMatch(/uma coisa s(ó|o)/i)
+
+    // Encargo por atraso é ACESSÓRIO da mesma dívida, não outra coisa: entra.
+    const { error: encargoErr } = await admin().from('charge_items').insert({
+      tenant_id: tenantId, charge_id: chargeId, description: `${TEST_TAG} Encargo`,
+      credit_account_code: 'receita_encargos_atraso', quantity: 1, unit_amount: 8.38, amount: 8.38,
+      source_module: 'late_charge', source_id: chargeId,
+    })
+    expect(encargoErr, encargoErr?.message).toBeNull()
+  })
+
+  test('a mesma origem não gera duas cobranças vivas', async () => {
+    // Fecha um buraco que ninguém tinha notado: nada impedia registrar a mesma
+    // multa duas vezes e cobrar o cliente em dobro.
+    const tenantId = await getTestTenantId()
+
+    const { data: customer } = await admin()
+      .from('customers')
+      .insert({ tenant_id: tenantId, name: `${TEST_TAG} Origem dupla`, in_queue: false })
+      .select('id')
+      .single()
+    const customerId = (customer as { id: string }).id
+    const fonte = crypto.randomUUID()
+
+    async function emitir() {
+      const { data: n } = await admin().rpc('fn_next_charge_number', { p_tenant_id: tenantId })
+      return admin().from('charges').insert({
+        tenant_id: tenantId, customer_id: customerId, charge_number: n as number,
+        due_date: '2026-12-01', source_module: 'fine', source_id: fonte,
+      })
+    }
+
+    const { error: primeira } = await emitir()
+    expect(primeira, primeira?.message).toBeNull()
+
+    const { error: segunda } = await emitir()
+    expect(segunda, 'a mesma multa gerou duas cobranças').not.toBeNull()
+  })
 })
