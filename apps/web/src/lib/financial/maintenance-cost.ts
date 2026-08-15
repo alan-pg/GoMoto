@@ -1,0 +1,131 @@
+/**
+ * Custo de manutenção e rateio — em valores.
+ *
+ * `maintenances.cost` e `effective_customer_payer_pct` saíram na ADR 0024:
+ * percentual inteiro não representa 1/3 e deixa centavo sem dono (F-17,
+ * Princípio 7). O custo passou a viver no payable — mas nada tomou o lugar na
+ * tela, e a conta `despesa_manutencao` só recebia lançamento vindo de
+ * /despesas. Manutenção concluída pela própria tela de manutenção não gerava
+ * custo nenhum: o valor era digitado e descartado.
+ *
+ * Delega a `createPayable`, o mesmo caminho das despesas e das multas: ele cria
+ * o custo bruto da empresa E a cobrança de repasse quando o cliente paga parte.
+ * Sem uma quarta cópia da lógica.
+ */
+
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { z } from 'zod'
+import { ACCOUNTS, type ActionResult } from '@gomoto/core'
+import { createPayable } from './payables'
+
+export const MaintenanceCostSchema = z.object({
+  maintenance_id:  z.string().uuid(),
+  amount:          z.number().positive('Custo deve ser maior que zero'),
+  /** Quanto DESTE custo o cliente paga. 0 = tudo da empresa. */
+  customer_amount: z.number().min(0).default(0),
+  due_date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida'),
+})
+
+export async function registerCost(
+  supabase: SupabaseClient,
+  tenantId: string,
+  userId: string | null,
+  input: unknown,
+): Promise<ActionResult<{ payable_id: string; charge_id?: string }>> {
+  const parsed = MaintenanceCostSchema.safeParse(input)
+  if (!parsed.success) {
+    const first = parsed.error.issues[0]
+    return {
+      ok: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: first?.message ?? 'Dados inválidos',
+        field: first?.path?.map(String).join('.'),
+      },
+    }
+  }
+
+  if (parsed.data.customer_amount > parsed.data.amount) {
+    return {
+      ok: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'A parte do cliente não pode passar do custo total.',
+        field: 'customer_amount',
+      },
+    }
+  }
+
+  const { data: maintenance } = await supabase
+    .from('maintenances')
+    .select('id, vehicle_id, description, payable_id')
+    .eq('id', parsed.data.maintenance_id)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  const m = maintenance as {
+    id: string; vehicle_id: string; description: string; payable_id: string | null
+  } | null
+
+  if (!m) return { ok: false, error: { code: 'NOT_FOUND', message: 'Manutenção não encontrada' } }
+  if (m.payable_id) {
+    return { ok: false, error: { code: 'CONFLICT', message: 'Esta manutenção já teve o custo registrado.' } }
+  }
+
+  // O cliente da locação ativa do veículo é quem responde pelo repasse.
+  const { data: rental } = await supabase
+    .from('rentals')
+    .select('id, customer_id')
+    .eq('vehicle_id', m.vehicle_id)
+    .eq('tenant_id', tenantId)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  const r = rental as { id: string; customer_id: string } | null
+
+  if (parsed.data.customer_amount > 0 && !r) {
+    return {
+      ok: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Sem locação ativa para este veículo, o custo não pode ser repassado ao cliente.',
+        field: 'customer_amount',
+      },
+    }
+  }
+
+  const responsibility =
+    parsed.data.customer_amount === 0 ? 'company'
+      : parsed.data.customer_amount === parsed.data.amount ? 'customer'
+        : 'shared'
+
+  try {
+    const { payableId, chargeId } = await createPayable(supabase, tenantId, {
+      description: `Manutenção — ${m.description}`,
+      expenseAccountCode: ACCOUNTS.MAINTENANCE_EXPENSE,
+      competenceDate: parsed.data.due_date,
+      dueDate: parsed.data.due_date,
+      amount: parsed.data.amount,
+      responsibility,
+      customerId: r?.customer_id ?? null,
+      customerAmount: parsed.data.customer_amount,
+      reimbursement: parsed.data.customer_amount > 0 ? 'charge' : 'none',
+      vehicleId: m.vehicle_id,
+      rentalId: r?.id ?? null,
+      sourceModule: 'maintenance',
+      sourceId: m.id,
+      createdBy: userId,
+    })
+
+    await supabase
+      .from('maintenances')
+      .update({ payable_id: payableId })
+      .eq('id', m.id)
+      .eq('tenant_id', tenantId)
+
+    return { ok: true, data: { payable_id: payableId, charge_id: chargeId } }
+  } catch (err) {
+    console.error('[registerCost] failed', { maintenance_id: m.id, error: String(err) })
+    return { ok: false, error: { code: 'INTERNAL', message: `Erro ao registrar o custo: ${String(err)}` } }
+  }
+}

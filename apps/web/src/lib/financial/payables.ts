@@ -139,7 +139,11 @@ export async function createPayable(
         rentalId: params.rentalId ?? null,
         dueDate: params.dueDate,
         sourceModule: params.sourceModule,
-        sourceId: payableId,
+        // Aponta para o registro que ORIGINOU a despesa — a manutenção, a
+        // multa — e não para o payable. É o que torna a origem uniforme entre
+        // os módulos: em multas a cobrança já apontava para a multa, e aqui
+        // apontava para um payable, com o módulo dizendo 'maintenance'.
+        sourceId: params.sourceId ?? payableId,
         createdBy: params.createdBy ?? null,
         items: [
           {

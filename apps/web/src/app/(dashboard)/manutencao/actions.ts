@@ -6,6 +6,8 @@ import { revalidatePath } from 'next/cache'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { z } from 'zod'
+import type { ActionResult } from '@gomoto/core'
+import { registerCost } from '@/lib/financial/maintenance-cost'
 
 export async function uploadMaintenancePhoto(formData: FormData, prefix: string): Promise<string | null> {
   const file = formData.get('file') as File | null
@@ -138,4 +140,36 @@ export async function updateVehicleKm(vehicleId: string, kmCurrent: number) {
   await logAction({ action: 'update', table: 'vehicles', recordId: vehicleId, oldData: before, newData: { km_current: kmCurrent } })
   revalidatePath('/manutencao')
   return { data }
+}
+
+// ---------------------------------------------------------------------------
+// registerMaintenanceCost — custo da manutenção e rateio, em VALORES
+// ---------------------------------------------------------------------------
+
+/**
+ * Casca fina: resolve auth e tenant, delega ao serviço.
+ *
+ * A regra vive em `@/lib/financial/maintenance-cost` porque Server Action
+ * depende de `cookies()` e não roda fora de uma requisição do Next — o que a
+ * torna inalcançável por teste. O serviço recebe o cliente Supabase por
+ * parâmetro e é exercitável direto, como o resto de `lib/financial`.
+ */
+export async function registerMaintenanceCost(
+  input: unknown,
+): Promise<ActionResult<{ payable_id: string; charge_id?: string }>> {
+  const supabase = await createServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não encontrado' } }
+
+  const result = await registerCost(supabase, tenantId, user.id, input)
+
+  if (result.ok) {
+    revalidatePath('/manutencao')
+    revalidatePath('/despesas')
+    revalidatePath('/cobrancas')
+  }
+  return result
 }

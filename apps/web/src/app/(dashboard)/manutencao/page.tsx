@@ -21,6 +21,7 @@ import {
   updateMaintenance,
   deleteMaintenance,
   updateVehicleKm,
+  registerMaintenanceCost,
 } from './actions'
 import type { Maintenance, MaintenanceStatus } from '@gomoto/core'
 import {
@@ -51,7 +52,8 @@ type ItemFinancial = {
   /** PRD 0003 D4 — snapshot binário de quem leva à oficina. */
   executor: 'company' | 'customer'
   /** PRD 0003 D4 — % do custo arcado pelo cliente (0–100); empresa = 100 − cliente. */
-  customer_payer_pct: number
+  /** Quanto DESTE custo o cliente paga, em reais. 0 = tudo da empresa. */
+  customer_amount: string
   has_odometer_photo: boolean
   has_invoice_photo: boolean
   odometer_photo_file: File | null
@@ -124,7 +126,7 @@ type MaintenanceFormData = {
   workshop: string
   observations: string
   effective_executor: 'company' | 'customer'
-  customer_payer_pct: number
+  customer_amount: string
   odometer_photo_file: File | null
   invoice_photo_file: File | null
 }
@@ -155,7 +157,7 @@ const INITIAL_FORM: MaintenanceFormData = {
   workshop: 'Oficina do Careca',
   observations: '',
   effective_executor: 'company',
-  customer_payer_pct: 0,
+  customer_amount: '',
   odometer_photo_file: null,
   invoice_photo_file: null,
 }
@@ -766,6 +768,22 @@ export default function MaintenancePage() {
           invoice_photo_url: invoiceUrl,
         })
         if (res.error) { alert(`Erro ao concluir item: ${res.error}`); return }
+
+        // O custo vira conta a pagar da empresa, com o rateio em valores — e a
+        // cobrança de repasse sai junto quando o cliente paga parte. Antes o
+        // valor era digitado aqui e descartado: `maintenances.cost` saiu na ADR
+        // 0024 e nada tomou o lugar, então `despesa_manutencao` só recebia
+        // lançamento vindo de /despesas.
+        const custo = parseFloat(fin.cost) || 0
+        if (custo > 0) {
+          const custoRes = await registerMaintenanceCost({
+            maintenance_id: itemId,
+            amount: custo,
+            customer_amount: Math.min(parseFloat(fin.customer_amount) || 0, custo),
+            due_date: completionDate,
+          })
+          if (!custoRes.ok) { alert(`Erro ao registrar o custo: ${custoRes.error.message}`); return }
+        }
       }
 
       // Fallback pra salvar manutenção em si caso não tenha havido etapa com grid preenchida
@@ -845,7 +863,7 @@ export default function MaintenancePage() {
       // payload de gravação já não o envia. A UI de rateio em percentual desta
       // tela é resíduo do modelo antigo e precisa sair inteira — em valores,
       // como no payable —, não em pedaços.
-      customer_payer_pct: 0,
+      customer_amount: '',
       odometer_photo_file: null,
       invoice_photo_file: null,
     })
@@ -1283,17 +1301,9 @@ export default function MaintenancePage() {
                     ))}
                   </div>
                 </div>
-                <Input
-                  label="% pago pelo cliente"
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={formData.customer_payer_pct.toString()}
-                  onChange={(e) => {
-                    const v = Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0))
-                    setFormData({ ...formData, customer_payer_pct: v })
-                  }}
-                />
+                {/* O rateio é informado ao CONCLUIR a manutenção, junto do
+                    custo real, e em valores. Pedir um percentual no agendamento
+                    era pedir um palpite sobre um custo que ainda não existe. */}
               </div>
 
               {/* Fotos — não obrigatórias, só sinalizadas como importantes. */}
@@ -1692,7 +1702,7 @@ export default function MaintenancePage() {
                         description: item.description,
                         cost: '',
                         executor: 'company',
-                        customer_payer_pct: 0,
+                        customer_amount: '',
                         has_odometer_photo: false,
                         has_invoice_photo: false,
                         odometer_photo_file: null,
@@ -1729,18 +1739,13 @@ export default function MaintenancePage() {
                           ]}
                         />
                         <Input
-                          label="% pago pelo cliente"
+                          label="Quanto o cliente paga (R$)"
                           type="number"
                           min="0"
-                          max="100"
-                          step="1"
-                          value={String(fin.customer_payer_pct)}
-                          onChange={(e) => {
-                            const raw = parseInt(e.target.value, 10)
-                            const pct = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0
-                            setCompletionFinancials((prev) => prev.map((f, i) => i === idx ? { ...f, customer_payer_pct: pct } : f))
-                          }}
-                          placeholder="0"
+                          step="0.01"
+                          value={fin.customer_amount}
+                          onChange={(e) => setCompletionFinancials((prev) => prev.map((f, i) => i === idx ? { ...f, customer_amount: e.target.value } : f))}
+                          placeholder="0,00"
                         />
                       </div>
 
@@ -1798,8 +1803,11 @@ export default function MaintenancePage() {
 
                       {fin.cost && parseFloat(fin.cost) > 0 && (() => {
                         const c = parseFloat(fin.cost)
-                        const cliente = (c * fin.customer_payer_pct) / 100
-                        const empresa = c - cliente
+                        // Rateio em VALOR, não em percentual: 1/3 de R$100 não
+                        // se representa em percentual inteiro e deixa centavo
+                        // sem dono (Princípio 7).
+                        const cliente = Math.min(parseFloat(fin.customer_amount) || 0, c)
+                        const empresa = Math.round((c - cliente) * 100) / 100
                         return (
                           <p className="text-[13px] text-fg-mute border-t border-divider pt-2">
                             → Empresa: {formatCurrency(empresa)} / Cliente: {formatCurrency(cliente)}
@@ -1812,16 +1820,13 @@ export default function MaintenancePage() {
 
                 {/* Resumo financeiro consolidado gerando o DRE micro da operação do dia para a interface */}
                 {(() => {
-                  const totalCliente = completionFinancials.reduce((acc, f) => {
-                    const c = parseFloat(f.cost) || 0
-                    return acc + (c * f.customer_payer_pct) / 100
-                  }, 0)
-                  const totalEmpresa = completionFinancials.reduce((acc, f) => {
-                    const c = parseFloat(f.cost) || 0
-                    return acc + c - (c * f.customer_payer_pct) / 100
-                  }, 0)
-                  // Há rateio quando algum item tem custo > 0 e o cliente paga parte (>0%).
-                  const hasSplit = completionFinancials.some((f) => (parseFloat(f.cost) || 0) > 0 && f.customer_payer_pct > 0)
+                  const parteCliente = (f: ItemFinancial) =>
+                    Math.min(parseFloat(f.customer_amount) || 0, parseFloat(f.cost) || 0)
+
+                  const totalCliente = completionFinancials.reduce((acc, f) => acc + parteCliente(f), 0)
+                  const totalEmpresa = completionFinancials.reduce(
+                    (acc, f) => acc + (parseFloat(f.cost) || 0) - parteCliente(f), 0)
+                  const hasSplit = completionFinancials.some((f) => parteCliente(f) > 0)
 
                   return (
                     <div className="rounded-xl bg-surface p-4 space-y-2">
