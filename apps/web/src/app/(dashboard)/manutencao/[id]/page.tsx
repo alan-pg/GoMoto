@@ -66,10 +66,12 @@ export default async function MaintenanceDetailPage({
     : null
 
   const hasBilling = !!billingInfo
-  const isCustomerExpense = maintenance.effective_executor === 'customer' || (maintenance.effective_customer_payer_pct ?? 0) > 0
-  const customerShare = maintenance.cost != null && maintenance.effective_customer_payer_pct != null
-    ? Math.round(maintenance.cost * (maintenance.effective_customer_payer_pct / 100) * 100) / 100
-    : null
+  // `cost` e `effective_customer_payer_pct` saíram de `maintenances` na ADR
+  // 0024: custo e rateio vivem no payable, em valores. Estas duas expressões
+  // liam colunas inexistentes e resultavam sempre em `null`/`false`.
+  // Quem responde "o cliente paga parte disto?" é a cobrança emitida.
+  const isCustomerExpense = maintenance.effective_executor === 'customer' || hasBilling
+  const customerShare = billingInfo?.original_amount ?? null
 
   return (
     <div className="min-h-screen bg-bg">

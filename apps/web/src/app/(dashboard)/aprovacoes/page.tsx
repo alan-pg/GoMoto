@@ -90,7 +90,6 @@ export default function AprovacoesPage() {
   async function handleApprove(input: {
     record: MaintenanceRecord
     effective_executor: 'company' | 'customer'
-    effective_customer_payer_pct: number
   }): Promise<void> {
     const { record } = input
     const { data: userRes } = await supabase.auth.getUser()
@@ -104,13 +103,15 @@ export default function AprovacoesPage() {
           completed: true,
           completed_date: new Date().toISOString().slice(0, 10),
           actual_km: record.actual_km,
-          cost: record.cost,
           workshop: record.workshop,
           observations: record.notes,
           odometer_photo_url: record.odometer_photo_url,
           invoice_photo_url: record.invoice_photo_url,
           effective_executor: input.effective_executor,
-          effective_customer_payer_pct: input.effective_customer_payer_pct,
+          // `cost` e `effective_customer_payer_pct` saíram de `maintenances` na
+          // ADR 0024 — custo e rateio viraram payable, em valores, porque
+          // percentual inteiro não representa 1/3 e deixa centavo sem dono.
+          // Enquanto continuaram no payload, aprovar manutenção falhava.
         },
       })
     }
@@ -311,11 +312,9 @@ function ApproveModal({
   onConfirm: (input: {
     record: MaintenanceRecord
     effective_executor: 'company' | 'customer'
-    effective_customer_payer_pct: number
   }) => Promise<void>
 }) {
   const [executor, setExecutor] = useState<'company' | 'customer'>('company')
-  const [pct, setPct] = useState<string>('0')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -323,28 +322,20 @@ function ApproveModal({
     if (submitting) return
     setError(null)
     setExecutor('company')
-    setPct('0')
     onClose()
   }
 
   async function handleSubmit() {
     if (!record) return
-    const pctNum = Number(pct.replace(',', '.'))
-    if (!Number.isFinite(pctNum) || pctNum < 0 || pctNum > 100) {
-      setError('Informe % do cliente entre 0 e 100.')
-      return
-    }
     setSubmitting(true)
     setError(null)
     try {
       await onConfirm({
         record,
         effective_executor: executor,
-        effective_customer_payer_pct: Math.round(pctNum),
       })
       setExecutor('company')
-      setPct('0')
-      onClose()
+        onClose()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao aprovar.')
     } finally {
@@ -368,15 +359,10 @@ function ApproveModal({
             { value: 'customer', label: 'Cliente' },
           ]}
         />
-        <Input
-          label="% do custo pago pelo cliente (empresa = 100 − %)"
-          type="number"
-          inputMode="numeric"
-          min={0}
-          max={100}
-          value={pct}
-          onChange={(e) => setPct(e.target.value)}
-        />
+        {/* O campo de % do cliente saiu: rateio virou valor no payable, não
+            percentual na manutenção. O input continuava pedindo o número ao
+            operador e descartando a resposta em silêncio. O rateio é informado
+            ao lançar a despesa, em Despesas. */}
         {error ? <p className="text-[12px] text-danger">{error}</p> : null}
         <div className="flex items-center justify-end gap-2">
           <Button variant="secondary" onClick={handleClose} disabled={submitting}>

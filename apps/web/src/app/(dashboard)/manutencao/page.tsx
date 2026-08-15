@@ -629,11 +629,9 @@ export default function MaintenancePage() {
           completed: true,
           completed_date: formData.completed_date || new Date().toISOString().split('T')[0],
           actual_km: formData.actual_km ? parseInt(formData.actual_km, 10) : null,
-          cost: formData.cost ? parseFloat(formData.cost) : null,
           workshop: formData.workshop || null,
           observations: formData.observations || null,
           effective_executor: formData.effective_executor,
-          effective_customer_payer_pct: formData.customer_payer_pct,
           odometer_photo_url: odometerUrl,
           invoice_photo_url: invoiceUrl,
         }
@@ -760,11 +758,9 @@ export default function MaintenancePage() {
           completed: true,
           completed_date: completionDate,
           actual_km: actualKm,
-          cost: fin.cost ? parseFloat(fin.cost) : null,
           workshop: completionWorkshop || null,
           observations: completionObservations || null,
           effective_executor: fin.executor,
-          effective_customer_payer_pct: fin.customer_payer_pct,
           odometer_photo_url: odometerUrl,
           invoice_photo_url: invoiceUrl,
         })
@@ -844,7 +840,11 @@ export default function MaintenancePage() {
       workshop: m.workshop || '',
       observations: m.observations || '',
       effective_executor: m.effective_executor ?? 'company',
-      customer_payer_pct: m.effective_customer_payer_pct ?? 0,
+      // Campo de formulário sem origem no banco: a coluna saiu na ADR 0024 e o
+      // payload de gravação já não o envia. A UI de rateio em percentual desta
+      // tela é resíduo do modelo antigo e precisa sair inteira — em valores,
+      // como no payable —, não em pedaços.
+      customer_payer_pct: 0,
       odometer_photo_file: null,
       invoice_photo_file: null,
     })

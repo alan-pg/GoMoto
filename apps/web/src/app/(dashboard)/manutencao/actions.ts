@@ -54,7 +54,6 @@ const MaintenanceSchema = z.object({
   // PRD 0003 D4 — snapshot de responsabilidade preenchido pelo operador
   // no modal de conclusão. Persistido em maintenances.effective_*.
   effective_executor: z.enum(['company', 'customer']).optional().nullable(),
-  effective_customer_payer_pct: z.number().int().min(0).max(100).optional().nullable(),
   odometer_photo_url: z.string().url().optional().nullable(),
   invoice_photo_url: z.string().url().optional().nullable(),
 })
