@@ -211,11 +211,17 @@ export async function createFine(rawData: unknown, rentalId?: string | null): Pr
 
   const { data, error } = await supabase
     .from('fines')
-    .insert({ ...parsed.data, status: 'pending', tenant_id: tenantId })
+    .insert({ ...parsed.data, tenant_id: tenantId })
     .select()
     .single()
 
-  if (error) return { error: 'Erro ao registrar multa' }
+  if (error) {
+    // Sem este log, uma coluna removida vira "Erro ao registrar multa" na tela
+    // e silêncio no servidor — foi exatamente assim que a queda do cadastro
+    // passou despercebida por dias.
+    console.error('[createFine] insert_failed', { message: error.message, details: error.details })
+    return { error: `Erro ao registrar multa: ${error.message}` }
+  }
 
   // Gera a cobrança já na criação, se responsável=cliente. Multa já foi salva
   // (sem risco de duplicar) — falha aqui não desfaz o cadastro, só fica sem

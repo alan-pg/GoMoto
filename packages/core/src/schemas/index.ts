@@ -134,8 +134,10 @@ export const FineSchema = z.object({
   amount: z.number().positive().max(9999999),
   infraction_date: dateString,
   due_date: dateString.optional().nullable(),
-  status: z.enum(['pending', 'paid']).optional(),
-  payment_date: dateString.optional().nullable(),
+  // `status` e `payment_date` saíram da tabela na ADR 0024: pagamento de multa
+  // é fato financeiro e vive em `payables` (empresa) ou na cobrança (cliente).
+  // Enquanto continuaram no schema, o INSERT mandava colunas inexistentes e
+  // cadastrar multa falhava inteiro — com o erro do banco engolido.
   // Obrigatório — decide se a multa gera cobrança pro cliente (sem default: operador tem que escolher).
   responsible: z.enum(['customer', 'company']),
   observations: z.string().trim().max(2000).optional().nullable(),

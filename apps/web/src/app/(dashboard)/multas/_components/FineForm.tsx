@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo, useTransition } from 'react'
+import { useState, useEffect, useRef, useMemo, useTransition, useId, isValidElement, cloneElement } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AlertCircle, Sparkles } from 'lucide-react'
@@ -81,14 +81,22 @@ function Field({
   /** RF-005/CA-006: campo preenchido pela extração por IA, ainda não editado manualmente. */
   aiFilled?: boolean
 }) {
+  // O rótulo precisa apontar para o controle: sem isso o leitor de tela não
+  // anuncia o campo, e nenhum teste consegue localizá-lo pelo nome que o
+  // operador enxerga. Antes o <label> era só um irmão visual do input.
+  const id = useId()
+  const control = isValidElement(children)
+    ? cloneElement(children as React.ReactElement<{ id?: string }>, { id })
+    : children
+
   return (
     <div className={className}>
-      <label className={`${labelCls} flex items-center gap-1`}>
+      <label htmlFor={id} className={`${labelCls} flex items-center gap-1`}>
         {label}
         {aiFilled && <Sparkles className="w-3 h-3 text-primary shrink-0" aria-label="Preenchido pela IA" />}
       </label>
       <div className={aiFilled ? 'rounded-lg ring-1 ring-primary/50' : undefined}>
-        {children}
+        {control}
       </div>
       {error && <p className="text-[12px] text-danger mt-1">{error}</p>}
     </div>
