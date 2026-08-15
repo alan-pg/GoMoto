@@ -187,7 +187,10 @@ export default async function FineDetailPage({
                 {([
                   ['Data da infração',  fmt(fine.infraction_date) + (fine.infraction_time ? ` às ${fine.infraction_time.slice(0, 5)}` : '')],
                   ['Vencimento',        fmt(fine.due_date)],
-                  ['Pago em',           fmt(fine.payment_date)],
+                  // 'Pago em' saiu daqui: a data de pagamento é do fato
+                  // financeiro (conta a pagar da empresa ou cobrança do
+                  // cliente), não da multa. A coluna não existe mais na tabela
+                  // e o campo mostrava vazio para sempre.
                   ['Registrado em',     fmt(fine.created_at)],
                 ] as [string, string][]).map(([label, value]) => (
                   <tr key={label} className="border-b border-divider last:border-0">

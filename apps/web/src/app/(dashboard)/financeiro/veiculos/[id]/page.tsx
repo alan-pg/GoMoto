@@ -52,15 +52,19 @@ export default async function VehicleROIPage({
       .eq('tenant_id', tenantId)
       .not('cost', 'is', null)
       .order('completed_at', { ascending: false }),
-    // Custo: multas pagas (company responsible)
+    // Custo: multas pagas pela empresa.
+    // Vem de `payables`, não de `fines`: as colunas status/payment_date saíram
+    // da multa na ADR 0024 porque pagamento é fato financeiro. Enquanto a
+    // consulta apontava para elas, ela falhava em silêncio e a lista de multas
+    // aparecia vazia — sem erro na tela.
     supabase
-      .from('fines')
-      .select('amount, payment_date, description')
+      .from('payables')
+      .select('amount, paid_at, description')
       .eq('vehicle_id', id)
       .eq('tenant_id', tenantId)
+      .eq('source_module', 'fine')
       .eq('status', 'paid')
-      .eq('responsible', 'company')
-      .order('payment_date', { ascending: false }),
+      .order('paid_at', { ascending: false }),
   ])
 
   if (vehicleResult.error || !vehicleResult.data) notFound()
@@ -74,7 +78,7 @@ export default async function VehicleROIPage({
   }
   const position = (paidBillingsResult.data ?? null) as unknown as Position | null
   const maintenances = (maintenanceCostResult.data ?? []) as { cost: number; completed_at: string | null; description: string | null }[]
-  const fines = (fineCostResult.data ?? []) as { amount: number; payment_date: string | null; description: string | null }[]
+  const fines = (fineCostResult.data ?? []) as { amount: number; paid_at: string | null; description: string | null }[]
 
   // ── Cálculos de ROI ───────────────────────────────────────────────────────
   const totalRevenue = position?.operating_revenue ?? 0
@@ -284,7 +288,7 @@ export default async function VehicleROIPage({
                   {fines.map((f, i) => (
                     <tr key={i} className="border-b border-border last:border-0 hover:bg-surface-2">
                       <td className="h-9 max-w-[220px] truncate px-4 text-fg-soft">{f.description ?? '—'}</td>
-                      <td className="h-9 px-4 text-fg-mute">{fmt(f.payment_date)}</td>
+                      <td className="h-9 px-4 text-fg-mute">{fmt(f.paid_at)}</td>
                       <td className="h-9 px-4 text-right font-mono text-danger">{formatCurrency(f.amount ?? 0)}</td>
                     </tr>
                   ))}

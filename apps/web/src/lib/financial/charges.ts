@@ -198,6 +198,16 @@ export async function writeOffCharge(
 
   if (error) throw new Error(`Falha ao dar baixa: ${error.message}`)
 
+  // A perda é despesa e precisa ser atribuída ao veículo, senão o prejuízo
+  // não aparece no resultado dele — mesmo defeito que o estorno tinha.
+  const { data: itemsBaixa } = await supabase
+    .from('charge_items')
+    .select('vehicle_id')
+    .eq('charge_id', chargeId)
+
+  const vehicleIdBaixa =
+    ((itemsBaixa ?? []) as { vehicle_id: string | null }[]).find((i) => i.vehicle_id)?.vehicle_id ?? null
+
   await postTransaction(supabase, tenantId, {
     event: {
       type: 'charge_written_off',
@@ -205,6 +215,7 @@ export async function writeOffCharge(
       dimensions: dimensionsOf({
         customerId: balance.customer_id,
         rentalId: balance.rental_id,
+        vehicleId: vehicleIdBaixa,
         chargeId,
       }),
     },
@@ -304,10 +315,17 @@ async function reverseChargeIssuance(
 ): Promise<void> {
   const { data: items, error } = await supabase
     .from('charge_items')
-    .select('credit_account_code, amount')
+    .select('credit_account_code, amount, vehicle_id')
     .eq('charge_id', chargeId)
 
   if (error) throw new Error(`Falha ao ler itens: ${error.message}`)
+
+  // O estorno precisa das MESMAS dimensões da emissão. Sem o veículo, a
+  // reversão fica fora de `vehicle_financial_position` (que exige
+  // `vehicle_id IS NOT NULL`) enquanto a emissão continua dentro: o veículo
+  // aparecia recuperando um valor que havia sido cancelado.
+  const vehicleId =
+    ((items ?? []) as { vehicle_id: string | null }[]).find((i) => i.vehicle_id)?.vehicle_id ?? null
 
   const byAccount = new Map<string, number>()
   for (const item of (items ?? []) as { credit_account_code: string; amount: number }[]) {
@@ -328,6 +346,7 @@ async function reverseChargeIssuance(
         dimensions: dimensionsOf({
           customerId: balance.customer_id,
           rentalId: balance.rental_id,
+          vehicleId,
           chargeId,
         }),
       },

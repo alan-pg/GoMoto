@@ -179,4 +179,60 @@ test.describe('Multas — cadastro e cobrança do cliente', () => {
     )
     expect(creditosARecebe.length, 'cancelamento não estornou o recebível').toBeGreaterThan(0)
   })
+
+  test('multa da empresa vira despesa no ledger, não só um registro', async () => {
+    // A migration que criou `fines.payable_id` dizia que responsabilidade e
+    // rateio viveriam no payable — mas nada o criava. `despesa_multa` tinha
+    // zero lançamentos, e multa paga pela empresa não aparecia no custo do
+    // veículo nem no resultado.
+    const { data: payable } = await admin()
+      .from('payables')
+      .select('id, amount, expense_account_code, status, vehicle_id')
+      .eq('source_module', 'fine')
+      .eq('source_id', fineId)
+      .maybeSingle()
+
+    const p = payable as {
+      id: string; amount: number; expense_account_code: string
+      status: string; vehicle_id: string | null
+    } | null
+
+    expect(p, 'multa da empresa não gerou conta a pagar').not.toBeNull()
+    expect(Number(p!.amount)).toBe(VALOR)
+    expect(p!.expense_account_code).toBe('despesa_multa')
+    expect(p!.status).toBe('open')
+    expect(p!.vehicle_id, 'sem veículo o custo some do resultado do veículo').toBe(vehicleId)
+
+    const { data: entries } = await admin()
+      .from('financial_entries')
+      .select('account_code, direction, amount, vehicle_id')
+      .eq('payable_id', p!.id)
+
+    const rows = (entries ?? []) as {
+      account_code: string; direction: string; amount: number; vehicle_id: string | null
+    }[]
+
+    const despesa = rows.find((e) => e.account_code === 'despesa_multa')
+    expect(despesa, 'custo da multa não chegou ao ledger').toBeDefined()
+    expect(despesa!.direction).toBe('debit')
+    expect(Number(despesa!.amount)).toBe(VALOR)
+    expect(despesa!.vehicle_id).toBe(vehicleId)
+
+    const contrapartida = rows.find((e) => e.account_code === 'contas_a_pagar')
+    expect(contrapartida?.direction).toBe('credit')
+
+    // O estorno da cobrança cancelada precisa carregar as MESMAS dimensões da
+    // emissão. Sem o veículo, a reversão fica fora da view (que exige
+    // vehicle_id) enquanto a emissão permanece: o veículo aparecia recuperando
+    // um valor cancelado, e o prejuízo real da empresa sumia.
+    const { data: repasses } = await admin()
+      .from('financial_entries')
+      .select('direction, amount')
+      .eq('account_code', 'repasse_multa')
+      .eq('vehicle_id', vehicleId)
+
+    const r = (repasses ?? []) as { direction: string; amount: number }[]
+    const liquido = r.reduce((s, e) => s + (e.direction === 'credit' ? Number(e.amount) : -Number(e.amount)), 0)
+    expect(liquido, 'repasse cancelado continua contando como recuperado').toBe(0)
+  })
 })

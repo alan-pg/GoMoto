@@ -11,7 +11,7 @@ import {
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { extractFields } from '@/lib/document-extraction/extract'
-import { createCharge, cancelCharge } from '@/lib/financial'
+import { createCharge, cancelCharge, createPayable, payPayable } from '@/lib/financial'
 
 async function getAuthenticatedUser() {
   const supabase = await createClient()
@@ -74,6 +74,8 @@ interface SyncFineBillingParams {
   customerId: string | null
   rentalId: string | null
   vehicleId?: string | null
+  /** Data da infração — competência do custo, quando a empresa é a responsável. */
+  infractionDate?: string | null
   userId?: string | null
 }
 
@@ -89,8 +91,26 @@ type SyncFineBillingResult =
  *  - responsible='customer' → cria (se não existe) ou atualiza valor/vencimento
  *    (se existe e ainda não foi paga — cobrança paga fica congelada).
  */
+/** Payable já lançado para esta multa, se houver. */
+async function payableDaMulta(
+  supabase: Supabase,
+  tenantId: string,
+  fineId: string,
+): Promise<{ id: string; status: string } | null> {
+  const { data } = await supabase
+    .from('payables')
+    .select('id, status')
+    .eq('tenant_id', tenantId)
+    .eq('source_module', 'fine')
+    .eq('source_id', fineId)
+    .neq('status', 'cancelled')
+    .maybeSingle()
+
+  return (data as { id: string; status: string } | null) ?? null
+}
+
 async function syncFineBilling(supabase: Supabase, params: SyncFineBillingParams): Promise<SyncFineBillingResult> {
-  const { fineId, tenantId, responsible, amount, dueDate, customerId, rentalId, vehicleId, userId } = params
+  const { fineId, tenantId, responsible, amount, dueDate, customerId, rentalId, vehicleId, infractionDate, userId } = params
 
   // Origem por (source_module, source_id) — uniforme para todos os módulos.
   // Antes era a coluna dedicada `billings.fine_id`, que obrigava DDL a cada
@@ -120,16 +140,44 @@ async function syncFineBilling(supabase: Supabase, params: SyncFineBillingParams
   }
 
   if (responsible === 'company') {
-    if (!existing) return { ok: true, billingId: null }
-    if (existing.paid_amount > 0) {
-      return { ok: false, error: 'Não é possível mudar o responsável para empresa: o cliente já pagou parte desta cobrança.' }
+    if (existing) {
+      if (existing.paid_amount > 0) {
+        return { ok: false, error: 'Não é possível mudar o responsável para empresa: o cliente já pagou parte desta cobrança.' }
+      }
+
+      try {
+        await cancelCharge(supabase, tenantId, existing.id, 'Multa passou a ser de responsabilidade da empresa', userId)
+      } catch (err) {
+        return { ok: false, error: `Erro ao cancelar cobrança: ${String(err)}` }
+      }
     }
 
-    try {
-      await cancelCharge(supabase, tenantId, existing.id, 'Multa passou a ser de responsabilidade da empresa', userId)
-    } catch (err) {
-      return { ok: false, error: `Erro ao cancelar cobrança: ${String(err)}` }
+    // Multa da empresa é DESPESA e precisa existir no ledger. A migration que
+    // criou `fines.payable_id` dizia que "responsabilidade e rateio vivem no
+    // payable", mas nada criava esse payable: a conta `despesa_multa` nunca
+    // recebeu um lançamento sequer, e o custo sumia do resultado do veículo.
+    const jaTemPayable = await payableDaMulta(supabase, tenantId, fineId)
+    if (!jaTemPayable) {
+      try {
+        const { payableId } = await createPayable(supabase, tenantId, {
+          description: `Multa — ${fineId}`,
+          expenseAccountCode: ACCOUNTS.FINE_EXPENSE,
+          competenceDate: infractionDate ?? dueDate ?? new Date().toISOString().slice(0, 10),
+          dueDate: dueDate ?? new Date().toISOString().slice(0, 10),
+          amount,
+          responsibility: 'company',
+          vehicleId: vehicleId ?? null,
+          rentalId: rentalId ?? null,
+          sourceModule: 'fine',
+          sourceId: fineId,
+          createdBy: userId ?? null,
+        })
+        await supabase.from('fines').update({ payable_id: payableId }).eq('id', fineId).eq('tenant_id', tenantId)
+      } catch (err) {
+        return { ok: false, error: `Erro ao lançar o custo da multa: ${String(err)}` }
+      }
     }
+
     return { ok: true, billingId: null }
   }
 
@@ -234,6 +282,9 @@ export async function createFine(rawData: unknown, rentalId?: string | null): Pr
     dueDate:     parsed.data.due_date ?? null,
     customerId:  parsed.data.customer_id ?? null,
     rentalId:    rentalId ?? null,
+    vehicleId:   parsed.data.vehicle_id,
+    infractionDate: parsed.data.infraction_date,
+    userId:      user.id,
   })
   if (!billingSync.ok) {
     console.error('[createFine] billing_sync_failed', { fine_id: data.id, error: billingSync.error })
@@ -278,6 +329,9 @@ export async function updateFine(
     dueDate:     parsed.data.due_date !== undefined ? parsed.data.due_date : before.due_date,
     customerId:  parsed.data.customer_id !== undefined ? parsed.data.customer_id : before.customer_id,
     rentalId:    rentalId ?? null,
+    vehicleId:   parsed.data.vehicle_id ?? before.vehicle_id,
+    infractionDate: parsed.data.infraction_date ?? before.infraction_date,
+    userId:      user.id,
   })
   if (!billingSync.ok) return { error: billingSync.error }
 
@@ -296,24 +350,40 @@ export async function updateFine(
   return { data }
 }
 
+/**
+ * Registra o pagamento da multa pela empresa.
+ *
+ * Antes escrevia `status`/`payment_date` na própria multa — colunas removidas
+ * pela ADR 0024, então a ação falhava sempre. Pagamento de multa é fato
+ * financeiro: quita o payable e sai como saída de caixa no ledger.
+ *
+ * Multa de responsabilidade do cliente não passa por aqui: o dinheiro dele
+ * entra pela cobrança, em /cobrancas.
+ */
 export async function markFineAsPaid(id: string, paymentDate: string) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
 
-  const { data: before } = await supabase.from('fines').select().eq('id', id).single()
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { error: 'Tenant não resolvido para o usuário' }
 
-  const { data, error } = await supabase
-    .from('fines')
-    .update({ status: 'paid', payment_date: paymentDate })
-    .eq('id', id)
-    .select()
-    .single()
+  const payable = await payableDaMulta(supabase, tenantId, id)
+  if (!payable) {
+    return { error: 'Esta multa não tem conta a pagar. Multa do cliente é quitada pela cobrança, em Cobranças.' }
+  }
+  if (payable.status === 'paid') return { error: 'Esta multa já está paga' }
 
-  if (error) return { error: 'Erro ao marcar multa como paga' }
+  try {
+    await payPayable(supabase, tenantId, payable.id, paymentDate, user.id)
+  } catch (err) {
+    console.error('[markFineAsPaid] pay_payable_failed', { fine_id: id, error: String(err) })
+    return { error: `Erro ao registrar o pagamento: ${String(err)}` }
+  }
 
-  await logAction({ action: 'update', table: 'fines', recordId: id, oldData: before, newData: data })
+  await logAction({ action: 'update', table: 'payables', recordId: payable.id, newData: { status: 'paid', paid_at: paymentDate } })
   revalidatePath('/multas')
-  return { data }
+  revalidatePath('/despesas')
+  return { data: { payableId: payable.id } }
 }
 
 export async function deleteFine(id: string) {
