@@ -344,7 +344,7 @@ e está registrado para não se perder:
 | P-2 | Sem emissão manual de cobrança pelo operador | §4.3 | Se o Cron falhar, só resta esperar o dia seguinte |
 | P-3 | Sem alerta de linha `scheduled` vencida e não emitida | §4.3 | Falha silenciosa do job passa despercebida |
 | ~~P-4~~ | ~~Invariante do ledger não tem teste automatizado~~ | §7, linha "Invariante (SQL)" | ✅ **Resolvida** em `tests/ledger-invariants.spec.ts` (5 casos) |
-| P-5 | Webhook sem teste automatizado | §7, linha "Integração" | Refund e idempotência estão **implementados** na Edge Function, mas nada os exercita |
+| ~~P-5~~ | ~~Webhook sem teste automatizado~~ | §7 | ✅ **Parcial, deliberadamente** — `tests/webhook-pagamento.spec.ts` cobre as duas garantias de que o webhook depende e que vivem fora dele: idempotência pelo `UNIQUE(provider, provider_event_id)` e estorno que marca em vez de apagar. A Edge Function em si consulta a API do Mercado Pago para confirmar o pagamento; testá-la ponta a ponta exigiria simular um serviço externo, e o que se provaria seria a qualidade do simulador. Fica descoberto o parsing do payload e a chamada externa — a casca fina |
 | P-8 | `blockCustomer`/`unblockCustomer` sem chamador na UI | Achado testando as telas (2026-08-13) | As actions existem e estão corretas, mas não há botão. Foi por isso que um bug nelas sobreviveu meses sem ninguém notar. Construir a UI é escopo de produto — onde fica o botão, quem pode usar — e ficou para decisão |
 | ~~P-6~~ | ~~Sem teste de isolamento por tenant nas tabelas novas~~ | §6 chamava de obrigatório | ✅ **Resolvida** em `tests/tenant-isolation-financeiro.spec.ts` (24 casos) |
 | ~~P-2~~ | ~~Sem emissão manual pelo operador~~ | §4.3 | ✅ **Resolvida** — a rota virou disparo manual da mesma função |
