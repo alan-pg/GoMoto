@@ -28,7 +28,8 @@ export default async function RentalMaintenanceTab({
   const { data } = rental.vehicle_id
     ? await supabase
         .from('maintenances')
-        .select('id, vehicle_id, type, description, scheduled_date, completed_date, cost, completed')
+        // `cost` saiu de `maintenances` na ADR 0024 — custo vive no payable.
+        .select('id, vehicle_id, type, description, scheduled_date, completed_date, completed')
         .eq('tenant_id', tenantId)
         .eq('vehicle_id', rental.vehicle_id)
         .order('scheduled_date', { ascending: true })

@@ -67,7 +67,6 @@ type ItemFinancial = {
 type ContractInfo = {
   type: 'rental' | 'promise'
   client_name: string
-  next_billing_date: string | null
 }
 
 /**
@@ -695,7 +694,10 @@ export default function MaintenancePage() {
     // Busca se existe contrato formal para a mesma moto
     const { data: contractData } = await supabase
       .from('rentals')
-      .select('contract_type, next_billing_date, customers(name)')
+      // `next_billing_date` nunca existiu em `rentals`: o próximo vencimento
+      // vem do cronograma (`rental_billing_schedules`), não de uma coluna na
+      // locação. A query falhava e nenhum contrato ativo era encontrado.
+      .select('contract_type, customers(name)')
       .eq('vehicle_id', maintenance.vehicle_id)
       .eq('status', 'active')
       .maybeSingle()
@@ -706,7 +708,6 @@ export default function MaintenancePage() {
       setActiveContract({
         type: (contractData.contract_type as 'rental' | 'promise') || 'rental',
         client_name: customers?.name || 'Cliente',
-        next_billing_date: contractData.next_billing_date,
       })
     } else {
       setActiveContract(null)
@@ -1845,8 +1846,10 @@ export default function MaintenancePage() {
                             className="h-4 w-4 mt-0.5 rounded border-border bg-bg accent-primary"
                           />
                           <span className="text-[13px] text-fg-mute">
+                            {/* A data do próximo vencimento saía de uma coluna
+                                inexistente e nunca era exibida. O vencimento é
+                                do cronograma, não da locação. */}
                             Confirmo que será cobrado desconto de {formatCurrency(totalCliente)} para {activeContract.client_name}
-                            {activeContract.next_billing_date ? ` na cobrança de ${formatDate(activeContract.next_billing_date + 'T12:00:00')}` : ''}
                           </span>
                         </label>
                       )}

@@ -48,10 +48,13 @@ export async function GET(req: NextRequest) {
 
   const startedAt = Date.now()
 
+  // Tenant ativo é o que não tem data de suspensão. Não existe coluna booleana
+  // `suspended` — enquanto a query a usava, ela falhava na PRIMEIRA linha do
+  // job e nenhuma cobrança era emitida, para nenhum tenant, nunca.
   const { data: tenants, error: tenantsError } = await supabase
     .from('tenants')
     .select('id')
-    .eq('suspended', false)
+    .is('suspended_at', null)
 
   if (tenantsError) {
     log('error', 'cron.tenants_failed', { error: tenantsError.message })

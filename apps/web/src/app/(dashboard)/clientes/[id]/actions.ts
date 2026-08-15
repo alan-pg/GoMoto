@@ -83,7 +83,9 @@ export async function createCustomerCredit(
       tenant_id:         tenantId,
       customer_id:       parsed.data.customer_id,
       amount:            parsed.data.amount,
-      available_balance: parsed.data.amount,
+      // `available_balance` não é coluna: saldo de crédito é derivado em
+      // `customer_credit_balances` (Princípio 2 — saldo nunca é coluna).
+      // Enquanto era enviado, lançar crédito falhava por completo.
       origin:            parsed.data.origin,
       reason:            parsed.data.reason,
       created_by:        user.id,

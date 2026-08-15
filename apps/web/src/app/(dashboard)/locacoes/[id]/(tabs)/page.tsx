@@ -120,9 +120,12 @@ export default async function RentalDetailPage({
           <p className="mt-1 text-xl font-bold text-fg">
             {deposit != null ? formatCurrency(deposit.amount) : '—'}
           </p>
-          {deposit && deposit.status !== 'received' && (
+          {/* Saldo vem de `deposit_balances`, derivado do ledger. Antes lia
+              `deposit.status`/`deposit.balance` — colunas que não existem, então
+              a condição era sempre verdadeira e o valor saía indefinido. */}
+          {deposit && depositBalance !== deposit.amount && (
             <p className="mt-0.5 text-[12px] text-fg-mute">
-              Saldo: {formatCurrency(deposit.balance)}
+              Saldo: {formatCurrency(depositBalance)}
             </p>
           )}
         </div>

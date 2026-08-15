@@ -73,7 +73,7 @@ export default async function RentalFinancialTab({
       .order('due_date', { ascending: true }),
     supabase
       .from('deposits')
-      .select('amount, balance, status')
+      .select('amount, closed_at')
       .eq('rental_id', id)
       .eq('tenant_id', tenantId)
       .is('closed_at', null)
@@ -94,7 +94,7 @@ export default async function RentalFinancialTab({
       .order('adjusted_at', { ascending: false }),
   ])
 
-  const deposit = depositResult.data as { amount: number; balance: number; status: string } | null
+  const deposit = depositResult.data as { amount: number; closed_at: string | null } | null
   const billings = (billingsResult.data ?? []) as unknown as BillingRow[]
   const depositMovements = (depositMovementsResult.data ?? []) as unknown as DepositMovementRow[]
   const adjustments = (adjustmentsResult.data ?? []) as unknown as AdjustmentRow[]

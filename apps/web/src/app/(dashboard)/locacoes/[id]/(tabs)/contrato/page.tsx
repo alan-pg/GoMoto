@@ -25,7 +25,7 @@ export default async function RentalContractTab({
   const [depositResult, adjustmentsResult, tenantResult] = await Promise.all([
     supabase
       .from('deposits')
-      .select('amount, balance, status')
+      .select('amount, closed_at')
       .eq('rental_id', id)
       .eq('tenant_id', tenantId)
       .maybeSingle(),
@@ -45,7 +45,7 @@ export default async function RentalContractTab({
   warnMissingContractFields('customer', rental.customer, CONTRACT_CUSTOMER_FIELDS)
   warnMissingContractFields('vehicle', rental.vehicle, CONTRACT_VEHICLE_FIELDS)
 
-  const deposit     = depositResult.data as { amount: number; balance: number; status: string } | null
+  const deposit     = depositResult.data as { amount: number; closed_at: string | null } | null
   const adjustments = adjustmentsResult.data ?? []
   const signedContractUrl = await getSignedContractUrl(supabase, rental.signed_contract_path)
   const tenantName  = tenantResult.data?.legal_name ?? tenantResult.data?.name ?? ''

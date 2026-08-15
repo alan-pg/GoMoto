@@ -25,7 +25,9 @@ export default async function EditRentalPage({
       .select('amount')
       .eq('rental_id', id)
       .eq('tenant_id', tenantId)
-      .in('status', ['pending', 'received'])
+      // Caução viva é a que ainda não foi encerrada. `status` não é coluna de
+      // `deposits` — o encerramento é registrado em `closed_at`.
+      .is('closed_at', null)
       .maybeSingle(),
     supabase
       // Origem por (source_module, source_id) — uniforme. A coluna dedicada

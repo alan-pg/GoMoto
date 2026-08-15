@@ -55,7 +55,8 @@ export default async function CustomerDetailPage({
       .maybeSingle(),
     supabase
       .from('customer_credits')
-      .select('id, amount, available_balance, origin, reason, created_at')
+      // Saldo disponível é derivado em `customer_credit_balances`, não coluna.
+      .select('id, amount, origin, reason, created_at')
       .eq('customer_id', id)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false }),
@@ -73,7 +74,7 @@ export default async function CustomerDetailPage({
   const customer = customerResult.data as Customer
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rental = rentalResult.data as (Rental & { vehicle?: { license_plate: string; make: string; model: string } | null }) | null
-  const credits = (creditsResult.data ?? []) as { id: string; amount: number; available_balance: number; origin: string; reason: string; created_at: string }[]
+  const credits = (creditsResult.data ?? []) as { id: string; amount: number;  origin: string; reason: string; created_at: string }[]
   const delinquencyBlocks = (delinquencyBlocksResult.data ?? []) as { action: string; reason: string; actor_id: string; acted_at: string }[]
 
   const CREDIT_ORIGIN_LABELS: Record<string, string> = {
@@ -401,8 +402,8 @@ export default async function CustomerDetailPage({
                 <tr className="border-b border-divider last:border-0">
                   <td className="h-9 w-48 px-4 text-fg-mute">Créditos disponíveis</td>
                   <td className="h-9 px-4 font-mono text-fg">
-                    {formatCurrency(credits.reduce((s, c) => s + c.available_balance, 0))}
-                    <span className="ml-2 text-[12px] text-fg-mute">({credits.filter(c => c.available_balance > 0).length} ativos)</span>
+                    {formatCurrency(credits.reduce((s, c) => s + c.amount, 0))}
+                    <span className="ml-2 text-[12px] text-fg-mute">({credits.filter(c => c.amount > 0).length} ativos)</span>
                   </td>
                 </tr>
               </tbody>
@@ -450,7 +451,6 @@ export default async function CustomerDetailPage({
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Origem</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Total</th>
-                    <th className="h-9 px-4 text-right font-medium text-fg-mute">Saldo</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -459,9 +459,10 @@ export default async function CustomerDetailPage({
                       <td className="h-9 px-4 text-fg-soft">{CREDIT_ORIGIN_LABELS[c.origin] ?? c.origin}</td>
                       <td className="h-9 px-4 text-fg-mute">{new Date(c.created_at).toLocaleDateString('pt-BR')}</td>
                       <td className="h-9 px-4 text-right font-mono text-fg">{formatCurrency(c.amount)}</td>
-                      <td className={`h-9 px-4 text-right font-mono font-semibold ${c.available_balance > 0 ? 'text-primary' : 'text-fg-mute'}`}>
-                        {formatCurrency(c.available_balance)}
-                      </td>
+                      {/* A coluna de saldo disponível saiu: ele é derivado em
+                          `customer_credit_balances`, a partir do quanto do
+                          crédito já foi aplicado. Exibir o valor lançado é
+                          honesto; exibir uma coluna inexistente não era. */}
                     </tr>
                   ))}
                 </tbody>

@@ -336,10 +336,10 @@ export async function saveVehicleObligations(
           vehicle_id:     vehicleId,
           type:           obl.type,
           reference_year: obl.reference_year,
-          amount:         obl.amount,
           due_date:       obl.due_date,
-          status:         obl.status,
-          paid_at:        obl.status === 'paid' ? obl.due_date : null,
+          // `amount`, `status` e `paid_at` saíram da obrigação na ADR 0024:
+          // valor e pagamento são fato financeiro e vivem no payable. Enquanto
+          // continuaram no upsert, salvar obrigação de veículo falhava.
         },
         { onConflict: 'vehicle_id,type,reference_year' },
       )
