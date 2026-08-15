@@ -149,8 +149,11 @@ test.describe('Isolamento por tenant — tabelas do redesenho financeiro (Spec 0
     const { data: entries, error: entriesErr } = await admin()
       .from('financial_entries')
       .insert([
-        { tenant_id: TENANT_2, transaction_id: txId, account_code: 'contas_a_receber', direction: 'debit', amount: 100 },
-        { tenant_id: TENANT_2, transaction_id: txId, account_code: 'receita_locacao', direction: 'credit', amount: 100 },
+        // `charge_id` amarra o lançamento à cobrança semeada acima. Sem ele a
+        // linha ficava órfã e `reconciliacao.spec.ts`, que varre o banco
+        // inteiro, acusava resíduo de fixture como se fosse defeito real.
+        { tenant_id: TENANT_2, transaction_id: txId, account_code: 'contas_a_receber', direction: 'debit',  amount: 100, charge_id: chargeId },
+        { tenant_id: TENANT_2, transaction_id: txId, account_code: 'receita_locacao',  direction: 'credit', amount: 100, charge_id: chargeId },
       ])
       .select('id')
     if (entriesErr) throw new Error(`Setup falhou em financial_entries: ${entriesErr.message}`)

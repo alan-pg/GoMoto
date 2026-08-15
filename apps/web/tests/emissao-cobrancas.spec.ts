@@ -71,14 +71,25 @@ async function criarLocacao(lines: ScheduleLine[]): Promise<string> {
   return id
 }
 
-async function emitir(leadDays = 0) {
+/**
+ * Emite pelo caminho de PRODUÇÃO.
+ *
+ * `issue_due_charges` cria o documento e só; quem lança no razão é
+ * `fn_issue_charges_for_tenant`, que a envolve e faz as duas coisas na mesma
+ * transação — é ela que o `pg_cron` e o disparo manual chamam. Chamar a de
+ * dentro deixava cobrança sem lançamento no banco de teste, exatamente o
+ * estado que `reconciliacao.spec.ts` existe para proibir.
+ *
+ * Devolve quantas cobranças saíram.
+ */
+async function emitir(leadDays = 0): Promise<number> {
   const tenantId = await getTestTenantId()
-  const { data, error } = await admin().rpc('issue_due_charges', {
+  const { data, error } = await admin().rpc('fn_issue_charges_for_tenant', {
     p_tenant_id: tenantId,
     p_lead_days: leadDays,
   })
-  if (error) throw new Error(`issue_due_charges: ${error.message}`)
-  return (data ?? []) as { schedule_id: string; charge_id: string; charge_number: number }[]
+  if (error) throw new Error(`fn_issue_charges_for_tenant: ${error.message}`)
+  return (data as number | null) ?? 0
 }
 
 /** Linhas do cronograma desta locação, na ordem. */
@@ -203,7 +214,7 @@ test.describe('Emissão de cobranças a partir do cronograma', () => {
 
     // Segunda execução: a linha já está `issued`, então não entra no filtro.
     const segunda = await emitir()
-    expect(segunda.map((r) => r.schedule_id)).not.toContain(depoisDaPrimeira[0]!.id)
+    expect(segunda, 'a segunda execução emitiu de novo').toBe(0)
 
     const { count } = await admin()
       .from('charges')

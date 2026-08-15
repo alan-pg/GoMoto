@@ -347,7 +347,7 @@ e está registrado para não se perder:
 | ~~P-6~~ | ~~Sem teste de isolamento por tenant nas tabelas novas~~ | §6 chamava de obrigatório | ✅ **Resolvida** em `tests/tenant-isolation-financeiro.spec.ts` (24 casos) |
 | ~~P-2~~ | ~~Sem emissão manual pelo operador~~ | §4.3 | ✅ **Resolvida** — a rota virou disparo manual da mesma função |
 | ~~P-3~~ | ~~Sem alerta de linha `scheduled` vencida~~ | §4.3 | ✅ **Resolvida** — `billing_runs` registra cada execução e a tela financeira exibe faixa vermelha quando passa de 26h sem rodar |
-| P-7 | Reconciliação testada só no escopo da spec E2E | §7 pedia 100% das transações | `cobrancas.spec.ts` valida `SUM = 0` apenas nas transações que ela cria |
+| ~~P-7~~ | ~~Reconciliação testada só no escopo da spec E2E~~ | §7 pedia 100% das transações | ✅ **Resolvida** — `reconciliacao.spec.ts` varre o banco inteiro. Ver §10.5 |
 
 Nenhuma bloqueia o uso do sistema.
 
@@ -489,6 +489,76 @@ errado na tela é sinal errado no lançamento — que é o que se quer ver.
 Cobertura em dois níveis: `dre.spec.ts` prova que o número está certo (sinal,
 competência, política que não reclassifica o passado); `dre-tela.spec.ts` prova
 que ele chega ao operador com o nome e o sinal certos — o elo que faltava.
+
+---
+
+## 10.5 Reconciliação e o buraco que ela achou (P-7, 2026-08-15)
+
+A §7 pedia `SUM = 0` em 100% das transações e só havia validação dentro do
+escopo de cada spec. Ao escrever a varredura, a pergunta útil mostrou-se ser
+**outra**, e mais importante:
+
+| Garantia | Quem protege |
+|---|---|
+| Toda transação fecha em zero | `trg_entries_balanced`, no banco. Não depende de teste |
+| **Todo documento vira lançamento** | **Ninguém.** Não há trigger possível: o documento é legítimo antes do lançamento existir |
+
+A segunda é a que decide se o relatório pode ser lido sem conferir a operação
+por fora, e é a que já falhou **quatro vezes** neste redesenho: conceder crédito
+não lançava, custo de manutenção era descartado, valor da obrigação do veículo
+era descartado, e a quarta apareceu agora.
+
+### `issue_due_charges` estava aberta ao cliente
+
+`issue_due_charges` emite o DOCUMENTO e só; quem lança no razão é
+`fn_issue_charges_for_tenant`, que a envolve e faz as duas coisas na mesma
+transação. As duas — e `fn_run_billing_emission` — estavam com `EXECUTE` para
+`anon` e `authenticated`.
+
+O caminho de produção sempre usou a de fora, então **nunca houve dado errado**.
+Mas qualquer sessão com a chave pública podia chamar a de dentro e emitir
+cobrança que nunca chegaria ao DRE. Revogado: só `service_role`, e o disparo
+manual já exige `CRON_SECRET`.
+
+### O que a varredura cobre
+
+`reconciliacao.spec.ts` roda com `service_role` sobre o banco **inteiro**, não
+sobre o que ela cria: toda transação fecha em zero e tem ao menos duas pernas;
+nenhuma cobrança, conta a pagar ou crédito sem lançamento; e a emissão que não
+lança não é alcançável por usuário autenticado. Semeia um documento de cada tipo
+pelo caminho de produção para não passar vazio em banco recém-resetado.
+
+### Cinco fixtures que ela obrigou a corrigir
+
+Sozinha, a varredura acusou 18 cobranças órfãs — todas de **teste**, nenhuma do
+produto. Corrigi-las melhorou os testes:
+
+- `emissao-cobrancas` e `reajuste-e-renovacao` chamavam `issue_due_charges`.
+  Agora chamam `fn_issue_charges_for_tenant`, que é o que o `pg_cron` chama —
+  passaram a exercitar emissão **e** lançamento, atomicamente.
+- `billings-rentals` inseria cobrança direto na tabela em dois pontos. Agora usa
+  `createCharge`. Isso revelou que o fixture antigo **escondia** a exigência de
+  destino da caução no encerramento: sem lançamento, `deposit_balances` era zero
+  e a seção nem aparecia.
+- `ledger-invariants` cria documento cru de propósito (o alvo é a trigger de
+  coerência do item). Item de cobrança é imutável, então não dá para apagar:
+  fecha-se o razão ao final.
+- `tenant-isolation-financeiro` semeava lançamento sem `charge_id`.
+
+Uma asserção minha estava errada e passava por acidente: eu ligava payable ao
+razão por `transactions.source_id`, quando o vínculo é `entries.payable_id` — a
+origem da transação é o FATO (a manutenção, a multa), não o documento.
+
+### Risco residual, declarado
+
+No caminho do banco (`pg_cron`), documento e lançamento nascem na mesma
+transação SQL. **No caminho do app não**: `createCharge` faz o INSERT e depois
+chama `postTransaction` — duas chamadas separadas, porque o cliente JS não abre
+transação multi-statement. Se o processo morrer entre as duas, sobra órfão. O
+código devolve erro ao operador quando a segunda falha; contra queda de processo
+não há proteção, e a varredura é o detector.
+
+**Suíte: 111 E2E e 603 unit, em banco recém-resetado.**
 
 ---
 

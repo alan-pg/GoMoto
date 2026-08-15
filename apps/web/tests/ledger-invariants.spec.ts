@@ -257,6 +257,27 @@ test.describe('Ledger — invariantes do banco (ADR 0024)', () => {
       source_module: 'late_charge', source_id: chargeId,
     })
     expect(encargoErr, encargoErr?.message).toBeNull()
+
+    // O documento nasceu cru porque o alvo aqui é a trigger de coerência do
+    // item, não o fluxo de emissão. Apagar não é opção — item de cobrança é
+    // imutável (`trg_charge_items_immutable`) —, então fecha-se o razão: sem
+    // isso sobra cobrança sem lançamento, e `reconciliacao.spec.ts`, que varre
+    // o banco inteiro, acusaria fixture como se fosse defeito de produto.
+    const { error: postErr } = await admin().rpc('post_financial_transaction', {
+      p_tenant_id: tenantId,
+      p_transaction: {
+        event_type: 'charge_issued',
+        description: `${TEST_TAG} Emissão da multa`,
+        source_module: 'fine',
+        source_id: fonte,
+      },
+      p_entries: [
+        { account_code: 'contas_a_receber',        direction: 'debit',  amount: 108.38, charge_id: chargeId, customer_id: customerId },
+        { account_code: 'repasse_multa',           direction: 'credit', amount: 100,    charge_id: chargeId, customer_id: customerId },
+        { account_code: 'receita_encargos_atraso', direction: 'credit', amount: 8.38,   charge_id: chargeId, customer_id: customerId },
+      ],
+    })
+    expect(postErr, postErr?.message).toBeNull()
   })
 
   test('a mesma origem não gera duas cobranças vivas', async () => {
@@ -285,5 +306,12 @@ test.describe('Ledger — invariantes do banco (ADR 0024)', () => {
 
     const { error: segunda } = await emitir()
     expect(segunda, 'a mesma multa gerou duas cobranças').not.toBeNull()
+
+    // Este teste cria documento SEM lançamento de propósito — o alvo é o índice
+    // de origem única, não o fluxo. Limpar é obrigatório: `reconciliacao.spec.ts`
+    // varre o banco inteiro atrás de cobrança órfã, e sobra daqui seria
+    // indistinguível de defeito real.
+    await admin().from('charges').delete().eq('source_id', fonte)
+    await admin().from('customers').delete().eq('id', customerId)
   })
 })

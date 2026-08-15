@@ -140,7 +140,7 @@ test.describe('Reajuste do cronograma', () => {
       { sequence_number: 3, period_start: isoOffset(15),  period_end: isoOffset(44),  due_date: isoOffset(44),  amount: 600 },
     ], 600)
 
-    await admin().rpc('issue_due_charges', { p_tenant_id: tenantId, p_lead_days: 0 })
+    await admin().rpc('fn_issue_charges_for_tenant', { p_tenant_id: tenantId, p_lead_days: 0 })
 
     const antes = await cronograma(rentalId)
     const emitidas = antes.filter((l) => l.status === 'issued')
@@ -213,7 +213,7 @@ test.describe('Reajuste do cronograma', () => {
       { sequence_number: 2, period_start: isoOffset(15),  period_end: isoOffset(44),  due_date: isoOffset(44),  amount: 500 },
     ], 500)
 
-    await admin().rpc('issue_due_charges', { p_tenant_id: tenantId, p_lead_days: 0 })
+    await admin().rpc('fn_issue_charges_for_tenant', { p_tenant_id: tenantId, p_lead_days: 0 })
 
     // Data efetiva no passado, cobrindo o período já emitido: a RPC filtra por
     // `status = 'scheduled'`, então a linha emitida fica fora mesmo assim.
@@ -243,7 +243,7 @@ test.describe('Renovação do cronograma', () => {
       { sequence_number: 2, period_start: isoOffset(0),   period_end: isoOffset(15), due_date: isoOffset(10), amount: 400 },
     ], 400)
 
-    await admin().rpc('issue_due_charges', { p_tenant_id: tenantId, p_lead_days: 0 })
+    await admin().rpc('fn_issue_charges_for_tenant', { p_tenant_id: tenantId, p_lead_days: 0 })
 
     const antes = await cronograma(rentalId)
     const emitidasAntes = antes.filter((l) => l.status === 'issued').length

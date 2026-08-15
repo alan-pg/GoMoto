@@ -3,6 +3,7 @@ import {
   TEST_TAG, getSupabase, getSupabaseAdmin, getTestTenantId, createTestVehicle, deleteTestVehicle,
   createTestCustomer, deleteTestCustomer, waitForPageLoad,
 } from './helpers'
+import { createCharge } from '../src/lib/financial/charges'
 
 /**
  * Cobranças de locação — filtros e encerramento antecipado (Spec 0014).
@@ -100,31 +101,22 @@ test.describe('Encerramento antecipado preserva garantias emitidas (RN-003)', ()
       { desc: `${TEST_TAG} Caução ${RUN_ID}`, account: 'caucoes_a_devolver', amount: 300, mod: 'deposit' },
       { desc: `${TEST_TAG} Entrada ${RUN_ID}`, account: 'receita_locacao', amount: 150, mod: 'down_payment' },
     ]) {
-      const { data: n } = await sb.rpc('fn_next_charge_number', { p_tenant_id: tenantId })
-
-      // Origem única por garantia. Caução e Entrada nascem da mesma locação,
-      // então precisam de identificadores distintos — e o item tem que repetir
-      // exatamente a origem do documento, ou a trigger o recusa.
-      const origem = crypto.randomUUID()
-
-      const { data: charge, error: chErr } = await sb
-        .from('charges')
-        .insert({
-          tenant_id: tenantId, customer_id: customerId, rental_id: rentalId,
-          charge_number: n as number, due_date: '2026-10-01',
-          source_module: g.mod, source_id: origem,
-        })
-        .select('id')
-        .single()
-      if (chErr) throw new Error(`Erro ao criar cobrança de ${g.mod}: ${chErr.message}`)
-
-      const { error: itemErr } = await sb.from('charge_items').insert({
-        tenant_id: tenantId, charge_id: (charge as { id: string }).id,
-        description: g.desc, credit_account_code: g.account,
-        quantity: 1, unit_amount: g.amount, amount: g.amount,
-        source_module: g.mod, source_id: origem,
+      // Origem única por garantia: Caução e Entrada nascem da mesma locação,
+      // então precisam de identificadores distintos. `createCharge` cuida do
+      // número, do item e do lançamento — o INSERT direto que estava aqui
+      // deixava as duas sem razão.
+      await createCharge(sb, tenantId, {
+        customerId,
+        rentalId,
+        dueDate: '2026-10-01',
+        sourceModule: g.mod,
+        sourceId: crypto.randomUUID(),
+        items: [{
+          description: g.desc,
+          credit_account_code: g.account,
+          quantity: 1, unit_amount: g.amount, amount: g.amount,
+        }],
       })
-      if (itemErr) throw new Error(`Erro ao criar item de ${g.mod}: ${itemErr.message}`)
     }
 
     // Encerra antes do vencimento dos períodos futuros.
@@ -144,8 +136,22 @@ test.describe('Encerramento antecipado preserva garantias emitidas (RN-003)', ()
     await expect(force).toBeVisible({ timeout: 10_000 })
     await force.check()
 
+    // Com caução emitida E lançada, encerrar exige dizer para onde o dinheiro
+    // do cliente vai — a seção só aparece quando há saldo de caução, e o
+    // fixture antigo a escondia por não lançar no razão. Aqui devolve-se
+    // integralmente, que é o padrão da tela.
+    await expect(page.getByText('Destino da caução')).toBeVisible({ timeout: 10_000 })
+
     await page.getByRole('button', { name: 'Confirmar Encerramento' }).click()
-    await page.waitForURL(/\/locacoes\/?$/, { timeout: 15_000 })
+
+    // A asserção é sobre o RESULTADO, não sobre a URL: com a liquidação da
+    // caução no meio, a revalidação da própria rota chega antes do
+    // `router.push`, e `/encerrar` responde 404 porque a locação já não está
+    // ativa. Esperar a navegação testaria a corrida, não o encerramento.
+    await expect.poll(async () => {
+      const { data } = await sb.from('rentals').select('status').eq('id', rentalId).single()
+      return (data as { status: string } | null)?.status
+    }, { timeout: 15_000 }).not.toBe('active')
 
     // Cronograma futuro cancelado.
     const { data: schedule } = await sb
@@ -215,29 +221,36 @@ test.describe('Encerramento liquida a caução', () => {
     rId = novoId as string
 
     // Caução recebida: entra como PASSIVO, não receita.
-    const { data: n } = await sb.rpc('fn_next_charge_number', { p_tenant_id: tenantId })
+    //
+    // Emitida por `createCharge`, o mesmo caminho do produto. O INSERT direto
+    // que estava aqui pulava o lançamento no razão e deixava cobrança órfã —
+    // o estado que `reconciliacao.spec.ts` proíbe, e que num fixture vira
+    // ruído indistinguível de defeito real.
     const origem = crypto.randomUUID()
-    const { data: ch } = await sb.from('charges').insert({
-      tenant_id: tenantId, customer_id: cId, rental_id: rId,
-      charge_number: n as number, due_date: hoje,
-      source_module: 'deposit', source_id: origem,
-    }).select('id').single()
-    const chargeId = (ch as { id: string }).id
-
-    await sb.from('charge_items').insert({
-      tenant_id: tenantId, charge_id: chargeId, description: `${TEST_TAG} Caução`,
-      credit_account_code: 'caucoes_a_devolver', quantity: 1, unit_amount: 800, amount: 800,
-      source_module: 'deposit', source_id: origem, vehicle_id: vId,
+    const { chargeId } = await createCharge(sb, tenantId, {
+      customerId: cId,
+      rentalId: rId,
+      dueDate: hoje,
+      sourceModule: 'deposit',
+      sourceId: origem,
+      items: [{
+        description: `${TEST_TAG} Caução`,
+        credit_account_code: 'caucoes_a_devolver',
+        quantity: 1, unit_amount: 800, amount: 800,
+        vehicle_id: vId,
+      }],
     })
     await sb.from('deposits').insert({
       tenant_id: tenantId, rental_id: rId, customer_id: cId, amount: 800, charge_id: chargeId,
     })
+    // O recebimento: a emissão já creditou `caucoes_a_devolver` e debitou
+    // `contas_a_receber`; pagar move de a-receber para caixa.
     await sb.rpc('post_financial_transaction', {
       p_tenant_id: tenantId,
-      p_transaction: { event_type: 'deposit_received', description: `${TEST_TAG} Caução recebida`, source_module: 'deposit', source_id: rId },
+      p_transaction: { event_type: 'payment_received', description: `${TEST_TAG} Caução recebida`, source_module: 'deposit', source_id: rId },
       p_entries: [
-        { account_code: 'caixa_e_bancos', direction: 'debit', amount: 800, rental_id: rId, customer_id: cId, vehicle_id: vId },
-        { account_code: 'caucoes_a_devolver', direction: 'credit', amount: 800, rental_id: rId, customer_id: cId, vehicle_id: vId },
+        { account_code: 'caixa_e_bancos',    direction: 'debit',  amount: 800, rental_id: rId, customer_id: cId, vehicle_id: vId, charge_id: chargeId },
+        { account_code: 'contas_a_receber',  direction: 'credit', amount: 800, rental_id: rId, customer_id: cId, vehicle_id: vId, charge_id: chargeId },
       ],
     })
 
