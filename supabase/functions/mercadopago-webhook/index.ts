@@ -155,7 +155,7 @@ async function processEvent(
   // Resolve o tenant pela conta do provedor — não mais por payment_connections.
   const { data: account } = await supabase
     .from('payment_provider_accounts')
-    .select('id, tenant_id, credentials')
+    .select('id, tenant_id')
     .eq('provider', PROVIDER)
     .eq('external_account_id', mpUserId)
     .maybeSingle()
@@ -166,10 +166,19 @@ async function processEvent(
     return
   }
 
-  const acc = account as { id: string; tenant_id: string; credentials: { access_token: string } }
+  const acc = account as { id: string; tenant_id: string }
+
+  // O token sai do Vault, não da tabela. A Edge Function roda com service_role,
+  // que a função aceita — é backend confiável e não tem tenant de usuário.
+  const { data: creds } = await supabase.rpc('fn_provider_credentials', { p_account_id: acc.id })
+  const accessToken = (creds as { access_token?: string } | null)?.access_token
+  if (!accessToken) {
+    log('error', 'webhook.no_credentials', { account_id: acc.id })
+    return new Response('Credenciais do gateway ausentes', { status: 500 })
+  }
 
   const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${mpPaymentId}`, {
-    headers: { Authorization: `Bearer ${acc.credentials.access_token}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!mpRes.ok) throw new Error(`MP fetch failed: status=${mpRes.status}`)
 

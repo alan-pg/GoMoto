@@ -125,7 +125,8 @@ test.describe('Isolamento por tenant — tabelas do redesenho financeiro (Spec 0
 
     // ── Gateway ─────────────────────────────────────────────────────────────
     const providerAccountId = await seed('payment_provider_accounts', {
-      tenant_id: TENANT_2, provider: 'mercadopago', external_account_id: `acct_${suffix}`, credentials: { token: 'fake' },
+      tenant_id: TENANT_2, provider: 'mercadopago', external_account_id: `acct_${suffix}`,
+      account_email: 'loja-t2@teste.com',
     })
     cleanup.push({ table: 'payment_provider_accounts', id: providerAccountId })
 
@@ -258,5 +259,51 @@ test.describe('Isolamento por tenant — tabelas do redesenho financeiro (Spec 0
       const alheias = ((data ?? []) as { tenant_id: string }[]).filter((r) => r.tenant_id !== tenant1)
       expect(alheias, `${view} devolveu linha de outro tenant`).toEqual([])
     }
+  })
+
+  test('credencial do gateway não vaza para outro tenant', async () => {
+    // A credencial saiu da tabela e vive no Vault; a leitura passa por
+    // `fn_provider_credentials`, que é SECURITY DEFINER e por isso IGNORA RLS.
+    // Sem a checagem de tenant dentro dela, qualquer autenticado leria o token
+    // de pagamento de qualquer empresa — e com ele se movimenta dinheiro.
+    const contaAlheia = seeded['payment_provider_accounts']
+
+    // Semear um segredo DE VERDADE é o que dá sentido ao teste: sem credencial
+    // gravada a função devolveria null para qualquer um, e a asserção passaria
+    // sem nenhuma checagem de tenant existir.
+    const { error: seedErr } = await admin().rpc('fn_store_provider_credentials', {
+      p_account_id:    contaAlheia,
+      p_access_token:  'APP_USR-segredo-do-tenant-2',
+      p_refresh_token: 'TG-refresh-t2',
+    })
+    expect(seedErr, seedErr?.message).toBeNull()
+
+    // Controle: o backend confiável enxerga, então há o que vazar.
+    const { data: comoAdmin } = await admin().rpc('fn_provider_credentials', { p_account_id: contaAlheia })
+    expect((comoAdmin as { access_token?: string } | null)?.access_token).toBe('APP_USR-segredo-do-tenant-2')
+
+    const sb = await getSupabase()
+    const { data, error } = await sb.rpc('fn_provider_credentials', {
+      p_account_id: contaAlheia,
+    })
+
+    // Ou recusa explícita, ou nada — o que não pode é devolver o segredo.
+    expect(data ?? null, 'credencial de outro tenant foi devolvida').toBeNull()
+    expect(error, 'a leitura cruzada deveria ser recusada').not.toBeNull()
+    expect(error!.message).toMatch(/outro tenant/i)
+  })
+
+  test('a credencial não é selecionável junto com a linha', async () => {
+    // O ponto de tirar o token da tabela: nenhum SELECT amplo — nem log de
+    // linha, nem dump — carrega o segredo junto.
+    const colunas = await admin()
+      .from('payment_provider_accounts')
+      .select('*')
+      .eq('id', seeded['payment_provider_accounts'])
+      .single()
+
+    const linha = colunas.data as Record<string, unknown>
+    expect(Object.keys(linha)).not.toContain('credentials')
+    expect(JSON.stringify(linha)).not.toMatch(/APP_USR|access_token/)
   })
 })

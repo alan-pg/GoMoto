@@ -111,7 +111,7 @@ export async function getOrCreateIntent(
   // 3. Conta do provedor
   const { data: account } = await supabase
     .from('payment_provider_accounts')
-    .select('id, provider, credentials')
+    .select('id, provider')
     .eq('tenant_id', tenantId)
     .eq('provider', provider.name)
     .eq('active', true)
@@ -123,7 +123,20 @@ export async function getOrCreateIntent(
     throw Object.assign(new Error('Integração de pagamento não configurada'), { code: 'FORBIDDEN' })
   }
 
-  const acc = account as { id: string; provider: string; credentials: Record<string, unknown> }
+  const acc = account as { id: string; provider: string }
+
+  // A credencial não vem na linha: é resolvida por função, que checa o tenant
+  // porque SECURITY DEFINER ignora RLS. Ponto único de leitura do segredo.
+  const { data: credentials, error: credError } = await supabase.rpc('fn_provider_credentials', {
+    p_account_id: acc.id,
+  })
+
+  if (credError || !credentials) {
+    throw Object.assign(
+      new Error('Credenciais do gateway não configuradas. Reconecte a conta em Configurações.'),
+      { code: 'FORBIDDEN' },
+    )
+  }
 
   const { data: customer } = await supabase
     .from('customers')
@@ -138,7 +151,7 @@ export async function getOrCreateIntent(
     amount: amount_due,
     chargeId,
     method,
-    credentials: acc.credentials,
+    credentials: credentials as Record<string, unknown>,
     customer: { name: c?.name ?? null, email: c?.email ?? null, document: c?.cpf ?? null },
   })
 

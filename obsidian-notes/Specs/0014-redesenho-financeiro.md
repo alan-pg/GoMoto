@@ -340,7 +340,7 @@ e está registrado para não se perder:
 | # | Pendência | Origem | Impacto |
 |---|---|---|---|
 | ~~P-9~~ | ~~Tabelas especulativas e derivação em coluna~~ | Auditoria 2026-08-14 | ✅ **Resolvida** — `branches`, `cost_centers` e `fiscal_documents` removidas (inertes: zero linhas, zero uso, dimensões 100% NULL); `charges.status` guarda só decisão e a view deriva `paid`; `acquisition_cost`/`accumulated_depreciation` saíram da view por retornarem zero por construção |
-| P-1 | `payment_provider_accounts.credentials` em texto puro | §6 previa cifrar com `pgcrypto` | Não regride (o legado também era texto puro), mas era a oportunidade de corrigir |
+| ~~P-1~~ | ~~`payment_provider_accounts.credentials` em texto puro~~ | §6 | ✅ **Resolvida** — token vai para o Supabase Vault; a tabela guarda só a referência, e a leitura passa por função com checagem de tenant |
 | P-2 | Sem emissão manual de cobrança pelo operador | §4.3 | Se o Cron falhar, só resta esperar o dia seguinte |
 | P-3 | Sem alerta de linha `scheduled` vencida e não emitida | §4.3 | Falha silenciosa do job passa despercebida |
 | ~~P-4~~ | ~~Invariante do ledger não tem teste automatizado~~ | §7, linha "Invariante (SQL)" | ✅ **Resolvida** em `tests/ledger-invariants.spec.ts` (5 casos) |
