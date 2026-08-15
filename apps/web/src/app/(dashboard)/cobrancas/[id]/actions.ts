@@ -114,6 +114,41 @@ export async function applyCustomerCredits(
       return { ok: true, data: { applied: 0, total: 0 } }
     }
 
+    // O crédito quita a cobrança como qualquer outra forma de pagamento — o que
+    // muda é a origem do dinheiro. Sem o par pagamento+alocação, o abatimento
+    // existia só no razão e `charge_balances.open_amount` (itens − alocações)
+    // continuava cheio: crédito consumido, dívida de pé, cliente cobrado duas
+    // vezes.
+    const totalAplicado = round2(applications.reduce((s, a) => s + a.amount, 0))
+
+    const { data: pagamento, error: pagErr } = await ctx.supabase
+      .from('payments')
+      .insert({
+        tenant_id:   ctx.tenantId,
+        customer_id: customerId,
+        amount:      totalAplicado,
+        method:      'credit',
+        paid_at:     new Date().toISOString(),
+        notes:       'Abatimento por crédito do cliente',
+        received_by: ctx.userId,
+      })
+      .select('id')
+      .single()
+
+    if (pagErr) return { ok: false, error: { code: 'INTERNAL', message: `Falha ao registrar o abatimento: ${pagErr.message}` } }
+    const pagamentoId = (pagamento as { id: string }).id
+
+    const { error: alocErr } = await ctx.supabase.from('payment_allocations').insert(
+      applications.map((a) => ({
+        tenant_id:  ctx.tenantId,
+        payment_id: pagamentoId,
+        charge_id:  a.charge_id,
+        amount:     a.amount,
+        created_by: ctx.userId,
+      })),
+    )
+    if (alocErr) return { ok: false, error: { code: 'INTERNAL', message: `Falha ao alocar o crédito: ${alocErr.message}` } }
+
     let total = 0
     for (const app of applications) {
       const charge = charges.find((c) => c.charge_id === app.charge_id)

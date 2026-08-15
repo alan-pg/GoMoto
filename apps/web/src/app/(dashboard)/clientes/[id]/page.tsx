@@ -169,9 +169,6 @@ export default async function CustomerDetailPage({
           }`}>
             {isCompany ? 'Pessoa Jurídica' : 'Pessoa Física'}
           </span>
-          {customer.payment_status && (
-            <span className="text-[13px] text-fg-mute">{customer.payment_status}</span>
-          )}
         </div>
 
         {/* ── Contrato Ativo ───────────────────────────────────────────────── */}

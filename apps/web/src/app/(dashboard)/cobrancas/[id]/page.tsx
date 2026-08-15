@@ -425,7 +425,11 @@ export default async function BillingDetailPage({
                   </tr>
                   <tr>
                     <td className="h-9 w-44 px-4 font-medium text-fg">Total com encargos</td>
-                    <td className="h-9 px-4 font-mono font-bold text-danger">{formatCurrency(amountDue + chargesCalc.total)}</td>
+                    {/* `amountDue` JÁ inclui o encargo acumulado (saldo +
+                        acréscimo). Somar de novo aqui exibia o encargo em
+                        dobro: R$ 532,88 no bloco contra R$ 516,44 no cabeçalho,
+                        dois números para a mesma coisa na mesma tela. */}
+                    <td className="h-9 px-4 font-mono font-bold text-danger">{formatCurrency(amountDue)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -548,12 +552,16 @@ export default async function BillingDetailPage({
         {/* ── Ações ─────────────────────────────────────────────────────── */}
         <section>
           <h2 className="mb-3 text-[14px] font-bold text-primary">Ações</h2>
+          {/* Valores reais. Estavam fixos em `accruedCharges={0}` e
+              `isOverdue={false}`, e a condição do botão "Consolidar encargo" é
+              `isOverdue && accruedCharges > 0` — ou seja, ele NUNCA era
+              renderizado, e realizar o encargo era inalcançável pela tela. */}
           <BillingActions
             billingId={id}
             status={(balance.is_overdue ? 'overdue' : balance.status)}
             amountDue={amountDue}
-            accruedCharges={0}
-            isOverdue={false}
+            accruedCharges={accrued.total}
+            isOverdue={isOverdue}
             customerId={billing.customer_id ?? ''}
             availableCredits={availableCredits}
           />

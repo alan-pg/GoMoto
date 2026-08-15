@@ -94,7 +94,6 @@ export const CustomerSchema = z.object({
   drivers_license_photo_url: z.string().trim().max(500).optional().nullable(),
   residency_proof_url: z.string().trim().max(500).optional().nullable(),
   // Gestão
-  payment_status: z.string().trim().max(50).optional().nullable(),
   observations: z.string().trim().max(2000).optional().nullable(),
   in_queue: z.boolean().optional(),
   active: z.boolean().optional(),

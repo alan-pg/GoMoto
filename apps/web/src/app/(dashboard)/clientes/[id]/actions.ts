@@ -5,7 +5,8 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
-import type { ActionResult } from '@gomoto/core'
+import { ACCOUNTS, type ActionResult } from '@gomoto/core'
+import { postTransaction, dimensionsOf } from '@/lib/financial'
 
 const UUID_LOOSE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const uuid = () => z.string().regex(UUID_LOOSE, 'ID inválido')
@@ -94,6 +95,33 @@ export async function createCustomerCredit(
     .single()
 
   if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
+
+  // Crédito é DÍVIDA da empresa com o cliente, e o saldo disponível vem do
+  // ledger (`customer_credit_balances` agrega `creditos_de_clientes`). Sem este
+  // lançamento a linha existia e o saldo nascia zero: o crédito aparecia na
+  // ficha do cliente e a tela de cobrança recusava aplicá-lo por "valor
+  // inválido". Concedido e inutilizável.
+  const contaDespesa =
+    parsed.data.origin === 'maintenance_refund' ? ACCOUNTS.MAINTENANCE_EXPENSE
+      : ACCOUNTS.OPERATIONAL_EXPENSE
+
+  try {
+    await postTransaction(supabase, tenantId, {
+      event: {
+        type: 'credit_granted',
+        amount: parsed.data.amount,
+        expense_account: contaDespesa,
+        dimensions: dimensionsOf({ customerId: parsed.data.customer_id }),
+      },
+      description: `Crédito ao cliente — ${parsed.data.reason}`,
+      sourceModule: 'customer_credit',
+      sourceId: credit.id,
+      createdBy: user.id,
+    })
+  } catch (err) {
+    console.error('[createCustomerCredit] ledger_failed', { credit_id: credit.id, error: String(err) })
+    return { ok: false, error: { code: 'INTERNAL', message: `Crédito não pôde ser lançado: ${String(err)}` } }
+  }
 
   await logAction({ action: 'create', table: 'customer_credits', recordId: credit.id, newData: { customer_id: parsed.data.customer_id, amount: parsed.data.amount } })
   revalidatePath(`/clientes/${parsed.data.customer_id}`)

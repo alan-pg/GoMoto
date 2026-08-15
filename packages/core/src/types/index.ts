@@ -251,10 +251,10 @@ export interface Customer {
   residency_proof_url?: string | null;
   document_photo_url?: string | null;
   // Gestão
-  payment_status?: string | null;
-  // `delinquency_status` saiu na ADR 0024: era coluna de estado mantida por
-  // trigger inerte. Inadimplência é derivada da view `customer_delinquency`;
-  // bloqueio é a última ação em `delinquency_blocks`.
+  // `payment_status` e `delinquency_status` saíram na ADR 0024: eram colunas de
+  // estado, uma escrita à mão e outra por trigger inerte. Inadimplência é
+  // derivada da view `customer_delinquency`; bloqueio é a última ação em
+  // `delinquency_blocks`.
   observations?: string | null;
   documents?: Document[];
   in_queue: boolean;

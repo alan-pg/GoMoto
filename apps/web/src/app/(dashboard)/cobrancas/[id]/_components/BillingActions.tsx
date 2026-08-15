@@ -62,7 +62,11 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
   const [selectedCredit, setSelectedCredit] = useState(availableCredits[0]?.id ?? '')
   const [creditAmount, setCreditAmount]     = useState('')
 
-  const isActionable = status === 'open'
+  // Vencida é estado DERIVADO de uma cobrança aberta, não um status terminal:
+  // a página envia 'overdue' no lugar de 'open' quando há atraso. Comparar com
+  // 'open' escondia a barra inteira — pagar, cancelar, dar baixa, consolidar —
+  // exatamente na cobrança que mais precisa de ação.
+  const isActionable = status === 'open' || status === 'overdue'
   const hasCredits = availableCredits.length > 0 && isActionable
 
   function handlePay() {
@@ -87,7 +91,9 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
   }
 
   function handleWaive() {
-    if (waiveReason.trim().length < 5) { setFlashError('Motivo deve ter ao menos 5 caracteres'); return }
+    // Consolidar não exige justificativa: só realiza o encargo que a política
+    // já determina. A exigência de motivo vinha de "dispensar", ação que deixou
+    // de existir — e travava a confirmação num campo sem sentido.
     setFlashError(null)
     startTransition(async () => {
       // O encargo projetado só vira receita quando consolidado (R-06); não
@@ -213,7 +219,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
       </Modal>
 
       {/* ── Dispensar encargos ─────────────────────────────────────────────── */}
-      <Modal open={waiveOpen} onClose={() => setWaiveOpen(false)} title="Dispensar encargos">
+      <Modal open={waiveOpen} onClose={() => setWaiveOpen(false)} title="Consolidar encargo">
         <div className="space-y-4">
           <p className="text-[13px] text-fg-mute">
             Os encargos (multa e juros) desta cobrança serão zerados. Essa ação é irreversível.
@@ -223,7 +229,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
             value={waiveReason}
             onChange={e => setWaiveReason(e.target.value)}
             rows={3}
-            placeholder="Explique o motivo da dispensa…"
+            placeholder="Observação (opcional)…"
           />
           {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
           <div className="flex justify-end gap-2 pt-2">
@@ -238,7 +244,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
               disabled={isPending}
               className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-primary-hover disabled:opacity-50"
             >
-              {isPending ? 'Salvando…' : 'Confirmar dispensa'}
+              {isPending ? 'Salvando…' : 'Consolidar'}
             </button>
           </div>
         </div>

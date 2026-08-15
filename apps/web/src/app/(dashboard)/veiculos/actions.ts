@@ -15,6 +15,7 @@ import {
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { recordStatusTransition } from '@/lib/vehicle-status-history'
+import { saveVehicleObligations as saveObligations } from '@/lib/financial/vehicle-obligation'
 import { canChangeStatus } from '@gomoto/core'
 
 async function getAuthenticatedContext() {
@@ -327,25 +328,10 @@ export async function saveVehicleObligations(
   if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
   if (!tenantId) return { ok: false, error: { code: 'FORBIDDEN', message: 'Tenant não resolvido' } }
 
-  for (const obl of obligations) {
-    const { error } = await supabase
-      .from('vehicle_obligations')
-      .upsert(
-        {
-          tenant_id:      tenantId,
-          vehicle_id:     vehicleId,
-          type:           obl.type,
-          reference_year: obl.reference_year,
-          due_date:       obl.due_date,
-          // `amount`, `status` e `paid_at` saíram da obrigação na ADR 0024:
-          // valor e pagamento são fato financeiro e vivem no payable. Enquanto
-          // continuaram no upsert, salvar obrigação de veículo falhava.
-        },
-        { onConflict: 'vehicle_id,type,reference_year' },
-      )
-    if (error) {
-      return { ok: false, error: { code: 'INTERNAL_ERROR', message: `Erro ao salvar ${obl.type}: ${error.message}` } }
-    }
+  try {
+    await saveObligations(supabase, tenantId, vehicleId, obligations, user.id)
+  } catch (err) {
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: String(err instanceof Error ? err.message : err) } }
   }
 
   await logAction({ action: 'update', table: 'vehicle_obligations', recordId: vehicleId })
