@@ -435,12 +435,31 @@ passaria só na primeira execução.
 | ~~P-10~~ | ~~DRE sem tela~~ | ✅ **Resolvida** — `/financeiro/dre`. Ver §10.4 |
 | P-11 | Obrigação já lançada não reajusta | Mudar o valor de uma obrigação que já virou payable é estorno, não sobrescrita, e isso pertence à tela de contas a pagar. Hoje o segundo save simplesmente ignora o valor novo |
 
-### Fora do escopo financeiro, ainda vermelho
+### As oito specs vermelhas fora do escopo — resolvidas
 
-Oito specs falham e nenhuma toca o banco: `veiculos`, `clientes` e `manutencao`
-apontam para UI que mudou (o wizard virou página, o modal virou rota), e as
-cinco de `document-extraction` mandam um PDF falso de 32 bytes para o provedor
-de IA, que responde "The document has no pages". São anteriores a este redesenho.
+Nenhuma delas tocava o banco: falhavam no primeiro clique, então não protegiam
+nada. Reescritas contra a UI atual, e o caminho revelou mais dois defeitos.
+
+| Spec | Causa | Achado no caminho |
+|---|---|---|
+| `veiculos` | O wizard em modal virou página; a edição virou rota | `createVehicle` devolvia "Erro ao cadastrar veículo" sem o motivo do banco |
+| `clientes` | A edição virou rota | `createCustomer`/`updateCustomer` diziam só "Dados inválidos"; o `details` vinha no retorno e a tela nunca exibiu |
+| `manutencao` | `getModal` pegava o primeiro de **cinco** modais montados | **Agendar manutenção estava quebrado**: o payload enviava `cost`, removida pela ADR 0024. O erro ia para um `alert()`, que o Playwright dispensa em silêncio |
+| `document-extraction` (5) | O dev server precisa de `DOCUMENT_EXTRACTION_MOCK=1`; sem ela o Server Action chama o Gemini de verdade | — |
+| `document-extraction-multa` (3) | "Responsável pelo pagamento" virou obrigatório na PRD 0013 (11/08); a suíte é de 09/08 | `<select>` obrigatório vazio bloqueia o submit **sem renderizar nada** |
+
+Duas correções de fixture que valem além destas specs: o CPF do cliente de
+teste passou a ter dígito verificador válido (gravava `${ts}00`, que entra pelo
+service_role mas não passa no schema — qualquer edição pela tela morria num erro
+do próprio fixture), e `uniqueSuffix` ganhou ruído aleatório, porque o contador
+é por processo e dois workers no mesmo milissegundo colidiam no RENAVAM.
+
+O `Field` do formulário de veículo passou a **envolver** o controle com o
+`<label>`. Eram irmãos sem `htmlFor`: leitor de tela anunciava input sem nome, e
+nenhum teste conseguia usar `getByLabel` — foi por isso que as specs antigas
+acabaram presas a placeholder e posição.
+
+**Suíte completa verde: 106 E2E e 603 unit.**
 
 ---
 
