@@ -241,7 +241,15 @@ Vercel Cron → Route Handler idempotente, emitindo linhas com `period_start <= 
 | 18 | `post_financial_transaction` | Escrita atômica no ledger. Sem ela, transação e pernas iriam em statements separados e uma falha deixaria transação órfã |
 | 19 | `fix_financial_views_null_aggregates` | `COALESCE` nos agregados: `SUM(...) FILTER` devolve NULL sem linhas, e um veículo com receita e sem despesa mostrava resultado vazio |
 
-**Job de emissão:** consequência direta da reversão da ADR 0009. Vercel Cron diário (`/api/cron/issue-charges`, 06:00) converte linha de cronograma em cobrança quando o período chega. Fail-closed sem `CRON_SECRET`.
+**Job de emissão:** consequência direta da reversão da ADR 0009. Converte linha de cronograma em cobrança quando o período chega.
+
+Migrou do Vercel Cron para **pg_cron** (migration 20, `billing_emission_in_database`) por um motivo que não é latência: **atomicidade**. Na versão anterior a emissão eram duas transações — a RPC criava a cobrança e marcava a linha como `issued`, e o Route Handler lançava no ledger numa segunda chamada. Falha entre as duas deixava a cobrança existindo, visível na tela e pagável, **sem nunca ter entrado em contas a receber**; e a execução seguinte não corrigia, porque a linha já estava consumida. Dentro do banco, documento e lançamento são a mesma transação e o modo de falha deixa de ser expressável.
+
+A tradução evento → contas continua em `@gomoto/core` para os demais eventos. Aqui ela não é replicada: as pernas saem mecanicamente de `charge_items.credit_account_code`, que a própria cobrança já declara.
+
+`billing_runs` registra cada execução por tenant, com contagem e erro. Existe para tornar visível a **ausência** de execução — "não rodou" e "rodou e não havia nada a fazer" eram indistinguíveis, que é como um segredo de ambiente ausente derrubaria o faturamento em silêncio.
+
+A rota `/api/cron/issue-charges` permanece como **disparo manual** autenticado, chamando a mesma função: botão do operador e agendamento com uma implementação só.
 
 ---
 
@@ -338,6 +346,8 @@ e está registrado para não se perder:
 | P-5 | Webhook sem teste automatizado | §7, linha "Integração" | Refund e idempotência estão **implementados** na Edge Function, mas nada os exercita |
 | P-8 | `blockCustomer`/`unblockCustomer` sem chamador na UI | Achado testando as telas (2026-08-13) | As actions existem e estão corretas, mas não há botão. Foi por isso que um bug nelas sobreviveu meses sem ninguém notar. Construir a UI é escopo de produto — onde fica o botão, quem pode usar — e ficou para decisão |
 | ~~P-6~~ | ~~Sem teste de isolamento por tenant nas tabelas novas~~ | §6 chamava de obrigatório | ✅ **Resolvida** em `tests/tenant-isolation-financeiro.spec.ts` (24 casos) |
+| ~~P-2~~ | ~~Sem emissão manual pelo operador~~ | §4.3 | ✅ **Resolvida** — a rota virou disparo manual da mesma função |
+| ~~P-3~~ | ~~Sem alerta de linha `scheduled` vencida~~ | §4.3 | ✅ **Parcial** — `billing_runs` registra cada execução; falta a exibição na tela |
 | P-7 | Reconciliação testada só no escopo da spec E2E | §7 pedia 100% das transações | `cobrancas.spec.ts` valida `SUM = 0` apenas nas transações que ela cria |
 
 Nenhuma bloqueia o uso do sistema.

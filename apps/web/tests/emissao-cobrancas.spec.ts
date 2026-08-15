@@ -275,6 +275,67 @@ test.describe('Emissão de cobranças a partir do cronograma', () => {
     expect(receitaDepois - receitaAntes).toBe(90)
   })
 
+  test('a emissão pelo banco lança no ledger na MESMA transação', async () => {
+    // É o ponto inteiro de mover o job para dentro do Postgres. Antes eram
+    // duas transações: a cobrança nascia e o lançamento vinha numa segunda
+    // chamada. Falha entre as duas deixava a cobrança existindo, visível e
+    // pagável, sem nunca ter entrado em contas a receber — e a execução
+    // seguinte não corrigia, porque a linha já estava consumida.
+    const tenantId = await getTestTenantId()
+
+    const rentalId = await criarLocacao([
+      { sequence_number: 1, period_start: isoOffset(-6), period_end: isoOffset(24), due_date: isoOffset(24), amount: 750 },
+    ])
+
+    const { error } = await admin().rpc('fn_run_billing_emission', {
+      p_triggered_by: 'manual',
+      p_lead_days: 0,
+    })
+    expect(error, error?.message).toBeNull()
+
+    const [linha] = await cronograma(rentalId)
+    expect(linha!.status).toBe('issued')
+    expect(linha!.charge_id).not.toBeNull()
+
+    // Documento e lançamento existem juntos — nunca um sem o outro.
+    const { data: entries } = await admin()
+      .from('financial_entries')
+      .select('account_code, direction, amount, vehicle_id')
+      .eq('charge_id', linha!.charge_id!)
+
+    const rows = (entries ?? []) as {
+      account_code: string; direction: string; amount: number; vehicle_id: string | null
+    }[]
+
+    expect(rows.length, 'cobrança emitida sem lançamento no ledger').toBe(2)
+
+    const debito = rows.find((e) => e.direction === 'debit')
+    const credito = rows.find((e) => e.direction === 'credit')
+    expect(debito?.account_code).toBe('contas_a_receber')
+    expect(Number(debito?.amount)).toBe(750)
+    expect(credito?.account_code).toBe('receita_locacao')
+    expect(Number(credito?.amount)).toBe(750)
+
+    // A dimensão do veículo sobrevive ao caminho SQL.
+    expect(debito?.vehicle_id).toBe(vehicleId)
+
+    // E a execução fica registrada, para "não rodou" deixar de ser invisível.
+    const { data: run } = await admin()
+      .from('billing_runs')
+      .select('charges_issued, error, finished_at, triggered_by')
+      .eq('tenant_id', tenantId)
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const r = run as { charges_issued: number; error: string | null; finished_at: string | null; triggered_by: string } | null
+    expect(r, 'execução não foi registrada').not.toBeNull()
+    expect(r!.error).toBeNull()
+    expect(r!.finished_at).not.toBeNull()
+    expect(r!.triggered_by).toBe('manual')
+    expect(r!.charges_issued).toBeGreaterThan(0)
+  })
+
   test('locação encerrada não gera cobrança', async () => {
     const rentalId = await criarLocacao([
       { sequence_number: 1, period_start: isoOffset(-15), period_end: isoOffset(15), due_date: isoOffset(15), amount: 600 },
