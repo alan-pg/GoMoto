@@ -126,6 +126,45 @@ test.describe('Multas — cadastro e cobrança do cliente', () => {
     expect(cobranca!.item.vehicle_id, 'cobrança de multa sem veículo').toBe(vehicleId)
   })
 
+  test('a multa do cliente também lança a despesa da empresa', async () => {
+    // Quem responde ao órgão é a proprietária do veículo: a multa é despesa da
+    // empresa mesmo quando o cliente é o responsável — ser "do cliente" muda
+    // apenas que existe recuperação depois.
+    //
+    // Enquanto só o caso `company` lançava a despesa, uma multa repassada
+    // creditava `repasse_multa` sem `despesa_multa` do outro lado, e o DRE
+    // mostrava LUCRO no valor da multa. Recuperação sem custo é contradição no
+    // próprio nome da conta.
+    const { data: payable } = await admin()
+      .from('payables')
+      .select('id, amount, expense_account_code, responsibility, status')
+      .eq('source_module', 'fine')
+      .eq('source_id', fineId)
+      .maybeSingle()
+
+    const p = payable as {
+      amount: number; expense_account_code: string; responsibility: string; status: string
+    } | null
+
+    expect(p, 'multa do cliente não lançou a despesa da empresa').not.toBeNull()
+    expect(Number(p!.amount)).toBe(VALOR)
+    expect(p!.expense_account_code).toBe('despesa_multa')
+    expect(p!.status).toBe('open')
+
+    // Custo e recuperação se anulam no resultado: a empresa desembolsa e
+    // recebe de volta o mesmo valor.
+    const { data: lancamentos } = await admin()
+      .from('financial_entries')
+      .select('account_code, amount_signed')
+      .in('account_code', ['despesa_multa', 'repasse_multa'])
+      .eq('vehicle_id', vehicleId)
+
+    const soma = (lancamentos ?? []).reduce(
+      (s, e) => s + Number((e as { amount_signed: number }).amount_signed), 0,
+    )
+    expect(Number(soma.toFixed(2)), 'multa repassada mexeu no resultado').toBe(0)
+  })
+
   test('a cobrança credita repasse, não receita de locação', async () => {
     // Multa repassada é RECUPERAÇÃO de despesa, não venda. Em qual linha do
     // resultado isso entra é política do tenant — mas a conta creditada tem

@@ -92,6 +92,14 @@ export type LedgerEvent =
   | { type: 'payable_created'; amount: number; expense_account: AccountCode; dimensions?: LedgerDimensions }
   /** Pagamento de conta da empresa. */
   | { type: 'payable_paid'; amount: number; dimensions?: LedgerDimensions }
+  /**
+   * Estorno da conta a pagar — cancelamento de despesa. Inverte
+   * `payable_created`: debita `contas_a_pagar` e credita a conta de despesa.
+   *
+   * Sem ele, cancelar despesa marcava o documento e deixava o custo no DRE
+   * para sempre, mais um passivo que já não existia.
+   */
+  | { type: 'payable_cancelled'; amount: number; expense_account: AccountCode; dimensions?: LedgerDimensions }
   /** Crédito concedido ao cliente — passivo. */
   | { type: 'credit_granted'; amount: number; expense_account: AccountCode; dimensions?: LedgerDimensions }
   /** Crédito abatido de cobrança. */
@@ -163,6 +171,9 @@ function translate(event: LedgerEvent, d: LedgerDimensions): LedgerEntry[] {
 
     case 'payable_paid':
       return pair(ACCOUNTS.PAYABLE, ACCOUNTS.CASH, amount, d)
+
+    case 'payable_cancelled':
+      return pair(ACCOUNTS.PAYABLE, event.expense_account, amount, d)
 
     // Cliente executou serviço que cabia à empresa: a despesa é da empresa e a
     // contrapartida é dívida com o cliente.

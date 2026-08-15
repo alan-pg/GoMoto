@@ -27,7 +27,7 @@ import {
   type ErrorCode,
   type AccountCode,
 } from '@gomoto/core'
-import { createPayable, payPayable } from '@/lib/financial'
+import { cancelPayable, createPayable, payPayable } from '@/lib/financial'
 
 type Failure = { ok: false; error: { code: ErrorCode; message: string } }
 
@@ -180,13 +180,14 @@ export async function cancelExpenseAction(
     return fail('CONFLICT', 'Despesa já paga não pode ser cancelada.')
   }
 
-  const { error } = await ctx.supabase
-    .from('payables')
-    .update({ status: 'cancelled' })
-    .eq('id', payableId)
-    .eq('tenant_id', ctx.tenantId)
-
-  if (error) return fail('INTERNAL', error.message)
+  // Delega a `cancelPayable`: marcar o status aqui deixava o lançamento de
+  // `payable_created` no razão — custo eterno no DRE e passivo fantasma — e a
+  // cobrança de repasse viva, cobrando o cliente por um custo negado.
+  try {
+    await cancelPayable(ctx.supabase, ctx.tenantId, payableId, ctx.userId)
+  } catch (err) {
+    return fail('INTERNAL', err instanceof Error ? err.message : String(err))
+  }
 
   await logAction({
     action: 'update',

@@ -20,7 +20,7 @@ import {
   type ReimbursementMode,
 } from '@gomoto/core'
 import { postTransaction, dimensionsOf } from './ledger'
-import { createCharge } from './charges'
+import { cancelCharge, createCharge } from './charges'
 
 /** Conta de despesa → conta de repasse correspondente. */
 const REIMBURSEMENT_ACCOUNT: Partial<Record<string, AccountCode>> = {
@@ -241,6 +241,90 @@ export async function payPayable(
       }),
     },
     description: `Pagamento — ${p.description}`,
+    sourceModule: 'payable',
+    sourceId: payableId,
+    createdBy,
+  })
+}
+
+/**
+ * Cancela a conta a pagar, estornando o razão e a cobrança de repasse.
+ *
+ * Cancelar marcava só `payables.status` e ia embora. O lançamento de
+ * `payable_created` continuava lá: o custo permanecia no DRE para sempre e
+ * `contas_a_pagar` mostrava dívida que já não existia. Pior no rateio — a
+ * cobrança do cliente sobrevivia, cobrando por um custo que a empresa acabara
+ * de dizer que não teve.
+ *
+ * A simetria é a regra: cancelar estorna exatamente o que a criação lançou.
+ * Nem mais, nem menos.
+ */
+export async function cancelPayable(
+  supabase: SupabaseClient,
+  tenantId: string,
+  payableId: string,
+  createdBy?: string | null,
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('payables')
+    .select('id, description, amount, status, expense_account_code, customer_id, vehicle_id, rental_id, source_module, source_id')
+    .eq('id', payableId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  if (error) throw new Error(`Falha ao ler conta a pagar: ${error.message}`)
+  if (!data) throw new Error('Conta a pagar não encontrada')
+
+  const p = data as {
+    id: string; description: string; amount: number; status: string
+    expense_account_code: AccountCode
+    customer_id: string | null; vehicle_id: string | null; rental_id: string | null
+    source_module: string; source_id: string | null
+  }
+
+  if (p.status === 'paid')      throw new Error('Conta já paga não pode ser cancelada.')
+  if (p.status === 'cancelled') throw new Error('Conta já está cancelada.')
+
+  // A cobrança de repasse primeiro: se ela já recebeu pagamento, `cancelCharge`
+  // recusa, e nada deve ser desfeito — cancelar a despesa deixando o cliente
+  // cobrado seria pior que não cancelar.
+  if (p.source_id) {
+    const { data: repasse } = await supabase
+      .from('charges')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('source_module', p.source_module)
+      .eq('source_id', p.source_id)
+      .neq('status', 'cancelled')
+      .maybeSingle()
+
+    const r = repasse as { id: string } | null
+    if (r) {
+      await cancelCharge(supabase, tenantId, r.id, `Despesa cancelada — ${p.description}`, createdBy)
+    }
+  }
+
+  const { error: updateError } = await supabase
+    .from('payables')
+    .update({ status: 'cancelled' })
+    .eq('id', payableId)
+    .eq('tenant_id', tenantId)
+
+  if (updateError) throw new Error(`Falha ao cancelar conta: ${updateError.message}`)
+
+  await postTransaction(supabase, tenantId, {
+    event: {
+      type: 'payable_cancelled',
+      amount: p.amount,
+      expense_account: p.expense_account_code,
+      dimensions: dimensionsOf({
+        customerId: p.customer_id,
+        vehicleId: p.vehicle_id,
+        rentalId: p.rental_id,
+        payableId,
+      }),
+    },
+    description: `Cancelamento — ${p.description}`,
     sourceModule: 'payable',
     sourceId: payableId,
     createdBy,

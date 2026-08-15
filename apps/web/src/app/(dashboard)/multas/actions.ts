@@ -139,7 +139,43 @@ async function syncFineBilling(supabase: Supabase, params: SyncFineBillingParams
     }
   }
 
+  // A multa é SEMPRE despesa da empresa: o auto é lavrado contra o veículo, e
+  // quem responde ao órgão é a proprietária. Ser "do cliente" não muda quem
+  // desembolsa — muda apenas se existe recuperação depois.
+  //
+  // Enquanto a despesa só era lançada no caso `company`, uma multa repassada
+  // creditava `repasse_multa` sem `despesa_multa` do outro lado: o DRE mostrava
+  // LUCRO de R$ 300 numa multa de R$ 300. Recuperação sem custo é contradição
+  // no próprio nome da conta.
+  const jaTemPayable = await payableDaMulta(supabase, tenantId, fineId)
+  if (!jaTemPayable) {
+    try {
+      await createPayable(supabase, tenantId, {
+        description: `Multa — ${fineId}`,
+        expenseAccountCode: ACCOUNTS.FINE_EXPENSE,
+        competenceDate: infractionDate ?? dueDate ?? new Date().toISOString().slice(0, 10),
+        dueDate: dueDate ?? new Date().toISOString().slice(0, 10),
+        amount,
+        // Sempre `company`: o rateio ao cliente não passa por aqui, e sim pela
+        // cobrança de repasse abaixo — assim trocar o responsável não exige
+        // desfazer a despesa.
+        responsibility: 'company',
+        vehicleId: vehicleId ?? null,
+        rentalId: rentalId ?? null,
+        sourceModule: 'fine',
+        sourceId: fineId,
+        createdBy: userId ?? null,
+      })
+      // Sem vínculo de volta: `payables.source_module/source_id` já aponta
+      // para a multa, e `payableDaMulta` consulta por aí. A coluna
+      // `fines.payable_id` era só escrita, nunca lida.
+    } catch (err) {
+      return { ok: false, error: `Erro ao lançar o custo da multa: ${String(err)}` }
+    }
+  }
+
   if (responsible === 'company') {
+    // Sem recuperação: se havia cobrança ao cliente, ela deixa de valer.
     if (existing) {
       if (existing.paid_amount > 0) {
         return { ok: false, error: 'Não é possível mudar o responsável para empresa: o cliente já pagou parte desta cobrança.' }
@@ -149,34 +185,6 @@ async function syncFineBilling(supabase: Supabase, params: SyncFineBillingParams
         await cancelCharge(supabase, tenantId, existing.id, 'Multa passou a ser de responsabilidade da empresa', userId)
       } catch (err) {
         return { ok: false, error: `Erro ao cancelar cobrança: ${String(err)}` }
-      }
-    }
-
-    // Multa da empresa é DESPESA e precisa existir no ledger. A migration que
-    // criou `fines.payable_id` dizia que "responsabilidade e rateio vivem no
-    // payable", mas nada criava esse payable: a conta `despesa_multa` nunca
-    // recebeu um lançamento sequer, e o custo sumia do resultado do veículo.
-    const jaTemPayable = await payableDaMulta(supabase, tenantId, fineId)
-    if (!jaTemPayable) {
-      try {
-        const { payableId } = await createPayable(supabase, tenantId, {
-          description: `Multa — ${fineId}`,
-          expenseAccountCode: ACCOUNTS.FINE_EXPENSE,
-          competenceDate: infractionDate ?? dueDate ?? new Date().toISOString().slice(0, 10),
-          dueDate: dueDate ?? new Date().toISOString().slice(0, 10),
-          amount,
-          responsibility: 'company',
-          vehicleId: vehicleId ?? null,
-          rentalId: rentalId ?? null,
-          sourceModule: 'fine',
-          sourceId: fineId,
-          createdBy: userId ?? null,
-        })
-        // Sem vínculo de volta: `payables.source_module/source_id` já aponta
-        // para a multa, e `payableDaMulta` consulta por aí. A coluna
-        // `fines.payable_id` era só escrita, nunca lida.
-      } catch (err) {
-        return { ok: false, error: `Erro ao lançar o custo da multa: ${String(err)}` }
       }
     }
 
