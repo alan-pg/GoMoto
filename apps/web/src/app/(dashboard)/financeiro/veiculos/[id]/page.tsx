@@ -40,7 +40,7 @@ export default async function VehicleROIPage({
       // billings pagas incluía caução e entrada como faturamento (F-09) e
       // ignorava repasse. Aqui a caução nem aparece: credita passivo.
       .from('vehicle_financial_position')
-      .select('operating_revenue, gross_costs, reimbursed, net_result, maintenance_cost, documentation_cost, insurance_cost, fines_cost, acquisition_cost')
+      .select('operating_revenue, gross_costs, reimbursed, net_result, maintenance_cost, documentation_cost, insurance_cost, fines_cost')
       .eq('vehicle_id', id)
       .eq('tenant_id', tenantId)
       .maybeSingle(),
@@ -78,7 +78,10 @@ export default async function VehicleROIPage({
   type Position = {
     operating_revenue: number; gross_costs: number; reimbursed: number; net_result: number
     maintenance_cost: number; documentation_cost: number; insurance_cost: number
-    fines_cost: number; acquisition_cost: number
+    // `acquisition_cost` e `accumulated_depreciation` saíram da view: eram
+    // alimentados por eventos sem chamador e retornavam zero por construção.
+    // ROI usa `vehicles.acquisition_value`.
+    fines_cost: number
   }
   const position = (paidBillingsResult.data ?? null) as unknown as Position | null
   const maintenances = (maintenanceCostResult.data ?? []) as { amount: number; paid_at: string | null; description: string | null }[]

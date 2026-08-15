@@ -98,15 +98,46 @@ for path in files:
         nxt = FROM_RE.search(window)
         if nxt:
             window = window[: nxt.start()]
+        # e corta na primeira linha em branco: cadeia de query é contígua, então
+        # o que vem depois é outra coisa. Sem isto, as chaves de `logAction({
+        # action, table })` e de `return { ok, error }` entram como se fossem
+        # colunas — dezenove falsos positivos que afogam o sinal.
+        corte = window.find("\n\n")
+        if corte != -1:
+            window = window[:corte]
 
         refs = set()
         for s in SELECT_RE.findall(window):
             refs.update(scan_select(s))
         refs.update(FILTER_RE.findall(window))
 
-        # chaves de objeto em insert/update
-        for call in re.finditer(r"\.(?:insert|update|upsert)\(\s*\{", window):
-            depth, i = 0, call.end() - 1
+        # Chaves de objeto em insert/update/upsert.
+        #
+        # Do parêntese, pula até o PRIMEIRO `{` e casa as chaves balanceadas.
+        # Exigir o literal colado ao parêntese perdia
+        # `.insert(items.map(i => ({ ... })))` — foi por essa fresta que
+        # `cost_center_id` sobreviveu a um DROP COLUMN. Varrer a janela inteira,
+        # por outro lado, captura chave de objeto local (`ok`, `error`) e afoga
+        # o sinal em ruído.
+        for call in re.finditer(r"\.(?:insert|update|upsert)\(", window):
+            # O literal precisa estar DENTRO dos parênteses da chamada. Buscar
+            # o próximo `{` sem essa checagem escapava de `.update(parsed.data)`
+            # e capturava o `return { ok, error }` das linhas seguintes.
+            abre, paren, j = -1, 1, call.end()
+            while j < len(window) and j < call.end() + 200:
+                if window[j] == "(":
+                    paren += 1
+                elif window[j] == ")":
+                    paren -= 1
+                    if paren == 0:
+                        break
+                elif window[j] == "{":
+                    abre = j
+                    break
+                j += 1
+            if abre == -1:
+                continue
+            depth, i = 0, abre
             while i < len(window):
                 if window[i] == "{":
                     depth += 1
@@ -115,7 +146,7 @@ for path in files:
                     if depth == 0:
                         break
                 i += 1
-            body = window[call.end(): i]
+            body = window[abre + 1: i]
             body = re.sub(r"\{[^{}]*\}", "", body)  # ignora objetos aninhados
             refs.update(KEY_RE.findall(body))
 

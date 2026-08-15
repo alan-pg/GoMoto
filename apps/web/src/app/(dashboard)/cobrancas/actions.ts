@@ -85,7 +85,6 @@ export async function createChargeAction(
     const result = await createCharge(ctx.supabase, ctx.tenantId, {
       customerId: parsed.data.customer_id,
       rentalId: parsed.data.rental_id ?? null,
-      branchId: parsed.data.branch_id ?? null,
       dueDate: parsed.data.due_date,
       issueDate: parsed.data.issue_date,
       items: parsed.data.items,

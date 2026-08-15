@@ -260,20 +260,8 @@ async function processEvent(
 
     await supabase.from('payment_intents').update({ status: 'paid' }).eq('id', it.id)
 
-    // Saldo é derivado; o status do documento acompanha.
-    const { data: balance } = await supabase
-      .from('charge_balances')
-      .select('open_amount')
-      .eq('charge_id', it.charge_id)
-      .maybeSingle()
-
-    // Parênteses explícitos: `??` tem precedência MENOR que `<=`, então
-    // `x ?? 1 <= 0` parseia como `x ?? (1 <= 0)` e inverte a condição —
-    // marcaria como paga justamente a cobrança que ainda tem saldo.
-    const openAmount = (balance as { open_amount: number } | null)?.open_amount ?? 0
-    if (openAmount <= 0) {
-      await supabase.from('charges').update({ status: 'paid' }).eq('id', it.charge_id)
-    }
+    // `paid` deixou de ser coluna escrita: a view deriva o status do saldo.
+    // Este bloco lia o saldo só para gravar de volta o que já estava calculado.
 
     log('info', 'webhook.payment_confirmed', {
       payment_id: paymentId, charge_id: it.charge_id, tenant_id: it.tenant_id, amount,

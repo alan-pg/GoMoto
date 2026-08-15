@@ -61,17 +61,18 @@ test.describe('Isolamento por tenant — tabelas do redesenho financeiro (Spec 0
     // Par de controle no tenant 1: prova que o cliente autenticado enxerga o
     // que é dele. Sem ele, "não vejo nada" seria indistinguível de sessão morta.
     const { data: ctrl, error: ctrlErr } = await admin()
-      .from('branches')
-      .insert({ tenant_id: await getTestTenantId(), name: `${TEST_TAG} Filial controle ${suffix}` })
+      .from('late_charge_policies')
+      .insert({
+        tenant_id: await getTestTenantId(), version: 98, effective_from: '2026-01-01',
+        fee_type: 'percentage', fee_value: 0.01,
+      })
       .select('id')
       .single()
-    if (ctrlErr) throw new Error(`Setup falhou na filial de controle: ${ctrlErr.message}`)
-    seeded['branches_tenant1'] = (ctrl as { id: string }).id
-    cleanup.push({ table: 'branches', id: (ctrl as { id: string }).id })
+    if (ctrlErr) throw new Error(`Setup falhou na política de controle: ${ctrlErr.message}`)
+    seeded['policy_tenant1'] = (ctrl as { id: string }).id
+    cleanup.push({ table: 'late_charge_policies', id: (ctrl as { id: string }).id })
 
     // ── Dimensões e política ────────────────────────────────────────────────
-    cleanup.push({ table: 'branches', id: await seed('branches', { tenant_id: TENANT_2, name: `${TEST_TAG} Filial T2` }) })
-    cleanup.push({ table: 'cost_centers', id: await seed('cost_centers', { tenant_id: TENANT_2, code: `CC${suffix}`, name: `${TEST_TAG} CC T2` }) })
     cleanup.push({ table: 'late_charge_policies', id: await seed('late_charge_policies', { tenant_id: TENANT_2, version: 99, effective_from: '2026-01-01', fee_type: 'percentage', fee_value: 0.02 }) })
     cleanup.push({ table: 'delinquency_policies', id: await seed('delinquency_policies', { tenant_id: TENANT_2, version: 99, effective_from: '2026-01-01' }) })
     cleanup.push({ table: 'credit_policies', id: await seed('credit_policies', { tenant_id: TENANT_2, version: 99, effective_from: '2026-01-01' }) })
@@ -119,7 +120,6 @@ test.describe('Isolamento por tenant — tabelas do redesenho financeiro (Spec 0
       tenant_id: TENANT_2, customer_id: customerId, amount: 25, origin: 'manual_adjustment', reason: `${TEST_TAG} crédito T2`,
     }) })
 
-    cleanup.push({ table: 'fiscal_documents', id: await seed('fiscal_documents', { tenant_id: TENANT_2, doc_type: 'recibo' }) })
 
     // ── Gateway ─────────────────────────────────────────────────────────────
     const providerAccountId = await seed('payment_provider_accounts', {
@@ -172,8 +172,7 @@ test.describe('Isolamento por tenant — tabelas do redesenho financeiro (Spec 0
     'financial_transactions', 'financial_entries',
     'charges', 'charge_items', 'rental_billing_schedules',
     'payments', 'payment_allocations', 'payables',
-    'deposits', 'customer_credits', 'fiscal_documents',
-    'branches', 'cost_centers', 'tenant_account_mappings',
+    'deposits', 'customer_credits', 'tenant_account_mappings',
     'late_charge_policies', 'delinquency_policies', 'credit_policies',
     'payment_provider_accounts', 'payment_intents', 'gateway_events',
   ] as const
@@ -219,7 +218,7 @@ test.describe('Isolamento por tenant — tabelas do redesenho financeiro (Spec 0
 
     expect(tenant1).not.toBe(TENANT_2)
 
-    const { data, error } = await sb.from('branches').select('id, tenant_id').eq('id', seeded['branches_tenant1'])
+    const { data, error } = await sb.from('late_charge_policies').select('id, tenant_id').eq('id', seeded['policy_tenant1'])
 
     expect(error, error?.message).toBeNull()
     expect(data ?? [], 'cliente autenticado não vê nem o próprio tenant — as demais asserções não provam nada').toHaveLength(1)
@@ -233,8 +232,11 @@ test.describe('Isolamento por tenant — tabelas do redesenho financeiro (Spec 0
     // que o app resolve o tenant server-side via getCurrentTenantId() — aqui a
     // barreira do banco é verificada de forma independente.
     const { data, error } = await sb
-      .from('branches')
-      .insert({ tenant_id: TENANT_2, name: `${TEST_TAG} filial forjada` })
+      .from('late_charge_policies')
+      .insert({
+        tenant_id: TENANT_2, version: 97, effective_from: '2026-01-01',
+        fee_type: 'percentage', fee_value: 0.01,
+      })
       .select('id')
 
     expect(error, 'INSERT com tenant alheio deveria ser recusado pela RLS').not.toBeNull()

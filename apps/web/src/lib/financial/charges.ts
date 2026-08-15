@@ -21,7 +21,6 @@ import { postTransaction, dimensionsOf } from './ledger'
 export type CreateChargeParams = {
   customerId: string
   rentalId?: string | null
-  branchId?: string | null
   dueDate: string
   issueDate?: string
   items: ChargeItemInput[]
@@ -74,7 +73,6 @@ export async function createCharge(
       tenant_id: tenantId,
       customer_id: params.customerId,
       rental_id: params.rentalId ?? null,
-      branch_id: params.branchId ?? null,
       charge_number: chargeNumber,
       due_date: params.dueDate,
       issue_date: params.issueDate ?? new Date().toISOString().slice(0, 10),
@@ -99,7 +97,6 @@ export async function createCharge(
       source_module: i.source_module,
       source_id: i.source_id ?? null,
       vehicle_id: i.vehicle_id ?? vehicleId,
-      cost_center_id: i.cost_center_id ?? null,
     })),
   )
   if (itemsError) throw new Error(`Falha ao gravar itens: ${itemsError.message}`)
@@ -131,7 +128,6 @@ export async function createCharge(
       description: `Cobrança #${chargeNumber}`,
       sourceModule: params.sourceModule,
       sourceId: params.sourceId ?? null,
-      branchId: params.branchId ?? null,
       createdBy: params.createdBy ?? null,
     })
   }

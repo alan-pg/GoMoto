@@ -112,7 +112,9 @@ export async function receivePayment(
     })
   }
 
-  await settleFullyPaidCharges(supabase, tenantId, allocations.map((a) => a.chargeId))
+  // Não há status a sincronizar: `paid` é derivado do saldo em
+  // `charge_balances`. A coluna em `charges` guarda só decisão humana —
+  // cancelamento e baixa (Princípio 2).
 
   return { paymentId, allocations, unallocated }
 }
@@ -246,32 +248,6 @@ async function findIssuanceTransaction(
   const id = (data as { id: string } | null)?.id
   if (!id) throw new Error('Transação de recebimento não encontrada para estorno')
   return id
-}
-
-/** Marca como paga a cobrança cujo saldo zerou. Status segue o saldo derivado. */
-async function settleFullyPaidCharges(
-  supabase: SupabaseClient,
-  tenantId: string,
-  chargeIds: string[],
-): Promise<void> {
-  if (chargeIds.length === 0) return
-
-  const { data } = await supabase
-    .from('charge_balances')
-    .select('charge_id, open_amount')
-    .in('charge_id', chargeIds)
-
-  const settled = ((data ?? []) as { charge_id: string; open_amount: number }[])
-    .filter((c) => c.open_amount <= 0)
-    .map((c) => c.charge_id)
-
-  if (settled.length === 0) return
-
-  await supabase
-    .from('charges')
-    .update({ status: 'paid' })
-    .in('id', settled)
-    .eq('tenant_id', tenantId)
 }
 
 function round2(n: number): number {

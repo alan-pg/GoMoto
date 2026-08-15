@@ -43,8 +43,6 @@ export type CreatePayableParams = {
   reimbursement?: ReimbursementMode
   vehicleId?: string | null
   rentalId?: string | null
-  costCenterId?: string | null
-  branchId?: string | null
   vendorName?: string | null
   sourceModule: string
   sourceId?: string | null
@@ -94,8 +92,6 @@ export async function createPayable(
       reimbursement,
       vehicle_id: params.vehicleId ?? null,
       rental_id: params.rentalId ?? null,
-      cost_center_id: params.costCenterId ?? null,
-      branch_id: params.branchId ?? null,
       vendor_name: params.vendorName ?? null,
       source_module: params.sourceModule,
       source_id: params.sourceId ?? null,
@@ -113,7 +109,6 @@ export async function createPayable(
     vehicleId: params.vehicleId,
     rentalId: params.rentalId,
     payableId,
-    costCenterId: params.costCenterId,
   })
 
   // Custo integral entra como despesa da empresa. A parte do cliente é
@@ -129,7 +124,6 @@ export async function createPayable(
     description: params.description,
     sourceModule: params.sourceModule,
     sourceId: params.sourceId ?? payableId,
-    branchId: params.branchId ?? null,
     createdBy: params.createdBy ?? null,
   })
 
@@ -143,7 +137,6 @@ export async function createPayable(
       const charge = await createCharge(supabase, tenantId, {
         customerId: params.customerId!,
         rentalId: params.rentalId ?? null,
-        branchId: params.branchId ?? null,
         dueDate: params.dueDate,
         sourceModule: params.sourceModule,
         sourceId: payableId,
@@ -158,8 +151,7 @@ export async function createPayable(
             source_module: params.sourceModule,
             source_id: payableId,
             vehicle_id: params.vehicleId ?? null,
-            cost_center_id: params.costCenterId ?? null,
-          },
+                },
         ],
       })
       result.chargeId = charge.chargeId
@@ -210,7 +202,7 @@ export async function payPayable(
 ): Promise<void> {
   const { data, error } = await supabase
     .from('payables')
-    .select('id, description, amount, status, vehicle_id, rental_id, customer_id, cost_center_id')
+    .select('id, description, amount, status, vehicle_id, rental_id, customer_id')
     .eq('id', payableId)
     .eq('tenant_id', tenantId)
     .maybeSingle()
@@ -244,7 +236,6 @@ export async function payPayable(
         vehicleId: p.vehicle_id,
         rentalId: p.rental_id,
         payableId,
-        costCenterId: p.cost_center_id,
       }),
     },
     description: `Pagamento — ${p.description}`,

@@ -92,7 +92,6 @@ export async function createExpenseAction(
       reimbursement: parsed.data.reimbursement,
       vehicleId: parsed.data.vehicle_id ?? null,
       rentalId: parsed.data.rental_id ?? null,
-      costCenterId: parsed.data.cost_center_id ?? null,
       vendorName: parsed.data.vendor_name ?? null,
       attachmentUrl: parsed.data.attachment_url ?? null,
       sourceModule: 'expense',

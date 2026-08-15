@@ -132,14 +132,8 @@ export async function applyCustomerCredits(
 
       total = round2(total + app.amount)
 
-      // Cobrança totalmente coberta pelo crédito é quitada.
-      if (charge && round2(charge.open_amount - app.amount) <= 0) {
-        await ctx.supabase
-          .from('charges')
-          .update({ status: 'paid' })
-          .eq('id', app.charge_id)
-          .eq('tenant_id', ctx.tenantId)
-      }
+      // Cobrança coberta pelo crédito fica paga por consequência: o status é
+      // derivado do saldo em `charge_balances`, não gravado.
     }
 
     await logAction({
