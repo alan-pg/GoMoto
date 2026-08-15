@@ -398,6 +398,52 @@ numa função que ninguém chama passa por todos os três.
 
 ---
 
+## 10.3 Fechamento da cobertura (2026-08-15)
+
+Sete fluxos do redesenho não tinham teste nenhum. Percorridos um a um, **cinco
+revelaram defeito real** — proporção que diz mais sobre o valor do teste de
+fluxo do que qualquer argumento.
+
+| Fluxo | O que estava errado |
+|---|---|
+| Aplicar crédito do cliente | Só lançava no razão. Sem `payments` + `payment_allocations`, `charge_balances` não via nada e a dívida ficava intacta na tela. O enum `payment_method_type` nem tinha `credit` |
+| Conceder crédito | Não lançava no razão, então o saldo em `customer_credit_balances` nascia zerado — o crédito não podia ser usado |
+| Consolidar encargo por atraso | Botão inalcançável: a página passava `accruedCharges={0}` e `isOverdue={false}` fixos. `isActionable` ainda escondia todas as ações justamente nas vencidas. E o total somava o encargo duas vezes |
+| Criar/editar cliente | Quebrado desde 12/08: o form ainda enviava `customers.payment_status`, coluna que a limpeza derrubou |
+| Obrigação do veículo | O INSERT enviava `amount`/`status`/`paid_at`, também removidas, e o erro caía num `warnings.push` — o veículo salvava e o IPVA sumia em silêncio. O `upsert` também nunca funcionou: o índice único é **parcial** e o `ON CONFLICT` do PostgREST não repete o predicado. Virou select + insert/update, e o valor agora vira payable |
+| Reajuste do cronograma | Correto. Só alcança linha `scheduled`; documento emitido não se move |
+| Renovação | Correta. Acrescenta linhas como plano, sem tocar no emitido e sem emitir nada |
+
+Cobertura nova: `credito-e-encargo.spec.ts`, `cadastro-colunas-removidas.spec.ts`,
+`reajuste-e-renovacao.spec.ts`, `dre.spec.ts`.
+
+**DRE.** As três garantias que sustentam um demonstrativo auditável estão
+provadas: sinal (receita positiva, despesa negativa, conta patrimonial fora),
+competência pela data do fato, e — a que importa — **política nova não
+reclassifica o passado**. O teste verifica os dois lados: que a política vale
+para o fato novo e que não vale para o antigo; sem o primeiro lado ele passaria
+com a resolução por data completamente quebrada.
+
+As asserções são por **delta** (antes/depois), não por total absoluto: o razão é
+imutável por trigger, lançamento de teste não sai de lá, e asserção absoluta
+passaria só na primeira execução.
+
+### Pendências que esta sessão abriu
+
+| # | Pendência | Impacto |
+|---|---|---|
+| P-10 | DRE sem tela | A view, o repositório (`listIncomeStatement`) e o hook (`useIncomeStatement`) existem e estão corretos — e **nenhuma tela os consome**. O demonstrativo está pronto e inalcançável pelo operador. É o mesmo padrão do P-8: regra certa em função sem chamador |
+| P-11 | Obrigação já lançada não reajusta | Mudar o valor de uma obrigação que já virou payable é estorno, não sobrescrita, e isso pertence à tela de contas a pagar. Hoje o segundo save simplesmente ignora o valor novo |
+
+### Fora do escopo financeiro, ainda vermelho
+
+Oito specs falham e nenhuma toca o banco: `veiculos`, `clientes` e `manutencao`
+apontam para UI que mudou (o wizard virou página, o modal virou rota), e as
+cinco de `document-extraction` mandam um PDF falso de 32 bytes para o provedor
+de IA, que responde "The document has no pages". São anteriores a este redesenho.
+
+---
+
 ## 11. Aprovação
 
 Aprovada em 2026-08-12 por Alan. Modalidade de execução: substituição total (big-bang), decisão registrada com o risco aceito na ADR 0024.
