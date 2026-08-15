@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Bike, Users, DollarSign, ScrollText,
   TrendingDown, AlertTriangle, Wrench,
   Clock, BarChart2, HelpCircle, Settings,
-  ClipboardCheck, ClipboardList, ListOrdered, Camera,
+  ClipboardCheck, ClipboardList, ListOrdered, Camera, FileText,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -79,9 +79,10 @@ export const DASHBOARD_NAV: NavSection[] = [
   {
     label: 'Financeiro',
     items: [
-      { kind: 'leaf', href: '/financeiro', label: 'Painel',    icon: BarChart2 },
-      { kind: 'leaf', href: '/despesas',   label: 'Despesas',  icon: TrendingDown },
-      { kind: 'leaf', href: '/cobrancas',  label: 'Cobranças', icon: DollarSign },
+      { kind: 'leaf', href: '/financeiro',     label: 'Painel',    icon: BarChart2 },
+      { kind: 'leaf', href: '/financeiro/dre', label: 'DRE',       icon: FileText },
+      { kind: 'leaf', href: '/despesas',       label: 'Despesas',  icon: TrendingDown },
+      { kind: 'leaf', href: '/cobrancas',      label: 'Cobranças', icon: DollarSign },
     ],
   },
   {

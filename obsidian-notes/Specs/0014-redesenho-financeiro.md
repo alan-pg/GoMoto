@@ -432,7 +432,7 @@ passaria só na primeira execução.
 
 | # | Pendência | Impacto |
 |---|---|---|
-| P-10 | DRE sem tela | A view, o repositório (`listIncomeStatement`) e o hook (`useIncomeStatement`) existem e estão corretos — e **nenhuma tela os consome**. O demonstrativo está pronto e inalcançável pelo operador. É o mesmo padrão do P-8: regra certa em função sem chamador |
+| ~~P-10~~ | ~~DRE sem tela~~ | ✅ **Resolvida** — `/financeiro/dre`. Ver §10.4 |
 | P-11 | Obrigação já lançada não reajusta | Mudar o valor de uma obrigação que já virou payable é estorno, não sobrescrita, e isso pertence à tela de contas a pagar. Hoje o segundo save simplesmente ignora o valor novo |
 
 ### Fora do escopo financeiro, ainda vermelho
@@ -441,6 +441,37 @@ Oito specs falham e nenhuma toca o banco: `veiculos`, `clientes` e `manutencao`
 apontam para UI que mudou (o wizard virou página, o modal virou rota), e as
 cinco de `document-extraction` mandam um PDF falso de 32 bytes para o provedor
 de IA, que responde "The document has no pages". São anteriores a este redesenho.
+
+---
+
+## 10.4 A tela do DRE (P-10)
+
+O demonstrativo existia inteiro — view, repositório, hook — e nenhuma tela o
+consumia. Mesmo padrão do P-8 e da trava de inadimplência: a peça certa, sem
+chamador. `/financeiro/dre` fecha isso.
+
+**Linhas nas colunas, meses nas colunas.** Uma linha por conceito contábil
+(`report_lines`, na ordem que a tabela define), uma coluna por mês, mais total.
+O demonstrativo se lê na horizontal: a pergunta é sempre "isto está crescendo
+ou encolhendo?". Intervalo de 3, 6 ou 12 meses por query param.
+
+**A view passou a carregar o rótulo e a ordem.** Devolvia só `report_line_code`;
+cada consumidor teria de manter a própria tradução e a própria ordenação, e o
+mesmo relatório sairia diferente na web e no mobile. Agora `report_line_name` e
+`sort_order` vêm de `report_lines` na própria view. O número não mudou — só o
+que o acompanha. `security_invoker` preservado.
+
+**Base de cálculo ao lado do resultado.** São somas diferentes (`in_tax_base`
+marca quais linhas entram) e ficavam a uma conta de cabeça de distância. Juntas,
+não tem como errar.
+
+**Zero número digitado.** Todo valor é soma de lançamento. A tela não reinverte
+sinal: a view já entrega receita positiva e despesa negativa, então um sinal
+errado na tela é sinal errado no lançamento — que é o que se quer ver.
+
+Cobertura em dois níveis: `dre.spec.ts` prova que o número está certo (sinal,
+competência, política que não reclassifica o passado); `dre-tela.spec.ts` prova
+que ele chega ao operador com o nome e o sinal certos — o elo que faltava.
 
 ---
 
