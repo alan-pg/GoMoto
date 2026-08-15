@@ -8,6 +8,12 @@
 import { test, expect } from '@playwright/test'
 import { createTestVehicle, deleteTestVehicle, getSupabase, waitForPageLoad } from './helpers'
 
+
+/** Preenche "Responsável pelo pagamento", obrigatório desde a PRD 0013. */
+async function selecionarResponsavel(page: import('@playwright/test').Page, valor = 'company') {
+  await page.getByLabel(/respons[áa]vel pelo pagamento/i).selectOption(valor)
+}
+
 const FAKE_PDF = Buffer.from('%PDF-1.4 conteúdo fake pra teste')
 
 // Filtra por vehicle_id (único por teste), não por description — o fixture
@@ -55,6 +61,11 @@ test.describe('Extração de documentos via IA — Multa (notificação de autua
     await expect(page.getByText(/veículo pré-selecionado/i)).toBeVisible()
     await expect(page.locator('#sec-link select').first()).toHaveValue(vehicle.id)
 
+    // "Responsável pelo pagamento" virou obrigatório na PRD 0013 (11/08) e esta
+    // suíte é de 09/08: a IA não sabe quem paga, então quem registra escolhe.
+    // Sem locação vinculada à moto de teste, o responsável é a empresa.
+    await selecionarResponsavel(page)
+
     await page.getByRole('button', { name: /^registrar multa$/i }).click()
     await page.waitForURL('/multas', { timeout: 10_000 })
 
@@ -86,6 +97,11 @@ test.describe('Extração de documentos via IA — Multa (notificação de autua
     // Seleção manual do veículo — resto do fluxo funciona normalmente
     await page.locator('#sec-link select').first().selectOption(vehicle.id)
 
+    // "Responsável pelo pagamento" virou obrigatório na PRD 0013 (11/08) e esta
+    // suíte é de 09/08: a IA não sabe quem paga, então quem registra escolhe.
+    // Sem locação vinculada à moto de teste, o responsável é a empresa.
+    await selecionarResponsavel(page)
+
     await page.getByRole('button', { name: /^registrar multa$/i }).click()
     await page.waitForURL('/multas', { timeout: 10_000 })
 
@@ -107,6 +123,11 @@ test.describe('Extração de documentos via IA — Multa (notificação de autua
       buffer: FAKE_PDF,
     })
     await expect(page.getByText(/campos identificados/i)).toBeVisible({ timeout: 10_000 })
+
+    // "Responsável pelo pagamento" virou obrigatório na PRD 0013 (11/08) e esta
+    // suíte é de 09/08: a IA não sabe quem paga, então quem registra escolhe.
+    // Sem locação vinculada à moto de teste, o responsável é a empresa.
+    await selecionarResponsavel(page)
 
     await page.getByRole('button', { name: /^registrar multa$/i }).click()
     await page.waitForURL('/multas', { timeout: 10_000 })
