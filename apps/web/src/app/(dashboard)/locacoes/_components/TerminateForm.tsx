@@ -12,7 +12,7 @@ import {
 } from '@gomoto/core'
 import type { Rental } from '@gomoto/core'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { terminateRental } from '../actions'
+import { terminateRental, closeRentalFinancial } from '../actions'
 
 interface TerminateFormProps {
   rental: Rental
@@ -55,6 +55,12 @@ export function TerminateForm({ rental }: TerminateFormProps) {
 
   /** Encerrar com débito em aberto exige confirmação explícita (F-08). */
   const [force, setForce] = useState(false)
+  // Destino da caução. A locação encerra e o dinheiro do cliente precisa ir a
+  // algum lugar — sem isto o passivo fica em aberto para sempre, sem caminho
+  // no produto para devolver nem para reter.
+  const [depositAction, setDepositAction] = useState<'full_return' | 'partial_return' | 'full_retention'>('full_return')
+  const [retainedAmount, setRetainedAmount] = useState('')
+  const [retentionReason, setRetentionReason] = useState('')
 
   const newStatus =
     rental.contract_type === 'rent_to_own' && impact && !impact.within_minimum
@@ -71,6 +77,31 @@ export function TerminateForm({ rental }: TerminateFormProps) {
         force,
       })
       if (!result.ok) { setError(result.error.message); return }
+
+      // Liquidação da caução, quando há saldo. `closeRentalFinancial` já existia
+      // com toda a lógica — e sem nenhum chamador: a tela mostrava o saldo e
+      // não oferecia como resolvê-lo.
+      if (depositBalance > 0) {
+        const retido = Number(retainedAmount.replace(',', '.')) || 0
+
+        const payload =
+          depositAction === 'full_return'
+            ? { rental_id: rental.id, deposit_action: 'full_return' as const, return_date: terminationDate }
+            : depositAction === 'full_retention'
+              ? { rental_id: rental.id, deposit_action: 'full_retention' as const, retention_reason: retentionReason }
+              : {
+                  rental_id: rental.id,
+                  deposit_action: 'partial_return' as const,
+                  retained_amount: retido,
+                  returned_amount: Math.round((depositBalance - retido) * 100) / 100,
+                  retention_reason: retentionReason,
+                  return_date: terminationDate,
+                }
+
+        const dep = await closeRentalFinancial(payload)
+        if (!dep.ok) { setError(`Locação encerrada, mas a caução não foi liquidada: ${dep.error.message}`); return }
+      }
+
       router.push('/locacoes')
     })
   }
@@ -142,13 +173,67 @@ export function TerminateForm({ rental }: TerminateFormProps) {
             <span className="tabular-nums">{formatCurrency(backlog)}</span>
           </div>
 
-          {depositBalance > 0 && (
-            <p className="mt-2 border-t border-border pt-2 text-[12px] text-fg-mute">
-              A caução permanece como passivo até ser retida ou devolvida — o encerramento
-              não a movimenta sozinho.
-            </p>
-          )}
         </div>
+
+        {depositBalance > 0 && (
+          <div className="rounded-xl border border-border bg-surface p-4">
+            <h2 className="text-[13px] font-bold text-fg">Destino da caução</h2>
+            <p className="mt-1 text-[12px] text-fg-mute">
+              O dinheiro do cliente está em custódia. Encerrar sem decidir o destino
+              deixaria o passivo em aberto.
+            </p>
+
+            <div className="mt-3 flex flex-col gap-2">
+              {([
+                ['full_return', `Devolver tudo (${formatCurrency(depositBalance)})`],
+                ['partial_return', 'Reter parte e devolver o resto'],
+                ['full_retention', 'Reter tudo'],
+              ] as const).map(([valor, rotulo]) => (
+                <label key={valor} className="flex items-center gap-2 text-[13px] text-fg">
+                  <input
+                    type="radio"
+                    name="deposit_action"
+                    value={valor}
+                    checked={depositAction === valor}
+                    onChange={() => setDepositAction(valor)}
+                    className="accent-primary"
+                  />
+                  {rotulo}
+                </label>
+              ))}
+            </div>
+
+            {depositAction === 'partial_return' && (
+              <div className="mt-3">
+                <label className="text-[12px] text-fg-mute" htmlFor="retido">Valor retido (R$)</label>
+                <input
+                  id="retido"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max={depositBalance}
+                  value={retainedAmount}
+                  onChange={(e) => setRetainedAmount(e.target.value)}
+                  className="mt-1 h-9 w-full rounded-lg border border-border bg-bg px-3 text-[13px] text-fg"
+                  placeholder="0,00"
+                />
+              </div>
+            )}
+
+            {depositAction !== 'full_return' && (
+              <div className="mt-3">
+                <label className="text-[12px] text-fg-mute" htmlFor="motivo">Motivo da retenção</label>
+                <input
+                  id="motivo"
+                  value={retentionReason}
+                  onChange={(e) => setRetentionReason(e.target.value)}
+                  className="mt-1 h-9 w-full rounded-lg border border-border bg-bg px-3 text-[13px] text-fg"
+                  placeholder="Avaria no para-choque, diária em aberto…"
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {openAmount > 0 && (
           <label className="flex items-start gap-2 rounded-lg border border-danger bg-danger-bg px-3 py-2.5 text-[13px] text-danger">

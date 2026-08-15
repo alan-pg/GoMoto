@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import {
-  TEST_TAG, getSupabase, getTestTenantId, createTestVehicle, deleteTestVehicle,
+  TEST_TAG, getSupabase, getSupabaseAdmin, getTestTenantId, createTestVehicle, deleteTestVehicle,
   createTestCustomer, deleteTestCustomer, waitForPageLoad,
 } from './helpers'
 
@@ -171,5 +171,110 @@ test.describe('Encerramento antecipado preserva garantias emitidas (RN-003)', ()
       expect(c.status).toBe('open')
       expect(Number(c.open_amount)).toBeGreaterThan(0)
     }
+  })
+})
+
+test.describe('Encerramento liquida a caução', () => {
+  // `closeRentalFinancial` existia com toda a lógica e NENHUM chamador: a tela
+  // de encerrar mostrava o saldo da caução e não oferecia como resolvê-lo, então
+  // o dinheiro do cliente ficava como passivo para sempre. Confirmado no banco:
+  // `caucoes_a_devolver` só tinha lançamento de entrada, nunca de saída.
+  let vId = ''
+  let cId = ''
+  let rId = ''
+
+  test.beforeAll(async () => {
+    const v = await createTestVehicle()
+    const c = await createTestCustomer()
+    vId = v.id
+    cId = c.id
+  })
+
+  test.afterAll(async () => {
+    await getSupabaseAdmin().from('rental_billing_schedules').delete().eq('rental_id', rId)
+    await getSupabaseAdmin().from('rentals').delete().eq('id', rId)
+    await deleteTestCustomer(cId).catch(() => {})
+    await deleteTestVehicle(vId).catch(() => {})
+  })
+
+  test('retenção parcial move o passivo e cobra a diferença do cliente', async ({ page }) => {
+    const sb = getSupabaseAdmin()
+    const tenantId = await getTestTenantId()
+
+    const hoje = new Date().toISOString().slice(0, 10)
+    const { data: novoId, error } = await sb.rpc('create_rental_with_schedule', {
+      p_tenant_id: tenantId,
+      p_rental: {
+        customer_id: cId, vehicle_id: vId,
+        start_date: hoje, end_date: new Date(Date.now() + 60 * 864e5).toISOString().slice(0, 10),
+        cycle: 'monthly', cycle_amount: 500, due_day: 10, use_pro_rata: false, contract_type: 'rental',
+      },
+      p_schedule: [],
+    })
+    if (error) throw new Error(`Setup: ${error.message}`)
+    rId = novoId as string
+
+    // Caução recebida: entra como PASSIVO, não receita.
+    const { data: n } = await sb.rpc('fn_next_charge_number', { p_tenant_id: tenantId })
+    const origem = crypto.randomUUID()
+    const { data: ch } = await sb.from('charges').insert({
+      tenant_id: tenantId, customer_id: cId, rental_id: rId,
+      charge_number: n as number, due_date: hoje,
+      source_module: 'deposit', source_id: origem,
+    }).select('id').single()
+    const chargeId = (ch as { id: string }).id
+
+    await sb.from('charge_items').insert({
+      tenant_id: tenantId, charge_id: chargeId, description: `${TEST_TAG} Caução`,
+      credit_account_code: 'caucoes_a_devolver', quantity: 1, unit_amount: 800, amount: 800,
+      source_module: 'deposit', source_id: origem, vehicle_id: vId,
+    })
+    await sb.from('deposits').insert({
+      tenant_id: tenantId, rental_id: rId, customer_id: cId, amount: 800, charge_id: chargeId,
+    })
+    await sb.rpc('post_financial_transaction', {
+      p_tenant_id: tenantId,
+      p_transaction: { event_type: 'deposit_received', description: `${TEST_TAG} Caução recebida`, source_module: 'deposit', source_id: rId },
+      p_entries: [
+        { account_code: 'caixa_e_bancos', direction: 'debit', amount: 800, rental_id: rId, customer_id: cId, vehicle_id: vId },
+        { account_code: 'caucoes_a_devolver', direction: 'credit', amount: 800, rental_id: rId, customer_id: cId, vehicle_id: vId },
+      ],
+    })
+
+    const saldoInicial = await sb.from('deposit_balances').select('balance').eq('rental_id', rId).maybeSingle()
+    expect(Number((saldoInicial.data as { balance: number } | null)?.balance)).toBe(800)
+
+    // Encerra retendo 300 e devolvendo 500.
+    await page.goto(`/locacoes/${rId}/encerrar`)
+    await waitForPageLoad(page)
+
+    await expect(page.getByText('Destino da caução')).toBeVisible({ timeout: 10_000 })
+    await page.getByRole('radio', { name: /Reter parte/ }).check()
+    await page.locator('#retido').fill('300')
+    await page.locator('#motivo').fill('Avaria no para-choque')
+
+    // A própria cobrança da caução está em aberto, e com débito pendente o
+    // encerramento exige confirmação explícita (F-08).
+    await page.locator('input[type=checkbox]').check()
+
+    await page.getByRole('button', { name: 'Confirmar Encerramento' }).click()
+    await page.waitForURL((u) => new URL(u).pathname === '/locacoes', { timeout: 15_000 })
+
+    // O passivo zera: 800 recebidos − 300 retidos − 500 devolvidos.
+    const saldoFinal = await sb.from('deposit_balances').select('balance').eq('rental_id', rId).maybeSingle()
+    expect(
+      Number((saldoFinal.data as { balance: number } | null)?.balance ?? 0),
+      'caução continuou como passivo depois do encerramento',
+    ).toBe(0)
+
+    const { data: entries } = await sb
+      .from('financial_entries')
+      .select('account_code, direction, amount')
+      .eq('rental_id', rId)
+      .eq('account_code', 'caucoes_a_devolver')
+
+    const rows = (entries ?? []) as { direction: string; amount: number }[]
+    const debitos = rows.filter((e) => e.direction === 'debit')
+    expect(debitos.map((e) => Number(e.amount)).sort((a, b) => a - b), 'faltou retenção ou devolução').toEqual([300, 500])
   })
 })
