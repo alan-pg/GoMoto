@@ -172,7 +172,9 @@ async function syncFineBilling(supabase: Supabase, params: SyncFineBillingParams
           sourceId: fineId,
           createdBy: userId ?? null,
         })
-        await supabase.from('fines').update({ payable_id: payableId }).eq('id', fineId).eq('tenant_id', tenantId)
+        // Sem vínculo de volta: `payables.source_module/source_id` já aponta
+        // para a multa, e `payableDaMulta` consulta por aí. A coluna
+        // `fines.payable_id` era só escrita, nunca lida.
       } catch (err) {
         return { ok: false, error: `Erro ao lançar o custo da multa: ${String(err)}` }
       }

@@ -56,7 +56,7 @@ export default async function FinancialDashboardPage() {
   const nextMonth  = new Date(now.getFullYear(), now.getMonth() + 1, 1)
   const monthEnd   = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-01`
 
-  const [monthBillingsResult, overdueBillingsResult, vehiclesResult, delinquentResult] = await Promise.all([
+  const [monthBillingsResult, overdueBillingsResult, vehiclesResult, delinquentResult, lastRunResult] = await Promise.all([
     // Cobranças do mês corrente — caução fica de fora: é garantia/depósito,
     // não receita operacional, e já tem exibição própria em /locacoes/[id].
     // Spec 0014: total, pago e em aberto vêm de `charge_balances`, derivados.
@@ -97,7 +97,32 @@ export default async function FinancialDashboardPage() {
       .select('customer_id, action, acted_at, customers(id, name)')
       .eq('tenant_id', tenantId)
       .order('acted_at', { ascending: false }),
+    // Última execução do faturamento. Existe para tornar visível a AUSÊNCIA de
+    // execução: sem isto, "o job não rodou" e "rodou e não havia nada a fazer"
+    // são indistinguíveis, e um segredo de ambiente faltando derruba a receita
+    // recorrente em silêncio.
+    supabase
+      .from('billing_runs')
+      .select('started_at, finished_at, charges_issued, error, triggered_by')
+      .eq('tenant_id', tenantId)
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ])
+
+  type BillingRun = {
+    started_at: string; finished_at: string | null
+    charges_issued: number; error: string | null; triggered_by: string
+  }
+  const lastRun = (lastRunResult.data ?? null) as BillingRun | null
+
+  const horasDesdeEmissao = lastRun
+    ? Math.floor((Date.now() - new Date(lastRun.started_at).getTime()) / 3_600_000)
+    : null
+
+  // O job roda uma vez por dia. Passar de ~26h significa que uma execução foi
+  // pulada — e é exatamente o que ninguém percebia antes.
+  const emissaoAtrasada = horasDesdeEmissao === null || horasDesdeEmissao > 26
 
   const monthBillings = (monthBillingsResult.data ?? []) as unknown as BillingRow[]
   const overdueBillings = (overdueBillingsResult.data ?? []) as unknown as BillingRow[]
@@ -195,6 +220,41 @@ export default async function FinancialDashboardPage() {
             </p>
             <p className="mt-0.5 text-[12px] text-fg-mute">{overdueBillings.length} cobranças</p>
           </div>
+        </div>
+
+        {/* ── Faturamento ───────────────────────────────────────────────────
+            A emissão das cobranças de aluguel roda sozinha, uma vez por dia.
+            Quando ela falha, nada na tela mudava: as cobranças simplesmente não
+            apareciam, e não havia como distinguir isso de "não havia nada a
+            faturar". Esta faixa existe para essa diferença ficar visível. */}
+        <div className={`rounded-xl border p-4 ${
+          emissaoAtrasada
+            ? 'border-danger bg-danger-bg'
+            : 'border-divider bg-surface'
+        }`}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className={`text-[13px] font-medium ${emissaoAtrasada ? 'text-danger' : 'text-fg'}`}>
+              {lastRun === null
+                ? 'O faturamento automático nunca rodou'
+                : emissaoAtrasada
+                  ? `Faturamento sem rodar há ${horasDesdeEmissao}h`
+                  : 'Faturamento em dia'}
+            </p>
+            {lastRun && (
+              <p className="text-[12px] text-fg-mute">
+                Última execução {fmt(lastRun.started_at)}
+                {lastRun.triggered_by === 'manual' ? ' (manual)' : ''}
+                {' · '}
+                {lastRun.charges_issued} cobrança{lastRun.charges_issued === 1 ? '' : 's'} emitida{lastRun.charges_issued === 1 ? '' : 's'}
+              </p>
+            )}
+          </div>
+          {lastRun?.error && (
+            <p className="mt-2 text-[12px] text-danger">Erro na última execução: {lastRun.error}</p>
+          )}
+          {lastRun && !lastRun.finished_at && (
+            <p className="mt-2 text-[12px] text-warning">A última execução não concluiu.</p>
+          )}
         </div>
 
         {/* ── Cobranças vencidas ────────────────────────────────────────── */}

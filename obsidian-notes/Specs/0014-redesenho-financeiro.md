@@ -348,7 +348,7 @@ e está registrado para não se perder:
 | P-8 | `blockCustomer`/`unblockCustomer` sem chamador na UI | Achado testando as telas (2026-08-13) | As actions existem e estão corretas, mas não há botão. Foi por isso que um bug nelas sobreviveu meses sem ninguém notar. Construir a UI é escopo de produto — onde fica o botão, quem pode usar — e ficou para decisão |
 | ~~P-6~~ | ~~Sem teste de isolamento por tenant nas tabelas novas~~ | §6 chamava de obrigatório | ✅ **Resolvida** em `tests/tenant-isolation-financeiro.spec.ts` (24 casos) |
 | ~~P-2~~ | ~~Sem emissão manual pelo operador~~ | §4.3 | ✅ **Resolvida** — a rota virou disparo manual da mesma função |
-| ~~P-3~~ | ~~Sem alerta de linha `scheduled` vencida~~ | §4.3 | ✅ **Parcial** — `billing_runs` registra cada execução; falta a exibição na tela |
+| ~~P-3~~ | ~~Sem alerta de linha `scheduled` vencida~~ | §4.3 | ✅ **Resolvida** — `billing_runs` registra cada execução e a tela financeira exibe faixa vermelha quando passa de 26h sem rodar |
 | P-7 | Reconciliação testada só no escopo da spec E2E | §7 pedia 100% das transações | `cobrancas.spec.ts` valida `SUM = 0` apenas nas transações que ela cria |
 
 Nenhuma bloqueia o uso do sistema.

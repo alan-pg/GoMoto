@@ -4,6 +4,7 @@ import {
   createTestVehicle, deleteTestVehicle, createTestCustomer, deleteTestCustomer,
 } from './helpers'
 import { createCharge } from '../src/lib/financial/charges'
+import { waitForPageLoad } from './helpers'
 
 /**
  * Emissão de cobrança a partir do cronograma — `issue_due_charges`.
@@ -360,5 +361,20 @@ test.describe('Emissão de cobranças a partir do cronograma', () => {
 
     const linhas = await cronograma(rentalId)
     expect(linhas[0]!.status, 'cobrança emitida para locação encerrada').toBe('scheduled')
+  })
+
+  test('a tela financeira mostra quando o faturamento rodou', async ({ page }) => {
+    // O indicador existe para tornar visível a AUSÊNCIA de execução. Antes,
+    // "o job não rodou" e "rodou e não havia nada a faturar" eram
+    // indistinguíveis na tela — e foi assim que uma query quebrada manteve a
+    // receita recorrente parada sem ninguém notar.
+    await admin().rpc('fn_run_billing_emission', { p_triggered_by: 'manual', p_lead_days: 0 })
+
+    await page.goto('/financeiro')
+    await waitForPageLoad(page)
+
+    await expect(page.getByText('Faturamento em dia')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(/Última execução/)).toBeVisible()
+    await expect(page.getByText(/\(manual\)/)).toBeVisible()
   })
 })

@@ -58,17 +58,28 @@ export async function registerCost(
 
   const { data: maintenance } = await supabase
     .from('maintenances')
-    .select('id, vehicle_id, description, payable_id')
+    .select('id, vehicle_id, description')
     .eq('id', parsed.data.maintenance_id)
     .eq('tenant_id', tenantId)
     .maybeSingle()
 
-  const m = maintenance as {
-    id: string; vehicle_id: string; description: string; payable_id: string | null
-  } | null
-
+  const m = maintenance as { id: string; vehicle_id: string; description: string } | null
   if (!m) return { ok: false, error: { code: 'NOT_FOUND', message: 'Manutenção não encontrada' } }
-  if (m.payable_id) {
+
+  // "Já tem custo?" pergunta-se ao payable pela origem, não a uma coluna de
+  // volta na manutenção. `maintenances.payable_id` apontava para o payable que
+  // já apontava para ela — dois lados que podiam divergir. O índice único por
+  // origem em `payables` garante o resto: mesmo com corrida, só um passa.
+  const { data: existente } = await supabase
+    .from('payables')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('source_module', 'maintenance')
+    .eq('source_id', m.id)
+    .neq('status', 'cancelled')
+    .maybeSingle()
+
+  if (existente) {
     return { ok: false, error: { code: 'CONFLICT', message: 'Esta manutenção já teve o custo registrado.' } }
   }
 
@@ -116,12 +127,6 @@ export async function registerCost(
       sourceId: m.id,
       createdBy: userId,
     })
-
-    await supabase
-      .from('maintenances')
-      .update({ payable_id: payableId })
-      .eq('id', m.id)
-      .eq('tenant_id', tenantId)
 
     return { ok: true, data: { payable_id: payableId, charge_id: chargeId } }
   } catch (err) {
