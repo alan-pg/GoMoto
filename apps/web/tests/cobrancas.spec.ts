@@ -169,6 +169,21 @@ test.describe('Cobranças — emissão, pagamento parcial e baixa', () => {
     expect(perda!.direction).toBe('debit')
     // O saldo EM ABERTO, não o total: o que já foi recebido não é perda.
     expect(Number(perda!.amount)).toBeCloseTo(Number(antes!.open_amount), 2)
+
+    // A BAIXA em si não realiza encargo novo: dar por perdido não é receber, e
+    // reconhecer receita para logo perdê-la infla receita e perda ao mesmo
+    // tempo. O encargo que aparece na cobrança veio do pagamento parcial
+    // anterior — por isso a asserção olha a transação da baixa, não a cobrança.
+    const { data: daBaixa } = await supabase
+      .from('financial_entries')
+      .select('account_code, financial_transactions!inner(event_type)')
+      .eq('charge_id', antes!.charge_id)
+      .eq('financial_transactions.event_type', 'charge_written_off')
+
+    const contas = ((daBaixa ?? []) as { account_code: string }[]).map((e) => e.account_code).sort()
+    expect(contas, 'a baixa lançou em conta inesperada').toEqual(
+      ['contas_a_receber', 'perda_inadimplencia'],
+    )
   })
 
   test('todo lançamento gerado fecha em zero', async () => {

@@ -183,14 +183,19 @@ export default async function FinancialDashboardPage() {
     }),
   )
 
-  const monthLabel = now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+  // "agosto de 2026" → "Agosto de 2026". O `capitalize` do CSS maiúsculiza
+  // TODA palavra e produzia "Agosto De 2026"; só a primeira letra deve subir.
+  const monthLabel = (() => {
+    const bruto = now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+    return bruto.charAt(0).toUpperCase() + bruto.slice(1)
+  })()
 
   return (
     <div className="min-h-screen bg-bg">
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div className="sticky top-0 z-10 flex h-16 items-center border-b border-divider bg-bg px-6">
-        <h1 className="text-[15px] font-bold text-fg capitalize">{monthLabel}</h1>
+        <h1 className="text-[15px] font-bold text-fg">{monthLabel}</h1>
         <span className="ml-2 text-[13px] text-fg-mute">— Painel financeiro</span>
       </div>
 

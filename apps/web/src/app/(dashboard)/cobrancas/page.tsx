@@ -610,8 +610,19 @@ export default function CobrancasPage() {
         {writingOff && (
           <div className="space-y-4">
             <p className="text-[13px] text-[var(--fg-soft)]">
-              O saldo de {formatCurrency(writingOff.amount_due)} será reconhecido como perda. A
+              {/* `open_amount`, não `amount_due`: a baixa reconhece a perda do que
+                  é RECEBÍVEL. O encargo do atraso ainda é projeção do relógio —
+                  nunca virou lançamento —, e não se perde o que nunca se teve.
+                  O texto exibia o valor com encargo e prometia baixar mais do
+                  que a ação baixa. */}
+              O saldo de {formatCurrency(writingOff.open_amount)} será reconhecido como perda. A
               cobrança sai de contas a receber e passa a compor o indicador de inadimplência.
+              {writingOff.accrued_total > 0 && (
+                <>
+                  {' '}Os {formatCurrency(writingOff.accrued_total)} de encargo acumulado não entram:
+                  eles nunca viraram recebível.
+                </>
+              )}
             </p>
 
             <Textarea
