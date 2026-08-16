@@ -45,7 +45,11 @@ export type ReceivedPayment = {
  */
 
 /**
- * Congela o encargo acumulado das cobranças que vão receber o dinheiro.
+ * Congela o encargo acumulado das cobranças que vão ser quitadas.
+ *
+ * Vale para qualquer forma de quitação — dinheiro ou crédito do cliente. O
+ * encargo é devido por contrato desde o atraso; deixar de realizá-lo em um dos
+ * caminhos faria quem paga com crédito escapar da multa que já correu.
  *
  * Multa e juros não são gravados: nascem do relógio (Princípio 4). Isso cria um
  * descompasso no instante do recebimento — a tela oferece "principal +
@@ -59,7 +63,7 @@ export type ReceivedPayment = {
  * "Consolidar encargo" continua existindo para congelar sem receber — fechamento
  * de mês, segunda via —, mas deixou de ser pré-requisito.
  */
-async function realizeAccruedBefore(
+export async function realizeAccruedBefore(
   supabase: SupabaseClient,
   tenantId: string,
   chargeIds: string[],

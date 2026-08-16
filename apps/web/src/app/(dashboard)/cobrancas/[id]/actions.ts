@@ -20,7 +20,7 @@ import {
   type ChargeBalance,
   type LateChargePolicy,
 } from '@gomoto/core'
-import { postTransaction, dimensionsOf, realizeLateCharge } from '@/lib/financial'
+import { postTransaction, dimensionsOf, realizeLateCharge, realizeAccruedBefore } from '@/lib/financial'
 
 type Failure = { ok: false; error: { code: ErrorCode; message: string } }
 
@@ -64,6 +64,26 @@ export async function applyCustomerCredits(
   if (!ctx.ok) return ctx.failure
 
   try {
+    // Quitar com crédito é quitar. O encargo do atraso precisa ser realizado
+    // antes de alocar, como no recebimento em dinheiro — senão quem paga com
+    // crédito escapa da multa que já correu, e o mesmo atraso custa diferente
+    // conforme a forma de pagamento.
+    const { data: aVencer } = await ctx.supabase
+      .from('charge_balances')
+      .select('charge_id')
+      .eq('tenant_id', ctx.tenantId)
+      .eq('customer_id', customerId)
+      .eq('status', 'open')
+      .eq('is_overdue', true)
+      .gt('open_amount', 0)
+
+    await realizeAccruedBefore(
+      ctx.supabase,
+      ctx.tenantId,
+      ((aVencer ?? []) as { charge_id: string }[]).map((c) => c.charge_id),
+      new Date(),
+    )
+
     const [creditsRes, chargesRes] = await Promise.all([
       ctx.supabase
         .from('customer_credits')

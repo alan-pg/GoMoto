@@ -178,9 +178,16 @@ test.describe('Crédito do cliente e encargo por atraso', () => {
     await modal.getByRole('button', { name: 'Aplicar crédito' }).click()
     await expect(modal).toBeHidden({ timeout: 15_000 })
 
-    // A dívida cai pelo crédito aplicado.
+    // A dívida cai pelo crédito aplicado. Pela RELAÇÃO, não por número fixo: a
+    // cobrança está vencida, e quitar com crédito realiza o encargo antes de
+    // abater — o total sobe e o devido é `total − 120`.
     const depois = await saldo(chargeId)
-    expect(Number(depois!.open_amount), 'crédito não abateu a dívida').toBe(180)
+    expect(Number(depois!.paid_amount)).toBe(120)
+    expect(
+      Number(depois!.open_amount),
+      'crédito não abateu a dívida',
+    ).toBeCloseTo(Number(depois!.total_amount) - 120, 2)
+    expect(Number(depois!.total_amount), 'encargo do atraso não foi realizado').toBeGreaterThan(300)
 
     // E o passivo com o cliente é baixado no razão — crédito é dívida NOSSA
     // com ele, então aplicá-lo debita `creditos_de_clientes`.
@@ -261,5 +268,73 @@ test.describe('Crédito do cliente e encargo por atraso', () => {
       .maybeSingle()
 
     expect(lancamento, 'encargo cobrado sem virar receita').not.toBeNull()
+  })
+
+  test('quitar com crédito também realiza o encargo do atraso', async ({ page }) => {
+    // Assimetria achada percorrendo a tela: receber em dinheiro realizava o
+    // encargo, aplicar crédito não. O mesmo atraso custava diferente conforme a
+    // forma de pagamento, e quem quitava com crédito escapava da multa que já
+    // tinha corrido.
+    const tenantId = await getTestTenantId()
+
+    const v = await createTestVehicle()
+    const contrato = await createTestContract(v.id)
+    extras.push({ vehicleId: v.id, customerId: contrato.customerId, rentalId: contrato.contractId })
+
+    const chargeId = await cobrancaVencida(500, 20, contrato.customerId, contrato.contractId)
+
+    const { data: credito } = await admin().from('customer_credits').insert({
+      tenant_id: tenantId, customer_id: contrato.customerId, amount: 100,
+      origin: 'manual_adjustment', reason: `${TEST_TAG} Crédito ${RUN}`,
+    }).select('id').single()
+
+    await admin().rpc('post_financial_transaction', {
+      p_tenant_id: tenantId,
+      p_transaction: {
+        event_type: 'credit_granted',
+        description: `${TEST_TAG} Crédito concedido`,
+        source_module: 'customer_credit',
+        source_id: (credito as { id: string }).id,
+      },
+      p_entries: [
+        { account_code: 'despesa_operacional',  direction: 'debit',  amount: 100, customer_id: contrato.customerId },
+        { account_code: 'creditos_de_clientes', direction: 'credit', amount: 100, customer_id: contrato.customerId },
+      ],
+    })
+
+    const antes = await saldo(chargeId)
+    expect(Number(antes!.total_amount)).toBe(500)
+
+    await page.goto(`/cobrancas/${chargeId}`)
+    await waitForPageLoad(page)
+    await page.getByRole('button', { name: 'Aplicar crédito' }).click()
+
+    const modal = getModal(page)
+    await expect(modal).toBeVisible()
+    await modal.locator('input[type=number]').fill('100')
+    await modal.getByRole('button', { name: 'Aplicar crédito' }).click()
+    await expect(modal).toBeHidden({ timeout: 15_000 })
+
+    const depois = await saldo(chargeId)
+
+    // O encargo virou dívida antes do abatimento: o total sobe.
+    expect(
+      Number(depois!.total_amount),
+      'quitar com crédito não realizou o encargo do atraso',
+    ).toBeGreaterThan(500)
+
+    // E virou receita, como no recebimento em dinheiro.
+    const { data: encargo } = await admin()
+      .from('financial_entries')
+      .select('amount')
+      .eq('charge_id', chargeId)
+      .eq('account_code', 'receita_encargos_atraso')
+      .maybeSingle()
+
+    expect(encargo, 'encargo cobrado sem virar receita').not.toBeNull()
+
+    // O crédito foi consumido e o saldo devido cai por ele.
+    expect(Number(depois!.paid_amount)).toBe(100)
+    expect(Number(depois!.open_amount)).toBeCloseTo(Number(depois!.total_amount) - 100, 2)
   })
 })
