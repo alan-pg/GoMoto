@@ -163,6 +163,34 @@ test.describe('Multas — cadastro e cobrança do cliente', () => {
       (s, e) => s + Number((e as { amount_signed: number }).amount_signed), 0,
     )
     expect(Number(soma.toFixed(2)), 'multa repassada mexeu no resultado').toBe(0)
+
+    // A despesa carrega o CLIENTE, não só o veículo. Sem essa dimensão o
+    // repasse contava para ele em `customer_financial_position` e o custo não:
+    // o cliente aparecia com lucro no valor da multa. Mesmo erro que a multa
+    // tinha no DRE, um nível abaixo.
+    const { data: despesa } = await admin()
+      .from('financial_entries')
+      .select('customer_id')
+      .eq('account_code', 'despesa_multa')
+      .eq('vehicle_id', vehicleId)
+      .maybeSingle()
+
+    expect(
+      (despesa as { customer_id: string | null } | null)?.customer_id,
+      'custo da multa sem dono: o cliente fica com o repasse e sem a despesa',
+    ).toBe(customerId)
+
+    const { data: posicao } = await admin()
+      .from('customer_financial_position')
+      .select('attributed_cost, reimbursed, absorbed_cost')
+      .eq('customer_id', customerId)
+      .single()
+
+    const pos = posicao as { attributed_cost: number; reimbursed: number; absorbed_cost: number }
+    expect(Number(pos.attributed_cost)).toBe(VALOR)
+    expect(Number(pos.reimbursed)).toBe(VALOR)
+    // Multa repassada não sobra para a empresa nem gera lucro no cliente.
+    expect(Number(pos.absorbed_cost), 'multa repassada afetou o custo absorvido').toBe(0)
   })
 
   test('a cobrança credita repasse, não receita de locação', async () => {

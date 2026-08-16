@@ -160,6 +160,12 @@ async function syncFineBilling(supabase: Supabase, params: SyncFineBillingParams
         // cobrança de repasse abaixo — assim trocar o responsável não exige
         // desfazer a despesa.
         responsibility: 'company',
+        // O cliente entra como DIMENSÃO, não como rateio: `responsibility`
+        // segue 'company' e nenhuma cobrança nasce daqui. Sem essa dimensão, o
+        // custo da multa ficava sem dono em `customer_financial_position` — o
+        // repasse contava para o cliente e a despesa não, e ele aparecia com
+        // lucro no valor da multa. O mesmo erro que a multa tinha no DRE.
+        customerId: customerId ?? null,
         vehicleId: vehicleId ?? null,
         rentalId: rentalId ?? null,
         sourceModule: 'fine',

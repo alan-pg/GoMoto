@@ -320,13 +320,37 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
     } catch { return [] }
   }, [form.start_date, form.end_date, form.cycle, form.due_day, form.cycle_amount, form.use_pro_rata])
 
-  const downPaymentPreviewRows = useMemo<ExtraChargeRow[]>(() => {
-    const amount = parseFloat(form.down_payment)
-    if (!amount || amount <= 0) return []
-    const due_date = downPaymentPaid ? downPaymentPaymentDate : (downPaymentDueDate || form.start_date)
-    if (!due_date) return []
-    return [{ due_date, label: 'Entrada', amount }]
-  }, [form.down_payment, form.start_date, downPaymentPaid, downPaymentPaymentDate, downPaymentDueDate])
+  /**
+   * Garantias que viram documento junto com o cronograma.
+   *
+   * A caução ficava de fora do preview: o resumo dizia "Caução R$ 800" e a
+   * lista abaixo não a incluía, nem no total. Quem confirmava via "R$ 2.100" e
+   * criava R$ 2.900 em documentos. Caução é cobrança como as outras — só
+   * credita passivo em vez de receita.
+   */
+  const guaranteePreviewRows = useMemo<ExtraChargeRow[]>(() => {
+    const rows: ExtraChargeRow[] = []
+
+    const deposit = parseFloat(form.security_deposit)
+    if (deposit > 0) {
+      const due = depositPaid ? depositPaymentDate : (depositDueDate || form.start_date)
+      if (due) rows.push({ due_date: due, label: 'Caução', amount: deposit })
+    }
+
+    const down = parseFloat(form.down_payment)
+    if (down > 0) {
+      const due = downPaymentPaid ? downPaymentPaymentDate : (downPaymentDueDate || form.start_date)
+      if (due) rows.push({ due_date: due, label: 'Entrada', amount: down })
+    }
+
+    return rows
+  }, [
+    form.security_deposit, form.down_payment, form.start_date,
+    depositPaid, depositPaymentDate, depositDueDate,
+    downPaymentPaid, downPaymentPaymentDate, downPaymentDueDate,
+  ])
+
+  const totalPreviewCount = previewCharges.length + guaranteePreviewRows.length
 
   const isFormReady = Boolean(
     form.vehicle_id && form.customer_id && form.start_date && form.end_date &&
@@ -492,7 +516,11 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
             disabled={isPending}
             className="inline-flex h-8 items-center rounded-full bg-primary px-5 text-[13px] font-bold text-bg transition-colors hover:bg-primary-hover disabled:opacity-60"
           >
-            {isPending ? 'Criando…' : `Confirmar — ${previewCharges.length} cobrança${previewCharges.length !== 1 ? 's' : ''}`}
+            {/* Mesma contagem da lista: o botão somava só os ciclos e dizia "4"
+                enquanto o cabeçalho dizia "5". */}
+            {isPending
+              ? 'Criando…'
+              : `Confirmar — ${totalPreviewCount} cobrança${totalPreviewCount !== 1 ? 's' : ''}`}
           </button>
         )}
       </div>
@@ -1016,7 +1044,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
 
             {/* Preview de cobranças (inline) — só na criação */}
             {!isEditMode && previewCharges.length > 0 && (
-              <ChargePreview charges={previewCharges} extraRows={downPaymentPreviewRows} />
+              <ChargePreview charges={previewCharges} extraRows={guaranteePreviewRows} />
             )}
 
             {!isEditMode && previewCharges.length === 0 && isFormReady && (
@@ -1096,7 +1124,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
               )}
             </div>
 
-            <ChargePreview charges={previewCharges} extraRows={downPaymentPreviewRows} />
+            <ChargePreview charges={previewCharges} extraRows={guaranteePreviewRows} />
 
             {globalError && (
               <div className="flex items-start gap-3 rounded-xl border border-danger bg-danger-bg px-4 py-3">

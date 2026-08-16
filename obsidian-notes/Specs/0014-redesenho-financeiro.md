@@ -673,6 +673,50 @@ existe.
 
 ---
 
+## 10.8 Segunda passada no navegador (2026-08-15)
+
+Ciclo completo com banco zerado: locação com caução e entrada, emissão pelo job,
+multa do cliente, DRE e resultado por cliente. **Três defeitos**, os três de
+comunicação ou de dimensão — nenhum de valor errado no razão.
+
+### O preview da locação mentia em dois lugares ao mesmo tempo
+
+A lista dizia "5 cobranças · R$ 2.100,00" e o botão, na mesma tela, dizia
+"Confirmar — 4 cobranças". O botão contava `previewCharges` (só os ciclos); o
+cabeçalho somava os extras.
+
+Pior: a **caução não tinha linha de preview**. O resumo exibia "Caução R$
+800,00" e a lista abaixo a ignorava, inclusive no total. Quem confirmava via
+R$ 2.100 e criava R$ 2.900 em documentos. Agora as garantias entram na mesma
+lista, e o botão usa a mesma contagem: "6 cobranças · R$ 2.900,00".
+
+### O custo da multa não tinha dono
+
+`customer_financial_position`, criada horas antes, mostrou Ana Silva com
+**resultado R$ 1.367,66 e custo absorvido −R$ 293,47** — a multa aparecia como
+lucro dela.
+
+A causa: `syncFineBilling` criava o payable sem `customerId`. O repasse levava a
+dimensão do cliente, a despesa não. É o mesmo erro que a multa tinha no DRE
+(§10.6), um nível abaixo: recuperação sem o custo do lado. O cliente entra agora
+como dimensão, com `responsibility` seguindo `'company'` — não é rateio, e
+nenhuma cobrança nasce daí.
+
+Comparação ao vivo, mesma receita nos dois: Ana (antes) R$ 1.367,66; Bruno
+(depois) R$ 1.074,19, com custo absorvido zero.
+
+### O que estava certo
+
+Cronograma pro rata por período (174,19 + 600 + 600 + 425,81 = 1.800 exatos);
+emissão pelo início do período, não pelo vencimento; caução creditando passivo e
+ficando fora da receita; DRE somando 2.148,38 sem a caução; multa com despesa e
+repasse se anulando. O padrão "já foi paga" da caução e da entrada é deliberado,
+com caixa visível e marcada — não é defeito.
+
+**Suíte: 117 E2E e 603 unit.**
+
+---
+
 ## 11. Aprovação
 
 Aprovada em 2026-08-12 por Alan. Modalidade de execução: substituição total (big-bang), decisão registrada com o risco aceito na ADR 0024.
