@@ -343,7 +343,7 @@ e está registrado para não se perder:
 | ~~P-1~~ | ~~`payment_provider_accounts.credentials` em texto puro~~ | §6 | ✅ **Resolvida** — token vai para o Supabase Vault; a tabela guarda só a referência, e a leitura passa por função com checagem de tenant |
 | ~~P-4~~ | ~~Invariante do ledger não tem teste automatizado~~ | §7, linha "Invariante (SQL)" | ✅ **Resolvida** em `tests/ledger-invariants.spec.ts` (5 casos) |
 | ~~P-5~~ | ~~Webhook sem teste automatizado~~ | §7 | ✅ **Parcial, deliberadamente** — `tests/webhook-pagamento.spec.ts` cobre as duas garantias de que o webhook depende e que vivem fora dele: idempotência pelo `UNIQUE(provider, provider_event_id)` e estorno que marca em vez de apagar. A Edge Function em si consulta a API do Mercado Pago para confirmar o pagamento; testá-la ponta a ponta exigiria simular um serviço externo, e o que se provaria seria a qualidade do simulador. Fica descoberto o parsing do payload e a chamada externa — a casca fina |
-| P-8 | `blockCustomer`/`unblockCustomer` sem chamador na UI | Achado testando as telas (2026-08-13) | As actions existem e estão corretas, mas não há botão. Foi por isso que um bug nelas sobreviveu meses sem ninguém notar. Construir a UI é escopo de produto — onde fica o botão, quem pode usar — e ficou para decisão |
+| ~~P-8~~ | ~~`blockCustomer`/`unblockCustomer` sem chamador na UI~~ | Achado testando as telas (2026-08-13) | ✅ **Resolvida** — botão na ficha do cliente. Ver §10.10 |
 | ~~P-6~~ | ~~Sem teste de isolamento por tenant nas tabelas novas~~ | §6 chamava de obrigatório | ✅ **Resolvida** em `tests/tenant-isolation-financeiro.spec.ts` (24 casos) |
 | ~~P-2~~ | ~~Sem emissão manual pelo operador~~ | §4.3 | ✅ **Resolvida** — a rota virou disparo manual da mesma função |
 | ~~P-3~~ | ~~Sem alerta de linha `scheduled` vencida~~ | §4.3 | ✅ **Resolvida** — `billing_runs` registra cada execução e a tela financeira exibe faixa vermelha quando passa de 26h sem rodar |
@@ -777,6 +777,72 @@ Retenção parcial de R$ 300 sobre saldo de R$ 800: `deposit_retained` debitou
 `caucoes_a_devolver` e creditou `contas_a_receber`; `deposit_returned` devolveu
 R$ 500 do caixa. Passivo zerado, locação fechada. A tela avisa da multa
 contratual, das cobranças que sobrevivem e das que serão canceladas.
+
+---
+
+## 10.10 Quatro decisões do Alan (2026-08-15)
+
+Explicando as funcionalidades "sem chamador", o Alan questionou o desenho de
+três delas. Duas viraram correção de defeito, duas viraram mudança de produto.
+
+### Encargo deixa de ter botão obrigatório
+
+**Pergunta:** "encargos não devem ser automáticos se o cliente pagar atrasado?"
+
+Sim — e o desenho manual escondia um defeito. A tela oferece "principal +
+encargo", o documento deve só o principal, e `open_amount` é `total − alocado`
+**sem piso em zero**. Aceitar o valor sugerido sem consolidar antes empurrava o
+saldo para NEGATIVO, e o encargo nunca virava receita. Havia uma ordem implícita
+que nada obrigava.
+
+`receivePayment` passou a congelar o acumulado das cobranças que vão receber,
+antes de alocar. Cobrança de R$ 400 vencida há 10 dias: sugerido R$ 409,19 →
+**total 409,19 · pago 409,19 · aberto 0**, com a receita de encargo lançada.
+
+O botão "Consolidar" sobrevive para congelar **sem** receber — fechamento de
+mês, segunda via. Deixou de ser pré-requisito.
+
+### Crédito: nenhum botão de conceder (P-12 fechada)
+
+**Decisão:** o cliente só recebe crédito quando executou manutenção cujo valor
+cabia à empresa. Não existe concessão manual.
+
+`resolveReimbursementMode(split, executor)` existia em `@gomoto/core` com essa
+regra exata — empresa executou vira cobrança, cliente executou vira crédito — e
+**zero chamadores**. `registerCost` tinha `reimbursement` fixo em `'charge'`:
+manutenção executada pelo cliente gerava COBRANÇA contra ele, exigindo de volta
+um dinheiro que já saíra do bolso dele.
+
+`registerCost` passou a receber o executor e usar a regra.
+
+### Inadimplência avisa, não impede
+
+**Decisão:** "não precisa bloquear a criação de uma nova locação, apenas exibir
+esta informação para o operador saber e decidir".
+
+A trava saiu de `createRental`. `getCustomerDelinquency` devolve os fatos e o
+status classificado pela política, e o `RentalForm` exibe nos **dois** passos —
+ao escolher o cliente e de novo ao confirmar, que é onde a decisão acontece.
+
+Bloqueio manual aparece mesmo sem cobrança vencida: é decisão deliberada da
+empresa, e escondê-la derrota o propósito de registrá-la.
+
+O rótulo "Bloqueado para novas locações" virou mentira no instante em que a
+trava saiu — passou a "Bloqueado — a locação exibe aviso, mas não é impedida".
+
+### Bloqueio manual ganha botão (P-8 fechada)
+
+Ficha do cliente, com motivo obrigatório e histórico preservado em
+`delinquency_blocks` (log append-only: interessa saber por que foi bloqueado em
+março e liberado em abril). O modal diz explicitamente que não impede locação
+nem cobrança.
+
+### Um teste meu passando por vacuidade, de novo
+
+`customer_credit_balances` expõe `balance`, não `available`. Eu havia usado
+`available`: o PostgREST devolvia erro, `?? 0` engolia, e a asserção passava sem
+olhar nada. Terceira ocorrência na mesma sessão — o padrão é sempre `?? 0` ou
+`?.x` mascarando uma consulta que falhou.
 
 ---
 

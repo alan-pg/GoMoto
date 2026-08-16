@@ -8,8 +8,14 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { allocatePayment, type ChargeBalance } from '@gomoto/core'
+import {
+  allocatePayment,
+  calculateAccruedCharges,
+  type ChargeBalance,
+  type LateChargePolicy,
+} from '@gomoto/core'
 import { postTransaction, reverseTransaction, dimensionsOf } from './ledger'
+import { realizeLateCharge } from './charges'
 
 export type ReceivePaymentParams = {
   customerId: string
@@ -37,6 +43,66 @@ export type ReceivedPayment = {
  * menor que o total da cobrança. O `UNIQUE(billing_id)` da ADR 0013 tornava
  * isso fisicamente impossível.
  */
+
+/**
+ * Congela o encargo acumulado das cobranças que vão receber o dinheiro.
+ *
+ * Multa e juros não são gravados: nascem do relógio (Princípio 4). Isso cria um
+ * descompasso no instante do recebimento — a tela oferece "principal +
+ * encargo", mas o documento só deve o principal, e `open_amount` é
+ * `total − alocado` **sem piso em zero**. Receber o valor cheio sem realizar o
+ * encargo antes empurrava o saldo para NEGATIVO e o encargo nunca virava
+ * receita.
+ *
+ * Realizar aqui elimina a ordem implícita: o encargo é devido por contrato no
+ * momento em que o pagamento atrasa, não por decisão de quem recebe. O botão
+ * "Consolidar encargo" continua existindo para congelar sem receber — fechamento
+ * de mês, segunda via —, mas deixou de ser pré-requisito.
+ */
+async function realizeAccruedBefore(
+  supabase: SupabaseClient,
+  tenantId: string,
+  chargeIds: string[],
+  paidAt: Date,
+): Promise<void> {
+  for (const chargeId of chargeIds) {
+    const { data: balanceRow } = await supabase
+      .from('charge_balances')
+      .select('open_amount, due_date, is_overdue, status')
+      .eq('charge_id', chargeId)
+      .maybeSingle()
+
+    const b = balanceRow as {
+      open_amount: number; due_date: string; is_overdue: boolean; status: string
+    } | null
+    if (!b || !b.is_overdue || b.status !== 'open' || b.open_amount <= 0) continue
+
+    const { data: chargeRow } = await supabase
+      .from('charges')
+      .select('late_charge_policy_id')
+      .eq('id', chargeId)
+      .maybeSingle()
+
+    const policyId = (chargeRow as { late_charge_policy_id: string | null } | null)?.late_charge_policy_id
+    if (!policyId) continue
+
+    const { data: policyRow } = await supabase
+      .from('late_charge_policies')
+      .select('fee_type, fee_value, daily_interest_rate, grace_period_days, min_amount')
+      .eq('id', policyId)
+      .maybeSingle()
+
+    if (!policyRow) continue
+
+    const accrued = calculateAccruedCharges(
+      policyRow as LateChargePolicy, b.open_amount, b.due_date, paidAt,
+    )
+    if (accrued.total > 0) {
+      await realizeLateCharge(supabase, tenantId, chargeId, accrued.total)
+    }
+  }
+}
+
 export async function receivePayment(
   supabase: SupabaseClient,
   tenantId: string,
@@ -47,7 +113,16 @@ export async function receivePayment(
   let allocations = params.allocations
   let unallocated = 0
 
+  // Antes de alocar: o encargo do atraso vira dívida de verdade nas cobranças
+  // que vão receber. Depois disso os totais já incluem multa e juros, e a
+  // alocação fecha sem sobra nem saldo negativo.
+  if (allocations?.length) {
+    await realizeAccruedBefore(supabase, tenantId, allocations.map((a) => a.chargeId), params.paidAt)
+  }
+
   if (!allocations?.length) {
+    const abertas = await listOpenCharges(supabase, tenantId, params.customerId)
+    await realizeAccruedBefore(supabase, tenantId, abertas.map((c) => c.charge_id), params.paidAt)
     const open = await listOpenCharges(supabase, tenantId, params.customerId)
     const result = allocatePayment(params.amount, open)
     allocations = result.allocations.map((a) => ({ chargeId: a.charge_id, amount: a.amount }))

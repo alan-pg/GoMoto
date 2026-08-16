@@ -15,7 +15,12 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
-import { ACCOUNTS, type ActionResult } from '@gomoto/core'
+import {
+  ACCOUNTS,
+  resolveReimbursementMode,
+  splitResponsibility,
+  type ActionResult,
+} from '@gomoto/core'
 import { createPayable } from './payables'
 
 export const MaintenanceCostSchema = z.object({
@@ -23,6 +28,12 @@ export const MaintenanceCostSchema = z.object({
   amount:          z.number().positive('Custo deve ser maior que zero'),
   /** Quanto DESTE custo o cliente paga. 0 = tudo da empresa. */
   customer_amount: z.number().min(0).default(0),
+  /**
+   * Quem executou o serviço. Decide se a parte do cliente vira COBRANÇA ou
+   * CRÉDITO: executou a empresa, cobra-se do cliente; executou o cliente com
+   * dinheiro que cabia à empresa, credita-se a ele.
+   */
+  executor: z.enum(['company', 'customer']).default('company'),
   due_date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida'),
 })
 
@@ -120,7 +131,14 @@ export async function registerCost(
       responsibility,
       customerId: r?.customer_id ?? null,
       customerAmount: parsed.data.customer_amount,
-      reimbursement: parsed.data.customer_amount > 0 ? 'charge' : 'none',
+      // `resolveReimbursementMode` existia em @gomoto/core com esta regra
+      // exata e NENHUM chamador: aqui estava fixo em 'charge'. Manutenção
+      // executada pelo cliente com valor da empresa gerava cobrança contra
+      // ele — o inverso do devido, porque o dinheiro já saiu do bolso dele.
+      reimbursement: resolveReimbursementMode(
+        splitResponsibility(parsed.data.amount, responsibility, parsed.data.customer_amount),
+        parsed.data.executor,
+      ),
       vehicleId: m.vehicle_id,
       rentalId: r?.id ?? null,
       sourceModule: 'maintenance',

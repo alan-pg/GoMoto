@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useTransition } from 'react'
+import { useState, useMemo, useTransition, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -11,7 +11,7 @@ import type { CycleCharge, Rental, LateChargeConfig } from '@gomoto/core'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { renderContractTemplateHtml } from '@/lib/contract-render'
 import { printHtmlDocument, buildContractFileName } from '@/lib/contract-print'
-import { createRental, updateRental, updateContractTemplate } from '../actions'
+import { createRental, updateRental, updateContractTemplate, getCustomerDelinquency } from '../actions'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -352,6 +352,54 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
 
   const totalPreviewCount = previewCharges.length + guaranteePreviewRows.length
 
+  /**
+   * Inadimplência AVISA, não impede (decisão do Alan, 2026-08-15).
+   *
+   * `createRental` recusava a locação para cliente bloqueado. Quem decide se
+   * vale a pena locar para quem está devendo é a empresa, caso a caso — o
+   * sistema mostra a situação e o operador escolhe.
+   */
+  const [delinquency, setDelinquency] = useState<{
+    status: string; overdue_count: number; max_days_overdue: number
+    overdue_amount: number; manually_blocked: boolean
+  } | null>(null)
+
+  useEffect(() => {
+    if (!form.customer_id) { setDelinquency(null); return }
+    let ativo = true
+    getCustomerDelinquency(form.customer_id).then((r: Awaited<ReturnType<typeof getCustomerDelinquency>>) => {
+      if (ativo) setDelinquency(r.ok ? r.data : null)
+    })
+    return () => { ativo = false }
+  }, [form.customer_id])
+
+
+  /**
+   * Aviso de inadimplência — exibido nos DOIS passos.
+   *
+   * No passo 1 ele aparece ao escolher o cliente, para o operador saber antes
+   * de preencher. No passo 2 aparece de novo, ao lado do botão que cria a
+   * locação: é ali que a decisão acontece, e um aviso que ficou para trás não
+   * decide nada.
+   */
+  const avisoInadimplencia = delinquency && (delinquency.manually_blocked || delinquency.overdue_count > 0) ? (
+    <div className="rounded-lg border border-pending bg-pending-bg px-3 py-2">
+      <p className="text-[13px] font-medium text-pending">
+        {delinquency.manually_blocked
+          ? 'Cliente bloqueado manualmente'
+          : 'Cliente com cobranças vencidas'}
+      </p>
+      <p className="mt-0.5 text-[12px] text-fg-soft">
+        {delinquency.overdue_count > 0
+          ? `${delinquency.overdue_count} vencida${delinquency.overdue_count !== 1 ? 's' : ''} · ${formatCurrency(delinquency.overdue_amount)} · maior atraso de ${delinquency.max_days_overdue} dia${delinquency.max_days_overdue !== 1 ? 's' : ''}`
+          : 'Sem cobranças vencidas no momento.'}
+      </p>
+      <p className="mt-1 text-[12px] text-fg-mute">
+        A locação não fica impedida — a decisão é sua.
+      </p>
+    </div>
+  ) : null
+
   const isFormReady = Boolean(
     form.vehicle_id && form.customer_id && form.start_date && form.end_date &&
     form.cycle_amount && form.due_day && form.end_date > form.start_date
@@ -563,6 +611,9 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                         <option key={c.id} value={c.id}>{c.name}</option>
                       ))}
                     </select>
+                    {avisoInadimplencia && (
+                      <div className="mt-2">{avisoInadimplencia}</div>
+                    )}
                     {fieldErrors.customer_id && (
                       <p className="mt-1 text-[12px] text-danger">{fieldErrors.customer_id}</p>
                     )}
@@ -1065,6 +1116,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
           /* ── Step 2: Preview ──────────────────────────────────────────── */
           <div className="space-y-6">
             <div className="rounded-xl bg-surface p-5 text-[13px]">
+              {avisoInadimplencia && <div className="mb-4">{avisoInadimplencia}</div>}
               <h2 className="mb-4 text-[14px] font-bold text-primary">Resumo do contrato</h2>
               <div className="grid grid-cols-2 gap-x-8 gap-y-2.5">
                 {([

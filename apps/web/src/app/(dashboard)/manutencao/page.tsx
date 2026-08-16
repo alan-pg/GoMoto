@@ -683,6 +683,7 @@ export default function MaintenancePage() {
           maintenance_id: criada.id,
           amount: custoExecutado,
           customer_amount: 0,
+          executor: formData.effective_executor,
           due_date: payload.completed_date as string,
         })
         if (!custoRes.ok) { alert(`Manutenção salva, mas o custo falhou: ${custoRes.error.message}`); return }
@@ -814,6 +815,8 @@ export default function MaintenancePage() {
             maintenance_id: itemId,
             amount: custo,
             customer_amount: Math.min(parseFloat(fin.customer_amount) || 0, custo),
+            // Quem executou decide cobrança vs. crédito.
+            executor: fin.executor,
             due_date: completionDate,
           })
           if (!custoRes.ok) { alert(`Erro ao registrar o custo: ${custoRes.error.message}`); return }

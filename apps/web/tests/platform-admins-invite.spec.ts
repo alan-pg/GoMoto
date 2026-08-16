@@ -15,6 +15,10 @@ async function loginAsNewContext(browser: Browser, email: string, password: stri
 }
 
 test.describe('Platform Admins — criação de admin do zero (Spec 0011)', () => {
+  // Cria usuário e faz login de verdade, ida e volta pelo GoTrue: cabe nos
+  // 30s padrão sozinho, não com a suíte inteira disputando o servidor.
+  test.slow()
+
   const createdUserIds: string[] = []
 
   test.afterAll(async () => {
@@ -26,7 +30,7 @@ test.describe('Platform Admins — criação de admin do zero (Spec 0011)', () =
 
     const { context, page } = await loginAsNewContext(browser, 'master@teste.com', '12345678')
     try {
-      await page.waitForURL(/\/admin\/dashboard/, { timeout: 15_000 })
+      await page.waitForURL(/\/admin\/dashboard/, { timeout: 30_000 })
       await page.goto('/admin/platform-admins')
       await waitForPageLoad(page)
 
@@ -55,7 +59,7 @@ test.describe('Platform Admins — criação de admin do zero (Spec 0011)', () =
     // A senha definida no cadastro já autentica de verdade.
     const { context: newCtx, page: newPage } = await loginAsNewContext(browser, email, 'senha12345')
     try {
-      await newPage.waitForURL(/\/admin\/dashboard/, { timeout: 15_000 })
+      await newPage.waitForURL(/\/admin\/dashboard/, { timeout: 30_000 })
     } finally {
       await newCtx.close()
     }
@@ -67,7 +71,7 @@ test.describe('Platform Admins — criação de admin do zero (Spec 0011)', () =
 
     const { context, page } = await loginAsNewContext(browser, 'master@teste.com', '12345678')
     try {
-      await page.waitForURL(/\/admin\/dashboard/, { timeout: 15_000 })
+      await page.waitForURL(/\/admin\/dashboard/, { timeout: 30_000 })
       await page.goto('/admin/platform-admins')
       await waitForPageLoad(page)
 
@@ -87,7 +91,7 @@ test.describe('Platform Admins — criação de admin do zero (Spec 0011)', () =
 
     const { context: resetCtx, page: resetPage } = await loginAsNewContext(browser, target.email, 'novaSenha456')
     try {
-      await resetPage.waitForURL(/\/admin\/dashboard/, { timeout: 15_000 })
+      await resetPage.waitForURL(/\/admin\/dashboard/, { timeout: 30_000 })
     } finally {
       await resetCtx.close()
     }
@@ -96,7 +100,7 @@ test.describe('Platform Admins — criação de admin do zero (Spec 0011)', () =
   test('rejeita email que já é admin da plataforma (RF-004)', async ({ browser }) => {
     const { context, page } = await loginAsNewContext(browser, 'master@teste.com', '12345678')
     try {
-      await page.waitForURL(/\/admin\/dashboard/, { timeout: 15_000 })
+      await page.waitForURL(/\/admin\/dashboard/, { timeout: 30_000 })
       await page.goto('/admin/platform-admins')
       await waitForPageLoad(page)
 
@@ -118,7 +122,7 @@ test.describe('Platform Admins — criação de admin do zero (Spec 0011)', () =
   test('rejeita email que já é Usuário do Sistema de um tenant (RF-003)', async ({ browser }) => {
     const { context, page } = await loginAsNewContext(browser, 'master@teste.com', '12345678')
     try {
-      await page.waitForURL(/\/admin\/dashboard/, { timeout: 15_000 })
+      await page.waitForURL(/\/admin\/dashboard/, { timeout: 30_000 })
       await page.goto('/admin/platform-admins')
       await waitForPageLoad(page)
 
@@ -143,7 +147,7 @@ test.describe('Platform Admins — criação de admin do zero (Spec 0011)', () =
 
     const { context, page } = await loginAsNewContext(browser, operator.email, '12345678')
     try {
-      await page.waitForURL(/\/admin\/dashboard/, { timeout: 15_000 })
+      await page.waitForURL(/\/admin\/dashboard/, { timeout: 30_000 })
       await page.goto('/admin/platform-admins')
       await waitForPageLoad(page)
       await expect(page.getByRole('button', { name: /adicionar admin/i })).not.toBeVisible()

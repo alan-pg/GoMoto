@@ -177,4 +177,52 @@ test.describe('Manutenção — custo e rateio em valores', () => {
     })
     expect(repetido.ok, 'custo foi registrado duas vezes').toBe(false)
   })
+
+  test('manutenção executada pelo CLIENTE vira crédito, não cobrança', async () => {
+    // A única forma legítima de o cliente ganhar crédito: ele executou o
+    // serviço e pagou do bolso um valor que cabia à empresa. Cobrar dele seria
+    // exigir de volta um dinheiro que já saiu — o inverso do devido.
+    //
+    // `resolveReimbursementMode` existia em @gomoto/core com esta regra exata e
+    // NENHUM chamador; `registerCost` tinha `reimbursement` fixo em 'charge'.
+    const tenantId = await getTestTenantId()
+    const manutencao = await criarManutencao('Correia executada pelo cliente')
+
+    const { data, error } = await registerCost(admin(), tenantId, null, {
+      maintenance_id: manutencao,
+      amount: 300,
+      customer_amount: 300,
+      executor: 'customer',
+      due_date: new Date().toISOString().slice(0, 10),
+    }).then((r) => r.ok ? { data: r.data, error: null } : { data: null, error: r.error })
+
+    expect(error, error?.message).toBeNull()
+
+    // Nenhuma cobrança contra o cliente.
+    const { count: cobrancas } = await admin()
+      .from('charges').select('id', { count: 'exact', head: true })
+      .eq('source_module', 'maintenance').eq('source_id', manutencao)
+    expect(cobrancas, 'executada pelo cliente e ainda assim cobrada dele').toBe(0)
+
+    // Crédito no lugar, e utilizável: o saldo vem do razão.
+    const { data: credito } = await admin()
+      .from('customer_credits')
+      .select('id, amount, customer_id')
+      .eq('payable_id', data!.payable_id)
+      .maybeSingle()
+
+    expect(credito, 'cliente executou e não recebeu crédito').not.toBeNull()
+    expect(Number((credito as { amount: number }).amount)).toBe(300)
+
+    const { data: saldo } = await admin()
+      .from('customer_credit_balances')
+      .select('balance')
+      .eq('customer_id', (credito as { customer_id: string }).customer_id)
+      .maybeSingle()
+
+    expect(
+      Number((saldo as { balance: number } | null)?.balance ?? 0),
+      'crédito concedido sem saldo utilizável',
+    ).toBeGreaterThanOrEqual(300)
+  })
 })

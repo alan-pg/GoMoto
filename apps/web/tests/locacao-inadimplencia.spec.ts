@@ -86,28 +86,46 @@ test.describe('Locação — cliente bloqueado por inadimplência', () => {
     await deleteTestVehicle(vehicleId).catch(() => {})
   })
 
-  test('cliente bloqueado não consegue abrir locação pela tela', async ({ page }) => {
+  test('cliente bloqueado AVISA o operador, sem impedir a locação', async ({ page }) => {
+    // Inadimplência avisa, não impede (decisão do Alan, 2026-08-15). A trava
+    // existia em `createRental` e recusava a locação; quem decide se vale a
+    // pena locar para quem está devendo é a empresa, caso a caso. Regra
+    // automatizada demais vira operador contornando o sistema por fora, e aí o
+    // dado deixa de valer.
     await bloquear('block')
 
     const antes = await locacoesDoCliente()
 
     await preencherFormulario(page)
+
+    // O aviso aparece ao escolher o cliente, ANTES de tentar salvar — é o que
+    // permite decidir em vez de descobrir no erro.
+    await expect(page.getByText(/cliente bloqueado manualmente/i)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/a decisão é sua/i)).toBeVisible()
+
     await page.getByRole('button', { name: /Confirmar/ }).click()
+    await page.waitForURL((u) => /\/locacoes\/[0-9a-f-]{36}/.test(new URL(u).pathname), { timeout: 15_000 })
 
-    await expect(page.getByText(/bloqueado por inadimpl/i)).toBeVisible({ timeout: 15_000 })
-
-    // A mensagem sozinha não basta: o que importa é que nada foi criado.
-    expect(await locacoesDoCliente(), 'locação criada apesar do bloqueio').toBe(antes)
+    // E a locação é criada: o aviso informa, não barra.
+    expect(await locacoesDoCliente(), 'aviso virou impedimento').toBe(antes + 1)
   })
 
-  test('desbloqueado, o mesmo cliente abre locação normalmente', async ({ page }) => {
-    // Contraprova: sem ela, o teste acima passaria mesmo se a criação
-    // estivesse quebrada por qualquer outro motivo.
+  test('sem bloqueio nem atraso, nenhum aviso aparece', async ({ page }) => {
+    // Contraprova: sem ela, o teste acima passaria mesmo se o aviso fosse
+    // exibido para todo mundo.
+    //
+    // Veículo próprio: o teste anterior agora CRIA a locação (antes era
+    // barrado pela trava), e a moto compartilhada sai da lista de disponíveis.
+    const outra = await createTestVehicle()
+    vehicleId = outra.id
+
     await bloquear('unblock')
 
     const antes = await locacoesDoCliente()
 
     await preencherFormulario(page)
+    await expect(page.getByText(/cliente bloqueado manualmente/i)).toHaveCount(0)
+
     await page.getByRole('button', { name: /Confirmar/ }).click()
     await page.waitForURL((u) => /\/locacoes\/[0-9a-f-]{36}/.test(new URL(u).pathname), { timeout: 15_000 })
 

@@ -27,11 +27,11 @@ const extras: { vehicleId: string; customerId: string; rentalId: string }[] = []
 async function saldo(chargeId: string) {
   const { data } = await admin()
     .from('charge_balances')
-    .select('status, open_amount, total_amount, is_overdue, days_overdue')
+    .select('status, open_amount, total_amount, paid_amount, is_overdue, days_overdue')
     .eq('charge_id', chargeId)
     .maybeSingle()
   return data as {
-    status: string; open_amount: number; total_amount: number
+    status: string; open_amount: number; total_amount: number; paid_amount: number
     is_overdue: boolean; days_overdue: number
   } | null
 }
@@ -198,13 +198,68 @@ test.describe('Crédito do cliente e encargo por atraso', () => {
     // O saldo de crédito do cliente zera: não pode ser aplicado duas vezes.
     const { data: saldoCredito } = await admin()
       .from('customer_credit_balances')
-      .select('available')
+      .select('balance')
       .eq('customer_id', cliente2)
       .maybeSingle()
 
     expect(
-      Number((saldoCredito as { available: number } | null)?.available ?? 0),
+      // `available` não existe: a view expõe `balance`. Enquanto o nome estava
+      // errado, o PostgREST devolvia erro, `?? 0` engolia, e a asserção passava
+      // sem olhar nada.
+      Number((saldoCredito as { balance: number } | null)?.balance ?? 0),
       'crédito continuou disponível depois de aplicado',
     ).toBe(0)
+  })
+
+  test('receber cobrança vencida realiza o encargo sozinho, sem saldo negativo', async ({ page }) => {
+    // O encargo nasce do relógio e não é gravado (Princípio 4). Isso criava um
+    // descompasso no recebimento: a tela oferecia "principal + encargo", o
+    // documento devia só o principal, e `open_amount` é `total − alocado` SEM
+    // piso em zero. Pagar o valor sugerido empurrava o saldo para negativo e o
+    // encargo nunca virava receita.
+    //
+    // Consolidar deixou de ser pré-requisito: receber realiza o acumulado
+    // primeiro. O encargo é devido por contrato desde o atraso — não é decisão
+    // de quem recebe.
+    const chargeId = await cobrancaVencida(400, 10)
+
+    const antes = await saldo(chargeId)
+    expect(Number(antes!.total_amount)).toBe(400)
+
+    await page.goto(`/cobrancas/${chargeId}`)
+    await waitForPageLoad(page)
+
+    // O valor sugerido inclui o encargo — é o que o operador aceita por padrão.
+    await page.getByRole('button', { name: 'Registrar pagamento' }).click()
+    const modal = getModal(page)
+    await expect(modal).toBeVisible()
+
+    const sugerido = Number(await modal.locator('input[type=number]').inputValue())
+    expect(sugerido, 'a tela deveria sugerir principal + encargo').toBeGreaterThan(400)
+
+    await modal.getByRole('button', { name: /confirmar pagamento/i }).click()
+    await expect(modal).toBeHidden({ timeout: 15_000 })
+
+    const depois = await saldo(chargeId)
+
+    // O total subiu para incluir o encargo realizado…
+    expect(
+      Number(depois!.total_amount),
+      'encargo não foi realizado no recebimento',
+    ).toBeCloseTo(sugerido, 2)
+
+    // …e a cobrança fecha exatamente em zero, nunca negativa.
+    expect(Number(depois!.paid_amount)).toBeCloseTo(sugerido, 2)
+    expect(Number(depois!.open_amount), 'saldo negativo ou sobra após o pagamento').toBe(0)
+
+    // O encargo virou receita de verdade.
+    const { data: lancamento } = await admin()
+      .from('financial_entries')
+      .select('amount')
+      .eq('charge_id', chargeId)
+      .eq('account_code', 'receita_encargos_atraso')
+      .maybeSingle()
+
+    expect(lancamento, 'encargo cobrado sem virar receita').not.toBeNull()
   })
 })

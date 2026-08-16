@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { applyCpfMask, applyCnpjMask, applyPhoneMask, applyZipMask } from '@gomoto/core'
 import { formatCurrency } from '@/lib/utils'
+import { BlockCustomerButton } from './_components/BlockCustomerButton'
 import { MessageCircle } from 'lucide-react'
 import { CustomerAppAccess } from '../_components/CustomerAppAccess'
 import type { Customer, Rental } from '@gomoto/core'
@@ -430,6 +431,10 @@ export default async function CustomerDetailPage({
                 <span className="ml-2 rounded-full bg-danger-bg px-2 py-0.5 text-[11px] font-semibold text-danger">Bloqueado</span>
               )}
             </h2>
+            {/* P-8: as actions existiam corretas e sem chamador desde a Spec
+                0014. O bloqueio é registro administrativo — não impede locação,
+                marca a decisão da empresa com autor, data e motivo. */}
+            <BlockCustomerButton customerId={id} isBlocked={isBlocked} />
           </div>
           <div className="rounded-xl bg-surface overflow-hidden">
             <table className="w-full text-[13px]">
@@ -437,8 +442,12 @@ export default async function CustomerDetailPage({
                 <tr className="border-b border-divider last:border-0">
                   <td className="h-9 w-48 px-4 text-fg-mute">Status</td>
                   <td className="h-9 px-4 text-fg">
+                    {/* "Bloqueado para novas locações" era falso desde que a
+                        trava saiu de `createRental`: o bloqueio informa, não
+                        impede. Prometer impedimento que não existe é pior que
+                        não ter o rótulo. */}
                     {isBlocked
-                      ? <span className="text-danger font-medium">Bloqueado para novas locações</span>
+                      ? <span className="text-danger font-medium">Bloqueado — a locação exibe aviso, mas não é impedida</span>
                       : <span className="text-success">Regular</span>}
                   </td>
                 </tr>

@@ -19,7 +19,6 @@ import {
   generateSchedule,
   ACCOUNTS,
   classifyCustomerDelinquency,
-  canStartNewRental,
   DEFAULT_DELINQUENCY_POLICY,
   type DelinquencyFacts,
   type DelinquencyPolicy,
@@ -70,41 +69,57 @@ function revalidateRentalPaths() {
  * `delinquency_blocks` é log append-only com `action` block/unblock, não uma
  * linha com data de desbloqueio: bloqueado = a última ação registrada é 'block'.
  */
-async function isCustomerBlocked(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  tenantId: string,
-  customerId: string,
-): Promise<boolean> {
+
+/**
+ * Situação de inadimplência do cliente, para o operador decidir.
+ *
+ * Antes isto era `isCustomerBlocked` e alimentava uma trava que RECUSAVA a
+ * locação. Virou informação: devolve os fatos e o status classificado pela
+ * política do tenant, e quem decide é quem está na frente do cliente. Regra
+ * automatizada demais vira operador contornando o sistema por fora, e aí o
+ * dado deixa de valer.
+ */
+export async function getCustomerDelinquency(customerId: string): Promise<ActionResult<{
+  status: string
+  overdue_count: number
+  max_days_overdue: number
+  overdue_amount: number
+  manually_blocked: boolean
+}>> {
+  const supabase = await createClient()
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não encontrado' } }
+
   const [factsRes, policyRes, blockRes] = await Promise.all([
-    supabase
-      .from('customer_delinquency')
+    supabase.from('customer_delinquency')
       .select('overdue_count, max_days_overdue, overdue_amount')
-      .eq('customer_id', customerId)
-      .maybeSingle(),
-    supabase
-      .from('delinquency_policies')
+      .eq('customer_id', customerId).maybeSingle(),
+    supabase.from('delinquency_policies')
       .select('late_days, delinquent_count, delinquent_days, blocked_count, blocked_days, auto_block')
       .eq('tenant_id', tenantId)
-      .order('effective_from', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from('delinquency_blocks')
-      .select('action')
-      .eq('customer_id', customerId)
-      .eq('tenant_id', tenantId)
-      .order('acted_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .order('effective_from', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('delinquency_blocks')
+      .select('action').eq('customer_id', customerId).eq('tenant_id', tenantId)
+      .order('acted_at', { ascending: false }).limit(1).maybeSingle(),
   ])
 
-  const status = classifyCustomerDelinquency(
-    factsRes.data as DelinquencyFacts | null,
-    (policyRes.data as DelinquencyPolicy | null) ?? DEFAULT_DELINQUENCY_POLICY,
-    (blockRes.data as { action: string } | null)?.action === 'block',
-  )
+  const facts = factsRes.data as DelinquencyFacts | null
+  const manuallyBlocked = (blockRes.data as { action: string } | null)?.action === 'block'
 
-  return !canStartNewRental(status)
+  return {
+    ok: true,
+    data: {
+      status: classifyCustomerDelinquency(
+        facts,
+        (policyRes.data as DelinquencyPolicy | null) ?? DEFAULT_DELINQUENCY_POLICY,
+        manuallyBlocked,
+      ),
+      overdue_count:    facts?.overdue_count ?? 0,
+      max_days_overdue: facts?.max_days_overdue ?? 0,
+      overdue_amount:   Number(facts?.overdue_amount ?? 0),
+      manually_blocked: manuallyBlocked,
+    },
+  }
 }
 
 export async function createRental(
@@ -130,19 +145,17 @@ export async function createRental(
     }
   }
 
-  // Bloqueio de inadimplência (F-04). Fica AQUI, e não em
-  // `createRentalWithDeposit`, porque é este o caminho que a UI usa: o
-  // `RentalForm` chama `createRental` direto. Enquanto a trava morava só no
-  // wrapper — que nenhum componente chama — um cliente bloqueado conseguia
-  // abrir locação nova pela tela, e a inadimplência seguia inerte na prática,
-  // só tinha mudado de lugar.
-  const blocked = await isCustomerBlocked(supabase, tenantId, parsed.data.customer_id)
-  if (blocked) {
-    return {
-      ok: false,
-      error: { code: 'FORBIDDEN', message: 'Cliente bloqueado por inadimplência.', field: 'customer_id' },
-    }
-  }
+  // Inadimplência AVISA, não impede (decisão do Alan, 2026-08-15).
+  //
+  // A trava existia aqui e recusava a locação. Quem decide se vale a pena locar
+  // para um cliente devendo é a empresa, caso a caso: o sistema mostra a
+  // situação — quantas vencidas, maior atraso, valor — e o operador escolhe.
+  // Regra de negócio automatizada demais vira operador contornando o sistema
+  // por fora, e aí o dado deixa de valer.
+  //
+  // A situação é exibida em `RentalForm` via `getCustomerDelinquency`, e o
+  // bloqueio manual da ficha do cliente segue sendo registro administrativo em
+  // `delinquency_blocks` — histórico de decisão, não portão.
 
   // Spec 0014: grava o PLANO, não documentos. Um rent-to-own de 2 anos cria 104
   // linhas de cronograma em vez de 104 cobranças emitidas — "Total a receber"

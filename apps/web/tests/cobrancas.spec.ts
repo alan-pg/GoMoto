@@ -112,8 +112,16 @@ test.describe('Cobranças — emissão, pagamento parcial e baixa', () => {
 
     const parcial = await chargeBalance(customerId)
     expect(Number(parcial!.paid_amount)).toBe(200)
-    expect(Number(parcial!.open_amount)).toBe(300)
-    // Continua em aberto: pagamento parcial não quita o documento.
+
+    // Saldo pela RELAÇÃO, não por número fixo: receber realiza o encargo do
+    // atraso antes de alocar, e esta cobrança vence em 2020 — seis anos de
+    // juros. O que o teste afirma é que pagamento parcial não quita o
+    // documento, e isso vale qualquer que seja o encargo.
+    expect(Number(parcial!.open_amount)).toBeCloseTo(
+      Number(parcial!.total_amount) - 200, 2,
+    )
+    expect(Number(parcial!.open_amount), 'parcial quitou o documento').toBeGreaterThan(0)
+    expect(Number(parcial!.total_amount), 'encargo do atraso não foi realizado').toBeGreaterThan(500)
     expect(parcial!.status).toBe('open')
   })
 
@@ -159,7 +167,8 @@ test.describe('Cobranças — emissão, pagamento parcial e baixa', () => {
 
     expect(perda).toBeDefined()
     expect(perda!.direction).toBe('debit')
-    expect(Number(perda!.amount)).toBe(300) // o saldo em aberto, não o total
+    // O saldo EM ABERTO, não o total: o que já foi recebido não é perda.
+    expect(Number(perda!.amount)).toBeCloseTo(Number(antes!.open_amount), 2)
   })
 
   test('todo lançamento gerado fecha em zero', async () => {
