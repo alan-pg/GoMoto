@@ -16,12 +16,19 @@ import {
   createTestVehicle, deleteTestVehicle, createTestCustomer, deleteTestCustomer,
 } from './helpers'
 import { createPayable } from '../src/lib/financial/payables'
+import { createCharge } from '../src/lib/financial/charges'
 
 const admin = () => getSupabaseAdmin()
 
 let vehicleId = ''
 let customerId = ''
 const hoje = new Date().toISOString().slice(0, 10)
+
+/** Contagem de linhas — o que sobra depois de uma falha. */
+async function contar(tabela: string): Promise<number> {
+  const { count } = await admin().from(tabela).select('id', { count: 'exact', head: true })
+  return count ?? 0
+}
 
 /** Soma líquida de uma conta no razão — o que o DRE enxerga. */
 async function saldoConta(code: string): Promise<number> {
@@ -133,5 +140,137 @@ test.describe('Cancelar despesa', () => {
       (charge as { status: string }).status,
       'despesa cancelada deixou a cobrança do cliente viva',
     ).toBe('cancelled')
+  })
+})
+
+test.describe('Atomicidade da emissão', () => {
+  test('falha no meio não deixa cobrança nem item para trás', async () => {
+    const tenantId = await getTestTenantId()
+
+    const antesCobrancas = await contar('charges')
+    const antesItens     = await contar('charge_items')
+    const antesEntradas  = await contar('financial_entries')
+
+    // Conta inexistente: o INSERT do documento e dos itens passa, e o
+    // lançamento quebra na FK do plano de contas. É exatamente o ponto em que
+    // a versão anterior — três chamadas separadas ao PostgREST — deixava
+    // cobrança órfã, porque cada chamada era a sua própria transação.
+    const { error } = await admin().rpc('fn_create_charge', {
+      p_tenant_id: tenantId,
+      p_charge: {
+        customer_id: customerId,
+        due_date: hoje,
+        source_module: 'manual',
+        source_id: crypto.randomUUID(),
+      },
+      p_items: [{
+        description: `${TEST_TAG} Item que não deve sobrar`,
+        credit_account_code: 'conta_que_nao_existe',
+        quantity: 1, unit_amount: 100, amount: 100,
+      }],
+    })
+
+    expect(error, 'a conta inexistente foi aceita — o teste não prova nada').not.toBeNull()
+
+    expect(await contar('charges'),           'cobrança sobrou depois da falha').toBe(antesCobrancas)
+    expect(await contar('charge_items'),      'item sobrou depois da falha').toBe(antesItens)
+    expect(await contar('financial_entries'), 'lançamento sobrou depois da falha').toBe(antesEntradas)
+  })
+
+  test('falha no repasse desfaz também a despesa', async () => {
+    const tenantId = await getTestTenantId()
+
+    const antesPayables = await contar('payables')
+    const antesEntradas = await contar('financial_entries')
+
+    // Rateio com cliente inexistente: a despesa é gravada e lançada, e a
+    // cobrança de repasse quebra na FK do cliente. Antes isso deixava a empresa
+    // com o custo registrado e o cliente nunca cobrado.
+    const { error } = await admin().rpc('fn_create_payable', {
+      p_tenant_id: tenantId,
+      p_payable: {
+        description: `${TEST_TAG} Rateio que não deve sobrar`,
+        expense_account_code: 'despesa_operacional',
+        competence_date: hoje,
+        due_date: hoje,
+        amount: 300,
+        responsibility: 'shared',
+        customer_id: '00000000-0000-0000-0000-0000000000ff',
+        customer_amount: 100,
+        reimbursement: 'charge',
+        source_module: 'manual',
+        source_id: crypto.randomUUID(),
+      },
+    })
+
+    expect(error, 'o cliente inexistente foi aceito — o teste não prova nada').not.toBeNull()
+
+    expect(await contar('payables'),          'conta a pagar sobrou depois da falha').toBe(antesPayables)
+    expect(await contar('financial_entries'), 'lançamento de custo sobrou sem o repasse').toBe(antesEntradas)
+  })
+})
+
+test.describe('Resultado por cliente', () => {
+  test('separa custo bruto, repasse e o que a empresa absorveu', async ({ page }) => {
+    const tenantId = await getTestTenantId()
+    const { createTestCustomer: novoCliente } = await import('./helpers')
+    const cliente = await novoCliente()
+
+    // Receita de 1.000 e uma despesa rateada de 300, sendo 100 do cliente.
+    // O que a empresa absorve são os 200 restantes — e é esse o número que
+    // responde "este cliente dá lucro?". Somar o custo bruto responderia
+    // outra pergunta.
+    await createCharge(admin(), tenantId, {
+      customerId: cliente.id,
+      dueDate: hoje,
+      sourceModule: 'manual',
+      sourceId: crypto.randomUUID(),
+      items: [{
+        description: `${TEST_TAG} Aluguel`,
+        credit_account_code: 'receita_locacao',
+        quantity: 1, unit_amount: 1000, amount: 1000,
+      }],
+    })
+
+    await createPayable(admin(), tenantId, {
+      description: `${TEST_TAG} Manutenção rateada`,
+      expenseAccountCode: 'despesa_manutencao',
+      competenceDate: hoje,
+      dueDate: hoje,
+      amount: 300,
+      responsibility: 'shared',
+      customerId: cliente.id,
+      customerAmount: 100,
+      reimbursement: 'charge',
+      vehicleId,
+      sourceModule: 'manual',
+      sourceId: crypto.randomUUID(),
+    })
+
+    const { data } = await admin()
+      .from('customer_financial_position')
+      .select('revenue, attributed_cost, reimbursed, absorbed_cost, net_result')
+      .eq('customer_id', cliente.id)
+      .single()
+
+    const p = data as {
+      revenue: number; attributed_cost: number; reimbursed: number
+      absorbed_cost: number; net_result: number
+    }
+
+    expect(Number(p.revenue), 'receita do cliente').toBe(1000)
+    // Custo chega positivo (débito), espelhando `vehicle_financial_position`.
+    expect(Number(p.attributed_cost), 'custo bruto que passou pelo cliente').toBe(300)
+    expect(Number(p.reimbursed), 'parte recuperada dele').toBe(100)
+    expect(Number(p.absorbed_cost), 'o que a empresa absorveu').toBe(200)
+    expect(Number(p.net_result), 'resultado do cliente').toBe(800)
+
+    // E a tela mostra o mesmo número.
+    await page.goto(`/clientes/${cliente.id}`)
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByText('Custo absorvido')).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('R$ 800,00').first()).toBeVisible()
+
+    await deleteTestCustomer(cliente.id).catch(() => {})
   })
 })

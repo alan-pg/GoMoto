@@ -31,12 +31,19 @@ import { TEST_TAG, getSupabaseAdmin, getTestTenantId, createTestCustomer, delete
 
 const admin = () => getSupabaseAdmin()
 
-/** Primeiro dia do mês, N meses atrás — o período é truncado por mês na view. */
+/**
+ * Primeiro dia do mês, N meses atrás — o período é truncado por mês na view.
+ *
+ * Montado a partir dos componentes LOCAIS, nunca por `toISOString()`: à noite,
+ * em UTC-3, a conversão empurra a data para o dia seguinte, e `mesAtras()`
+ * devolvia dia 2 enquanto `date_trunc('month')` agrupa no dia 1. O teste
+ * passava de dia e quebrava depois das 21h.
+ */
 function mesAtras(n: number): string {
   const d = new Date()
   d.setDate(1)
   d.setMonth(d.getMonth() - n)
-  return d.toISOString().slice(0, 10)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
 }
 
 let customerId = ''
@@ -189,6 +196,11 @@ test.describe('DRE em valores', () => {
       .maybeSingle()
     const versaoNova = ((ultima as { version: number } | null)?.version ?? 0) + 1
 
+    // Data local: `toISOString()` empurraria `effective_from` para amanhã à
+    // noite em UTC-3, e o fato lançado "hoje" ficaria fora da política nova.
+    const agora = new Date()
+    const hoje = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}-${String(agora.getDate()).padStart(2, '0')}`
+
     const { data: politica, error } = await admin()
       .from('tenant_account_mappings')
       .insert({
@@ -201,7 +213,7 @@ test.describe('DRE em valores', () => {
         // senão a política nova não muda nada e o teste passa sem provar nada.
         report_line_code: 'gross_revenue',
         in_tax_base:      false,
-        effective_from:   new Date().toISOString().slice(0, 10),
+        effective_from:   hoje,
       })
       .select('id')
       .single()
@@ -210,7 +222,6 @@ test.describe('DRE em valores', () => {
 
     // A política nova precisa de fato mudar a classificação DAQUI PRA FRENTE —
     // senão o teste passaria mesmo com a resolução por data quebrada.
-    const hoje = new Date().toISOString().slice(0, 10)
     const retratoHoje = await porLinha(hoje.slice(0, 8) + '01')
     await lancar(hoje, [
       { account_code: 'contas_a_receber',        direction: 'debit',  amount: 400 },

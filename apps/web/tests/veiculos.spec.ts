@@ -34,7 +34,9 @@ test.describe('Veículos — CRUD', () => {
     await page.goto('/veiculos')
     await waitForPageLoad(page)
     await page.getByRole('link', { name: /novo veículo/i }).click()
-    await page.waitForURL('**/veiculos/novo', { timeout: 15_000 })
+    // 30s: em dev o Next compila a rota na primeira visita, e o formulário de
+    // veículo é a maior tela do app. Sob a suíte inteira, 15s não bastam.
+    await page.waitForURL('**/veiculos/novo', { timeout: 30_000 })
     await waitForPageLoad(page)
 
     await page.getByLabel('Placa *').fill(PLACA)

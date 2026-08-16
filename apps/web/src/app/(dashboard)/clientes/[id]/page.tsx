@@ -45,7 +45,7 @@ export default async function CustomerDetailPage({
   const tenantId = await getCurrentTenantId(supabase)
   if (!tenantId) notFound()
 
-  const [customerResult, rentalResult, creditsResult, delinquencyBlocksResult] = await Promise.all([
+  const [customerResult, rentalResult, creditsResult, delinquencyBlocksResult, positionResult] = await Promise.all([
     supabase.from('customers').select('*').eq('id', id).single(),
     supabase
       .from('rentals')
@@ -67,6 +67,13 @@ export default async function CustomerDetailPage({
       .eq('tenant_id', tenantId)
       .order('acted_at', { ascending: false })
       .limit(5),
+    // Resultado do cliente — soma de lançamentos, nunca coluna.
+    supabase
+      .from('customer_financial_position')
+      .select('revenue, attributed_cost, reimbursed, absorbed_cost, net_result, bad_debt')
+      .eq('customer_id', id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle(),
   ])
 
   if (customerResult.error || !customerResult.data) notFound()
@@ -76,6 +83,10 @@ export default async function CustomerDetailPage({
   const rental = rentalResult.data as (Rental & { vehicle?: { license_plate: string; make: string; model: string } | null }) | null
   const credits = (creditsResult.data ?? []) as { id: string; amount: number;  origin: string; reason: string; created_at: string }[]
   const delinquencyBlocks = (delinquencyBlocksResult.data ?? []) as { action: string; reason: string; actor_id: string; acted_at: string }[]
+  const position = positionResult.data as {
+    revenue: number; attributed_cost: number; reimbursed: number
+    absorbed_cost: number; net_result: number; bad_debt: number
+  } | null
 
   const CREDIT_ORIGIN_LABELS: Record<string, string> = {
     maintenance_refund: 'Estorno manutenção',
@@ -232,6 +243,41 @@ export default async function CustomerDetailPage({
                   <Row label="Data de Nascimento" value={fmt(customer.birth_date)} />
                 </tbody>
               </table>
+            </div>
+          </section>
+        )}
+
+        {/* ── Resultado ────────────────────────────────────────────────────── */}
+        {position && (
+          <section>
+            <h2 className="text-[14px] font-bold text-primary mb-3">Resultado</h2>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="rounded-xl bg-surface p-4">
+                <p className="text-[12px] text-fg-mute">Receita</p>
+                <p className="mt-1 text-xl font-bold text-success">{formatCurrency(Number(position.revenue))}</p>
+                <p className="mt-0.5 text-[12px] text-fg-mute">Aluguel e encargos</p>
+              </div>
+              <div className="rounded-xl bg-surface p-4">
+                <p className="text-[12px] text-fg-mute">Custo absorvido</p>
+                <p className="mt-1 text-xl font-bold text-danger">{formatCurrency(Number(position.absorbed_cost))}</p>
+                {/* Bruto menos repasse: é o que a empresa comeu de fato. O custo
+                    cheio aparece no cliente mesmo quando rateado, então mostrar
+                    o bruto aqui responderia a pergunta errada. */}
+                <p className="mt-0.5 text-[12px] text-fg-mute">
+                  {formatCurrency(Number(position.attributed_cost))} bruto, {formatCurrency(Number(position.reimbursed))} repassado
+                </p>
+              </div>
+              <div className="rounded-xl bg-surface p-4">
+                <p className="text-[12px] text-fg-mute">Resultado</p>
+                <p className={`mt-1 text-xl font-bold ${Number(position.net_result) < 0 ? 'text-danger' : 'text-fg'}`}>
+                  {formatCurrency(Number(position.net_result))}
+                </p>
+                <p className="mt-0.5 text-[12px] text-fg-mute">
+                  {Number(position.bad_debt) < 0
+                    ? `${formatCurrency(Math.abs(Number(position.bad_debt)))} em perdas`
+                    : 'Sem perdas reconhecidas'}
+                </p>
+              </div>
             </div>
           </section>
         )}

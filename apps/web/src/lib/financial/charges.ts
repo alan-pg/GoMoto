@@ -37,11 +37,18 @@ export type CreatedCharge = {
 }
 
 /**
- * Emite uma cobrança com seus itens e lança no ledger.
+ * Emite uma cobrança com seus itens e lança no ledger — **atomicamente**.
  *
  * Cada item credita a conta que a sua natureza determina: aluguel credita
  * receita, repasse de multa credita conta de repasse. É por isso que a
  * cobrança composta funciona — um documento, várias naturezas econômicas.
+ *
+ * A orquestração vive em `fn_create_charge`, no banco. Aqui eram três chamadas
+ * separadas ao PostgREST — documento, itens, lançamento —, cada uma a sua
+ * própria transação: queda de processo entre elas deixava cobrança sem
+ * lançamento. Esse é o único estado que o modelo não consegue proibir por
+ * trigger, porque o documento é legítimo no instante anterior ao lançamento
+ * existir. Uma chamada, uma transação, tudo ou nada.
  */
 export async function createCharge(
   supabase: SupabaseClient,
@@ -51,93 +58,40 @@ export async function createCharge(
   const total = round2(params.items.reduce((sum, i) => sum + i.amount, 0))
   if (total <= 0) throw new Error('Cobrança precisa ter valor maior que zero')
 
-  // Sem veículo no lançamento, a cobrança some do resultado por veículo. Quem
-  // cria a cobrança nem sempre tem o veículo à mão — a avulsa, por exemplo, só
-  // pede cliente e locação —, então quando a cobrança está vinculada a uma
-  // locação o veículo é derivado dela. Item que já traz o seu manda; isto é
-  // apenas o piso.
-  const vehicleId = await resolveVehicleId(supabase, tenantId, params)
-
-  const { data: numberData, error: numberError } = await supabase.rpc(
-    'fn_next_charge_number',
-    { p_tenant_id: tenantId },
-  )
-  if (numberError) throw new Error(`Falha ao numerar cobrança: ${numberError.message}`)
-  const chargeNumber = numberData as number
-
-  const policyId = await resolveLateChargePolicy(supabase, tenantId, params.dueDate)
-
-  const { data: charge, error: chargeError } = await supabase
-    .from('charges')
-    .insert({
-      tenant_id: tenantId,
-      customer_id: params.customerId,
-      rental_id: params.rentalId ?? null,
-      charge_number: chargeNumber,
+  const { data, error } = await supabase.rpc('fn_create_charge', {
+    p_tenant_id: tenantId,
+    p_charge: {
+      customer_id:   params.customerId,
+      rental_id:     params.rentalId ?? null,
+      due_date:      params.dueDate,
+      issue_date:    params.issueDate ?? null,
       source_module: params.sourceModule,
-      source_id: params.sourceId ?? null,
-      due_date: params.dueDate,
-      issue_date: params.issueDate ?? new Date().toISOString().slice(0, 10),
-      late_charge_policy_id: policyId,
-      created_by: params.createdBy ?? null,
-    })
-    .select('id')
-    .single()
-
-  if (chargeError) throw new Error(`Falha ao criar cobrança: ${chargeError.message}`)
-  const chargeId = (charge as { id: string }).id
-
-  const { error: itemsError } = await supabase.from('charge_items').insert(
-    params.items.map((i) => ({
-      tenant_id: tenantId,
-      charge_id: chargeId,
-      description: i.description,
+      source_id:     params.sourceId ?? null,
+      created_by:    params.createdBy ?? null,
+    },
+    p_items: params.items.map((i) => ({
+      description:         i.description,
       credit_account_code: i.credit_account_code,
-      quantity: i.quantity,
-      unit_amount: i.unit_amount,
-      amount: i.amount,
-      // Origem vem do DOCUMENTO, não do item. Aceitar por item permitia
-      // divergir — e a regra é que uma cobrança cobra uma coisa só. A trigger
-      // `trg_charge_item_origin` recusaria, mas melhor não deixar expressável.
-      source_module: params.sourceModule,
-      source_id: params.sourceId ?? null,
-      vehicle_id: i.vehicle_id ?? vehicleId,
+      quantity:            i.quantity,
+      unit_amount:         i.unit_amount,
+      amount:              i.amount,
+      vehicle_id:          i.vehicle_id ?? null,
     })),
-  )
-  if (itemsError) throw new Error(`Falha ao gravar itens: ${itemsError.message}`)
+  })
 
-  // Uma transação por natureza de conta: agrupa itens que creditam a mesma
-  // conta, mantendo a rastreabilidade sem inflar o número de lançamentos.
-  const byAccount = new Map<string, number>()
-  for (const item of params.items) {
-    byAccount.set(
-      item.credit_account_code,
-      round2((byAccount.get(item.credit_account_code) ?? 0) + item.amount),
-    )
+  if (error) throw new Error(`Falha ao criar cobrança: ${error.message}`)
+
+  const r = data as {
+    charge_id: string; charge_number: number
+    total_amount: number; transaction_id: string
   }
 
-  let transactionId = ''
-  for (const [account, amount] of byAccount) {
-    transactionId = await postTransaction(supabase, tenantId, {
-      event: {
-        type: 'charge_issued',
-        amount,
-        credit_account: account as AccountCode,
-        dimensions: dimensionsOf({
-          customerId: params.customerId,
-          rentalId: params.rentalId,
-          chargeId,
-          vehicleId,
-        }),
-      },
-      description: `Cobrança #${chargeNumber}`,
-      sourceModule: params.sourceModule,
-      sourceId: params.sourceId ?? null,
-      createdBy: params.createdBy ?? null,
-    })
+  return {
+    chargeId:    r.charge_id,
+    chargeNumber: Number(r.charge_number),
+    totalAmount: Number(r.total_amount),
+    transactionId: r.transaction_id,
   }
-
-  return { chargeId, chargeNumber, totalAmount: total, transactionId }
 }
 
 /**

@@ -59,7 +59,18 @@ export type CreatedPayable = {
 }
 
 /**
- * Cria a conta a pagar e, havendo parte do cliente, o retorno correspondente.
+ * Cria a conta a pagar e, havendo parte do cliente, o retorno correspondente —
+ * **atomicamente**.
+ *
+ * O custo integral entra como despesa da empresa; a parte do cliente é
+ * recuperada em documento separado, nunca abatida aqui dentro, para que custo
+ * bruto e repasse continuem visíveis lado a lado.
+ *
+ * A orquestração vive em `fn_create_payable`, no banco. Aqui eram até seis
+ * chamadas separadas — payable, lançamento do custo, cobrança de repasse, itens
+ * dela, lançamento dela —, cada uma a sua própria transação. Falha no meio
+ * deixava despesa sem repasse: a empresa registrava o custo e nunca cobrava o
+ * cliente.
  */
 export async function createPayable(
   supabase: SupabaseClient,
@@ -77,120 +88,34 @@ export async function createPayable(
   const reimbursement: ReimbursementMode =
     split.customer_amount === 0 ? 'none' : (params.reimbursement ?? 'charge')
 
-  const { data: payable, error } = await supabase
-    .from('payables')
-    .insert({
-      tenant_id: tenantId,
-      description: params.description,
+  const { data, error } = await supabase.rpc('fn_create_payable', {
+    p_tenant_id: tenantId,
+    p_payable: {
+      description:          params.description,
       expense_account_code: params.expenseAccountCode,
-      competence_date: params.competenceDate,
-      due_date: params.dueDate,
-      amount: params.amount,
-      responsibility: split.responsibility,
-      customer_id: params.customerId ?? null,
-      customer_amount: split.customer_amount,
+      competence_date:      params.competenceDate,
+      due_date:             params.dueDate,
+      amount:               params.amount,
+      responsibility:       split.responsibility,
+      customer_id:          params.customerId ?? null,
+      customer_amount:      split.customer_amount,
       reimbursement,
-      vehicle_id: params.vehicleId ?? null,
-      rental_id: params.rentalId ?? null,
-      vendor_name: params.vendorName ?? null,
-      source_module: params.sourceModule,
-      source_id: params.sourceId ?? null,
-      attachment_url: params.attachmentUrl ?? null,
-      created_by: params.createdBy ?? null,
-    })
-    .select('id')
-    .single()
+      vehicle_id:           params.vehicleId ?? null,
+      rental_id:            params.rentalId ?? null,
+      vendor_name:          params.vendorName ?? null,
+      source_module:        params.sourceModule,
+      source_id:            params.sourceId ?? null,
+      attachment_url:       params.attachmentUrl ?? null,
+      created_by:           params.createdBy ?? null,
+    },
+  })
 
   if (error) throw new Error(`Falha ao criar conta a pagar: ${error.message}`)
-  const payableId = (payable as { id: string }).id
 
-  const dimensions = dimensionsOf({
-    customerId: params.customerId,
-    vehicleId: params.vehicleId,
-    rentalId: params.rentalId,
-    payableId,
-  })
-
-  // Custo integral entra como despesa da empresa. A parte do cliente é
-  // recuperada em lançamento separado — nunca abatida aqui dentro, para que
-  // custo bruto e repasse continuem visíveis separadamente.
-  await postTransaction(supabase, tenantId, {
-    event: {
-      type: 'payable_created',
-      amount: params.amount,
-      expense_account: params.expenseAccountCode,
-      dimensions,
-    },
-    description: params.description,
-    sourceModule: params.sourceModule,
-    sourceId: params.sourceId ?? payableId,
-    createdBy: params.createdBy ?? null,
-  })
-
-  const result: CreatedPayable = { payableId }
-
-  if (split.customer_amount > 0) {
-    const reimbursementAccount =
-      REIMBURSEMENT_ACCOUNT[params.expenseAccountCode] ?? ACCOUNTS.OPERATIONAL_REIMBURSEMENT
-
-    if (reimbursement === 'charge') {
-      const charge = await createCharge(supabase, tenantId, {
-        customerId: params.customerId!,
-        rentalId: params.rentalId ?? null,
-        dueDate: params.dueDate,
-        sourceModule: params.sourceModule,
-        // Aponta para o registro que ORIGINOU a despesa — a manutenção, a
-        // multa — e não para o payable. É o que torna a origem uniforme entre
-        // os módulos: em multas a cobrança já apontava para a multa, e aqui
-        // apontava para um payable, com o módulo dizendo 'maintenance'.
-        sourceId: params.sourceId ?? payableId,
-        createdBy: params.createdBy ?? null,
-        items: [
-          {
-            description: params.description,
-            credit_account_code: reimbursementAccount,
-            quantity: 1,
-            unit_amount: split.customer_amount,
-            amount: split.customer_amount,
-            vehicle_id: params.vehicleId ?? null,
-                },
-        ],
-      })
-      result.chargeId = charge.chargeId
-    } else if (reimbursement === 'credit') {
-      // Cliente adiantou serviço que cabia à empresa: vira dívida com ele.
-      const { data: credit, error: creditError } = await supabase
-        .from('customer_credits')
-        .insert({
-          tenant_id: tenantId,
-          customer_id: params.customerId!,
-          amount: split.customer_amount,
-          origin: params.sourceModule,
-          reason: params.description,
-          payable_id: payableId,
-          created_by: params.createdBy ?? null,
-        })
-        .select('id')
-        .single()
-
-      if (creditError) throw new Error(`Falha ao gerar crédito: ${creditError.message}`)
-      result.creditId = (credit as { id: string }).id
-
-      await postTransaction(supabase, tenantId, {
-        event: {
-          type: 'credit_granted',
-          amount: split.customer_amount,
-          expense_account: params.expenseAccountCode,
-          dimensions,
-        },
-        description: `Crédito ao cliente — ${params.description}`,
-        sourceModule: params.sourceModule,
-        sourceId: payableId,
-        createdBy: params.createdBy ?? null,
-      })
-    }
-  }
-
+  const r = data as { payable_id: string; charge_id?: string; credit_id?: string }
+  const result: CreatedPayable = { payableId: r.payable_id }
+  if (r.charge_id) result.chargeId = r.charge_id
+  if (r.credit_id) result.creditId = r.credit_id
   return result
 }
 

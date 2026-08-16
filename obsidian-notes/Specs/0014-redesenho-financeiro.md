@@ -562,6 +562,82 @@ não há proteção, e a varredura é o detector.
 
 ---
 
+## 10.6 Auditoria da geração de cobranças (2026-08-15)
+
+Varredura de todos os caminhos que geram cobrança e conta a pagar, atrás de
+padronização, atomicidade, simetria de cancelamento e rastreabilidade.
+
+### Padronização — duas portas, zero exceção
+
+Nenhum INSERT cru em `charges` ou `payables` no app inteiro. Tudo passa por
+`createCharge` ou `createPayable`; no banco, só `issue_due_charges`, envolvida
+por `fn_issue_charges_for_tenant`.
+
+**Uma assimetria achada:** só a multa da EMPRESA criava o payable. A multa do
+CLIENTE creditava `repasse_multa` sem `despesa_multa` do outro lado — o DRE
+mostrava LUCRO no valor da multa. Recuperação sem custo contradiz o nome da
+conta e divergia de manutenção e despesa, que sempre lançam custo bruto e
+repasse. O auto é lavrado contra o veículo: quem responde ao órgão é a
+proprietária, e ser "do cliente" muda apenas que existe recuperação depois.
+Decisão do Alan, registrada. A despesa passa a ser criada nos dois casos.
+
+### Atomicidade — era o buraco estrutural
+
+| Caminho | Antes | Agora |
+|---|---|---|
+| `fn_issue_charges_for_tenant` (job) | Atômico | Atômico |
+| `createCharge` | **3 chamadas** ao PostgREST | `fn_create_charge` — uma transação |
+| `createPayable` | **até 6 chamadas** | `fn_create_payable` — uma transação |
+
+Cada chamada era a sua própria transação. Queda de processo entre duas deixava
+documento sem lançamento — o único estado que o modelo não consegue proibir por
+trigger, porque o documento é legítimo no instante anterior ao lançamento
+existir. No rateio era pior: a empresa registrava o custo e nunca cobrava o
+cliente.
+
+As duas viraram funções SQL. Os wrappers TS mantiveram a assinatura, então os
+doze chamadores não mudaram. Um efeito colateral bem-vindo: a emissão passou a
+abrir **uma** transação com um débito e um crédito por natureza, em vez de uma
+transação por conta creditada — um documento emitido é um fato.
+
+`cancelamento-e-rateio.spec.ts` prova por falha injetada: conta inexistente no
+item e cliente inexistente no rateio. Nada sobra em nenhuma das duas tabelas.
+
+### Cancelamento — a simetria estava quebrada de um lado
+
+`cancelExpenseAction` marcava `payables.status` e ia embora. O lançamento de
+`payable_created` ficava: custo eterno no DRE e passivo inexistente. No rateio,
+a cobrança do cliente sobrevivia — cobrando por um custo que a empresa acabara
+de negar.
+
+Novo evento `payable_cancelled` e `cancelPayable`, que estorna o razão E cancela
+o repasse. Se o cliente já pagou o repasse, o cancelamento é recusado inteiro.
+
+### Rateio — já estava sólido
+
+`splitResponsibility` trabalha em valores, nunca percentuais, e garante
+`empresa + cliente = total` exato. O custo integral vira despesa da empresa e a
+parte do cliente é recuperada em lançamento separado, nunca abatida por dentro —
+é o que mantém custo bruto e repasse visíveis lado a lado.
+
+### Rastreabilidade — faltava a visão por cliente
+
+Todo lançamento carrega cliente, veículo, locação, cobrança e conta a pagar.
+Havia `vehicle_financial_position` e `rental_financial_result`, mas nada por
+cliente. `customer_financial_position` fecha isso, com a distinção que uma soma
+ingênua erra:
+
+- `attributed_cost` — custo BRUTO que passou pelo cliente. Num rateio é o valor
+  cheio, porque o lançamento de custo carrega o cliente inteiro.
+- `absorbed_cost` — bruto menos repasse. É este que responde "este cliente dá
+  lucro?".
+
+Somar `attributed_cost` entre clientes **não** dá o custo da empresa: despesa sem
+cliente fica de fora e rateio aparece cheio em um só. Para o total existe o DRE.
+Exposto na tela do cliente.
+
+---
+
 ## 11. Aprovação
 
 Aprovada em 2026-08-12 por Alan. Modalidade de execução: substituição total (big-bang), decisão registrada com o risco aceito na ADR 0024.

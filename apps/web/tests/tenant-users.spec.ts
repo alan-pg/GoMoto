@@ -23,6 +23,10 @@ async function loginAsNewContext(browser: Browser, email: string, password: stri
 }
 
 test.describe('Usuários do tenant — convite, papéis, revogação (Spec 0011)', () => {
+  // Cada caso cria usuário e faz login de verdade, ida e volta pelo GoTrue:
+  // cabe nos 30s padrão sozinho, não com a suíte inteira disputando.
+  test.slow()
+
   const createdUserIds: string[] = []
 
   test.afterAll(async () => {
