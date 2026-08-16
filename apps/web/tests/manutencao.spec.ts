@@ -105,4 +105,57 @@ test.describe('Manutenção — CRUD', () => {
       .from('maintenances').select('id').eq('id', maintenanceId).maybeSingle()
     expect(apagada, 'manutenção sumiu da tabela mas continuou no banco').toBeNull()
   })
+
+  test('manutenção já executada lança o custo, não o descarta', async ({ page }) => {
+    // Havia dois caminhos para registrar manutenção concluída, e só um lançava:
+    // "Agendar" → "Registrar conclusão" chamava `registerMaintenanceCost`; o
+    // modo "Já executada" do modal não. Quem lançava direto digitava o custo e
+    // ele morria na tela — `maintenances.cost` saiu na ADR 0024, o payload não
+    // o carrega, e nada mais o recebia.
+    const descricao = `${TEST_TAG} Executada com custo ${SUFIXO}`
+
+    await page.goto('/manutencao')
+    await waitForPageLoad(page)
+    await page.getByRole('button', { name: /nova manutenção/i }).click()
+
+    const modal = modalAberto(page)
+    await expect(modal).toBeVisible({ timeout: 10_000 })
+    await modal.getByRole('button', { name: /^já executada$/i }).click()
+
+    await modal.getByLabel('Motocicleta *').selectOption(motoId)
+    await modal.getByLabel('Item / Descrição *').fill(descricao)
+    await modal.getByLabel('KM no Serviço *').fill('20000')
+    await modal.getByLabel('Custo (R$)').fill('450')
+
+    await modal.getByRole('button', { name: /^salvar$/i }).click()
+    await expect(modal).toBeHidden({ timeout: 15_000 })
+
+    const { data: manutencao } = await admin()
+      .from('maintenances').select('id, completed').eq('description', descricao).single()
+    const m = manutencao as { id: string; completed: boolean }
+    expect(m.completed).toBe(true)
+
+    const { data: payable } = await admin()
+      .from('payables')
+      .select('amount, expense_account_code, responsibility')
+      .eq('source_module', 'maintenance')
+      .eq('source_id', m.id)
+      .maybeSingle()
+
+    const p = payable as { amount: number; expense_account_code: string; responsibility: string } | null
+    expect(p, 'custo digitado na manutenção executada foi descartado').not.toBeNull()
+    expect(Number(p!.amount)).toBe(450)
+    expect(p!.expense_account_code).toBe('despesa_manutencao')
+
+    // E chega ao resultado do veículo, que é onde a decisão de trocar a moto
+    // é tomada.
+    const { data: posicao } = await admin()
+      .from('vehicle_financial_position')
+      .select('maintenance_cost').eq('vehicle_id', motoId).single()
+
+    expect(
+      Number((posicao as { maintenance_cost: number }).maintenance_cost),
+      'custo não chegou ao resultado do veículo',
+    ).toBe(450)
+  })
 })

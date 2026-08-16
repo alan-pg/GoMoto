@@ -717,6 +717,44 @@ com caixa visível e marcada — não é defeito.
 
 ---
 
+## 10.9 Terceira passada: pagamento, encargo e manutenção (2026-08-15)
+
+### O aviso de consolidar encargo dizia o OPOSTO da ação
+
+"Os encargos desta cobrança serão **zerados**. Essa ação é irreversível" —
+herança do "Dispensar encargos" que existia antes da ADR 0024. Consolidar chama
+`realizeLateCharge`: transforma o encargo do relógio em recebível. Quem lesse o
+aviso clicaria para perdoar e acabaria cobrando o cliente.
+
+O estado interno ainda se chamava `waiveOpen`/`handleWaive` — o nome mantinha a
+leitura errada viva no código.
+
+### O custo da manutenção "Já executada" era descartado
+
+Dois caminhos levam a uma manutenção concluída, e só um lançava:
+
+| Caminho | Custo |
+|---|---|
+| Agendar → "Registrar conclusão" | `registerMaintenanceCost` → payable ✓ |
+| Nova Manutenção → **"Já executada"** | digitado e **descartado** ✗ |
+
+`maintenances.cost` saiu na ADR 0024, o payload não o carrega, e o modo
+executado não chamava nada no lugar. O campo "Custo (R$)" era decorativo.
+Comprovado ao vivo: R$ 450 lançados na primeira tentativa não produziram
+payable nenhum; depois da correção, `despesa_manutencao` recebeu os R$ 450 e o
+resultado do veículo passou a fechar (1.074,19 − 645,23 + 195,23 = 624,19).
+
+### O que estava certo
+
+Pagamento parcial com encargo **recalculado sobre o saldo remanescente** (multa
+1,48 e juros 0,12 sobre R$ 74,19, não sobre o valor original); consolidação
+lançando `late_charge_realized` e elevando o total de 174,19 para 175,79; a
+listagem separando principal e encargo (R$ 174,19 + R$ 3,77).
+
+**Suíte: 118 E2E e 603 unit.**
+
+---
+
 ## 11. Aprovação
 
 Aprovada em 2026-08-12 por Alan. Modalidade de execução: substituição total (big-bang), decisão registrada com o risco aceito na ADR 0024.

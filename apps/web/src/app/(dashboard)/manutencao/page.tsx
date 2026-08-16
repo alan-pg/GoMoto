@@ -656,6 +656,27 @@ export default function MaintenancePage() {
         ? await updateMaintenance(editingMaintenance.id, payload)
         : await createMaintenance(payload)
       if (res.error) { alert(`Erro ao salvar: ${res.error}`); return }
+
+      // Custo do modo "Já executada".
+      //
+      // `registerMaintenanceCost` só era chamado no fluxo "Registrar conclusão"
+      // de uma manutenção AGENDADA. Quem lançava a manutenção já executada
+      // digitava o custo aqui e ele morria na tela: `maintenances.cost` saiu na
+      // ADR 0024, o payload não o carrega, e nada mais o recebia. A conta
+      // `despesa_manutencao` ficava sem o lançamento e o custo sumia do
+      // resultado do veículo.
+      const custoExecutado = parseFloat(formData.cost) || 0
+      const criada = (res as { data?: { id: string } }).data
+      if (isExecuted && custoExecutado > 0 && criada?.id) {
+        const custoRes = await registerMaintenanceCost({
+          maintenance_id: criada.id,
+          amount: custoExecutado,
+          customer_amount: 0,
+          due_date: payload.completed_date as string,
+        })
+        if (!custoRes.ok) { alert(`Manutenção salva, mas o custo falhou: ${custoRes.error.message}`); return }
+      }
+
       closeFormModal()
       await invalidateMaintenances()
     } catch (err) {
