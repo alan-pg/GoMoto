@@ -226,3 +226,29 @@ describe('GrantCreditSchema', () => {
     expect(r.success).toBe(true)
   })
 })
+
+describe('dinheiro com duas casas — ruído de ponto flutuante', () => {
+  /**
+   * A regra era `Math.round(n * 100) === n * 100`, que parece certa e é falsa
+   * para metade dos valores reais: `619.33 * 100` dá `61933.00000000001`.
+   *
+   * O sintoma apareceu na tela: a cobrança sugeria o valor a pagar e a própria
+   * validação o recusava com "não pode ter mais de 2 casas decimais". O
+   * operador não conseguia pagar o número que o sistema propôs.
+   */
+  const validos = [619.33, 8.38, 0.29, 293.47, 1.1, 2.3, 8.2, 1.48, 174.19, 425.81, 0.01, 999999.99]
+
+  it.each(validos)('aceita R$ %s', (valor) => {
+    const r = ReceivePaymentSchema.safeParse({
+      customer_id: UUID, amount: valor, method: 'pix', paid_at: '2026-08-16',
+    })
+    expect(r.success, `R$ ${valor} recusado`).toBe(true)
+  })
+
+  it.each([619.333, 0.001, 10.999, 1.005])('recusa a terceira casa em R$ %s', (valor) => {
+    const r = ReceivePaymentSchema.safeParse({
+      customer_id: UUID, amount: valor, method: 'pix', paid_at: '2026-08-16',
+    })
+    expect(r.success, `R$ ${valor} aceito indevidamente`).toBe(false)
+  })
+})

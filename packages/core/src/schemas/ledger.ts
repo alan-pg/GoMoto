@@ -9,17 +9,35 @@ import { z } from 'zod'
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (use AAAA-MM-DD)')
 
+/**
+ * Duas casas decimais, tolerante ao ruído de ponto flutuante.
+ *
+ * `Math.round(n * 100) === n * 100` parece certo e é falso para metade dos
+ * valores reais: `619.33 * 100` dá `61933.00000000001` em IEEE-754, então a
+ * regra recusava R$ 619,33 — e também R$ 1,10, R$ 2,30, R$ 8,20, R$ 293,47.
+ *
+ * O sintoma apareceu na tela de cobrança: ela sugeria o valor a pagar
+ * (principal + encargo) e a própria validação o rejeitava com "não pode ter
+ * mais de 2 casas decimais". O operador não conseguia pagar o número que o
+ * sistema propôs.
+ *
+ * A tolerância de 1e-6 aceita ruído de cálculo e continua recusando a terceira
+ * casa de verdade: 619.333 sobra 0.3 do inteiro, muito acima do limite.
+ */
+const hasAtMostTwoDecimals = (n: number): boolean =>
+  Math.abs(n * 100 - Math.round(n * 100)) < 1e-6
+
 /** Dinheiro: sempre positivo, no máximo 2 casas. */
 const money = z
   .number({ error: 'Valor é obrigatório' })
   .positive('Valor deve ser maior que zero')
-  .refine((n) => Math.round(n * 100) === n * 100, 'Valor não pode ter mais de 2 casas decimais')
+  .refine(hasAtMostTwoDecimals, 'Valor não pode ter mais de 2 casas decimais')
 
 /** Dinheiro que admite zero — usado em rateio. */
 const moneyOrZero = z
   .number()
   .nonnegative('Valor não pode ser negativo')
-  .refine((n) => Math.round(n * 100) === n * 100, 'Valor não pode ter mais de 2 casas decimais')
+  .refine(hasAtMostTwoDecimals, 'Valor não pode ter mais de 2 casas decimais')
 
 // ============================================================
 // Cobrança
