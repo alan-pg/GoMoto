@@ -46,7 +46,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
   const [flashError, setFlashError] = useState<string | null>(null)
 
   const [payOpen, setPayOpen]     = useState(false)
-  const [waiveOpen, setWaiveOpen] = useState(false)
+  const [realizeOpen, setRealizeOpen] = useState(false)
   const [creditOpen, setCreditOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
 
@@ -56,7 +56,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
   const [payNotes, setPayNotes]     = useState('')
 
   // Waive Charges form
-  const [waiveReason, setWaiveReason] = useState('')
+  const [realizeReason, setRealizeReason] = useState('')
 
   // Apply Credit form
   const [selectedCredit, setSelectedCredit] = useState(availableCredits[0]?.id ?? '')
@@ -90,7 +90,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
     })
   }
 
-  function handleWaive() {
+  function handleRealize() {
     // Consolidar não exige justificativa: só realiza o encargo que a política
     // já determina. A exigência de motivo vinha de "dispensar", ação que deixou
     // de existir — e travava a confirmação num campo sem sentido.
@@ -100,8 +100,8 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
       // existe mais "dispensar", porque nada foi lançado ainda.
       const result = await consolidateLateCharge(billingId)
       if (!result.ok) { setFlashError(result.error.message); return }
-      setWaiveOpen(false)
-      setWaiveReason('')
+      setRealizeOpen(false)
+      setRealizeReason('')
     })
   }
 
@@ -149,7 +149,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
         )}
         {isActionable && isOverdue && accruedCharges > 0 && (
           <button
-            onClick={() => { setFlashError(null); setWaiveOpen(true) }}
+            onClick={() => { setFlashError(null); setRealizeOpen(true) }}
             disabled={isPending}
             className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg disabled:opacity-50"
           >
@@ -218,29 +218,37 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
         </div>
       </Modal>
 
-      {/* ── Dispensar encargos ─────────────────────────────────────────────── */}
-      <Modal open={waiveOpen} onClose={() => setWaiveOpen(false)} title="Consolidar encargo">
+      {/* ── Consolidar encargo ─────────────────────────────────────────────── */}
+      {/*
+        O texto dizia "os encargos serão ZERADOS" — herança do antigo "Dispensar
+        encargos". Consolidar faz o oposto: transforma o encargo calculado pelo
+        relógio em recebível de verdade (`late_charge_realized`). Quem lesse o
+        aviso clicaria esperando perdoar a dívida e acabaria cobrando o cliente.
+      */}
+      <Modal open={realizeOpen} onClose={() => setRealizeOpen(false)} title="Consolidar encargo">
         <div className="space-y-4">
           <p className="text-[13px] text-fg-mute">
-            Os encargos (multa e juros) desta cobrança serão zerados. Essa ação é irreversível.
+            A multa e os juros acumulados até hoje passam a ser cobrados do cliente:
+            saem do cálculo por tempo e viram valor devido, com lançamento no razão.
+            A partir daí seguem acumulando sobre o novo saldo.
           </p>
           <Textarea
             label="Motivo"
-            value={waiveReason}
-            onChange={e => setWaiveReason(e.target.value)}
+            value={realizeReason}
+            onChange={e => setRealizeReason(e.target.value)}
             rows={3}
             placeholder="Observação (opcional)…"
           />
           {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button
-              onClick={() => setWaiveOpen(false)}
+              onClick={() => setRealizeOpen(false)}
               className="inline-flex h-9 items-center px-4 rounded-full border border-border text-[13px] text-fg-mute hover:text-fg"
             >
               Cancelar
             </button>
             <button
-              onClick={handleWaive}
+              onClick={handleRealize}
               disabled={isPending}
               className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-primary-hover disabled:opacity-50"
             >
