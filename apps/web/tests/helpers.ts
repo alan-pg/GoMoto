@@ -165,7 +165,11 @@ export async function createTestVehicle(): Promise<{ id: string; license_plate: 
       // para não depender do default quebrado.
       acquisition_type: 'used',
       color: 'PRETO',
-      renavam: `0000000${suffix}`.slice(0, 11),
+      // RENAVAM é único por tenant e tem 11 dígitos — use os 11, não 4.
+      // `\`0000000${suffix}\`.slice(0, 11)` prefixava sete zeros a um sufixo de
+      // cinco e cortava em onze, sobrando ~4 dígitos de entropia: com dezenas de
+      // veículos por execução, a colisão era questão de tempo.
+      renavam: uniqueSuffix(11),
       chassis: `TEST${suffix}E2E000`.slice(0, 17).toUpperCase(),
       fuel: 'GASOLINA',
       status: 'available',

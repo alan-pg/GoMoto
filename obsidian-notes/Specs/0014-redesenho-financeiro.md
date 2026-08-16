@@ -753,6 +753,31 @@ listagem separando principal e encargo (R$ 174,19 + R$ 3,77).
 
 **Suíte: 118 E2E e 603 unit.**
 
+### "Custo do Mês" da manutenção estava morto
+
+O KPI somava `m.cost` — coluna removida na ADR 0024. Ficava em **R$ 0,00 para
+sempre**, mesmo com "Concluídas mês: 2" logo ao lado. Passou a somar os payables
+de origem `maintenance` pela COMPETÊNCIA (quando o serviço foi feito, não quando
+a conta vence).
+
+### Crédito ao cliente: mais um caso de regra sem chamador
+
+`createCustomerCredit` existe, foi corrigida hoje para lançar no razão, e **não
+tem botão**. Dá para APLICAR crédito (a cobrança tem a ação) mas não para
+CONCEDER: a origem `manual_adjustment` é inalcançável, e crédito só nasce por
+`createPayable` com `reimbursement: 'credit'`.
+
+Terceira ocorrência do padrão, depois do P-8 e da trava de inadimplência.
+Registrado como **P-12** — onde fica o botão e quem pode usar é decisão de
+produto.
+
+### Encerramento com caução: correto
+
+Retenção parcial de R$ 300 sobre saldo de R$ 800: `deposit_retained` debitou
+`caucoes_a_devolver` e creditou `contas_a_receber`; `deposit_returned` devolveu
+R$ 500 do caixa. Passivo zerado, locação fechada. A tela avisa da multa
+contratual, das cobranças que sobrevivem e das que serão canceladas.
+
 ---
 
 ## 11. Aprovação

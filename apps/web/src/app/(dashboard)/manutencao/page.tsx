@@ -13,6 +13,7 @@ import {
   useMaintenances,
   useVehicles,
   useMaintenancePlans,
+  usePayables,
   useSupabaseContext,
 } from '@gomoto/data'
 import {
@@ -323,6 +324,9 @@ export default function MaintenancePage() {
   const maintenancesQuery = useMaintenances()
   const vehiclesQuery = useVehicles()
   const plansQuery = useMaintenancePlans()
+  // Custo da manutenção vive no payable desde a ADR 0024 — a coluna
+  // `maintenances.cost` não existe mais.
+  const payablesQuery = usePayables()
   const maintenances = (maintenancesQuery.data ?? []) as MaintenanceWithMoto[]
   const vehicles = (vehiclesQuery.data ?? []) as VehicleOption[]
   const plans = plansQuery.data ?? []
@@ -528,11 +532,18 @@ export default function MaintenancePage() {
       upcoming:  withStatus.filter((m) => m._status === 'upcoming').length,
       scheduled: withStatus.filter((m) => m._status === 'scheduled').length,
       completed: withStatus.filter((m) => m._status === 'completed').length,
-      costThisMonth: withStatus
-        .filter((m) => m._status === 'completed' && m.completed_date?.startsWith(currentMonth))
-        .reduce((acc, m) => acc + (m.cost ?? 0), 0),
+      // Somava `m.cost`, coluna removida na ADR 0024: o KPI ficava
+      // permanentemente em R$ 0,00 mesmo com manutenção concluída e custo
+      // lançado. O custo vive no payable de origem `maintenance`, e o mês é o
+      // da COMPETÊNCIA — quando o serviço foi feito, não quando a conta vence.
+      costThisMonth: (payablesQuery.data ?? [])
+        .filter((p) =>
+          p.source_module === 'maintenance' &&
+          p.status !== 'cancelled' &&
+          p.competence_date?.startsWith(currentMonth))
+        .reduce((acc, p) => acc + Number(p.amount), 0),
     }
-  }, [withStatus])
+  }, [withStatus, payablesQuery.data])
 
   const vehicleSelectOptions = useMemo(() => [
     { value: '', label: 'Selecione a moto...' },
