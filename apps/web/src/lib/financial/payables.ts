@@ -213,20 +213,25 @@ export async function cancelPayable(
   // A cobrança de repasse primeiro: se ela já recebeu pagamento, `cancelCharge`
   // recusa, e nada deve ser desfeito — cancelar a despesa deixando o cliente
   // cobrado seria pior que não cancelar.
-  if (p.source_id) {
-    const { data: repasse } = await supabase
-      .from('charges')
-      .select('id')
-      .eq('tenant_id', tenantId)
-      .eq('source_module', p.source_module)
-      .eq('source_id', p.source_id)
-      .neq('status', 'cancelled')
-      .maybeSingle()
+  //
+  // A origem da cobrança é `COALESCE(source_id, id)` do payable: despesa
+  // avulsa, lançada pela tela, não tem registro de origem e usa o próprio id.
+  // Enquanto isto exigia `source_id` preenchido, o cancelamento pulava a busca
+  // justamente no caso mais comum — e a cobrança do cliente sobrevivia.
+  const origem = p.source_id ?? payableId
 
-    const r = repasse as { id: string } | null
-    if (r) {
-      await cancelCharge(supabase, tenantId, r.id, `Despesa cancelada — ${p.description}`, createdBy)
-    }
+  const { data: repasse } = await supabase
+    .from('charges')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('source_module', p.source_module)
+    .eq('source_id', origem)
+    .neq('status', 'cancelled')
+    .maybeSingle()
+
+  const r = repasse as { id: string } | null
+  if (r) {
+    await cancelCharge(supabase, tenantId, r.id, `Despesa cancelada — ${p.description}`, createdBy)
   }
 
   const { error: updateError } = await supabase

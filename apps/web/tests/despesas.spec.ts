@@ -86,12 +86,14 @@ test.describe('Despesas — responsabilidade e rateio', () => {
     await modal.getByLabel('Responsabilidade financeira').selectOption('shared')
     await modal.getByLabel('Cliente', { exact: true }).selectOption(customerId)
 
-    // 33% de 1000 — o caso que `effective_customer_payer_pct integer` não
-    // representava sem perder centavo (F-17).
-    await modal.getByLabel(/percentual do cliente/i).fill('33')
+    // Um terço EXATO de 1000. A tela pedia percentual inteiro e derivava o
+    // valor, então 1/3 era inalcançável: 33% dá 333,00 e nenhum inteiro dá
+    // 333,33. Agora o operador informa o valor, que é o que o modelo guarda
+    // (ADR 0024, Princípio 7) e a frase que ele tem na cabeça.
+    await modal.getByLabel(/parte do cliente/i).fill('333.33')
 
     // A prévia mostra a divisão antes de gravar.
-    await expect(modal.getByText(/o rateio é gravado em valores/i)).toBeVisible()
+    await expect(modal.getByText(/o rateio é informado e gravado em valores/i)).toBeVisible()
 
     await modal.getByRole('button', { name: /registrar despesa/i }).click()
     await expect(modal).not.toBeVisible({ timeout: 10_000 })
@@ -110,9 +112,10 @@ test.describe('Despesas — responsabilidade e rateio', () => {
 
     expect(p).not.toBeNull()
     expect(p!.responsibility).toBe('shared')
-    expect(Number(p!.customer_amount)).toBe(330)
-    // A soma fecha exatamente: nada se perde no arredondamento.
-    expect(Number(p!.amount) - Number(p!.customer_amount)).toBe(670)
+    expect(Number(p!.customer_amount)).toBe(333.33)
+    // A soma fecha exatamente: nada se perde no arredondamento. O `toFixed` é
+    // da subtração em JS, não do dado — o banco guarda NUMERIC exato.
+    expect(Number((Number(p!.amount) - Number(p!.customer_amount)).toFixed(2))).toBe(666.67)
     expect(p!.reimbursement).toBe('charge')
 
     // A parte do cliente virou cobrança, num passo só.
@@ -125,7 +128,7 @@ test.describe('Despesas — responsabilidade e rateio', () => {
 
     const i = item as { amount: number; credit_account_code: string } | null
     expect(i).not.toBeNull()
-    expect(Number(i!.amount)).toBe(330)
+    expect(Number(i!.amount)).toBe(333.33)
     // Repasse credita conta de REPASSE, não receita: é custo recuperado,
     // não faturamento (R-03).
     expect(i!.credit_account_code).toBe('repasse_manutencao')
@@ -147,6 +150,6 @@ test.describe('Despesas — responsabilidade e rateio', () => {
     // A despesa entra integral; a recuperação vem em lançamento separado. Somar
     // um dentro do outro esconderia o custo bruto.
     expect(Number(despesa?.amount)).toBe(1000)
-    expect(Number(repasse?.amount)).toBe(330)
+    expect(Number(repasse?.amount)).toBe(333.33)
   })
 })

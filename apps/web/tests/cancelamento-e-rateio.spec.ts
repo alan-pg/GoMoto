@@ -112,8 +112,11 @@ test.describe('Cancelar despesa', () => {
       customerAmount: 100,
       reimbursement: 'charge',
       vehicleId,
-      sourceModule: 'manual',
-      sourceId: crypto.randomUUID(),
+      sourceModule: 'expense',
+      // SEM `sourceId`, como a tela de despesas faz: despesa avulsa não tem
+      // registro de origem, e a cobrança passa a usar o id do próprio payable.
+      // Com origem injetada, o teste não exercitava o caminho real — e foi
+      // assim que o cancelamento incompleto sobreviveu à suíte.
     })
 
     expect(chargeId, 'rateio não gerou cobrança do cliente').toBeTruthy()

@@ -638,6 +638,41 @@ Exposto na tela do cliente.
 
 ---
 
+## 10.7 Teste ao vivo no navegador (2026-08-15)
+
+Banco resetado, DRE em zero, telas percorridas como operador. **Dois defeitos
+que a suíte inteira não pegava**, ambos no fluxo que eu acabara de auditar.
+
+### Cancelar despesa avulsa não cancelava a cobrança do cliente
+
+`cancelPayable` procurava a cobrança de repasse por `source_id` do payable,
+guardado por `if (p.source_id)`. Mas despesa lançada pela tela **não tem
+origem** — e `fn_create_payable` dá à cobrança `COALESCE(source_id, id)`, ou
+seja, o id do próprio payable. A guarda pulava a busca justamente no caso mais
+comum.
+
+Meu teste passava porque injetava `sourceId`. O caminho real não injeta. O
+sintoma no DRE ficou visível na tela: **R$ 99 de "Recuperação de despesas" com
+R$ 0 de custo** — lucro fantasma de uma despesa cancelada. O spec passou a
+omitir `sourceId`, como a tela faz.
+
+### O rateio pedia percentual, e 1/3 era inalcançável
+
+A tela pedia "Percentual do cliente (%)", inteiro de 1 a 99, e derivava o valor.
+O modelo guardava valor — o Princípio 7 estava respeitado onde importa —, mas a
+ENTRADA não conseguia expressar o exemplo que motivou o princípio: 33% de R$ 300
+dá R$ 99, e nenhum inteiro dá R$ 100. O operador não conseguia dizer "o cliente
+paga cem reais", que é a frase que ele tem na cabeça.
+
+Virou "Parte do cliente (R$)", com prévia da divisão em reais. Confirmado ao
+vivo: R$ 300 com R$ 100 do cliente → **empresa R$ 200, cliente R$ 100**, exato.
+
+A lição repete a de §10.2, agora sobre a própria correção do dia: um teste que
+monta o cenário com dados que a tela não produz valida um caminho que não
+existe.
+
+---
+
 ## 11. Aprovação
 
 Aprovada em 2026-08-12 por Alan. Modalidade de execução: substituição total (big-bang), decisão registrada com o risco aceito na ADR 0024.

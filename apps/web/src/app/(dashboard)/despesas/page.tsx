@@ -31,7 +31,7 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { usePayables, useCustomers, useVehicles, useActiveRentals } from '@gomoto/data'
-import { splitByPercentage } from '@gomoto/core'
+import { splitResponsibility } from '@gomoto/core'
 import { createExpenseAction, payExpenseAction, cancelExpenseAction } from './actions'
 import { EXPENSE_CATEGORIES } from './categories'
 
@@ -88,7 +88,7 @@ export default function ExpensesPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState(emptyForm)
   /** Percentual é entrada de UI; o que vai ao banco é sempre valor. */
-  const [sharePct, setSharePct] = useState('50')
+  const [shareAmount, setShareAmount] = useState('')
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['payables'] })
 
@@ -123,19 +123,24 @@ export default function ExpensesPage() {
   }, [payables, activeTab, search])
 
   /** Prévia do rateio: converte o percentual da UI em valores que fecham. */
+  // Rateio em VALOR, não percentual (ADR 0024, Princípio 7).
+  //
+  // A tela pedia percentual inteiro de 1 a 99 e derivava o valor. Com isso o
+  // rateio de 1/3 — o exemplo que motivou o princípio — era inalcançável: 33%
+  // de R$ 300 dá R$ 99, e nenhum inteiro dá R$ 100. O operador não conseguia
+  // dizer "o cliente paga cem reais", que é a frase que ele tem na cabeça.
   const splitPreview = useMemo(() => {
     const amount = Number(form.amount)
+    const customer = Number(shareAmount)
     if (form.responsibility !== 'shared' || !(amount > 0)) return null
-
-    const pct = Number(sharePct) / 100
-    if (!(pct > 0) || pct >= 1) return null
+    if (!(customer > 0) || customer >= amount) return null
 
     try {
-      return splitByPercentage(amount, pct)
+      return splitResponsibility(amount, 'shared', customer)
     } catch {
       return null
     }
-  }, [form.amount, form.responsibility, sharePct])
+  }, [form.amount, form.responsibility, shareAmount])
 
   const customerAmount = useMemo(() => {
     const amount = Number(form.amount) || 0
@@ -425,12 +430,14 @@ export default function ExpensesPage() {
                 {form.responsibility === 'shared' && (
                   <>
                     <Input
-                      label="Percentual do cliente (%)"
+                      label="Parte do cliente (R$)"
                       type="number"
-                      min="1"
-                      max="99"
-                      value={sharePct}
-                      onChange={(e) => setSharePct(e.target.value)}
+                      step="0.01"
+                      min="0.01"
+                      max={form.amount || undefined}
+                      placeholder="0,00"
+                      value={shareAmount}
+                      onChange={(e) => setShareAmount(e.target.value)}
                     />
 
                     {splitPreview && (
@@ -444,8 +451,8 @@ export default function ExpensesPage() {
                           <span className="tabular-nums">{formatCurrency(splitPreview.customer_amount)}</span>
                         </div>
                         <p className="mt-2 border-t border-[var(--divider)] pt-2 text-[12px] text-[var(--fg-mute)]">
-                          O rateio é gravado em valores, não em percentual — a soma fecha exatamente,
-                          e o centavo de arredondamento fica com a empresa.
+                          O rateio é informado e gravado em valores, não em percentual — a soma
+                          fecha exatamente, sem centavo sem dono.
                         </p>
                       </div>
                     )}
