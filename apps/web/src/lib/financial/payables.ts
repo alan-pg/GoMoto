@@ -32,6 +32,12 @@ const REIMBURSEMENT_ACCOUNT: Partial<Record<string, AccountCode>> = {
 }
 
 export type CreatePayableParams = {
+  /**
+   * Quanto muda de mão entre empresa e cliente. Ausente, é a parte do cliente
+   * — o caso "empresa executou e cobra o rateio". Quando o CLIENTE executou, é
+   * a parte da EMPRESA, porque ele desembolsou o total.
+   */
+  reimbursementAmount?: number
   description: string
   expenseAccountCode: AccountCode
   competenceDate: string
@@ -85,8 +91,9 @@ export async function createPayable(
     params.customerAmount ?? 0,
   )
 
+  const reembolsavel = params.reimbursementAmount ?? split.customer_amount
   const reimbursement: ReimbursementMode =
-    split.customer_amount === 0 ? 'none' : (params.reimbursement ?? 'charge')
+    reembolsavel === 0 ? 'none' : (params.reimbursement ?? 'charge')
 
   const { data, error } = await supabase.rpc('fn_create_payable', {
     p_tenant_id: tenantId,
@@ -99,6 +106,7 @@ export async function createPayable(
       responsibility:       split.responsibility,
       customer_id:          params.customerId ?? null,
       customer_amount:      split.customer_amount,
+      reimbursement_amount: params.reimbursementAmount ?? split.customer_amount,
       reimbursement,
       vehicle_id:           params.vehicleId ?? null,
       rental_id:            params.rentalId ?? null,

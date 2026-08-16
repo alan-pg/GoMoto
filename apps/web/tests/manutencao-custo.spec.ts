@@ -178,42 +178,43 @@ test.describe('Manutenção — custo e rateio em valores', () => {
     expect(repetido.ok, 'custo foi registrado duas vezes').toBe(false)
   })
 
-  test('manutenção executada pelo CLIENTE vira crédito, não cobrança', async () => {
-    // A única forma legítima de o cliente ganhar crédito: ele executou o
-    // serviço e pagou do bolso um valor que cabia à empresa. Cobrar dele seria
-    // exigir de volta um dinheiro que já saiu — o inverso do devido.
+  test('cliente executa custo da EMPRESA: crédito do valor que ele desembolsou', async () => {
+    // A única forma legítima de o cliente ganhar crédito. Ele levou a moto à
+    // oficina e pagou do bolso um custo que era da empresa — cobrar dele seria
+    // exigir de volta um dinheiro que já saiu.
     //
-    // `resolveReimbursementMode` existia em @gomoto/core com esta regra exata e
-    // NENHUM chamador; `registerCost` tinha `reimbursement` fixo em 'charge'.
+    // O caso quebrava em silêncio: a regra olhava `customer_amount` (a parte
+    // DELE), que aqui é zero, e concluía "nada a reembolsar". O reembolso é a
+    // parte da EMPRESA, porque quem executou desembolsou o total.
     const tenantId = await getTestTenantId()
-    const manutencao = await criarManutencao('Correia executada pelo cliente')
+    const manutencao = await criarManutencao('Embreagem executada pelo cliente')
 
-    const { data, error } = await registerCost(admin(), tenantId, null, {
+    const r = await registerCost(admin(), tenantId, null, {
       maintenance_id: manutencao,
       amount: 300,
-      customer_amount: 300,
-      executor: 'customer',
+      customer_amount: 0,      // custo 100% da empresa
+      executor: 'customer',    // mas quem pagou a oficina foi o cliente
       due_date: new Date().toISOString().slice(0, 10),
-    }).then((r) => r.ok ? { data: r.data, error: null } : { data: null, error: r.error })
+    })
+    expect(r.ok, r.ok ? '' : r.error.message).toBe(true)
+    if (!r.ok) return
 
-    expect(error, error?.message).toBeNull()
-
-    // Nenhuma cobrança contra o cliente.
+    // Nenhuma cobrança contra quem já pagou.
     const { count: cobrancas } = await admin()
       .from('charges').select('id', { count: 'exact', head: true })
       .eq('source_module', 'maintenance').eq('source_id', manutencao)
-    expect(cobrancas, 'executada pelo cliente e ainda assim cobrada dele').toBe(0)
+    expect(cobrancas, 'cobrou de quem executou e pagou').toBe(0)
 
-    // Crédito no lugar, e utilizável: o saldo vem do razão.
     const { data: credito } = await admin()
       .from('customer_credits')
       .select('id, amount, customer_id')
-      .eq('payable_id', data!.payable_id)
+      .eq('payable_id', r.data.payable_id)
       .maybeSingle()
 
-    expect(credito, 'cliente executou e não recebeu crédito').not.toBeNull()
-    expect(Number((credito as { amount: number }).amount)).toBe(300)
+    expect(credito, 'cliente executou, pagou, e não recebeu crédito').not.toBeNull()
+    expect(Number((credito as { amount: number }).amount), 'creditou valor diferente do desembolso').toBe(300)
 
+    // E o crédito é utilizável: o saldo vem do razão.
     const { data: saldo } = await admin()
       .from('customer_credit_balances')
       .select('balance')
@@ -224,5 +225,95 @@ test.describe('Manutenção — custo e rateio em valores', () => {
       Number((saldo as { balance: number } | null)?.balance ?? 0),
       'crédito concedido sem saldo utilizável',
     ).toBeGreaterThanOrEqual(300)
+
+    // A empresa nunca deveu à oficina: quem pagou foi o cliente. O documento
+    // nasce quitado e o razão não passa por contas a pagar.
+    const { data: pay } = await admin()
+      .from('payables').select('status, paid_at').eq('id', r.data.payable_id).single()
+    expect((pay as { status: string }).status, 'conta a pagar de serviço que o cliente já pagou').toBe('paid')
+
+    const { data: aPagar } = await admin()
+      .from('financial_entries').select('amount')
+      .eq('payable_id', r.data.payable_id).eq('account_code', 'contas_a_pagar')
+    expect(aPagar, 'passivo com fornecedor que nunca existiu').toEqual([])
+  })
+
+  test('cliente executa rateado: crédito só da parte da empresa', async () => {
+    // Custo 300, cabendo 100 ao cliente. Ele pagou os 300 → a empresa lhe deve
+    // 200, não 100 e não 300.
+    const tenantId = await getTestTenantId()
+    const manutencao = await criarManutencao('Rateada executada pelo cliente')
+
+    const r = await registerCost(admin(), tenantId, null, {
+      maintenance_id: manutencao,
+      amount: 300,
+      customer_amount: 100,
+      executor: 'customer',
+      due_date: new Date().toISOString().slice(0, 10),
+    })
+    expect(r.ok, r.ok ? '' : r.error.message).toBe(true)
+    if (!r.ok) return
+
+    const { data: credito } = await admin()
+      .from('customer_credits').select('amount')
+      .eq('payable_id', r.data.payable_id).maybeSingle()
+
+    expect(
+      Number((credito as { amount: number } | null)?.amount ?? 0),
+      'creditou a parte errada do rateio',
+    ).toBe(200)
+
+    // Três pernas e nenhuma em contas a pagar: custo bruto 300, a parte do
+    // cliente (100) reconhecida como recuperação porque ele a bancou, e 200 de
+    // dívida com ele. Custo líquido da empresa = 200.
+    const { data: pernas } = await admin()
+      .from('financial_entries').select('account_code, direction, amount')
+      .eq('payable_id', r.data.payable_id)
+
+    const l = (pernas ?? []) as { account_code: string; direction: string; amount: number }[]
+    const por = (c: string) => l.filter((e) => e.account_code === c)
+      .reduce((s, e) => s + Number(e.amount), 0)
+
+    expect(por('despesa_manutencao')).toBe(300)
+    expect(por('repasse_manutencao'), 'parte bancada pelo cliente não virou recuperação').toBe(100)
+    expect(por('creditos_de_clientes')).toBe(200)
+    expect(por('contas_a_pagar'), 'passivo fantasma com a oficina').toBe(0)
+
+    // A responsabilidade gravada continua sendo a parte do CLIENTE — é ela que
+    // o DRE e o rateio usam. Só o valor reembolsado é que difere.
+    const { data: payable } = await admin()
+      .from('payables').select('customer_amount, responsibility')
+      .eq('id', r.data.payable_id).single()
+
+    const p = payable as { customer_amount: number; responsibility: string }
+    expect(Number(p.customer_amount)).toBe(100)
+    expect(p.responsibility).toBe('shared')
+  })
+
+  test('cliente executa custo que era DELE: nada a reembolsar', async () => {
+    // Ele pagou o que devia. Creditar aqui seria devolver dinheiro do nada —
+    // e era o que o meu próprio teste anterior afirmava.
+    const tenantId = await getTestTenantId()
+    const manutencao = await criarManutencao('Integral do cliente, executada por ele')
+
+    const r = await registerCost(admin(), tenantId, null, {
+      maintenance_id: manutencao,
+      amount: 300,
+      customer_amount: 300,
+      executor: 'customer',
+      due_date: new Date().toISOString().slice(0, 10),
+    })
+    expect(r.ok, r.ok ? '' : r.error.message).toBe(true)
+    if (!r.ok) return
+
+    const { count: creditos } = await admin()
+      .from('customer_credits').select('id', { count: 'exact', head: true })
+      .eq('payable_id', r.data.payable_id)
+    expect(creditos, 'creditou quem pagou apenas o que devia').toBe(0)
+
+    const { count: cobrancas } = await admin()
+      .from('charges').select('id', { count: 'exact', head: true })
+      .eq('source_module', 'maintenance').eq('source_id', manutencao)
+    expect(cobrancas, 'cobrou de quem já pagou').toBe(0)
   })
 })

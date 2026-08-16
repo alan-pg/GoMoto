@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   splitResponsibility,
   splitByPercentage,
-  resolveReimbursementMode,
+  resolveReimbursement,
 } from './responsibility'
 
 describe('splitResponsibility', () => {
@@ -102,20 +102,47 @@ describe('splitByPercentage — o caso que o percentual inteiro não resolvia (F
   })
 })
 
-describe('resolveReimbursementMode', () => {
-  it('empresa executa e cliente participa: vira cobrança', () => {
+describe('resolveReimbursement', () => {
+  /**
+   * Quem executou desembolsou o total. O reembolso é sempre a parte do OUTRO:
+   *
+   *   - empresa executou → cobra do cliente a parte DELE
+   *   - cliente executou → a empresa lhe deve a parte DELA
+   *
+   * A versão anterior devolvia só o modo e usava `customer_amount` nos dois
+   * casos, o que invertia o segundo.
+   */
+  it('empresa executa e cliente participa: cobra a parte do cliente', () => {
     const split = splitResponsibility(1000, 'shared', 400)
-    expect(resolveReimbursementMode(split, 'company')).toBe('charge')
+    expect(resolveReimbursement(split, 'company')).toEqual({ mode: 'charge', amount: 400 })
   })
 
-  it('cliente executa e empresa participa: vira crédito', () => {
+  it('cliente executa e empresa participa: credita a parte da EMPRESA', () => {
     const split = splitResponsibility(1000, 'shared', 400)
-    expect(resolveReimbursementMode(split, 'customer')).toBe('credit')
+    // 600, não 400: o cliente pagou os 1000 e devia só 400.
+    expect(resolveReimbursement(split, 'customer')).toEqual({ mode: 'credit', amount: 600 })
   })
 
-  it('sem parte do cliente, não há reembolso', () => {
-    const split = splitResponsibility(1000, 'company')
-    expect(resolveReimbursementMode(split, 'company')).toBe('none')
-    expect(resolveReimbursementMode(split, 'customer')).toBe('none')
+  it('cliente executa custo 100% da empresa: credita o total', () => {
+    // O caso mais comum, e o que quebrava em silêncio: `customer_amount` é
+    // zero, a regra antiga devolvia 'none' e ninguém era ressarcido.
+    const split = splitResponsibility(300, 'company')
+    expect(resolveReimbursement(split, 'customer')).toEqual({ mode: 'credit', amount: 300 })
+  })
+
+  it('empresa executa custo 100% dela: nada a reembolsar', () => {
+    const split = splitResponsibility(300, 'company')
+    expect(resolveReimbursement(split, 'company')).toEqual({ mode: 'none', amount: 0 })
+  })
+
+  it('cliente executa custo 100% dele: nada a reembolsar', () => {
+    // Ele pagou o que devia. Creditar aqui seria devolver dinheiro do nada.
+    const split = splitResponsibility(300, 'customer', 300)
+    expect(resolveReimbursement(split, 'customer')).toEqual({ mode: 'none', amount: 0 })
+  })
+
+  it('empresa executa custo 100% do cliente: cobra o total', () => {
+    const split = splitResponsibility(300, 'customer', 300)
+    expect(resolveReimbursement(split, 'company')).toEqual({ mode: 'charge', amount: 300 })
   })
 })

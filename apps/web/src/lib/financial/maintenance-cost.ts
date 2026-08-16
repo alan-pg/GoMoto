@@ -17,7 +17,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import {
   ACCOUNTS,
-  resolveReimbursementMode,
+  resolveReimbursement,
   splitResponsibility,
   type ActionResult,
 } from '@gomoto/core'
@@ -121,6 +121,11 @@ export async function registerCost(
       : parsed.data.customer_amount === parsed.data.amount ? 'customer'
         : 'shared'
 
+  const reembolso = resolveReimbursement(
+    splitResponsibility(parsed.data.amount, responsibility, parsed.data.customer_amount),
+    parsed.data.executor,
+  )
+
   try {
     const { payableId, chargeId } = await createPayable(supabase, tenantId, {
       description: `Manutenção — ${m.description}`,
@@ -131,14 +136,13 @@ export async function registerCost(
       responsibility,
       customerId: r?.customer_id ?? null,
       customerAmount: parsed.data.customer_amount,
-      // `resolveReimbursementMode` existia em @gomoto/core com esta regra
-      // exata e NENHUM chamador: aqui estava fixo em 'charge'. Manutenção
-      // executada pelo cliente com valor da empresa gerava cobrança contra
-      // ele — o inverso do devido, porque o dinheiro já saiu do bolso dele.
-      reimbursement: resolveReimbursementMode(
-        splitResponsibility(parsed.data.amount, responsibility, parsed.data.customer_amount),
-        parsed.data.executor,
-      ),
+      // Quem executou desembolsou o total; o reembolso é a parte do OUTRO.
+      // Aqui estava fixo em 'charge' e depois passou a usar sempre a parte do
+      // cliente — o que zerava o caso mais comum: cliente leva a moto à
+      // oficina, paga R$ 300 de um custo 100% da empresa, e ninguém o
+      // ressarcia.
+      reimbursement: reembolso.mode,
+      reimbursementAmount: reembolso.amount,
       vehicleId: m.vehicle_id,
       rentalId: r?.id ?? null,
       sourceModule: 'maintenance',

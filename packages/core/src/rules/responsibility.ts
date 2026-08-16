@@ -95,18 +95,29 @@ export function splitByPercentage(amount: number, percentage: number): Responsib
 }
 
 /**
- * Modo de reembolso coerente com o rateio.
+ * Reembolso coerente com o rateio: o modo E o valor.
  *
- * Regra dos requisitos: manutenção executada pela EMPRESA com participação do
- * cliente vira cobrança; executada pelo CLIENTE com participação da empresa
- * vira crédito.
+ * Duas coisas diferentes decidem isto, e confundi-las inverte o resultado:
+ *
+ *   - **de quem é o custo** — `split`, a responsabilidade
+ *   - **quem desembolsou** — `executor`, quem levou à oficina e pagou
+ *
+ * Executou a EMPRESA: ela pagou tudo e cobra do cliente a parte DELE.
+ * Executou o CLIENTE: ele pagou tudo e a empresa lhe deve a parte DELA.
+ *
+ * A versão anterior devolvia só o modo e o chamador usava `customer_amount`
+ * nos dois casos. O caso mais comum quebrava em silêncio: cliente leva a moto
+ * à oficina, paga R$ 300 de um custo 100% da empresa, `customer_amount` é zero
+ * → devolvia `'none'` e ninguém era ressarcido. A empresa registrava a despesa
+ * e o cliente ficava no prejuízo.
  */
-export function resolveReimbursementMode(
+export function resolveReimbursement(
   split: ResponsibilitySplit,
   executor: 'company' | 'customer',
-): ReimbursementMode {
-  if (split.customer_amount === 0) return 'none'
-  return executor === 'company' ? 'charge' : 'credit'
+): { mode: ReimbursementMode; amount: number } {
+  const amount = executor === 'company' ? split.customer_amount : split.company_amount
+  if (amount <= 0) return { mode: 'none', amount: 0 }
+  return { mode: executor === 'company' ? 'charge' : 'credit', amount }
 }
 
 function round2(n: number): number {
