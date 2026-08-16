@@ -83,8 +83,22 @@ export default async function RentalDetailPage({
   const totalOverdue = overdueBillings.reduce((s, b) => s + b.open_amount, 0)
   const overdueCount = overdueBillings.length
 
+  // O card mostrava o valor da ENTRADA com o status da COBRANÇA — coisas
+  // diferentes assim que um encargo por atraso entra no mesmo documento. Uma
+  // entrada de R$ 150 integralmente paga, com R$ 3,25 de encargo em aberto,
+  // aparecia como "R$ 150,00 · Vencida": o operador lê que o cliente não pagou
+  // a entrada. O que falta é o saldo da cobrança, então é ele que precisa
+  // aparecer junto.
+  const dpBalance = dpCharge
+    ? billings.find(b => b.charge_id === dpCharge.id)
+    : undefined
   const downPayment = rawDp && dpCharge
-    ? { amount: rawDp.amount, status: dpCharge.status, due_date: dpCharge.due_date }
+    ? {
+        amount: rawDp.amount,
+        status: dpCharge.status,
+        due_date: dpCharge.due_date,
+        open: dpBalance?.open_amount ?? 0,
+      }
     : null
 
   return (
@@ -134,9 +148,10 @@ export default async function RentalDetailPage({
           <p className="mt-1 text-xl font-bold text-fg">
             {downPayment ? formatCurrency(downPayment.amount) : '—'}
           </p>
-          {downPayment && downPayment.status !== 'paid' && (
+          {downPayment && downPayment.status !== 'paid' && downPayment.open > 0 && (
             <p className="mt-0.5 text-[12px] text-fg-mute">
               {downPayment.due_date < new Date().toISOString().slice(0, 10) ? 'Vencida' : 'Pendente'}
+              {' · falta '}{formatCurrency(downPayment.open)}
             </p>
           )}
         </div>

@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AlertCircle } from 'lucide-react'
 
 import type { Rental } from '@gomoto/core'
-import { formatDate } from '@/lib/utils'
+import { generateSchedule } from '@gomoto/core'
+import { formatCurrency, formatDate } from '@/lib/utils'
 import { renewRental } from '../actions'
 
 interface RenewFormProps {
@@ -19,6 +20,31 @@ export function RenewForm({ rental }: RenewFormProps) {
 
   const [newEndDate, setNewEndDate] = useState('')
   const [error, setError] = useState('')
+
+  /**
+   * Prévia pela MESMA função que a action usa para gravar (`generateSchedule`),
+   * então o que o operador confere é o que vai ser criado — não uma estimativa
+   * paralela que diverge no primeiro caso de pro rata.
+   */
+  const preview = useMemo(() => {
+    if (!rental.end_date || !newEndDate || newEndDate <= rental.end_date) return null
+    if (!rental.cycle || !rental.due_day || !rental.cycle_amount) return null
+
+    const lines = generateSchedule({
+      start_date:   rental.end_date,
+      end_date:     newEndDate,
+      cycle:        rental.cycle as 'weekly' | 'monthly',
+      due_day:      rental.due_day,
+      cycle_amount: rental.cycle_amount,
+      use_pro_rata: rental.use_pro_rata ?? true,
+    })
+
+    return { count: lines.length, total: lines.reduce((s, l) => s + l.amount, 0) }
+  }, [rental.end_date, rental.cycle, rental.due_day, rental.cycle_amount, rental.use_pro_rata, newEndDate])
+
+  const isShortening = Boolean(
+    rental.end_date && newEndDate && newEndDate <= rental.end_date,
+  )
 
   function handleConfirm() {
     if (!rental.end_date || !newEndDate) return
@@ -53,7 +79,7 @@ export function RenewForm({ rental }: RenewFormProps) {
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={isPending || !newEndDate}
+          disabled={isPending || !newEndDate || isShortening}
           className="inline-flex h-8 items-center rounded-full bg-primary px-5 text-[13px] font-bold text-bg transition-colors hover:bg-primary-hover disabled:opacity-60"
         >
           {isPending ? 'Renovando…' : 'Confirmar Renovação'}
@@ -86,9 +112,30 @@ export function RenewForm({ rental }: RenewFormProps) {
             className="h-9 w-full rounded-lg border border-border bg-surface-2 px-3 text-[13px] text-fg outline-none transition-all focus:border-primary"
           />
           <p className="mt-1 text-[12px] text-fg-mute">
-            Novas cobranças serão geradas automaticamente para o período estendido.
+            A renovação estende o cronograma. Cada parcela vira cobrança quando o
+            período dela chegar — nada é emitido agora.
           </p>
         </div>
+
+        {isShortening && (
+          <p className="text-[13px] text-pending">
+            A nova data precisa ser posterior a {formatDate(rental.end_date!)}. Para
+            encurtar o contrato, use Encerrar.
+          </p>
+        )}
+
+        {preview && (
+          <div className="rounded-xl border border-border bg-surface-2 p-3 text-[13px]">
+            <div className="flex justify-between">
+              <span className="text-fg-mute">Parcelas acrescentadas</span>
+              <span className="tabular-nums">{preview.count}</span>
+            </div>
+            <div className="mt-1 flex justify-between">
+              <span className="text-fg-mute">Total do período estendido</span>
+              <span className="tabular-nums font-medium">{formatCurrency(preview.total)}</span>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="flex items-start gap-3 rounded-xl border border-danger bg-danger-bg px-4 py-3">

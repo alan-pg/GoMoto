@@ -19,7 +19,7 @@ import {
   type Responsibility,
   type ReimbursementMode,
 } from '@gomoto/core'
-import { postTransaction, dimensionsOf } from './ledger'
+import { postTransaction, reverseTransaction, dimensionsOf } from './ledger'
 import { cancelCharge, createCharge } from './charges'
 
 /** Conta de despesa → conta de repasse correspondente. */
@@ -38,6 +38,13 @@ export type CreatePayableParams = {
    * a parte da EMPRESA, porque ele desembolsou o total.
    */
   reimbursementAmount?: number
+  /**
+   * Quem entregou o dinheiro ao fornecedor. É FATO, não dedução: com o cliente
+   * pagando um custo que também é 100% dele, nada muda de mão e o reembolso é
+   * `none` — e daí não dava mais para inferir que a oficina já estava paga. A
+   * empresa acabava com despesa e conta a pagar que nunca existiram.
+   */
+  paidBy?: 'company' | 'customer'
   description: string
   expenseAccountCode: AccountCode
   competenceDate: string
@@ -108,6 +115,7 @@ export async function createPayable(
       customer_amount:      split.customer_amount,
       reimbursement_amount: params.reimbursementAmount ?? split.customer_amount,
       reimbursement,
+      paid_by:              params.paidBy ?? 'company',
       vehicle_id:           params.vehicleId ?? null,
       rental_id:            params.rentalId ?? null,
       vendor_name:          params.vendorName ?? null,
@@ -215,7 +223,18 @@ export async function cancelPayable(
     source_module: string; source_id: string | null
   }
 
-  if (p.status === 'paid')      throw new Error('Conta já paga não pode ser cancelada.')
+  // Quitada não se cancela: o estorno correto depende do que a criação lançou,
+  // e aqui só sabemos inverter o par despesa/contas_a_pagar. Despesa paga pelo
+  // CLIENTE nasce quitada, então cai neste mesmo bloqueio — e nesse caso o
+  // operador precisa saber que o caminho é outro, não que o sistema travou.
+  if (p.status === 'paid') {
+    throw new Error(
+      p.customer_id
+        ? 'Despesa quitada não pode ser cancelada por aqui. Se ela foi paga pelo cliente e está errada, '
+          + 'registre o acerto como crédito ou cobrança avulsa — o razão não aceita apagar lançamento.'
+        : 'Conta já paga não pode ser cancelada.',
+    )
+  }
   if (p.status === 'cancelled') throw new Error('Conta já está cancelada.')
 
   // A cobrança de repasse primeiro: se ela já recebeu pagamento, `cancelCharge`
@@ -250,9 +269,24 @@ export async function cancelPayable(
 
   if (updateError) throw new Error(`Falha ao cancelar conta: ${updateError.message}`)
 
-  await postTransaction(supabase, tenantId, {
+  // Qual transação este cancelamento desfaz. A contrapartida sozinha zera os
+  // saldos, mas não diz o que ela estorna: sem o vínculo, quem lê o razão vê
+  // dois lançamentos independentes e não consegue reconstruir a correção.
+  // `reverseTransaction` já existia para isso e só o estorno de pagamento a
+  // usava.
+  const { data: original } = await supabase
+    .from('financial_transactions')
+    .select('id, financial_entries!inner(payable_id)')
+    .eq('tenant_id', tenantId)
+    .eq('event_type', 'payable_created')
+    .eq('financial_entries.payable_id', payableId)
+    .maybeSingle()
+
+  const originalId = (original as { id: string } | null)?.id
+
+  const lancamento = {
     event: {
-      type: 'payable_cancelled',
+      type: 'payable_cancelled' as const,
       amount: p.amount,
       expense_account: p.expense_account_code,
       dimensions: dimensionsOf({
@@ -266,5 +300,13 @@ export async function cancelPayable(
     sourceModule: 'payable',
     sourceId: payableId,
     createdBy,
-  })
+  }
+
+  // Sem a original localizada, o estorno ainda precisa acontecer — perder o
+  // vínculo é ruim, deixar saldo errado é pior.
+  if (originalId) {
+    await reverseTransaction(supabase, tenantId, originalId, lancamento)
+  } else {
+    await postTransaction(supabase, tenantId, lancamento)
+  }
 }

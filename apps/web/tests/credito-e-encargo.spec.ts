@@ -126,6 +126,33 @@ test.describe('Crédito do cliente e encargo por atraso', () => {
     // O saldo devido cresce pelo valor do encargo — nem mais, nem menos.
     const depois = await saldo(chargeId)
     expect(Number(depois!.total_amount)).toBe(500 + Number(it[0]!.amount))
+
+    // E o encargo chega ao resultado do VEÍCULO.
+    //
+    // As pernas de `late_charge_realized` saíam sem `vehicle_id` enquanto a
+    // emissão o carregava. Como `vehicle_financial_position` agrega por essa
+    // dimensão, toda receita de atraso simplesmente não entrava no resultado da
+    // moto — sem erro, sem log, só um número menor do que deveria. As asserções
+    // acima passavam com o defeito no lugar, porque nenhuma olhava a dimensão.
+    const { data: pernas } = await admin()
+      .from('financial_entries')
+      .select('vehicle_id')
+      .eq('charge_id', chargeId)
+      .eq('account_code', 'receita_encargos_atraso')
+
+    const p = (pernas ?? []) as { vehicle_id: string | null }[]
+    expect(p[0]?.vehicle_id, 'encargo lançado sem veículo some do resultado da moto').toBe(vehicleId)
+
+    const { data: posicao } = await admin()
+      .from('vehicle_financial_position')
+      .select('operating_revenue')
+      .eq('vehicle_id', vehicleId)
+      .single()
+
+    expect(
+      Number((posicao as { operating_revenue: number }).operating_revenue),
+      'receita do veículo não incorporou o encargo consolidado',
+    ).toBe(500 + Number(it[0]!.amount))
   })
 
   test('crédito disponível abate a dívida e some do saldo do cliente', async ({ page }) => {

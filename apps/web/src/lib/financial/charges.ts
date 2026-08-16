@@ -199,6 +199,12 @@ export async function realizeLateCharge(
 
   const balance = await requireBalance(supabase, chargeId)
 
+  // Mesmo veículo da emissão. Sem isto, o encargo entrava no razão com
+  // `vehicle_id` nulo e ficava fora de `vehicle_financial_position`, que exige
+  // a dimensão: a moto gerava receita de atraso que não aparecia no resultado
+  // dela. É o mesmo motivo pelo qual `resolveVehicleId` existe na emissão.
+  const vehicleId = await vehicleOfCharge(supabase, tenantId, chargeId, balance.rental_id)
+
   const { error } = await supabase.from('charge_items').insert({
     tenant_id: tenantId,
     charge_id: chargeId,
@@ -207,6 +213,7 @@ export async function realizeLateCharge(
     quantity: 1,
     unit_amount: amount,
     amount,
+    vehicle_id: vehicleId,
     source_module: 'late_charge',
     source_id: chargeId,
   })
@@ -220,6 +227,7 @@ export async function realizeLateCharge(
       dimensions: dimensionsOf({
         customerId: balance.customer_id,
         rentalId: balance.rental_id,
+        vehicleId,
         chargeId,
       }),
     },
@@ -337,6 +345,40 @@ async function resolveVehicleId(
     .from('rentals')
     .select('vehicle_id')
     .eq('id', params.rentalId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  return (data as { vehicle_id: string | null } | null)?.vehicle_id ?? null
+}
+
+/**
+ * Veículo de uma cobrança JÁ emitida.
+ *
+ * A emissão resolve o veículo e grava nos itens; o que nasce depois — encargo
+ * realizado, por exemplo — precisa herdar o mesmo, senão o lançamento fica sem
+ * a dimensão e some do resultado do veículo.
+ */
+async function vehicleOfCharge(
+  supabase: SupabaseClient,
+  tenantId: string,
+  chargeId: string,
+  rentalId: string | null,
+): Promise<string | null> {
+  const { data: items } = await supabase
+    .from('charge_items')
+    .select('vehicle_id')
+    .eq('charge_id', chargeId)
+    .not('vehicle_id', 'is', null)
+    .limit(1)
+
+  const doItem = ((items ?? []) as { vehicle_id: string | null }[])[0]?.vehicle_id
+  if (doItem) return doItem
+  if (!rentalId) return null
+
+  const { data } = await supabase
+    .from('rentals')
+    .select('vehicle_id')
+    .eq('id', rentalId)
     .eq('tenant_id', tenantId)
     .maybeSingle()
 

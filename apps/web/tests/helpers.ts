@@ -131,13 +131,28 @@ export async function createTestCustomer(): Promise<{ id: string; name: string }
 }
 
 /**
- * Remove um cliente de teste pelo ID, limpando cobranças vinculadas antes.
+ * Remove um cliente de teste pelo ID.
+ *
+ * Limpava `billings`, tabela que a ADR 0024 substituiu por `charges` — como
+ * supabase-js não lança em `.delete()`, o erro sumia e o `customers.delete()`
+ * seguinte batia no RESTRICT sem ninguém ver. Resultado: todo cliente de teste
+ * com movimento financeiro ficava no banco para sempre, e a suíte foi ficando
+ * mais lenta a cada execução.
+ *
+ * Cliente com lançamento no razão é INDELÉVEL de propósito: `financial_entries`
+ * tem `trg_entries_immutable` (Princípio 3 — corrige-se com estorno, nunca com
+ * DELETE), e `charges.customer_id` é RESTRICT. Então a limpeza remove o que é
+ * removível e devolve `false` quando o cliente ficou — quem reclama o espaço é
+ * `pnpm db:reset`, não este helper.
  */
-export async function deleteTestCustomer(id: string): Promise<void> {
-  if (!id) return
+export async function deleteTestCustomer(id: string): Promise<boolean> {
+  if (!id) return true
   const sb = await getSupabase()
-  await sb.from('billings').delete().eq('customer_id', id)
-  await sb.from('customers').delete().eq('id', id)
+
+  // Sem trilha financeira: cascata de rentals/queue_entries dá conta.
+  await sb.from('deposits').delete().eq('customer_id', id)
+  const { error } = await sb.from('customers').delete().eq('id', id)
+  return !error
 }
 
 /**
@@ -260,8 +275,7 @@ export async function cleanupTestCustomersByName(namePattern: string): Promise<v
   if (!customers || customers.length === 0) return
   for (const c of customers) {
     await sb.from('queue_entries').delete().eq('customer_id', c.id)
-    await sb.from('billings').delete().eq('customer_id', c.id)
-    await sb.from('customers').delete().eq('id', c.id)
+    await deleteTestCustomer(c.id as string)
   }
 }
 
@@ -275,11 +289,11 @@ export async function cleanupTestCustomersByName(namePattern: string): Promise<v
  */
 export async function deleteTestContract(contractId: string, customerId: string): Promise<void> {
   const sb = await getSupabase()
-  if (contractId) await sb.from('rentals').delete().eq('id', contractId)
-  if (customerId) {
-    await sb.from('billings').delete().eq('customer_id', customerId)
-    await sb.from('customers').delete().eq('id', customerId)
+  if (contractId) {
+    await sb.from('deposits').delete().eq('rental_id', contractId)
+    await sb.from('rentals').delete().eq('id', contractId)
   }
+  if (customerId) await deleteTestCustomer(customerId)
 }
 
 // ---------------------------------------------------------------------------

@@ -46,7 +46,10 @@ export default async function CustomerDetailPage({
   const tenantId = await getCurrentTenantId(supabase)
   if (!tenantId) notFound()
 
-  const [customerResult, rentalResult, creditsResult, delinquencyBlocksResult, positionResult] = await Promise.all([
+  const [
+    customerResult, rentalResult, creditsResult, delinquencyBlocksResult,
+    positionResult, overdueResult,
+  ] = await Promise.all([
     supabase.from('customers').select('*').eq('id', id).single(),
     supabase
       .from('rentals')
@@ -75,6 +78,16 @@ export default async function CustomerDetailPage({
       .eq('customer_id', id)
       .eq('tenant_id', tenantId)
       .maybeSingle(),
+    // Vencidas de verdade. A seção se chamava "Situação financeira" e mostrava
+    // só a marca manual: um cliente devendo há 31 dias aparecia "Regular", em
+    // verde, porque ninguém o havia bloqueado à mão.
+    supabase
+      .from('charge_balances')
+      .select('open_amount, days_overdue')
+      .eq('customer_id', id)
+      .eq('tenant_id', tenantId)
+      .eq('status', 'open')
+      .eq('is_overdue', true),
   ])
 
   if (customerResult.error || !customerResult.data) notFound()
@@ -101,6 +114,12 @@ export default async function CustomerDetailPage({
   // Bloqueado = última ação do log é 'block'. `customers.delinquency_status`
   // saiu na ADR 0024 — era mantida por trigger inerte (F-04).
   const isBlocked = delinquencyBlocks[0]?.action === 'block'
+
+  // Inadimplência é FATO derivado do relógio, nunca coluna (Princípio 4): sai
+  // de `charge_balances`, que já calcula atraso e saldo.
+  const overdue = (overdueResult.data ?? []) as { open_amount: number; days_overdue: number }[]
+  const overdueTotal = overdue.reduce((s, c) => s + c.open_amount, 0)
+  const worstDelay = overdue.reduce((max, c) => Math.max(max, c.days_overdue), 0)
 
   const [cnhSignedUrl, residencySignedUrl] = await Promise.all([
     getSignedUrl(supabase, customer.drivers_license_photo_url),
@@ -440,7 +459,23 @@ export default async function CustomerDetailPage({
             <table className="w-full text-[13px]">
               <tbody>
                 <tr className="border-b border-divider last:border-0">
-                  <td className="h-9 w-48 px-4 text-fg-mute">Status</td>
+                  <td className="h-9 w-48 px-4 text-fg-mute">Pagamentos</td>
+                  <td className="h-9 px-4 text-fg">
+                    {overdue.length > 0
+                      ? (
+                        <span className="text-danger font-medium">
+                          {overdue.length} cobrança{overdue.length !== 1 ? 's' : ''} vencida
+                          {overdue.length !== 1 ? 's' : ''} · {formatCurrency(overdueTotal)}
+                          <span className="ml-2 font-normal text-fg-mute">
+                            maior atraso: {worstDelay} dia{worstDelay !== 1 ? 's' : ''}
+                          </span>
+                        </span>
+                      )
+                      : <span className="text-success">Em dia</span>}
+                  </td>
+                </tr>
+                <tr className="border-b border-divider last:border-0">
+                  <td className="h-9 w-48 px-4 text-fg-mute">Cadastro</td>
                   <td className="h-9 px-4 text-fg">
                     {/* "Bloqueado para novas locações" era falso desde que a
                         trava saiu de `createRental`: o bloqueio informa, não
@@ -448,7 +483,7 @@ export default async function CustomerDetailPage({
                         não ter o rótulo. */}
                     {isBlocked
                       ? <span className="text-danger font-medium">Bloqueado — a locação exibe aviso, mas não é impedida</span>
-                      : <span className="text-success">Regular</span>}
+                      : <span className="text-fg-mute">Sem bloqueio</span>}
                   </td>
                 </tr>
                 <tr className="border-b border-divider last:border-0">

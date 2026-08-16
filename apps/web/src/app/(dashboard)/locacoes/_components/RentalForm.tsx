@@ -7,7 +7,7 @@ import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 
 import { useCustomers, useAvailableVehicles, useContractTemplates, useContractTemplate, useInspectionProfiles } from '@gomoto/data'
 import { generateCycleCharges, WEEK_DAY_OPTIONS, formatDueDay, resolveContractVariables, substituteVariables } from '@gomoto/core'
-import type { CycleCharge, Rental, LateChargeConfig } from '@gomoto/core'
+import type { CycleCharge, Rental } from '@gomoto/core'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { renderContractTemplateHtml } from '@/lib/contract-render'
 import { printHtmlDocument, buildContractFileName } from '@/lib/contract-print'
@@ -199,14 +199,6 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormState, string>>>({})
 
   const [periodQty, setPeriodQty] = useState('3')
-
-  // Encargos por atraso (RF-011) — só na criação; em edição isso é papel do
-  // Reajustar. Fica em branco por padrão (sem pré-preenchimento de padrão do
-  // tenant ainda) — se nada for preenchido, a locação usa o padrão do tenant.
-  const [lateFeeType, setLateFeeType] = useState<LateChargeConfig['late_fee_type']>('fixed')
-  const [lateFeeValue, setLateFeeValue] = useState('')
-  const [dailyInterestPct, setDailyInterestPct] = useState('')
-  const [graceDays, setGraceDays] = useState('')
 
   // Caução gera cobrança própria — paga (default, preserva o comportamento
   // de quem já recebe em dinheiro na assinatura) ou pendente até o cliente pagar.
@@ -453,16 +445,6 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
         return
       }
 
-      const hasCustomLateCharges = Boolean(lateFeeValue || dailyInterestPct || graceDays)
-      const late_charge_config: LateChargeConfig | undefined = hasCustomLateCharges
-        ? {
-            late_fee_type:       lateFeeType,
-            late_fee_value:      parseFloat(lateFeeValue) || 0,
-            daily_interest_rate: (parseFloat(dailyInterestPct) || 0) / 100,
-            grace_period_days:   parseInt(graceDays, 10) || 0,
-          }
-        : undefined
-
       const result = await createRental({
         vehicle_id:       form.vehicle_id,
         customer_id:      form.customer_id,
@@ -481,7 +463,6 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
         down_payment_paid:         downPaymentPaid,
         down_payment_payment_date: downPaymentPaid ? downPaymentPaymentDate : undefined,
         down_payment_due_date:     !downPaymentPaid ? (downPaymentDueDate || form.start_date || undefined) : undefined,
-        late_charge_config,
         contract_template_id: form.contract_template_id || null,
         observations:     form.observations || null,
         checkin_checkout_inspection_profile_id: form.checkin_checkout_inspection_profile_id || null,
@@ -820,49 +801,14 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
               )}
             </section>
 
-            {/* ── Seção: Encargos por atraso (RF-011) ────────────────────── */}
-            {!isEditMode && (
-              <section>
-                <h2 className="mb-5 text-[14px] font-bold text-primary">Encargos por atraso</h2>
-                <div className="grid max-w-md grid-cols-2 gap-4">
-                  <div>
-                    <label className={labelCls}>Tipo de multa</label>
-                    <select
-                      className={selectCls}
-                      value={lateFeeType}
-                      onChange={e => setLateFeeType(e.target.value as LateChargeConfig['late_fee_type'])}
-                    >
-                      <option value="fixed">Fixa (R$)</option>
-                      <option value="percentage">Percentual (%)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className={labelCls}>Valor da multa</label>
-                    <input
-                      type="number" min="0" step="0.01" placeholder="0,00 — opcional"
-                      className={inputCls} value={lateFeeValue} onChange={e => setLateFeeValue(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Juros diário (%)</label>
-                    <input
-                      type="number" min="0" max="100" step="0.01" placeholder="0,00 — opcional"
-                      className={inputCls} value={dailyInterestPct} onChange={e => setDailyInterestPct(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Carência (dias)</label>
-                    <input
-                      type="number" min="0" step="1" placeholder="0 — opcional"
-                      className={inputCls} value={graceDays} onChange={e => setGraceDays(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <p className="mt-2 text-[12px] text-fg-mute">
-                  Deixe em branco para usar o padrão do tenant.
-                </p>
-              </section>
-            )}
+            {/* Encargo por atraso não é mais configuração por locação (R-07/R-08).
+                A seção coletava multa, juros e carência, montava
+                `late_charge_config` — e o valor morria aqui: `createRental` não
+                o inclui no payload da RPC, `rentals` não tem essas colunas, e a
+                emissão sempre resolve a política vigente do tenant em
+                `late_charge_policies`. O operador ajustava juros para um
+                contrato e o sistema cobrava outro, sem avisar. A mesma remoção
+                já havia sido feita na tela de reajuste. */}
 
             {/* ── Seção: Financeiro ─────────────────────────────────────── */}
             <section>

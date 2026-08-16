@@ -62,6 +62,16 @@ export function AdjustRentalForm({
     [lines],
   )
 
+  /**
+   * Existe parcela reajustável em ALGUMA data? Sem isso não dá para distinguir
+   * "o cronograma acabou" de "a data escolhida passou das parcelas abertas" —
+   * e o conselho certo é oposto em cada caso.
+   */
+  const hasAdjustableLines = useMemo(
+    () => lines.some((l) => l.status === 'scheduled'),
+    [lines],
+  )
+
   const preview = useMemo(() => {
     if (!hasValidAmount || affected.length === 0) return null
 
@@ -162,8 +172,11 @@ export function AdjustRentalForm({
 
       {hasValidAmount && affected.length === 0 && !scheduleQuery.isLoading && (
         <p className="text-[13px] text-[var(--pending)]">
-          Nenhuma parcela futura a partir dessa data. Todo o cronograma já foi emitido —
-          use cobrança complementar ou renegociação.
+          {hasAdjustableLines
+            ? 'Nenhuma parcela a partir dessa data. Há parcelas em aberto antes dela — '
+              + 'antecipe a vigência para alcançá-las.'
+            : 'Não há parcela em aberto: todo o cronograma já foi emitido. '
+              + 'Use cobrança complementar ou renegociação.'}
         </p>
       )}
 

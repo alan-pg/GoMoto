@@ -680,32 +680,35 @@ export async function renewRental(
     use_pro_rata: rental.use_pro_rata ?? true,
   })
 
-  if (newLines.length > 0) {
-    const { error: insertError } = await supabase.from('rental_billing_schedules').insert(
-      newLines.map((l) => ({
-        tenant_id:       tenantId,
-        rental_id:       parsed.data.lease_id,
-        sequence_number: offset + l.sequence_number,
-        period_start:    l.period_start,
-        period_end:      l.period_end,
-        due_date:        l.due_date,
-        amount:          l.amount,
-      })),
-    )
+  // Estender o contrato e acrescentar as linhas é uma coisa só: linha gravada
+  // com `end_date` antigo vira cobrança emitida depois do fim da locação.
+  const { error: renewError } = await supabase.rpc('fn_renew_rental', {
+    p_tenant_id: tenantId,
+    p_rental_id: parsed.data.lease_id,
+    p_new_end:   parsed.data.new_end_date,
+    p_lines:     newLines.map((l) => ({
+      sequence_number: offset + l.sequence_number,
+      period_start:    l.period_start,
+      period_end:      l.period_end,
+      due_date:        l.due_date,
+      amount:          l.amount,
+    })),
+  })
 
-    if (insertError) {
-      return { ok: false, error: { code: 'INTERNAL_ERROR', message: insertError.message } }
+  if (renewError) {
+    if (renewError.message?.includes('RENEWAL_NOT_AN_EXTENSION')) {
+      return {
+        ok: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'A nova data precisa ser posterior ao fim atual. Para encurtar o contrato, use Encerrar.',
+        },
+      }
     }
-  }
-
-  const { error: updateError } = await supabase
-    .from('rentals')
-    .update({ end_date: parsed.data.new_end_date })
-    .eq('id', parsed.data.lease_id)
-    .eq('tenant_id', tenantId)
-
-  if (updateError) {
-    return { ok: false, error: { code: 'INTERNAL_ERROR', message: updateError.message } }
+    if (renewError.message?.includes('RENTAL_NOT_FOUND')) {
+      return { ok: false, error: { code: 'NOT_FOUND', message: 'Locação não encontrada ou não está ativa.' } }
+    }
+    return { ok: false, error: { code: 'INTERNAL_ERROR', message: renewError.message } }
   }
 
   await logAction({

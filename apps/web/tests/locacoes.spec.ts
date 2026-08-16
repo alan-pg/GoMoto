@@ -20,6 +20,17 @@ function fieldAfterLabel(page: import('@playwright/test').Page, label: string) {
   return page.getByText(label, { exact: true }).locator('xpath=following-sibling::*[1]')
 }
 
+/**
+ * Hoje em ISO, montado a partir das partes LOCAIS.
+ *
+ * `toISOString()` converte para UTC e, depois das 21h em UTC-3, devolve o dia
+ * seguinte — o mesmo erro que já quebrou asserção de competência nesta suíte.
+ */
+function hojeISO(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 // ---------------------------------------------------------------------------
 // Helpers de setup
 // ---------------------------------------------------------------------------
@@ -99,7 +110,12 @@ test.describe('Locações — Entrada na criação (Spec 0010)', () => {
     await fieldAfterLabel(page, 'Cliente *').selectOption(customerId)
     await fieldAfterLabel(page, 'Veículo *').selectOption(vehiclePaidId)
     await fieldAfterLabel(page, 'Valor do ciclo (R$) *').fill('500')
-    await fieldAfterLabel(page, 'Data de início *').fill('2026-08-10')
+    // Data FIXA (2026-08-10) tornava o teste dependente do calendário: a partir
+    // do dia seguinte a entrada nascia vencida, acumulava encargo, e a receita
+    // do veículo passava de R$ 150,00 para R$ 153,25. O assunto aqui é a
+    // entrada somar no resultado do veículo — encargo por atraso tem teste
+    // próprio, e misturar os dois só produz falha intermitente.
+    await fieldAfterLabel(page, 'Data de início *').fill(hojeISO())
     await fieldAfterLabel(page, 'Entrada (R$)').fill('150')
     // "Entrada já foi paga" fica marcada por padrão — não precisa tocar.
 

@@ -143,6 +143,10 @@ export async function registerCost(
       // ressarcia.
       reimbursement: reembolso.mode,
       reimbursementAmount: reembolso.amount,
+      // Custo 100% do cliente que ele mesmo levou à oficina: nada muda de mão,
+      // o modo é 'none', e sem isto a função concluía "a empresa deve à
+      // oficina" — R$ 300 de despesa e R$ 300 de contas a pagar inventados.
+      paidBy: parsed.data.executor,
       vehicleId: m.vehicle_id,
       rentalId: r?.id ?? null,
       sourceModule: 'maintenance',

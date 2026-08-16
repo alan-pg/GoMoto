@@ -78,13 +78,24 @@ KEY_RE = re.compile(r"^\s*([a-z_][a-z0-9_]*)\s*:", re.M)
 
 problems = []
 files = []
-for base in ("apps/web/src", "apps/mobile/src", "packages/data/src", "packages/core/src"):
+# `apps/web/tests` entra porque é onde a referência morta faz o pior estrago: a
+# query falha, PostgREST devolve nada, e o `?? 0` da asserção transforma isso em
+# teste verde que não testou nada. Foi assim que um `.from('billings')` — tabela
+# que a ADR 0024 aposentou — sobreviveu à migração inteira.
+for base in ("apps/web/src", "apps/web/tests", "apps/mobile/src",
+             "packages/data/src", "packages/core/src"):
+    is_e2e = base == "apps/web/tests"
     for dirpath, _, filenames in os.walk(os.path.join(ROOT, base)):
         if "node_modules" in dirpath:
             continue
         for fn in filenames:
-            if fn.endswith((".ts", ".tsx")) and not fn.endswith((".spec.ts", ".test.ts")):
-                files.append(os.path.join(dirpath, fn))
+            if not fn.endswith((".ts", ".tsx")):
+                continue
+            # Nos pacotes, `.spec.ts` é teste unitário sem I/O; na suíte E2E é
+            # justamente o arquivo que fala com o banco.
+            if not is_e2e and fn.endswith((".spec.ts", ".test.ts")):
+                continue
+            files.append(os.path.join(dirpath, fn))
 
 for path in files:
     src = open(path, encoding="utf-8", errors="ignore").read()

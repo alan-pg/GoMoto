@@ -277,3 +277,163 @@ test.describe('Resultado por cliente', () => {
     await deleteTestCustomer(cliente.id).catch(() => {})
   })
 })
+
+test.describe('Quem pagou o fornecedor', () => {
+  /**
+   * `fn_create_payable` deduzia "o cliente desembolsou" de
+   * `reimbursement = 'credit'`. Funciona enquanto sobra algo a devolver, e some
+   * exatamente quando não sobra: custo 100% do cliente que ELE levou à oficina
+   * e pagou. Nada muda de mão, o modo é 'none', e a função caía no ramo "a
+   * empresa deve à oficina" — inventando despesa e passivo que nunca existiram,
+   * numa conta que ficava `open` para sempre.
+   *
+   * O fato passou a ser explícito (`paid_by`). Os três casos abaixo cobrem as
+   * combinações que o rateio produz; o do meio era o quebrado.
+   */
+  test('cliente paga custo que é todo dele: nada muda de mão e nada fica a pagar', async () => {
+    const tenantId = await getTestTenantId()
+    const cliente = await createTestCustomer()
+
+    const contasAPagarAntes = await saldoConta('contas_a_pagar')
+
+    const { payableId } = await createPayable(admin(), tenantId, {
+      description: `${TEST_TAG} Cliente executou e bancou o que era dele`,
+      expenseAccountCode: 'despesa_manutencao',
+      competenceDate: hoje,
+      dueDate: hoje,
+      amount: 300,
+      responsibility: 'customer',
+      customerId: cliente.id,
+      customerAmount: 300,
+      reimbursementAmount: 0,
+      reimbursement: 'none',
+      paidBy: 'customer',
+      vehicleId,
+      sourceModule: 'manual',
+      sourceId: crypto.randomUUID(),
+    })
+
+    const { data: conta } = await admin()
+      .from('payables').select('status, paid_at').eq('id', payableId).single()
+
+    const c = conta as { status: string; paid_at: string | null }
+    expect(c.status, 'a empresa nunca deveu à oficina — a conta nasce quitada').toBe('paid')
+    expect(c.paid_at).not.toBeNull()
+
+    // Nenhum passivo novo: `contas_a_pagar` não pode ter se mexido.
+    expect(
+      await saldoConta('contas_a_pagar'),
+      'passivo fantasma com uma oficina que já foi paga pelo cliente',
+    ).toBe(contasAPagarAntes)
+
+    const { data: pernas } = await admin()
+      .from('financial_entries')
+      .select('account_code, amount_signed')
+      .eq('payable_id', payableId)
+
+    const legs = (pernas ?? []) as { account_code: string; amount_signed: number }[]
+    const porConta = Object.fromEntries(legs.map(l => [l.account_code, Number(l.amount_signed)]))
+
+    // Custo bruto visível (Princípio 7) contra a parte que ele bancou: líquido
+    // zero para a empresa, sem passar por contas a pagar.
+    expect(porConta['despesa_manutencao'], 'custo bruto some do resultado do veículo').toBe(300)
+    expect(porConta['repasse_manutencao'], 'a parte bancada pelo cliente precisa recuperar a despesa').toBe(-300)
+    expect(porConta['contas_a_pagar']).toBeUndefined()
+    expect(
+      legs.reduce((s, l) => s + Number(l.amount_signed), 0),
+      'as pernas precisam fechar em zero',
+    ).toBe(0)
+
+    // E nenhum crédito: não há o que devolver a quem pagou o que já era dele.
+    const { data: creditos } = await admin()
+      .from('customer_credits').select('id').eq('payable_id', payableId)
+    expect(creditos ?? [], 'crédito concedido sem nada a reembolsar').toEqual([])
+
+    await deleteTestCustomer(cliente.id).catch(() => {})
+  })
+
+  test('cliente paga custo que é da empresa: nasce crédito do valor inteiro', async () => {
+    const tenantId = await getTestTenantId()
+    const cliente = await createTestCustomer()
+
+    const { payableId } = await createPayable(admin(), tenantId, {
+      description: `${TEST_TAG} Cliente adiantou custo da empresa`,
+      expenseAccountCode: 'despesa_manutencao',
+      competenceDate: hoje,
+      dueDate: hoje,
+      amount: 300,
+      responsibility: 'company',
+      customerId: cliente.id,
+      customerAmount: 0,
+      reimbursementAmount: 300,
+      reimbursement: 'credit',
+      paidBy: 'customer',
+      vehicleId,
+      sourceModule: 'manual',
+      sourceId: crypto.randomUUID(),
+    })
+
+    const { data: pernas } = await admin()
+      .from('financial_entries')
+      .select('account_code, amount_signed')
+      .eq('payable_id', payableId)
+
+    const porConta = Object.fromEntries(
+      ((pernas ?? []) as { account_code: string; amount_signed: number }[])
+        .map(l => [l.account_code, Number(l.amount_signed)]),
+    )
+
+    expect(porConta['despesa_manutencao']).toBe(300)
+    expect(porConta['creditos_de_clientes'], 'a empresa passa a dever ao cliente').toBe(-300)
+    expect(porConta['contas_a_pagar']).toBeUndefined()
+
+    const { data: creditos } = await admin()
+      .from('customer_credits').select('amount').eq('payable_id', payableId)
+    const cr = (creditos ?? []) as { amount: number }[]
+    expect(cr.length, 'quem adiantou dinheiro da empresa precisa ser ressarcido').toBe(1)
+    expect(Number(cr[0]!.amount)).toBe(300)
+
+    await deleteTestCustomer(cliente.id).catch(() => {})
+  })
+
+  test('empresa paga: o passivo com a oficina existe e a parte do cliente vira cobrança', async () => {
+    const tenantId = await getTestTenantId()
+    const cliente = await createTestCustomer()
+
+    const { payableId, chargeId } = await createPayable(admin(), tenantId, {
+      description: `${TEST_TAG} Empresa pagou a oficina`,
+      expenseAccountCode: 'despesa_manutencao',
+      competenceDate: hoje,
+      dueDate: hoje,
+      amount: 300,
+      responsibility: 'shared',
+      customerId: cliente.id,
+      customerAmount: 100,
+      reimbursement: 'charge',
+      paidBy: 'company',
+      vehicleId,
+      sourceModule: 'manual',
+      sourceId: crypto.randomUUID(),
+    })
+
+    const { data: conta } = await admin()
+      .from('payables').select('status').eq('id', payableId).single()
+    expect((conta as { status: string }).status, 'a empresa ainda deve à oficina').toBe('open')
+
+    const { data: pernas } = await admin()
+      .from('financial_entries')
+      .select('account_code, amount_signed')
+      .eq('payable_id', payableId)
+
+    const porConta = Object.fromEntries(
+      ((pernas ?? []) as { account_code: string; amount_signed: number }[])
+        .map(l => [l.account_code, Number(l.amount_signed)]),
+    )
+    expect(porConta['despesa_manutencao']).toBe(300)
+    expect(porConta['contas_a_pagar']).toBe(-300)
+
+    expect(chargeId, 'a parte do cliente precisa virar cobrança').toBeTruthy()
+
+    await deleteTestCustomer(cliente.id).catch(() => {})
+  })
+})
