@@ -35,10 +35,19 @@ const PAYMENT_METHOD_OPTIONS = [
   { label: 'Outro', value: 'other' },
 ]
 
+// A origem gravada em `customer_credits.origin` é o `source_module` de quem
+// gerou o crédito. Faltavam justamente os que o produto cria hoje —
+// 'maintenance', 'expense', 'manual' —, então o seletor exibia a chave crua em
+// inglês: "maintenance — saldo R$ 300,00".
 const CREDIT_ORIGIN_LABELS: Record<string, string> = {
+  maintenance:        'Manutenção',
   maintenance_refund: 'Estorno manutenção',
-  reversal:          'Estorno',
-  manual_adjustment: 'Ajuste manual',
+  expense:            'Despesa',
+  fine:               'Multa',
+  manual:             'Lançamento manual',
+  manual_adjustment:  'Ajuste manual',
+  reversal:           'Estorno',
+  customer_credit:    'Crédito ao cliente',
 }
 
 export function BillingActions({ billingId, customerId, status, amountDue, accruedCharges, isOverdue, availableCredits }: BillingActionsProps) {
@@ -60,7 +69,21 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
 
   // Apply Credit form
   const [selectedCredit, setSelectedCredit] = useState(availableCredits[0]?.id ?? '')
-  const [creditAmount, setCreditAmount]     = useState('')
+
+  /** Quanto faz sentido abater: o menor entre o crédito e o que se deve. */
+  function suggestedCredit(creditId: string): string {
+    const saldo = availableCredits.find(c => c.id === creditId)?.available_balance ?? 0
+    const valor = Math.min(saldo, amountDue)
+    return valor > 0 ? valor.toFixed(2) : ''
+  }
+
+  // O campo nascia VAZIO com o saldo disponível como placeholder. Em cinza,
+  // "R$ 300,00" é indistinguível de um valor preenchido: o operador via o campo
+  // pronto, clicava em Aplicar e recebia "Valor inválido" — como se o sistema
+  // tivesse recusado um valor perfeitamente válido. O modal de pagamento ao
+  // lado já nascia preenchido com o valor devido; este é que destoava.
+  const [creditAmount, setCreditAmount] = useState(() =>
+    suggestedCredit(availableCredits[0]?.id ?? ''))
 
   // Vencida é estado DERIVADO de uma cobrança aberta, não um status terminal:
   // a página envia 'overdue' no lugar de 'open' quando há atraso. Comparar com
@@ -265,7 +288,10 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
             <label className="mb-1 block text-[13px] text-fg-mute">Crédito disponível</label>
             <select
               value={selectedCredit}
-              onChange={e => setSelectedCredit(e.target.value)}
+              onChange={e => {
+                setSelectedCredit(e.target.value)
+                setCreditAmount(suggestedCredit(e.target.value))
+              }}
               className="w-full rounded-lg border border-divider bg-surface px-3 py-2 text-[13px] text-fg focus:border-primary focus:outline-none"
             >
               {availableCredits.map(c => (
@@ -282,7 +308,6 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
             min="0.01"
             value={creditAmount}
             onChange={e => setCreditAmount(e.target.value)}
-            placeholder={selectedCredit ? formatCurrency(availableCredits.find(c => c.id === selectedCredit)?.available_balance ?? 0) : ''}
           />
           {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
           <div className="flex justify-end gap-2 pt-2">
