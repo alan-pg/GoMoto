@@ -94,3 +94,97 @@ test.describe('Veículos — CRUD', () => {
     expect(apagado, 'veículo continuou no banco depois da exclusão').toBeNull()
   })
 })
+
+test.describe('Veículo locado — edição e documentação anual', () => {
+  test.slow()
+
+  /**
+   * Nenhum veículo LOCADO podia ser editado, e o formulário não dizia nada.
+   *
+   * `VehicleBaseSchema` declarava `status` com os 4 valores que o operador pode
+   * escolher à mão (RF-016). Como o formulário devolve o status atual junto com
+   * o resto do payload, o Zod reprovava em `status` antes de qualquer regra
+   * rodar — e a regra de verdade já existia logo abaixo, em `updateVehicle`,
+   * descartando `status` quando a moto está locada (RN-002).
+   *
+   * O erro apontava para um campo que a tela mostra como informativo ("Status
+   * Locado é gerenciado automaticamente via contratos"), sem slot de mensagem.
+   * Resultado: clicar em Salvar não produzia nada — nem aviso, nem navegação,
+   * nem gravação. Neste banco eram 16 motos impossíveis de editar.
+   */
+  test('moto locada aceita edição, e a isenção de documento sobrevive ao recarregar', async ({ page }) => {
+    const admin = getSupabaseAdmin()
+    const placa = `TST${Date.now().toString().slice(-4)}`.slice(0, 7).toUpperCase()
+
+    const { data: tenant } = await admin.from('tenants').select('id').limit(1).single()
+    const tenantId = (tenant as { id: string }).id
+
+    const { data: criado, error } = await admin
+      .from('vehicles')
+      .insert({
+        tenant_id: tenantId, license_plate: placa, make: 'TEST', model: 'Locada E2E',
+        year_manufacture: '2024', year_model: '2024', color: 'PRETO',
+        acquisition_type: 'used', renavam: Date.now().toString().slice(-11),
+        chassis: `LOCADA${Date.now()}`.slice(0, 17).toUpperCase(),
+        fuel: 'GASOLINA', km_current: 0,
+        status: 'rented',
+      })
+      .select('id')
+      .single()
+
+    if (error) throw new Error(`setup: ${error.message}`)
+    const vehicleId = (criado as { id: string }).id
+
+    try {
+      await page.goto(`/veiculos/${vehicleId}/editar`)
+      await waitForPageLoad(page)
+
+      const novaCor = 'AZUL'
+      await page.getByLabel('Cor').fill(novaCor)
+
+      // DPVAT nasce "Isento" no formulário. A escolha não tinha onde ser
+      // gravada — `vehicle_obligations` não tem coluna de situação —, então
+      // virava obrigação sem conta a pagar e o veículo era reprovado na
+      // documentação por algo de que está dispensado.
+      await page.getByRole('button', { name: /^salvar$/i }).click()
+      await page.waitForURL(`**/veiculos/${vehicleId}`, { timeout: 20_000 })
+
+      const { data: depois } = await admin
+        .from('vehicles').select('color, status').eq('id', vehicleId).single()
+
+      const v = depois as { color: string; status: string }
+      expect(v.color, 'edição de moto locada não gravou').toBe(novaCor)
+      expect(v.status, 'o status não pode ser alterado pela edição (RN-002)').toBe('rented')
+
+      // A isenção precisa voltar como "Isento" ao reabrir. Antes, a página lia
+      // `obl.status` de uma coluna que não existe: vinha `undefined`, caía no
+      // fallback 'pending', e desfazia a escolha do operador em silêncio.
+      const { data: obrigacoes } = await admin
+        .from('vehicle_obligation_status')
+        .select('type, is_exempt, status')
+        .eq('vehicle_id', vehicleId)
+
+      const dpvat = ((obrigacoes ?? []) as { type: string; is_exempt: boolean; status: string }[])
+        .find(o => o.type === 'dpvat')
+
+      expect(dpvat, 'a isenção do DPVAT não foi registrada').toBeTruthy()
+      expect(dpvat!.is_exempt).toBe(true)
+      expect(dpvat!.status).toBe('exempt')
+
+      // E isenta não conta como pendência: o veículo segue em dia.
+      const { data: rollup } = await admin
+        .from('vehicle_document_status')
+        .select('is_compliant, unbilled_count, exempt_count')
+        .eq('vehicle_id', vehicleId)
+        .single()
+
+      const r = rollup as { is_compliant: boolean; unbilled_count: number; exempt_count: number }
+      expect(Number(r.exempt_count)).toBe(1)
+      expect(Number(r.unbilled_count), 'isento virou "custo não lançado"').toBe(0)
+      expect(r.is_compliant, 'veículo isento não pode ser reprovado').toBe(true)
+    } finally {
+      await admin.from('vehicle_obligations').delete().eq('vehicle_id', vehicleId)
+      await admin.from('vehicles').delete().eq('id', vehicleId)
+    }
+  })
+})

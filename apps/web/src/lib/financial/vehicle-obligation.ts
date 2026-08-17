@@ -76,7 +76,7 @@ export async function saveVehicleObligations(
     const write = existing
       ? supabase
         .from('vehicle_obligations')
-        .update({ due_date: row.due_date })
+        .update({ due_date: row.due_date, is_exempt: row.status === 'exempt' })
         .eq('id', (existing as { id: string }).id)
         .eq('tenant_id', tenantId)
         .select('id, payable_id')
@@ -89,6 +89,11 @@ export async function saveVehicleObligations(
           type:           row.type,
           reference_year: row.reference_year,
           due_date:       row.due_date,
+          // A isenção precisa ser gravada: é o único dos três estados da tela
+          // que não sai da conta a pagar. Descartada, a obrigação virava
+          // "custo nunca lançado" e reprovava a documentação do veículo por
+          // algo de que ele está dispensado.
+          is_exempt:      row.status === 'exempt',
         })
         .select('id, payable_id')
         .single()

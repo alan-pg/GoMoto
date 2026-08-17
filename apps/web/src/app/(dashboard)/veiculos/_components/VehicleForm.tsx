@@ -243,6 +243,16 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
 
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<string, string>>>({})
   const [globalError, setGlobalError] = useState<string | null>(null)
+
+  /**
+   * O aviso de erro fica no RODAPÉ de um formulário longo, e o botão Salvar
+   * vive no cabeçalho fixo. Sem rolar até ele, o operador clica em Salvar no
+   * topo e não vê absolutamente nada acontecer.
+   */
+  const errorRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (globalError) errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [globalError])
   const [postWarnings, setPostWarnings] = useState<string[] | null>(null)
 
   // ── Fotos
@@ -485,8 +495,16 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
       if (isEditMode) {
         const result = await updateVehicle(vehicleId!, payload)
         if (!result.ok) {
+          // O erro global sai SEMPRE, não só quando falta `field`. Erro
+          // apontando para um campo sem slot de exibição — ou para uma seção
+          // fora da tela, neste formulário longo — desaparecia por inteiro:
+          // clicar em Salvar não produzia nada, nem mensagem nem navegação.
           if (result.error.field) setFieldErrors({ [result.error.field]: result.error.message })
-          else setGlobalError(result.error.message)
+          setGlobalError(
+            result.error.field
+              ? `${result.error.message} (campo: ${result.error.field})`
+              : result.error.message,
+          )
           return
         }
 
@@ -1327,7 +1345,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
 
           {/* ── Erro global ────────────────────────────────────────────── */}
           {globalError && (
-            <div className="flex items-start gap-3 px-4 py-3 bg-danger-bg border border-danger rounded-xl">
+            <div ref={errorRef} className="flex items-start gap-3 px-4 py-3 bg-danger-bg border border-danger rounded-xl">
               <AlertCircle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
               <p className="text-[13px] text-danger">{globalError}</p>
             </div>
