@@ -14,7 +14,7 @@ import {
   type ChargeBalance,
   type LateChargePolicy,
 } from '@gomoto/core'
-import { postTransaction, reverseTransaction, dimensionsOf } from './ledger'
+import { postTransaction, dimensionsOf } from './ledger'
 import { realizeLateCharge } from './charges'
 
 export type ReceivePaymentParams = {
@@ -212,64 +212,27 @@ export async function reversePayment(
   reason: string,
   reversedBy?: string | null,
 ): Promise<void> {
-  const { data: payment, error } = await supabase
-    .from('payments')
-    .select('id, customer_id, amount, reversed_at')
-    .eq('id', paymentId)
-    .eq('tenant_id', tenantId)
-    .maybeSingle()
+  // Marcar o pagamento, estornar o razão e reabrir a cobrança eram três
+  // escritas soltas, nessa ordem. Falha no meio deixava `reversed_at` gravado
+  // com o razão intacto: a tela dizia estornado, o razão dizia recebido.
+  // `fn_reverse_payment` faz tudo numa transação e inverte as pernas da
+  // transação de origem, o que também cobre abatimento por crédito.
+  const { error } = await supabase.rpc('fn_reverse_payment', {
+    p_tenant_id:   tenantId,
+    p_payment_id:  paymentId,
+    p_reason:      reason,
+    p_reversed_by: reversedBy ?? null,
+  })
 
-  if (error) throw new Error(`Falha ao ler pagamento: ${error.message}`)
-  if (!payment) throw new Error('Pagamento não encontrado')
-
-  const p = payment as { id: string; customer_id: string; amount: number; reversed_at: string | null }
-  if (p.reversed_at) throw new Error('Pagamento já estornado')
-
-  const { data: allocs } = await supabase
-    .from('payment_allocations')
-    .select('charge_id, amount')
-    .eq('payment_id', paymentId)
-
-  const { error: updateError } = await supabase
-    .from('payments')
-    .update({
-      reversed_at: new Date().toISOString(),
-      reversal_reason: reason,
-      reversed_by: reversedBy ?? null,
-    })
-    .eq('id', paymentId)
-    .eq('tenant_id', tenantId)
-
-  if (updateError) throw new Error(`Falha ao estornar: ${updateError.message}`)
-
-  for (const alloc of (allocs ?? []) as { charge_id: string; amount: number }[]) {
-    const charge = await chargeContext(supabase, alloc.charge_id)
-
-    const original = await findIssuanceTransaction(supabase, paymentId, alloc.charge_id)
-
-    await reverseTransaction(supabase, tenantId, original, {
-      event: {
-        type: 'payment_reversed',
-        amount: alloc.amount,
-        dimensions: dimensionsOf({
-          customerId: p.customer_id,
-          rentalId: charge?.rental_id ?? null,
-          chargeId: alloc.charge_id,
-        }),
-      },
-      description: `Estorno de pagamento — ${reason}`,
-      sourceModule: 'payment',
-      sourceId: paymentId,
-      createdBy: reversedBy ?? null,
-    })
-
-    // Cobrança volta a ficar em aberto: o saldo é derivado e já reflete isso.
-    await supabase
-      .from('charges')
-      .update({ status: 'open' })
-      .eq('id', alloc.charge_id)
-      .eq('tenant_id', tenantId)
-      .eq('status', 'paid')
+  if (error) {
+    const m = error.message ?? ''
+    if (m.includes('PAYMENT_NOT_FOUND'))        throw new Error('Pagamento não encontrado')
+    if (m.includes('PAYMENT_ALREADY_REVERSED')) throw new Error('Pagamento já estornado')
+    if (m.includes('REVERSAL_REASON_REQUIRED')) throw new Error('Informe o motivo do estorno')
+    if (m.includes('NOTHING_TO_REVERSE')) {
+      throw new Error('Este pagamento não tem lançamento no razão para estornar')
+    }
+    throw new Error(`Falha ao estornar: ${m}`)
   }
 }
 
@@ -306,27 +269,6 @@ async function chargeContext(
     .maybeSingle()
 
   return (data ?? null) as { rental_id: string | null; charge_number: number } | null
-}
-
-/** Transação de recebimento correspondente, para amarrar o estorno. */
-async function findIssuanceTransaction(
-  supabase: SupabaseClient,
-  paymentId: string,
-  chargeId: string,
-): Promise<string> {
-  const { data } = await supabase
-    .from('financial_transactions')
-    .select('id, financial_entries!inner(charge_id)')
-    .eq('source_module', 'payment')
-    .eq('source_id', paymentId)
-    .eq('event_type', 'payment_received')
-    .eq('financial_entries.charge_id', chargeId)
-    .limit(1)
-    .maybeSingle()
-
-  const id = (data as { id: string } | null)?.id
-  if (!id) throw new Error('Transação de recebimento não encontrada para estorno')
-  return id
 }
 
 function round2(n: number): number {

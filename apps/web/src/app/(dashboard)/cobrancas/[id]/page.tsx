@@ -7,6 +7,7 @@ import { formatCurrency } from '@/lib/utils'
 import { calculateLateCharges } from '@gomoto/core'
 import type { LateChargeConfig } from '@gomoto/core'
 import { BillingActions } from './_components/BillingActions'
+import { ReversePaymentButton } from './_components/ReversePaymentButton'
 
 // ─── Local types ──────────────────────────────────────────────────────────────
 
@@ -192,7 +193,11 @@ export default async function BillingDetailPage({
   const payments = ((allocationsResult.data ?? []) as unknown as AllocRow[]).map((a) => {
     const p = Array.isArray(a.payment) ? a.payment[0] : a.payment
     return {
+      // `id` aqui é o da ALOCAÇÃO, e a linha da tabela é por alocação. O
+      // estorno age sobre o PAGAMENTO — passar um pelo outro dá "pagamento não
+      // encontrado" com os dois campos parecendo igualmente plausíveis.
       id: a.id,
+      payment_id: p?.id ?? null,
       amount: a.amount,
       payment_method: p?.method ?? '—',
       paid_at: p?.paid_at ?? a.created_at,
@@ -464,6 +469,7 @@ export default async function BillingDetailPage({
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Forma</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Valor</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Obs.</th>
+                    <th className="h-9 px-4 text-right font-medium text-fg-mute">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -471,8 +477,19 @@ export default async function BillingDetailPage({
                     <tr key={p.id} className="border-b border-border last:border-0 hover:bg-surface-2">
                       <td className="h-9 px-4 text-fg-soft">{fmtDatetime(p.paid_at)}</td>
                       <td className="h-9 px-4 text-fg-mute">{PAYMENT_METHOD_LABELS[p.payment_method] ?? p.payment_method}</td>
-                      <td className="h-9 px-4 text-right font-mono font-semibold text-success">{formatCurrency(p.amount)}</td>
+                      <td className={`h-9 px-4 text-right font-mono font-semibold ${
+                        p.reversed ? 'text-fg-mute line-through' : 'text-success'
+                      }`}>
+                        {formatCurrency(p.amount)}
+                      </td>
                       <td className="h-9 max-w-[200px] truncate px-4 text-fg-mute">{p.notes ?? '—'}</td>
+                      <td className="h-9 px-4 text-right">
+                        {p.reversed
+                          ? <span className="text-[12px] text-fg-mute">Estornado</span>
+                          : p.payment_id
+                            ? <ReversePaymentButton paymentId={p.payment_id} amount={p.amount} />
+                            : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

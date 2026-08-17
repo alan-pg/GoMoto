@@ -179,9 +179,14 @@ export async function applyCustomerCredits(
           amount: app.amount,
           dimensions: dimensionsOf({ customerId, chargeId: app.charge_id }),
         },
-        description: `Crédito abatido — cobrança em aberto`,
-        sourceModule: 'credit',
-        sourceId: app.credit_id,
+        description: `Crédito abatido — cobrança em aberto (crédito ${app.credit_id})`,
+        // A origem é o PAGAMENTO, não o crédito. Abatimento também cria linha
+        // em `payments`, e sem esse vínculo o estorno não encontrava o que
+        // desfazer: procurava por (source_module='payment', source_id=pagamento)
+        // e achava nada — exceção depois de já ter marcado o pagamento como
+        // estornado. O crédito de origem segue na descrição.
+        sourceModule: 'payment',
+        sourceId: pagamentoId,
         createdBy: ctx.userId,
       })
 

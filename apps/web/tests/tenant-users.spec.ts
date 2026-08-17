@@ -62,7 +62,12 @@ test.describe('Usuários do tenant — convite, papéis, revogação (Spec 0011)
     // A senha definida no cadastro já autentica de verdade.
     const { context, page: newUserPage } = await loginAsNewContext(browser, email, 'senha12345')
     try {
-      await newUserPage.waitForURL(/\/dashboard/, { timeout: 15_000 })
+      // 45s, não 15: este passo é o mais caro da suíte — contexto de browser
+      // novo, login real no GoTrue e primeira navegação até `/dashboard`, que
+      // no dev server ainda pode compilar a rota. Isolado passa em ~8s; na
+      // suíte cheia estourava os 15s de forma intermitente, e a falha não dizia
+      // nada sobre a senha, que é o que o teste afirma.
+      await newUserPage.waitForURL(/\/dashboard/, { timeout: 45_000 })
     } finally {
       await context.close()
     }

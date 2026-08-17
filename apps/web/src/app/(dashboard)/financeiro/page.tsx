@@ -83,9 +83,9 @@ export default async function FinancialDashboardPage() {
     // Veículos com aquisição cadastrada (para ROI)
     supabase
       .from('vehicles')
-      .select('id, license_plate, make, model, acquisition_value, sale_value, sold_at')
+      .select('id, license_plate, make, model, acquisition_amount, sale_value, sold_at')
       .eq('tenant_id', tenantId)
-      .not('acquisition_value', 'is', null)
+      .not('acquisition_amount', 'is', null)
       .order('created_at', { ascending: false })
       .limit(10),
     // Clientes inadimplentes
@@ -414,7 +414,7 @@ export default async function FinancialDashboardPage() {
                         </Link>
                       </td>
                       <td className="h-9 px-4 text-right font-mono text-fg">
-                        {v.acquisition_value != null ? formatCurrency(v.acquisition_value) : '—'}
+                        {v.acquisition_amount != null ? formatCurrency(v.acquisition_amount) : '—'}
                       </td>
                       <td className="h-9 px-4 text-right font-mono text-fg-mute">
                         {v.sale_value != null ? formatCurrency(v.sale_value) : '—'}

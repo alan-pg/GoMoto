@@ -5,7 +5,7 @@ import type { VehicleROI, VehicleCostsByCategory } from '../types/financial'
  *
  * @param acquisitionValue Valor de aquisição — null gera roi=null (RN-044).
  * @param revenues         Soma de todos os pagamentos recebidos de locações.
- * @param costsByCategory  Custos por categoria (sem acquisition_value).
+ * @param costsByCategory  Custos por categoria (sem acquisition_amount).
  * @param saleValue        Valor de venda se alienado; null = não alienado (RN-045).
  */
 export function calculateVehicleROI(

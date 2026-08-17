@@ -74,7 +74,7 @@ export interface VehicleCostsByCategory {
 
 export interface VehicleROI {
   vehicle_id: string
-  acquisition_value: number | null
+  acquisition_amount: number | null
   revenues: number
   costs_by_category: VehicleCostsByCategory
   total_costs: number

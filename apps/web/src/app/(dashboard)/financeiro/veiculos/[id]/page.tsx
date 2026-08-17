@@ -28,7 +28,7 @@ export default async function VehicleROIPage({
   const [vehicleResult, paidBillingsResult, maintenanceCostResult, fineCostResult] = await Promise.all([
     supabase
       .from('vehicles')
-      .select('id, license_plate, make, model, year_manufacture, color, acquisition_value, sale_value, sold_at, created_at')
+      .select('id, license_plate, make, model, year_manufacture, color, acquisition_amount, sale_value, sold_at, created_at')
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single(),
@@ -80,7 +80,7 @@ export default async function VehicleROIPage({
     maintenance_cost: number; documentation_cost: number; insurance_cost: number
     // `acquisition_cost` e `accumulated_depreciation` saíram da view: eram
     // alimentados por eventos sem chamador e retornavam zero por construção.
-    // ROI usa `vehicles.acquisition_value`.
+    // ROI usa `vehicles.acquisition_amount`.
     fines_cost: number
   }
   const position = (paidBillingsResult.data ?? null) as unknown as Position | null
@@ -92,12 +92,18 @@ export default async function VehicleROIPage({
   const totalMaintenanceCost = maintenances.reduce((s, m) => s + (m.amount ?? 0), 0)
   const totalFineCost = fines.reduce((s, f) => s + (f.amount ?? 0), 0)
   const totalCost = totalMaintenanceCost + totalFineCost
-  const acquisitionCost = vehicle.acquisition_value ?? 0
+  const acquisitionCost = vehicle.acquisition_amount ?? 0
+
+  // Alienação entra no retorno. Compra e venda não geram lançamento no razão
+  // (decisão do Alan, 2026-08-17) — são dados de relatório —, e ROI é
+  // exatamente relatório: ignorar o que a moto trouxe na saída fazia um veículo
+  // vendido com lucro aparecer com retorno negativo.
+  const saleProceeds = vehicle.sale_value ?? 0
 
   const netProfit = totalRevenue - totalCost
   const totalInvestment = acquisitionCost + totalCost
   const roiPercent = acquisitionCost > 0
-    ? ((totalRevenue - totalInvestment) / acquisitionCost) * 100
+    ? ((totalRevenue + saleProceeds - totalInvestment) / acquisitionCost) * 100
     : null
 
   // Receita por fonte
@@ -152,6 +158,11 @@ export default async function VehicleROIPage({
             <p className="mt-1 text-xl font-bold text-fg">
               {acquisitionCost > 0 ? formatCurrency(acquisitionCost) : '—'}
             </p>
+            {saleProceeds > 0 && (
+              <p className="mt-0.5 text-[12px] text-fg-mute">
+                Vendido por {formatCurrency(saleProceeds)}
+              </p>
+            )}
           </div>
           <div className="rounded-xl bg-surface p-4">
             <p className="text-[12px] text-fg-mute">Receita total</p>

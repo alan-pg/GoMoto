@@ -68,7 +68,7 @@ export async function registerVehicleSale(input: unknown): Promise<ActionResult<
 
 const UpdateAcquisitionSchema = z.object({
   vehicle_id:        uuid(),
-  acquisition_value: z.number().positive(),
+  acquisition_amount: z.number().positive(),
 })
 
 export async function updateAcquisitionValue(input: unknown): Promise<ActionResult<void>> {
@@ -85,13 +85,13 @@ export async function updateAcquisitionValue(input: unknown): Promise<ActionResu
 
   const { error } = await supabase
     .from('vehicles')
-    .update({ acquisition_value: parsed.data.acquisition_value })
+    .update({ acquisition_amount: parsed.data.acquisition_amount })
     .eq('id', parsed.data.vehicle_id)
     .eq('tenant_id', tenantId)
 
   if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
 
-  await logAction({ action: 'update', table: 'vehicles', recordId: parsed.data.vehicle_id, newData: { acquisition_value: parsed.data.acquisition_value } })
+  await logAction({ action: 'update', table: 'vehicles', recordId: parsed.data.vehicle_id, newData: { acquisition_amount: parsed.data.acquisition_amount } })
   revalidatePath(`/financeiro/veiculos/${parsed.data.vehicle_id}`)
   return { ok: true, data: undefined }
 }
