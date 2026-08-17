@@ -103,6 +103,7 @@ async function getDashboardData() {
     overdueListRes,
     paidThisMonthRes,
     activeRentalsRes,
+    forecastRentalsRes,
     pendingApprovalsRes,
     expiringRentalsRes,
     dueTodayRes,
@@ -128,6 +129,13 @@ async function getDashboardData() {
     supabase.from('charge_balances').select('charge_id, open_amount, due_date, customer_id').eq('is_overdue', true).order('days_overdue', { ascending: false }).limit(5),
     supabase.from('charge_balances').select('paid_amount').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
     supabase.from('rentals').select('id, cycle_amount, end_date, customers(name), vehicles(model, make, license_plate)').eq('status', 'active').order('created_at', { ascending: false }).limit(5),
+    // A previsão precisa de TODAS as ativas, não das 5 da lista acima. A
+    // consulta é separada de propósito: `monthlyForecast` somava a lista, e a
+    // `.limit(5)` dela — que existe para a tabela "locações recentes" — fazia o
+    // KPI "soma das locações ativas" mostrar R$ 2.650 onde a frota rendia
+    // R$ 27.750. Reaproveitar uma query paginada para agregar é o tipo de erro
+    // que nenhum portão pega: o número existe, é plausível, e está errado.
+    supabase.from('rentals').select('cycle_amount').eq('status', 'active'),
     supabase.from('maintenance_records').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
     supabase.from('rentals').select('*', { count: 'exact', head: true }).eq('status', 'active').gte('end_date', today).lte('end_date', in15Days),
     supabase.from('charge_balances').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('due_date', today),
@@ -159,7 +167,7 @@ async function getDashboardData() {
     (sum, row) => sum + (Number(row.paid_amount) || 0),
     0,
   )
-  const monthlyForecast = (activeRentalsRes.data ?? []).reduce(
+  const monthlyForecast = (forecastRentalsRes.data ?? []).reduce(
     (sum, rental) => sum + (Number(rental.cycle_amount) || 0),
     0,
   )

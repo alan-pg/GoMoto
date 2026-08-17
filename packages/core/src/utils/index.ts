@@ -44,6 +44,16 @@ export function formatDate(date: string | Date): string {
   const parsed = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
     ? new Date(`${date}T00:00:00`)
     : new Date(date)
+
+  // `Intl.DateTimeFormat.format()` LANÇA RangeError com data inválida. Um
+  // helper de exibição derrubando a árvore de componentes é desproporcional:
+  // um `due_date` ruim no preview de cobranças apagava a tela de nova locação
+  // inteira, sem mensagem, restando ao operador uma página em branco.
+  //
+  // O traço é deliberadamente visível — o valor ruim continua aparente para
+  // quem olha, só não leva a aplicação junto.
+  if (Number.isNaN(parsed.getTime())) return '—'
+
   return new Intl.DateTimeFormat('pt-BR').format(parsed)
 }
 

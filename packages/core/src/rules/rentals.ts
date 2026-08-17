@@ -79,6 +79,34 @@ export function parseIsoDate(isoDate: string): Date {
   return new Date(`${isoDate}T00:00:00`)
 }
 
+/**
+ * A string é uma data ISO que o `Date` nativo consegue representar?
+ *
+ * Existe porque `parseIsoDate` devolve Invalid Date em silêncio, e comparação
+ * com NaN é sempre falsa: o `if (end <= start) return []` de
+ * `generateCycleCharges` não barrava nada, e o cronograma saía com
+ * `due_date: "NaN-NaN-NaN"`.
+ *
+ * O caminho até lá é trivial. `<input type="date">` aceita ano de cinco dígitos
+ * — basta o operador digitar no segmento do ano com algo já preenchido —, e
+ * `new Date("82026-12-16T00:00:00")` é inválida porque ISO só admite quatro
+ * dígitos (ou a forma estendida com sinal). Digitando a data de início eu
+ * produzi esse estado por acidente, que é exatamente como um operador o produz.
+ */
+export function isParseableIsoDate(isoDate: string | null | undefined): boolean {
+  if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return false
+
+  const d = parseIsoDate(isoDate)
+  if (Number.isNaN(d.getTime())) return false
+
+  // Dia que não existe no calendário é ACEITO pelo `Date` e rolado para o mês
+  // seguinte: "2026-02-30" vira 2 de março sem aviso. Conferir os componentes
+  // de volta é o que separa "data válida" de "data que o JS transformou em
+  // outra". Chega por payload de API, não pelo input nativo.
+  const [y, m, day] = isoDate.split('-').map(Number)
+  return d.getFullYear() === y && d.getMonth() + 1 === m && d.getDate() === day
+}
+
 // ---------------------------------------------------------------------------
 // Vigência de locações
 // ---------------------------------------------------------------------------
@@ -220,7 +248,9 @@ function dateDiffDays(from: Date, to: Date): number {
 }
 
 function formatIsoDate(date: Date): string {
-  const y = date.getFullYear()
+  // O ano também precisa de padding: sem ele, 26 d.C. virava "26-09-10" — que
+  // não é ISO e o Postgres interpreta como outro ano.
+  const y = String(date.getFullYear()).padStart(4, '0')
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
@@ -293,6 +323,16 @@ export function calculateProRataValue(
  */
 export function generateCycleCharges(input: CycleChargeInput): CycleCharge[] {
   const charges: CycleCharge[] = []
+
+  // Data impossível não gera cronograma. Sem esta guarda a função devolvia
+  // linhas com `due_date: "NaN-NaN-NaN"` — e como ela RETORNA lixo em vez de
+  // lançar, o `try/catch` de quem chama não protegia. Na tela isso derrubava a
+  // página inteira ao formatar a data; na gravação iria como data inválida para
+  // uma coluna `date`.
+  if (!isParseableIsoDate(input.start_date) || !isParseableIsoDate(input.end_date)) {
+    return charges
+  }
+
   const start = parseIsoDate(input.start_date)
   const end   = parseIsoDate(input.end_date)
 

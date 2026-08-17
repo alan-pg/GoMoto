@@ -175,3 +175,41 @@ describe('contractedBacklog — separa carteira de contas a receber (F-10)', () 
     expect(contractedBacklog(linhas)).toBe(26_000)
   })
 })
+
+describe('data impossível não vira cronograma', () => {
+  // `<input type="date">` aceita ano de cinco dígitos, e digitar no segmento do
+  // ano com algo já preenchido produz esse estado sem esforço. `parseIsoDate`
+  // devolvia Invalid Date em silêncio; como comparação com NaN é sempre falsa,
+  // o `if (end <= start) return []` não barrava, e saía uma linha com
+  // `due_date: "NaN-NaN-NaN"`.
+  //
+  // Na tela isso derrubava a página inteira (o formatador lança RangeError);
+  // na gravação, iria para uma coluna `date`. E como a função RETORNA lixo em
+  // vez de lançar, o `try/catch` de quem chama não protegia de nada.
+  const base = {
+    cycle: 'monthly' as const, due_day: 10, cycle_amount: 750, use_pro_rata: true,
+  }
+
+  it('ano de cinco dígitos no início devolve lista vazia', () => {
+    expect(generateSchedule({ ...base, start_date: '82026-12-16', end_date: '82027-03-16' })).toEqual([])
+  })
+
+  it('ano de cinco dígitos no fim devolve lista vazia', () => {
+    expect(generateSchedule({ ...base, start_date: '2026-08-16', end_date: '82026-11-16' })).toEqual([])
+  })
+
+  it('data vazia ou sem sentido devolve lista vazia', () => {
+    expect(generateSchedule({ ...base, start_date: '', end_date: '2026-11-16' })).toEqual([])
+    expect(generateSchedule({ ...base, start_date: '2026-08-16', end_date: 'abc' })).toEqual([])
+    expect(generateSchedule({ ...base, start_date: '2026-02-30', end_date: '2026-11-16' })).toEqual([])
+  })
+
+  it('nenhuma linha válida carrega data não parseável', () => {
+    const linhas = generateSchedule({ ...base, start_date: '2026-08-16', end_date: '2026-11-16' })
+    expect(linhas.length).toBeGreaterThan(0)
+    for (const l of linhas) {
+      expect(l.due_date, 'due_date fora do formato ISO').toMatch(/^\d{4}-\d{2}-\d{2}$/)
+      expect(Number.isNaN(new Date(`${l.due_date}T00:00:00`).getTime())).toBe(false)
+    }
+  })
+})
