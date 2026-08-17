@@ -289,5 +289,53 @@ test.describe('Encerramento liquida a caução', () => {
     const rows = (entries ?? []) as { direction: string; amount: number }[]
     const debitos = rows.filter((e) => e.direction === 'debit')
     expect(debitos.map((e) => Number(e.amount)).sort((a, b) => a - b), 'faltou retenção ou devolução').toEqual([300, 500])
+
+    // E a retenção precisa ABATER a dívida, não só mexer no razão.
+    //
+    // `deposit_retained` credita `contas_a_receber`, mas `charge_balances` é
+    // `itens − ALOCAÇÕES`: sem o par pagamento+alocação a cobrança seguia
+    // integralmente em aberto. Ao vivo, reter R$ 400 contra R$ 893,47 deixou o
+    // razão dizendo 493,47 e a tela de cobranças dizendo 893,47 — a empresa com
+    // o dinheiro e o sistema cobrando de novo.
+    //
+    // As asserções acima passavam com o defeito no lugar, porque nenhuma
+    // olhava o saldo da cobrança.
+    const { data: pagamentos } = await sb
+      .from('payments')
+      .select('id, amount, method')
+      .eq('customer_id', cId)
+      .eq('method', 'deposit_retention')
+
+    const pg = (pagamentos ?? []) as { id: string; amount: number }[]
+    expect(pg.length, 'retenção não virou abatimento da dívida do cliente').toBe(1)
+    expect(Number(pg[0]!.amount)).toBe(300)
+
+    const { data: alocacoes } = await sb
+      .from('payment_allocations')
+      .select('amount')
+      .eq('payment_id', pg[0]!.id)
+
+    const alocado = ((alocacoes ?? []) as { amount: number }[])
+      .reduce((s, a) => s + Number(a.amount), 0)
+    expect(alocado, 'retenção registrada sem alocar em cobrança alguma').toBe(300)
+
+    // A dívida em aberto cai exatamente o que foi alocado — esta é a garantia
+    // que importa, e a que faltava.
+    //
+    // Comparar o saldo das cobranças com o recebível do razão seria mais forte,
+    // mas não vale AQUI: este fixture registra o recebimento da caução direto
+    // no razão, sem par pagamento+alocação, então as duas fontes já nascem
+    // separadas por construção do próprio teste.
+    const { data: saldos } = await sb
+      .from('charge_balances').select('charge_id, total_amount, open_amount').eq('rental_id', rId)
+    const linhas = (saldos ?? []) as { total_amount: number; open_amount: number }[]
+
+    const totalEmitido = linhas.reduce((s, c) => s + Number(c.total_amount), 0)
+    const emAberto     = linhas.reduce((s, c) => s + Number(c.open_amount), 0)
+
+    expect(
+      Number((totalEmitido - emAberto).toFixed(2)),
+      'a retenção não abateu a dívida do cliente',
+    ).toBe(alocado)
   })
 })

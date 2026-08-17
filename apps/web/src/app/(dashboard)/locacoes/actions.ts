@@ -47,6 +47,7 @@ const uuid = () => z.string().regex(UUID_LOOSE, 'ID inválido')
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (YYYY-MM-DD)')
 import { logAction } from '@/lib/audit'
 import { createCharge, cancelCharge, receivePayment, postTransaction, dimensionsOf } from '@/lib/financial'
+import { allocateWithoutCash } from '@/lib/financial/payments'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 
 function revalidateRentalPaths() {
@@ -1249,6 +1250,22 @@ export async function closeRentalFinancial(
         sourceModule: 'deposit',
         sourceId: dep!.id,
         createdBy: user!.id,
+      })
+
+      // O lançamento acima credita `contas_a_receber`, mas `charge_balances` é
+      // itens − ALOCAÇÕES: sem o par pagamento+alocação, a dívida seguia
+      // inteira na tela. Reter R$ 400 de caução para cobrir R$ 893,47 deixava
+      // o razão dizendo 493,47 e a cobrança dizendo 893,47 — a empresa com o
+      // dinheiro e o sistema cobrando de novo.
+      //
+      // Mesmo defeito que `applyCustomerCredits` já documentava e havia
+      // corrigido no caminho do crédito; a caução ficou de fora.
+      await allocateWithoutCash(supabase, tenantId!, {
+        customerId: dep!.customer_id,
+        amount: retained,
+        method: 'deposit_retention',
+        notes: reason ? `Retenção de caução — ${reason}` : 'Retenção de caução',
+        receivedBy: user!.id,
       })
     }
     // Devolução: sai do caixa e zera o passivo.

@@ -240,6 +240,66 @@ export async function reversePayment(
 // Internos
 // ============================================================
 
+/**
+ * Registra um abatimento que NÃO é entrada de dinheiro: o lançamento no razão
+ * já foi feito por quem chamou (retenção de caução, crédito do cliente), e o
+ * que falta é o par pagamento+alocação para `charge_balances` enxergar.
+ *
+ * Sem ele o abatimento vive só no razão e `open_amount` (itens − alocações)
+ * continua cheio — a empresa fica com o dinheiro e o sistema segue cobrando.
+ * `applyCustomerCredits` já fazia isso à mão; a retenção de caução não fazia.
+ */
+export async function allocateWithoutCash(
+  supabase: SupabaseClient,
+  tenantId: string,
+  params: {
+    customerId: string
+    amount: number
+    method: string
+    notes: string
+    receivedBy?: string | null
+  },
+): Promise<{ paymentId: string; allocated: number; unallocated: number }> {
+  const open = await listOpenCharges(supabase, tenantId, params.customerId)
+  const result = allocatePayment(params.amount, open)
+
+  const { data: payment, error } = await supabase
+    .from('payments')
+    .insert({
+      tenant_id:   tenantId,
+      customer_id: params.customerId,
+      amount:      params.amount,
+      method:      params.method,
+      paid_at:     new Date().toISOString(),
+      notes:       params.notes,
+      received_by: params.receivedBy ?? null,
+    })
+    .select('id')
+    .single()
+
+  if (error) throw new Error(`Falha ao registrar o abatimento: ${error.message}`)
+  const paymentId = (payment as { id: string }).id
+
+  if (result.allocations.length > 0) {
+    const { error: allocError } = await supabase.from('payment_allocations').insert(
+      result.allocations.map((a) => ({
+        tenant_id:  tenantId,
+        payment_id: paymentId,
+        charge_id:  a.charge_id,
+        amount:     a.amount,
+        created_by: params.receivedBy ?? null,
+      })),
+    )
+    if (allocError) throw new Error(`Falha ao alocar o abatimento: ${allocError.message}`)
+  }
+
+  return {
+    paymentId,
+    allocated: round2(params.amount - result.unallocated),
+    unallocated: result.unallocated,
+  }
+}
+
 async function listOpenCharges(
   supabase: SupabaseClient,
   tenantId: string,

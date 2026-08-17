@@ -41,7 +41,25 @@ export function TerminateForm({ rental }: TerminateFormProps) {
 
   const openAmount     = openCharges.reduce((s, c) => s + c.open_amount, 0)
   const depositBalance = depositQuery.data ?? 0
-  const backlog        = scheduleQuery.data?.contracted_backlog ?? 0
+
+  /**
+   * O que o encerramento REALMENTE cancela, com o mesmo critério da RPC:
+   * `status = 'scheduled' AND period_start > p_termination_date`.
+   *
+   * Duas coisas estavam erradas aqui. O alerta contava cobranças já EMITIDAS e
+   * anunciava que seriam canceladas — o oposto do que acontece, e o oposto do
+   * que o checkbox ao lado afirma. E o valor vinha de `contracted_backlog`,
+   * que é todo o cronograma não emitido, sem olhar a data escolhida.
+   *
+   * Encerrando na data de fim do contrato, todos os períodos já começaram e
+   * NADA é cancelado — a tela prometia três parcelas e cancelava zero. Como a
+   * data é editável, os dois números precisam responder a ela.
+   */
+  const cancelable = useMemo(() => {
+    const lines = (scheduleQuery.data?.lines ?? [])
+      .filter(l => l.status === 'scheduled' && l.period_start > terminationDate)
+    return { count: lines.length, total: lines.reduce((s, l) => s + l.amount, 0) }
+  }, [scheduleQuery.data, terminationDate])
 
   const impact = useMemo(() => {
     if (!rental.start_date) return null
@@ -170,7 +188,7 @@ export function TerminateForm({ rental }: TerminateFormProps) {
           </div>
           <div className="flex justify-between py-0.5">
             <span className="text-fg-mute">Cronograma a cancelar</span>
-            <span className="tabular-nums">{formatCurrency(backlog)}</span>
+            <span className="tabular-nums">{formatCurrency(cancelable.total)}</span>
           </div>
 
         </div>
@@ -262,12 +280,19 @@ export function TerminateForm({ rental }: TerminateFormProps) {
                 </span>
               </div>
             )}
-            {impact.future_count > 0 && (
+            {/* Dizia "N cobranças futuras serão canceladas" contando cobranças
+                JÁ EMITIDAS com vencimento à frente — e elas não são canceladas.
+                Ficava ao lado do checkbox que afirma o contrário ("as cobranças
+                continuam cobráveis"), sobre exatamente o mesmo dinheiro. O que
+                o encerramento cancela é o cronograma ainda não emitido. */}
+            {cancelable.count > 0 && (
               <div className="flex items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-[13px] text-fg-mute">
                 <X className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
-                  {impact.future_count} cobrança{impact.future_count !== 1 ? 's' : ''} futura
-                  {impact.future_count !== 1 ? 's' : ''} ser{impact.future_count !== 1 ? 'ão' : 'á'} cancelada{impact.future_count !== 1 ? 's' : ''}.
+                  {cancelable.count} parcela{cancelable.count !== 1 ? 's' : ''} ainda não emitida
+                  {cancelable.count !== 1 ? 's' : ''} ser{cancelable.count !== 1 ? 'ão' : 'á'} cancelada
+                  {cancelable.count !== 1 ? 's' : ''}. Cobrança já emitida não é cancelada pelo
+                  encerramento.
                 </span>
               </div>
             )}

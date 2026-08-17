@@ -121,7 +121,8 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash:             'Dinheiro',
   // Abatimento por crédito grava `method = 'credit'` em `payments`. Faltava
   // aqui, então a linha aparecia como "credit" cru ao lado de "PIX" traduzido.
-  credit:           'Crédito do cliente',
+  credit:            'Crédito do cliente',
+  deposit_retention: 'Retenção de caução',
   credit_card:      'Cartão de crédito',
   debit_card:       'Cartão de débito',
   bank_transfer:    'Transferência',
