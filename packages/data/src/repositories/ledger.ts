@@ -181,6 +181,35 @@ export type ChargeListRow = ChargeBalanceRow & {
  * cobrança, e juntar `charge_items` ali dentro reintroduziria o fan-out que o
  * redesenho eliminou (F-01).
  */
+/**
+ * Busca em lotes por uma lista de ids, checando o erro de cada lote.
+ *
+ * PostgREST recebe `in.(...)` na QUERY STRING, e o Kong recusa URI acima de
+ * ~8 KB com **414**. Um UUID ocupa ~37 bytes codificado: passando de ~200 ids
+ * a requisição estoura. Como o resultado era lido com `?? []`, o 414 virava
+ * lista vazia em silêncio — na tela de cobranças, TODA linha perdia descrição,
+ * nome do cliente e placa, exibindo só o rótulo genérico "Cobrança".
+ *
+ * Não é hipótese de escala distante: aconteceu com 258 cobranças.
+ */
+export async function fetchByIdsInChunks<T>(
+  ids: string[],
+  column: string,
+  run: (chunk: string[]) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const CHUNK = 100
+  const out: T[] = []
+
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const { data, error } = await run(ids.slice(i, i + CHUNK))
+    // Erro engolido aqui degrada a tela inteira sem sinal nenhum.
+    if (error) throw new Error(`Falha ao buscar por ${column}: ${error.message}`)
+    out.push(...(data ?? []))
+  }
+
+  return out
+}
+
 export async function listChargesForCockpit(
   client: SupabaseClient,
 ): Promise<ChargeListRow[]> {
@@ -197,25 +226,26 @@ export async function listChargesForCockpit(
   const customerIds = [...new Set(rows.map((r) => r.customer_id))]
   const rentalIds = [...new Set(rows.map((r) => r.rental_id).filter(Boolean))] as string[]
 
-  const [itemsRes, customersRes, rentalsRes] = await Promise.all([
-    client.from('charge_items').select('charge_id, description, amount').in('charge_id', chargeIds),
-    client.from('customers').select('id, name, phone').in('id', customerIds),
-    rentalIds.length
-      ? client.from('rentals').select('id, vehicles(license_plate)').in('id', rentalIds)
-      : Promise.resolve({ data: [], error: null }),
+  type ItemRow = { charge_id: string; description: string; amount: number }
+  type CustomerRow = { id: string; name: string; phone: string | null }
+
+  const [items, customers, rentals] = await Promise.all([
+    fetchByIdsInChunks<ItemRow>(chargeIds, 'charge_id', (chunk) =>
+      client.from('charge_items').select('charge_id, description, amount').in('charge_id', chunk)),
+    fetchByIdsInChunks<CustomerRow>(customerIds, 'customer_id', (chunk) =>
+      client.from('customers').select('id, name, phone').in('id', chunk)),
+    fetchByIdsInChunks<unknown>(rentalIds, 'rental_id', (chunk) =>
+      client.from('rentals').select('id, vehicles(license_plate)').in('id', chunk)),
   ])
 
   const itemsByCharge = new Map<string, { description: string; amount: number }[]>()
-  for (const i of (itemsRes.data ?? []) as { charge_id: string; description: string; amount: number }[]) {
+  for (const i of items) {
     const list = itemsByCharge.get(i.charge_id) ?? []
     list.push({ description: i.description, amount: i.amount })
     itemsByCharge.set(i.charge_id, list)
   }
 
-  const customerById = new Map(
-    ((customersRes.data ?? []) as { id: string; name: string; phone: string | null }[])
-      .map((c) => [c.id, c]),
-  )
+  const customerById = new Map(customers.map((c) => [c.id, c]))
 
   // `rentals.vehicle_id → vehicles.id` é muitos-para-um, então o PostgREST
   // devolve objeto; a inferência do supabase-js supõe array. Tratamos as duas
@@ -223,7 +253,7 @@ export async function listChargesForCockpit(
   type RentalVehicle = { id: string; vehicles: { license_plate: string } | { license_plate: string }[] | null }
 
   const plateByRental = new Map(
-    ((rentalsRes.data ?? []) as unknown as RentalVehicle[]).map((r) => {
+    (rentals as RentalVehicle[]).map((r) => {
       const v = Array.isArray(r.vehicles) ? r.vehicles[0] : r.vehicles
       return [r.id, v?.license_plate ?? null] as const
     }),
