@@ -143,49 +143,27 @@ export async function payPayable(
   paidAt: string,
   createdBy?: string | null,
 ): Promise<void> {
-  const { data, error } = await supabase
-    .from('payables')
-    .select('id, description, amount, status, vehicle_id, rental_id, customer_id')
-    .eq('id', payableId)
-    .eq('tenant_id', tenantId)
-    .maybeSingle()
-
-  if (error) throw new Error(`Falha ao ler conta a pagar: ${error.message}`)
-  if (!data) throw new Error('Conta a pagar não encontrada')
-
-  const p = data as {
-    id: string; description: string; amount: number; status: string
-    vehicle_id: string | null; rental_id: string | null
-    customer_id: string | null; cost_center_id: string | null
-  }
-
-  if (p.status === 'paid') throw new Error('Conta já paga')
-  if (p.status === 'cancelled') throw new Error('Conta cancelada não pode ser paga')
-
-  const { error: updateError } = await supabase
-    .from('payables')
-    .update({ status: 'paid', paid_at: paidAt })
-    .eq('id', payableId)
-    .eq('tenant_id', tenantId)
-
-  if (updateError) throw new Error(`Falha ao baixar conta: ${updateError.message}`)
-
-  await postTransaction(supabase, tenantId, {
-    event: {
-      type: 'payable_paid',
-      amount: p.amount,
-      dimensions: dimensionsOf({
-        customerId: p.customer_id,
-        vehicleId: p.vehicle_id,
-        rentalId: p.rental_id,
-        payableId,
-      }),
-    },
-    description: `Pagamento — ${p.description}`,
-    sourceModule: 'payable',
-    sourceId: payableId,
-    createdBy,
+  // Era ler-decidir-escrever em três passos soltos: lia o status, marcava
+  // `paid`, lançava no razão. Duas chamadas simultâneas liam `open` antes de
+  // qualquer uma gravar e as duas seguiam — o caixa saía duas vezes pela mesma
+  // despesa. Reproduzido: R$ 600 para uma conta de R$ 300.
+  //
+  // A verificação agora acontece sob `FOR UPDATE` dentro da transação que
+  // também lança. Quando dinheiro se move, quem decide é o banco.
+  const { error } = await supabase.rpc('fn_pay_payable', {
+    p_tenant_id: tenantId,
+    p_payable_id: payableId,
+    p_paid_at: paidAt,
+    p_created_by: createdBy ?? null,
   })
+
+  if (!error) return
+
+  // Mensagens que o operador lê na tela. Os códigos vêm da função.
+  if (error.message.includes('PAYABLE_ALREADY_PAID')) throw new Error('Conta já paga')
+  if (error.message.includes('PAYABLE_CANCELLED')) throw new Error('Conta cancelada não pode ser paga')
+  if (error.message.includes('PAYABLE_NOT_FOUND')) throw new Error('Conta a pagar não encontrada')
+  throw new Error(`Falha ao baixar conta: ${error.message}`)
 }
 
 /**
