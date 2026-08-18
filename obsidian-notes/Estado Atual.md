@@ -48,6 +48,27 @@ Detalhes e tradeoffs registrados em [[decisions/0002-padrao-canonico-pagina-serv
 
 Nenhum bug crítico aberto.
 
+## 🔒 Invariantes de dinheiro no banco, não no código
+
+Quando dinheiro se move, quem decide é o banco. O padrão ler-decidir-escrever em
+passos soltos apareceu em três caminhos diferentes e produziu o mesmo tipo de
+estrago em todos — o guarda lê um estado que a escrita seguinte ainda não gravou,
+e uma segunda execução passa direto por ele:
+
+| Função | O que era | O que quebrava |
+|---|---|---|
+| `fn_reverse_payment` | marcar, estornar razão, reabrir cobrança | falha no meio: pagamento estornado com o dinheiro de pé no razão |
+| `fn_confirm_gateway_payment` | 4 requisições ao PostgREST | reentrega do provedor criava um SEGUNDO recebimento do mesmo dinheiro |
+| `fn_pay_payable` | ler status, marcar pago, lançar | dois cliques simultâneos tiraram **R$ 600** do caixa para uma despesa de R$ 300 |
+
+As três viraram função com a verificação sob `FOR UPDATE` dentro da mesma
+transação que lança. Regra para caminho novo que mexe em dinheiro: **se o guarda
+e a escrita não estão na mesma transação, o guarda não existe.**
+
+Complemento no schema: `payments_one_per_intent` (índice único parcial) torna
+impossível dois pagamentos para o mesmo intent de gateway, inclusive para quem
+inserir por fora do código.
+
 ## 🧱 Dívida técnica registrada
 
 **Leitura em escala — [[decisions/0025-leitura-em-escala-paginacao-agregacao-indice|ADR 0025]]** (2026-08-18)
