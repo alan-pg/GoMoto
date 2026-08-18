@@ -124,10 +124,17 @@ async function getDashboardData() {
     // operacional, e um caução vencida não deve marcar o cliente como inadimplente.
     // Atraso derivado: `is_overdue` compara due_date com hoje. Antes a query
     // fazia esse OR porque nada gravava status='overdue' (F-04/F-12).
-    supabase.from('charge_balances').select('customer_id').eq('is_overdue', true),
-    supabase.from('charge_balances').select('open_amount, status, due_date, is_overdue').eq('status', 'open').gt('open_amount', 0),
+    // Só a lista de clientes com 2+ vencidas usa as LINHAS; contagem e valor
+    // saem de `receivables_summary`. Fica com `.limit()` explícito: acima disso
+    // o PostgREST cortaria em 1000 em silêncio, e o alerta de inadimplência
+    // deixaria clientes de fora sem dizer nada.
+    supabase.from('charge_balances').select('customer_id').eq('is_overdue', true).limit(2000),
+    // Agregado no BANCO. Antes trazia as linhas e somava aqui — e PostgREST
+    // corta em 1000 sem erro: passando disso, "Total a Receber" e "Em Atraso"
+    // exibiriam a soma de um pedaço da carteira, com cara de número certo.
+    supabase.from('receivables_summary').select('open_total, overdue_total, overdue_count, overdue_customers').maybeSingle(),
     supabase.from('charge_balances').select('charge_id, open_amount, due_date, customer_id').eq('is_overdue', true).order('days_overdue', { ascending: false }).limit(5),
-    supabase.from('charge_balances').select('paid_amount').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
+    supabase.from('receivables_by_month').select('paid_total').eq('month', firstDayOfMonth).maybeSingle(),
     supabase.from('rentals').select('id, cycle_amount, end_date, customers(name), vehicles(model, make, license_plate)').eq('status', 'active').order('created_at', { ascending: false }).limit(5),
     // A previsão precisa de TODAS as ativas, não das 5 da lista acima. A
     // consulta é separada de propósito: `monthlyForecast` somava a lista, e a
@@ -155,17 +162,18 @@ async function getDashboardData() {
   const maintenanceVehicles = vehicleMaintenanceRes.count ?? 0
   const utilizationPct = totalVehicles > 0 ? Math.round((rentedVehicles / totalVehicles) * 100) : 0
 
-  // Financial — total receivable covers ALL months, not just current
-  const allReceivable = allReceivableRes.data ?? []
+  // Financial — a carteira inteira, agregada no banco (todos os meses).
   // Saldo em aberto vem derivado; nada aqui recompõe valor a partir de
   // desconto ou crédito, e o atraso não é recalculado na tela (Princípio 4).
-  const totalReceivable = allReceivable.reduce((sum, row) => sum + Number(row.open_amount ?? 0), 0)
-  const overdueTotal = allReceivable
-    .filter((row) => row.is_overdue)
-    .reduce((sum, row) => sum + Number(row.open_amount ?? 0), 0)
-  const paidThisMonth = (paidThisMonthRes.data ?? []).reduce(
-    (sum, row) => sum + (Number(row.paid_amount) || 0),
-    0,
+  const receivables = allReceivableRes.data as {
+    open_total: number; overdue_total: number
+    overdue_count: number; overdue_customers: number
+  } | null
+
+  const totalReceivable = Number(receivables?.open_total ?? 0)
+  const overdueTotal    = Number(receivables?.overdue_total ?? 0)
+  const paidThisMonth   = Number(
+    (paidThisMonthRes.data as { paid_total: number } | null)?.paid_total ?? 0,
   )
   const monthlyForecast = (forecastRentalsRes.data ?? []).reduce(
     (sum, rental) => sum + (Number(rental.cycle_amount) || 0),
@@ -174,8 +182,9 @@ async function getDashboardData() {
 
   // Inadimplência
   const overdueCustomersData = overdueCustomersRes.data ?? []
-  const overduePaymentsCount = overdueCustomersData.length
-  const uniqueOverdueCustomers = new Set(overdueCustomersData.map((row) => row.customer_id)).size
+  const overduePaymentsCount   = Number(receivables?.overdue_count ?? overdueCustomersData.length)
+  const uniqueOverdueCustomers = Number(receivables?.overdue_customers
+    ?? new Set(overdueCustomersData.map((row) => row.customer_id)).size)
   const activeClientsCount = activeClientsRes.count ?? 0
   const defaultRate =
     activeClientsCount > 0
