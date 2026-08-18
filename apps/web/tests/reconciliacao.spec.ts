@@ -110,18 +110,47 @@ test.afterAll(async () => {
   if (vehicleId) await deleteTestVehicle(vehicleId).catch(() => {})
 })
 
+
+/**
+ * Lê uma tabela inteira, em páginas.
+ *
+ * PostgREST devolve no máximo **1000 linhas** por requisição, sem erro e sem
+ * aviso — a resposta simplesmente vem cortada. Esta spec varre o banco todo, e
+ * ler só as primeiras 1000 `financial_entries` fazia as cobranças mais recentes
+ * parecerem SEM lançamento: 25 falsos positivos com 1106 linhas na tabela.
+ *
+ * Um teste de integridade que mente por truncamento é pior que não existir —
+ * acusa defeito onde não há e treina quem lê a ignorá-lo.
+ */
+async function lerTudo<T>(
+  tabela: string,
+  colunas: string,
+  refinar?: (q: ReturnType<ReturnType<typeof getSupabaseAdmin>['from']>) => unknown,
+): Promise<T[]> {
+  const PAGINA = 1000
+  const out: T[] = []
+
+  for (let offset = 0; ; offset += PAGINA) {
+    let q = admin().from(tabela).select(colunas)
+    if (refinar) q = refinar(q) as typeof q
+    const { data, error } = await q.range(offset, offset + PAGINA - 1)
+
+    if (error) throw new Error(`falha ao ler ${tabela}: ${error.message}`)
+    const page = (data ?? []) as T[]
+    out.push(...page)
+    if (page.length < PAGINA) break
+  }
+
+  return out
+}
+
 test.describe('Reconciliação do razão', () => {
   test('toda transação do banco fecha em zero', async () => {
-    // `financial_entries` é imutável e sem paginação relevante aqui: o banco de
-    // desenvolvimento tem ordem de milhares de linhas, não milhões.
-    const { data, error } = await admin()
-      .from('financial_entries')
-      .select('transaction_id, amount_signed')
-
-    expect(error, `falha ao ler o razão: ${error?.message}`).toBeNull()
+    const data = await lerTudo<{ transaction_id: string; amount_signed: number }>(
+      'financial_entries', 'transaction_id, amount_signed')
 
     const porTransacao = new Map<string, number>()
-    for (const e of (data ?? []) as { transaction_id: string; amount_signed: number }[]) {
+    for (const e of data) {
       porTransacao.set(e.transaction_id, (porTransacao.get(e.transaction_id) ?? 0) + Number(e.amount_signed))
     }
 
@@ -152,14 +181,10 @@ test.describe('Reconciliação do razão', () => {
     const lista = (charges ?? []) as { id: string; charge_number: number; source_module: string }[]
     expect(lista.length, 'sem cobrança no banco — o teste não provaria nada').toBeGreaterThan(0)
 
-    const { data: entries } = await admin()
-      .from('financial_entries')
-      .select('charge_id')
-      .not('charge_id', 'is', null)
+    const entries = await lerTudo<{ charge_id: string }>(
+      'financial_entries', 'charge_id', (q) => q.not('charge_id', 'is', null))
 
-    const comLancamento = new Set(
-      ((entries ?? []) as { charge_id: string }[]).map((e) => e.charge_id),
-    )
+    const comLancamento = new Set(entries.map((e) => e.charge_id))
 
     const orfas = lista
       .filter((c) => !comLancamento.has(c.id))
@@ -183,12 +208,10 @@ test.describe('Reconciliação do razão', () => {
     // O vínculo é `financial_entries.payable_id`, não o `source_id` da
     // transação: a origem da transação é o FATO (a manutenção, a multa), e o
     // payable é o documento que aquele fato gerou.
-    const { data: entries } = await admin()
-      .from('financial_entries')
-      .select('payable_id')
-      .not('payable_id', 'is', null)
+    const entries = await lerTudo<{ payable_id: string }>(
+      'financial_entries', 'payable_id', (q) => q.not('payable_id', 'is', null))
 
-    const comLancamento = new Set(((entries ?? []) as { payable_id: string }[]).map((e) => e.payable_id))
+    const comLancamento = new Set(entries.map((e) => e.payable_id))
 
     const orfas = lista
       .filter((p) => !comLancamento.has(p.id))
