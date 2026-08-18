@@ -56,7 +56,12 @@ export default async function FinancialDashboardPage() {
   const nextMonth  = new Date(now.getFullYear(), now.getMonth() + 1, 1)
   const monthEnd   = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-01`
 
-  const [monthBillingsResult, overdueBillingsResult, vehiclesResult, delinquentResult, lastRunResult] = await Promise.all([
+  const [
+    // A ordem aqui precisa espelhar a do array abaixo — os agregados entram
+    // ANTES da última execução do faturamento.
+    monthBillingsResult, overdueBillingsResult, vehiclesResult,
+    delinquentResult, summaryResult, monthSummaryResult, lastRunResult,
+  ] = await Promise.all([
     // Cobranças do mês corrente — caução fica de fora: é garantia/depósito,
     // não receita operacional, e já tem exibição própria em /locacoes/[id].
     // Spec 0014: total, pago e em aberto vêm de `charge_balances`, derivados.
@@ -97,6 +102,26 @@ export default async function FinancialDashboardPage() {
       .select('customer_id, action, acted_at, customers(id, name)')
       .eq('tenant_id', tenantId)
       .order('acted_at', { ascending: false }),
+    // Os totais vêm AGREGADOS do banco, não das listas acima.
+    //
+    // "Vencidas (total)" somava `overdueBillings`, que tem `.limit(50)`: com 179
+    // cobranças vencidas o card exibia R$ 21.397,56 de um total real de
+    // R$ 66.134,24 — um terço, sob o rótulo "(total)". O subtítulo "50
+    // cobranças" era o próprio limite se anunciando.
+    //
+    // Os cards do mês somavam a lista completa do mês, que o PostgREST corta em
+    // 1.000 linhas sem erro. Mesmo desfecho, só que mais adiante (ADR 0025).
+    supabase
+      .from('receivables_summary')
+      .select('overdue_total, overdue_count')
+      .eq('tenant_id', tenantId)
+      .maybeSingle(),
+    supabase
+      .from('receivables_by_month')
+      .select('issued_total, paid_total, pending_total, charge_count, paid_count, pending_count')
+      .eq('tenant_id', tenantId)
+      .eq('month', monthStart)
+      .maybeSingle(),
     // Última execução do faturamento. Existe para tornar visível a AUSÊNCIA de
     // execução: sem isto, "o job não rodou" e "rodou e não havia nada a fazer"
     // são indistinguíveis, e um segredo de ambiente faltando derruba a receita
@@ -145,16 +170,26 @@ export default async function FinancialDashboardPage() {
       return { id: c?.id ?? b.customer_id, name: c?.name ?? '—' }
     })
 
-  // KPIs do mês
-  const totalBilledMonth  = monthBillings.reduce((s, b) => s + b.total_amount, 0)
-  const totalPaidMonth    = monthBillings.reduce((s, b) => s + b.paid_amount, 0)
-  // Mesmo filtro da contagem exibida no card. Somar todas as `open` incluía as
-  // vencidas, que já aparecem no card "Vencidas" — o valor contava duas vezes e
-  // não batia com o "N pendentes" logo abaixo dele.
-  const totalPendingMonth = monthBillings
-    .filter(b => b.status === 'open' && !b.is_overdue)
-    .reduce((s, b) => s + b.open_amount, 0)
-  const totalOverdueAll = overdueBillings.reduce((s, b) => s + b.open_amount, 0)
+  // KPIs — agregados no banco. As listas abaixo são para EXIBIÇÃO e têm limite;
+  // somar linha limitada foi o que fez "Vencidas (total)" mostrar um terço do
+  // valor real (ADR 0025).
+  const summary = summaryResult.data as { overdue_total: number; overdue_count: number } | null
+  const mes = monthSummaryResult.data as {
+    issued_total: number; paid_total: number; pending_total: number
+    charge_count: number; paid_count: number; pending_count: number
+  } | null
+
+  const totalBilledMonth  = Number(mes?.issued_total  ?? 0)
+  const totalPaidMonth    = Number(mes?.paid_total    ?? 0)
+  // Pendente exclui as vencidas de propósito: elas já aparecem no card ao lado,
+  // e somá-las aqui contaria o mesmo dinheiro duas vezes.
+  const totalPendingMonth = Number(mes?.pending_total ?? 0)
+  const totalOverdueAll   = Number(summary?.overdue_total ?? 0)
+
+  const monthChargeCount  = Number(mes?.charge_count  ?? 0)
+  const monthPaidCount    = Number(mes?.paid_count    ?? 0)
+  const monthPendingCount = Number(mes?.pending_count ?? 0)
+  const overdueCountAll   = Number(summary?.overdue_count ?? 0)
 
   // Cliente e placa vêm em consulta separada: `charge_balances` já agrega por
   // cobrança, e juntar tabelas ali reintroduziria o fan-out de F-01.
@@ -206,24 +241,24 @@ export default async function FinancialDashboardPage() {
           <div className="rounded-xl bg-surface p-4">
             <p className="text-[12px] text-fg-mute">Emitido no mês</p>
             <p className="mt-1 text-xl font-bold text-fg">{formatCurrency(totalBilledMonth)}</p>
-            <p className="mt-0.5 text-[12px] text-fg-mute">{monthBillings.length} cobranças</p>
+            <p className="mt-0.5 text-[12px] text-fg-mute">{monthChargeCount} cobranças</p>
           </div>
           <div className="rounded-xl bg-surface p-4">
             <p className="text-[12px] text-fg-mute">Recebido no mês</p>
             <p className="mt-1 text-xl font-bold text-success">{formatCurrency(totalPaidMonth)}</p>
-            <p className="mt-0.5 text-[12px] text-fg-mute">{monthBillings.filter(b => b.status === 'paid').length} pagas</p>
+            <p className="mt-0.5 text-[12px] text-fg-mute">{monthPaidCount} pagas</p>
           </div>
           <div className="rounded-xl bg-surface p-4">
             <p className="text-[12px] text-fg-mute">Pendente no mês</p>
             <p className="mt-1 text-xl font-bold text-info">{formatCurrency(totalPendingMonth)}</p>
-            <p className="mt-0.5 text-[12px] text-fg-mute">{monthBillings.filter(b => b.status === 'open' && !b.is_overdue).length} pendentes</p>
+            <p className="mt-0.5 text-[12px] text-fg-mute">{monthPendingCount} pendentes</p>
           </div>
           <div className="rounded-xl bg-surface p-4">
             <p className="text-[12px] text-fg-mute">Vencidas (total)</p>
-            <p className={`mt-1 text-xl font-bold ${overdueBillings.length > 0 ? 'text-danger' : 'text-fg-mute'}`}>
+            <p className={`mt-1 text-xl font-bold ${overdueCountAll > 0 ? 'text-danger' : 'text-fg-mute'}`}>
               {formatCurrency(totalOverdueAll)}
             </p>
-            <p className="mt-0.5 text-[12px] text-fg-mute">{overdueBillings.length} cobranças</p>
+            <p className="mt-0.5 text-[12px] text-fg-mute">{overdueCountAll} cobranças</p>
           </div>
         </div>
 
@@ -268,7 +303,11 @@ export default async function FinancialDashboardPage() {
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-[14px] font-bold text-primary">
                 Cobranças vencidas
-                <span className="ml-2 text-[12px] font-normal text-fg-mute">({overdueBillings.length})</span>
+                <span className="ml-2 text-[12px] font-normal text-fg-mute">
+                  {overdueCountAll > overdueBillings.length
+                    ? `${overdueBillings.length} de ${overdueCountAll} — maiores atrasos`
+                    : `${overdueBillings.length}`}
+                </span>
               </h2>
               <Link href="/cobrancas" className="text-[12px] text-fg-mute transition-colors hover:text-primary">
                 Ver em cobranças →

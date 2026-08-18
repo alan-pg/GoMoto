@@ -48,6 +48,29 @@ Detalhes e tradeoffs registrados em [[decisions/0002-padrao-canonico-pagina-serv
 
 Nenhum bug crítico aberto.
 
+## 🧱 Dívida técnica registrada
+
+**Leitura em escala — [[decisions/0025-leitura-em-escala-paginacao-agregacao-indice|ADR 0025]]** (2026-08-18)
+
+Precisa de revisão: **performance das buscas, paginação, agregação e índices**.
+
+Três defeitos do mesmo tipo apareceram em sequência ao testar o sistema como
+operador, todos silenciosos e nenhum pego por portão:
+
+- PostgREST corta em **1.000 linhas** sem erro — KPI que soma linhas no cliente
+  passa a mostrar parte da carteira com cara de número certo;
+- Kong recusa URI acima de **~8 KB** com 414 — `.in()` estoura a partir de ~200
+  ids, e o erro era engolido por `?? []`;
+- nenhuma listagem tem paginação de UI, e a busca por texto é feita em memória
+  depois de trazer as linhas.
+
+`financial_entries` já passou de 1.000 linhas no banco de desenvolvimento. As
+views derivadas agregam sobre ela a cada consulta, sem plano medido.
+
+Contenção já aplicada (não substitui a revisão): enriquecimento da lista de
+cobranças em lotes, varreduras de reconciliação paginadas, e KPIs do dashboard
+vindos de `receivables_summary` / `receivables_by_month`.
+
 ## 🧮 Regras de domínio em `@gomoto/core/rules`
 
 Cobertura atual (**163 testes Vitest**, 12 arquivos):
