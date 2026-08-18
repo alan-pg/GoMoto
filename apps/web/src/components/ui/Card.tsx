@@ -89,7 +89,10 @@ export function StatCard({ title, value, subtitle, icon: Icon, className }: Stat
       {/* Seção de textos: Label, Valor principal e Sub (opcional). */}
       <div>
         <p className="text-[14px] font-normal text-fg-mute">{title}</p>
-        <p className="text-[28px] font-bold text-fg">{value}</p>
+        {/* `whitespace-nowrap`: sem isso um valor negativo quebra DEPOIS do
+            sinal em card estreito — o "−" fica sozinho numa linha e o número
+            parece positivo. Valor monetário não se parte no meio. */}
+        <p className="text-[28px] font-bold text-fg whitespace-nowrap">{value}</p>
         {subtitle && <p className="text-[12px] mt-0.5 text-fg-mute">{subtitle}</p>}
       </div>
       <div className="rounded-full bg-surface-2 p-3 text-primary">

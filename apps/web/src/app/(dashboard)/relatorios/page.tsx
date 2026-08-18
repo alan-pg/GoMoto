@@ -17,6 +17,7 @@
 'use client'
 
 import { useState, useCallback, useMemo } from 'react'
+import { useMonthlySummary } from '@gomoto/data'
 import {
   BarChart2,
   Bike,
@@ -98,22 +99,6 @@ const reports: ReportCard[] = [
 ]
 
 /**
- * @constant monthlyStats
- * @description Objeto com estatísticas simuladas do mês para exibição nos cards de resumo.
- * O "porquê": Em um ambiente real, estes dados seriam o resultado de uma consulta
- * agregada ao banco de dados (via Supabase), mas o mock permite desenvolver
- * e testar a UI de forma independente.
- */
-const monthlyStats = {
-  revenue: 3850,              // Soma total de entradas (receita bruta).
-  expenses: 2030,             // Soma total de saídas (despesas operacionais).
-  balance: 1820,              // Saldo líquido (receita - despesas).
-  activeContracts: 2,         // Contagem de contratos com status 'ativo'.
-  pendingCharges: 2,          // Contagem de cobranças que ainda não foram pagas.
-  totalFines: 618.86,         // Valor total acumulado de multas de trânsito no mês.
-}
-
-/**
  * @const REPORT_COLOR_MAP
  * @description Mapeamento de estilos por cor semântica do relatório.
  * Definido no módulo (fora do componente) para ser criado apenas uma vez.
@@ -138,6 +123,14 @@ export default function ReportsPage() {
    * uma funcionalidade que ainda não está disponível.
    */
   const [showToast, setShowToast] = useState(false)
+
+  // Era um objeto literal no módulo — R$ 3.850 de receita, 2 contratos ativos —
+  // exibido como se fosse o resumo real do mês. Agora vem das views agregadas.
+  const summaryQuery = useMonthlySummary()
+  const monthlyStats = summaryQuery.data ?? {
+    revenue: 0, expenses: 0, balance: 0,
+    activeContracts: 0, pendingCharges: 0, totalFines: 0,
+  }
 
   /**
    * @function handleGenerateReport

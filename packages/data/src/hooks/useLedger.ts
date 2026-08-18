@@ -54,6 +54,7 @@ const KEY = {
   dre: 'income-statement',
   schedule: 'rental-schedule',
   policy: 'financial-policy',
+  monthlySummary: 'monthly-summary',
 } as const
 
 function today(): string {
@@ -176,6 +177,56 @@ export function useChargesList() {
         const { accrued, amount_due } = calculateAmountDue(r, p)
         return { ...r, accrued_total: accrued.total, amount_due }
       })
+    },
+  })
+}
+
+/**
+ * Resumo do mês corrente para a tela de Relatórios.
+ *
+ * Aquela tela exibia `monthlyStats` — um objeto LITERAL no código, com
+ * R$ 3.850 de receita e 2 contratos ativos — sob o rótulo "Resumo — Agosto de
+ * 2026", sem nenhuma marca de que era invenção. Os cards de relatório abaixo
+ * dizem "em desenvolvimento" honestamente, o que fazia o resumo parecer
+ * justamente a parte pronta.
+ *
+ * Os números vêm das views agregadas: corretos por construção e sem trazer
+ * milhares de linhas para somar no cliente.
+ */
+export function useMonthlySummary() {
+  const supabase = useSupabaseContext()
+
+  return useQuery({
+    queryKey: [KEY.monthlySummary],
+    queryFn: async () => {
+      const d = new Date()
+      const monthStart = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+
+      const [flow, receivables, contracts, fines] = await Promise.all([
+        supabase.from('cash_flow_by_month')
+          .select('revenue, expense').eq('month', monthStart).maybeSingle(),
+        supabase.from('receivables_summary')
+          .select('open_count').maybeSingle(),
+        supabase.from('rentals')
+          .select('id', { count: 'exact', head: true }).eq('status', 'active'),
+        supabase.from('fines')
+          .select('amount').gte('infraction_date', monthStart),
+      ])
+
+      const revenue  = Number((flow.data as { revenue: number } | null)?.revenue ?? 0)
+      const expenses = Number((flow.data as { expense: number } | null)?.expense ?? 0)
+
+      return {
+        revenue,
+        expenses,
+        balance: Number((revenue - expenses).toFixed(2)),
+        activeContracts: contracts.count ?? 0,
+        pendingCharges: Number(
+          (receivables.data as { open_count: number } | null)?.open_count ?? 0,
+        ),
+        totalFines: ((fines.data ?? []) as { amount: number }[])
+          .reduce((s, f) => s + Number(f.amount ?? 0), 0),
+      }
     },
   })
 }
