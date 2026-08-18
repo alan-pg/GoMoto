@@ -37,6 +37,22 @@ let customerId = ''
 let rentalId = ''
 let accountId = ''
 
+/**
+ * Remove a conta do provedor e o que depende dela.
+ *
+ * `payment_intents.provider_account_id` é `ON DELETE RESTRICT`: apagar a conta
+ * direto falha assim que um teste tiver gerado uma tentativa. Como o erro do
+ * `afterAll` não era conferido, a falha passava despercebida e cada execução
+ * deixava mais uma conta ATIVA no banco — resíduo que chegou a mudar o
+ * resultado de um teste que perguntava "existe conta ativa?".
+ */
+async function removerContaProvedor(accountId: string) {
+  if (!accountId) return
+  await admin().from('payment_intents').delete().eq('provider_account_id', accountId)
+  const { error } = await admin().from('payment_provider_accounts').delete().eq('id', accountId)
+  if (error) console.warn(`[limpeza] conta ${accountId} sobreviveu: ${error.message}`)
+}
+
 async function saldo(chargeId: string) {
   const { data } = await admin()
     .from('charge_balances')
@@ -119,7 +135,7 @@ test.beforeAll(async () => {
 })
 
 test.afterAll(async () => {
-  await admin().from('payment_provider_accounts').delete().eq('id', accountId)
+  await removerContaProvedor(accountId)
   await deleteTestCustomer(customerId)
   await deleteTestVehicle(vehicleId)
 })

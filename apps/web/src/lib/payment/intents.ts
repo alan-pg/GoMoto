@@ -173,6 +173,35 @@ export async function getOrCreateIntent(
     .select('id')
     .single()
 
+  // 23505 = `idx_payment_intents_one_pending_per_charge`. Outra requisição para
+  // a MESMA dívida chegou primeiro — dois toques no botão do app, uma
+  // reconexão, um retry do cliente HTTP. O índice fez o seu trabalho, mas
+  // estourar aqui mostra "Falha ao gerar cobrança" a quem já tem um QR válido
+  // esperando. O certo é entregar o QR que venceu a corrida.
+  //
+  // A tentativa criada no provedor por esta chamada fica órfã e expira sozinha;
+  // não há como cancelá-la pela interface de provedor, e criar um QR a mais é
+  // preferível a cobrar a mesma dívida duas vezes.
+  if (error?.code === '23505') {
+    const { data: vencedora } = await supabase
+      .from('payment_intents')
+      .select('id, provider, method, amount, expires_at, payload')
+      .eq('charge_id', chargeId)
+      .eq('status', 'pending')
+      .maybeSingle()
+
+    if (vencedora) {
+      const w = vencedora as {
+        id: string; provider: string; method: string; amount: number
+        expires_at: string | null; payload: Record<string, unknown> | null
+      }
+      return {
+        intent_id: w.id, provider: w.provider, method: w.method, amount: w.amount,
+        expires_at: w.expires_at, payload: w.payload, is_reused: true,
+      }
+    }
+  }
+
   if (error) throw Object.assign(new Error(error.message), { code: 'INTERNAL' })
 
   return {

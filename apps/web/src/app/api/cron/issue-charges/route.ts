@@ -51,10 +51,23 @@ export async function GET(req: NextRequest) {
   }
 
   // O resultado por tenant fica em `billing_runs`; aqui só resumimos.
-  const { data: runs } = await supabase
+  const { data: runs, error: runsError } = await supabase
     .from('billing_runs')
     .select('tenant_id, charges_issued, error')
     .eq('run_id', runId as string)
+
+  // `runs ?? []` engolia a falha desta leitura e a resposta virava
+  // `ok: true, issued: 0` — dizendo que nada foi emitido logo depois de emitir,
+  // e escondendo tenant que falhou. A emissão em si já aconteceu e está segura
+  // no banco; o que se perde é o relato, então o certo é dizer que se perdeu.
+  if (runsError) {
+    log('error', 'emission.summary_unavailable', { run_id: runId, error: runsError.message })
+    return NextResponse.json({
+      ok: false,
+      error: 'Emissão executada, mas o resumo não pôde ser lido. Confira `billing_runs`.',
+      data: { run_id: runId },
+    }, { status: 500 })
+  }
 
   const rows = (runs ?? []) as { tenant_id: string; charges_issued: number; error: string | null }[]
   const issued = rows.reduce((s, r) => s + r.charges_issued, 0)
