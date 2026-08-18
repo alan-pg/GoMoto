@@ -249,19 +249,56 @@ test.describe('Isolamento por tenant — tabelas do redesenho financeiro (Spec 0
     expect(data).toBeNull()
   })
 
-  test('views financeiras não vazam dado de outro tenant', async () => {
+  test('NENHUMA view com tenant_id vaza dado de outro tenant', async () => {
     const sb = await getSupabase()
     const tenant1 = await getTestTenantId()
 
-    // Views com security_invoker herdam a RLS das tabelas base. Sem isso, elas
-    // rodariam com os direitos do dono e furariam todo o isolamento.
-    for (const view of ['charge_balances', 'customer_delinquency', 'vehicle_financial_position', 'rental_financial_result', 'income_statement', 'deposit_balances', 'customer_credit_balances']) {
+    // A lista de views era escrita à mão aqui — e foi exatamente por isso que o
+    // furo passou: seis views novas nasceram sem `security_invoker`, ninguém
+    // lembrou de acrescentá-las, e o teste seguiu verde.
+    //
+    // View no Postgres executa com os direitos do DONO. Como as deste schema
+    // pertencem ao superusuário, sem `security_invoker = true` a RLS
+    // simplesmente não se aplica: qualquer usuário autenticado lê a carteira
+    // inteira, de todos os tenants. A tela filtrar por `tenant_id` não protege
+    // nada — basta omitir o filtro em um lugar.
+    //
+    // Agora o teste DESCOBRE as views. Qualquer uma criada daqui em diante
+    // entra na varredura sem ninguém precisar lembrar.
+    const { data: views, error: viewsError } = await getSupabaseAdmin()
+      .from('schema_view_security')
+      .select('view_name')
+      .eq('has_tenant_id', true)
+      .order('view_name')
+
+    expect(viewsError, `introspecção falhou: ${viewsError?.message}`).toBeNull()
+
+    const nomes = ((views ?? []) as { view_name: string }[]).map((v) => v.view_name)
+    expect(nomes.length, 'nenhuma view encontrada — o teste não provaria nada').toBeGreaterThan(5)
+
+    for (const view of nomes) {
       const { data, error } = await sb.from(view).select('tenant_id')
       expect(error, `${view}: ${error?.message}`).toBeNull()
 
       const alheias = ((data ?? []) as { tenant_id: string }[]).filter((r) => r.tenant_id !== tenant1)
       expect(alheias, `${view} devolveu linha de outro tenant`).toEqual([])
     }
+  })
+
+  test('toda view do schema declara security_invoker', async () => {
+    // Verificação estrutural, complementar à de dados acima: uma view nova pode
+    // não ter linha de outro tenant HOJE no banco de teste e ainda assim estar
+    // aberta. Aqui a ausência da opção já reprova.
+    const { data, error } = await getSupabaseAdmin()
+      .from('schema_view_security')
+      .select('view_name')
+      .eq('security_invoker', false)
+      .order('view_name')
+
+    expect(error, `introspecção falhou: ${error?.message}`).toBeNull()
+
+    const abertas = ((data ?? []) as { view_name: string }[]).map((v) => v.view_name)
+    expect(abertas, 'view sem security_invoker ignora RLS e vaza entre tenants').toEqual([])
   })
 
   test('credencial do gateway não vaza para outro tenant', async () => {

@@ -26,10 +26,11 @@ interface ActiveRental {
 }
 
 interface OverdueBilling {
-  id: string
-  original_amount: number
+  charge_id: string
+  open_amount: number
   due_date: string
-  customers: { name: string } | null
+  customer_id: string
+  customer_name: string | null
 }
 
 interface UpcomingMaintenance {
@@ -111,8 +112,7 @@ async function getDashboardData() {
     idleVehiclesRes,
     upcomingMaintenancesRes,
     queueEntriesRes,
-    sixMonthPaymentsRes,
-    sixMonthExpensesRes,
+    cashFlowRes,
     billingsByStatusRes,
   ] = await Promise.all([
     supabase.from('vehicles').select('*', { count: 'exact', head: true }),
@@ -150,8 +150,11 @@ async function getDashboardData() {
     supabase.from('vehicles').select('model, make, license_plate').eq('status', 'available').lte('updated_at', sevenDaysAgo).limit(3),
     supabase.from('maintenances').select('id, scheduled_date, type, vehicles(model, make, license_plate)').eq('completed', false).gte('scheduled_date', today).lte('scheduled_date', in7Days).order('scheduled_date', { ascending: true }).limit(5),
     supabase.from('queue_entries').select('id, created_at, position, customers(name)').order('position', { ascending: true }).limit(5),
-    supabase.from('payments').select('amount, paid_at').gte('paid_at', sixMonthsAgo).lte('paid_at', lastDayOfMonth),
-    supabase.from('payables').select('amount, customer_amount, competence_date').gte('competence_date', sixMonthsAgo).lte('competence_date', lastDayOfMonth),
+    // Receita × despesa por mês, agregada no banco. Trazia as linhas e agrupava
+    // aqui — e além da truncagem em 1.000 linhas, a consulta não filtrava
+    // `reversed_at` nem `status`: pagamento estornado entrava como receita
+    // (R$ 17.970 neste banco) e conta cancelada entrava como custo (R$ 4.200).
+    supabase.from('cash_flow_by_month').select('month, revenue, expense').gte('month', sixMonthsAgo),
     supabase.from('charge_balances').select('status, total_amount, due_date, is_overdue').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
   ])
 
@@ -217,6 +220,32 @@ async function getDashboardData() {
     return days >= 30
   }).length
 
+  // O card lia `payment.original_amount` e `payment.customers.name`, nenhum dos
+  // dois selecionado pela consulta — o `as unknown as` silenciava o
+  // TypeScript, e a tela exibia "R$ NaN" sob o rótulo "Cliente". `charge_balances`
+  // é view e não embute relacionamento, então o nome vem em consulta própria,
+  // limitada aos ids que já estão na mão.
+  const overdueRows = (overdueListRes.data ?? []) as {
+    charge_id: string; open_amount: number; due_date: string; customer_id: string
+  }[]
+
+  const { data: overdueNames } = overdueRows.length
+    ? await supabase.from('customers').select('id, name')
+        .in('id', [...new Set(overdueRows.map((r) => r.customer_id))])
+    : { data: [] }
+
+  const overdueNameById = new Map(
+    ((overdueNames ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]),
+  )
+
+  const overduePaymentsList: OverdueBilling[] = overdueRows.map((r) => ({
+    charge_id: r.charge_id,
+    open_amount: Number(r.open_amount),
+    due_date: r.due_date,
+    customer_id: r.customer_id,
+    customer_name: overdueNameById.get(r.customer_id) ?? null,
+  }))
+
   // Charts
   const monthLabels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
   const revenueByMonth: Record<string, number> = {}
@@ -227,17 +256,16 @@ async function getDashboardData() {
     revenueByMonth[key] = 0
     expensesByMonth[key] = 0
   }
-  ;(sixMonthPaymentsRes.data ?? []).forEach((row) => {
-    const key = (row.paid_at as string).substring(0, 7)
-    if (key in revenueByMonth) revenueByMonth[key] += Number(row.amount) || 0
-  })
-  ;(sixMonthExpensesRes.data ?? []).forEach((row) => {
-    const key = row.competence_date.substring(0, 7)
-    // Custo da EMPRESA: o total menos a parte repassada ao cliente. Somar
-    // `amount` cheio contaria como custo o que é recuperado (R-03).
-    const companyShare = Number(row.amount ?? 0) - Number(row.customer_amount ?? 0)
-    if (key in expensesByMonth) expensesByMonth[key] += companyShare
-  })
+  // A view já entrega uma linha por mês, com estorno e cancelamento fora e a
+  // parte do cliente descontada do custo (R-03).
+  ;((cashFlowRes.data ?? []) as { month: string; revenue: number; expense: number }[])
+    .forEach((row) => {
+      const key = row.month.substring(0, 7)
+      if (key in revenueByMonth) {
+        revenueByMonth[key]  = Number(row.revenue) || 0
+        expensesByMonth[key] = Number(row.expense) || 0
+      }
+    })
   const monthlyChartData = Object.keys(revenueByMonth).map((key) => {
     const [, month] = key.split('-')
     return {
@@ -291,7 +319,7 @@ async function getDashboardData() {
     multipleOverdueCustomers,
     // Widgets
     activeRentals: (activeRentalsRes.data ?? []) as unknown as ActiveRental[],
-    overduePaymentsList: (overdueListRes.data ?? []) as unknown as OverdueBilling[],
+    overduePaymentsList,
     upcomingMaintenances: (upcomingMaintenancesRes.data ?? []) as unknown as UpcomingMaintenance[],
     queueEntries,
     // Charts
@@ -559,15 +587,15 @@ export default async function DashboardPage() {
                 const ageColor = overdueAgeColor(days)
                 return (
                   <div
-                    key={payment.id}
+                    key={payment.charge_id}
                     className={`px-4 py-2.5 hover:bg-surface-2 transition-colors${index < items.length - 1 ? ' border-b border-divider' : ''}`}
                   >
                     <p className="text-[12px] font-medium text-fg truncate">
-                      {payment.customers?.name ?? 'Cliente'}
+                      {payment.customer_name ?? 'Cliente'}
                     </p>
                     <div className="mt-1 flex items-center justify-between gap-2">
                       <p className={`text-[12px] font-medium ${ageColor}`}>
-                        {formatCurrency(payment.original_amount)}
+                        {formatCurrency(payment.open_amount)}
                       </p>
                       <p className={`text-[11px] ${ageColor}`}>{days}d atraso</p>
                     </div>
