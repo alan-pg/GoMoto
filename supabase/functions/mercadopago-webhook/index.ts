@@ -19,6 +19,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { z } from 'npm:zod@3'
+import { verifyWebhookSignature } from '../_shared/signature.ts'
 
 const PROVIDER = 'mercadopago'
 
@@ -33,32 +34,6 @@ function log(level: 'info' | 'warn' | 'error', action: string, fields: Record<st
   level === 'error' ? console.error(out) : console.log(out)
 }
 
-async function validateSignature(
-  dataId: string, requestId: string, ts: string, signature: string, secret: string,
-): Promise<boolean> {
-  const parts: string[] = []
-  if (dataId) parts.push(`id:${dataId.toLowerCase()}`)
-  if (requestId) parts.push(`request-id:${requestId}`)
-  parts.push(`ts:${ts}`)
-  const manifest = parts.join(';') + ';'
-
-  const key = await crypto.subtle.importKey(
-    'raw', new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-  )
-  const computed = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(manifest))
-  const hex = Array.from(new Uint8Array(computed))
-    .map((b: number) => b.toString(16).padStart(2, '0')).join('')
-  return hex === signature
-}
-
-function parseXSignature(header: string | null): { ts: string; v1: string } | null {
-  if (!header) return null
-  const parts = Object.fromEntries(header.split(',').map((p: string) => p.trim().split('=')))
-  if (!parts['ts'] || !parts['v1']) return null
-  return { ts: parts['ts'], v1: parts['v1'] }
-}
-
 Deno.serve(async (req: Request) => {
   const webhookSecret = Deno.env.get('MERCADOPAGO_WEBHOOK_SECRET')
   const supabase = createClient(
@@ -69,7 +44,6 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url)
   const dataId = url.searchParams.get('data.id') ?? ''
   const xRequestId = req.headers.get('x-request-id') ?? ''
-  const parsedSig = parseXSignature(req.headers.get('x-signature'))
 
   let body: unknown
   try {
@@ -85,15 +59,27 @@ Deno.serve(async (req: Request) => {
     return new Response('OK', { status: 200 })
   }
 
-  let signatureValid = true
-  if (webhookSecret && parsedSig) {
-    signatureValid = await validateSignature(
-      dataId, xRequestId, parsedSig.ts, parsedSig.v1, webhookSecret,
-    )
-    if (!signatureValid) {
-      log('warn', 'webhook.signature_invalid', { x_request_id: xRequestId, data_id: dataId })
-      return new Response('Unauthorized', { status: 401 })
-    }
+  // Segredo configurado EXIGE assinatura. Antes, a verificação era pulada
+  // quando o cabeçalho `x-signature` não vinha, e `signatureValid` ficava em
+  // `true` por inicialização: bastava omitir o cabeçalho para forjar uma
+  // confirmação de pagamento — gravada como assinatura válida.
+  const verdict = await verifyWebhookSignature({
+    secret: webhookSecret,
+    signatureHeader: req.headers.get('x-signature'),
+    dataId,
+    requestId: xRequestId,
+  })
+
+  if (!verdict.accept) {
+    log('warn', 'webhook.signature_rejected', {
+      reason: verdict.reason, x_request_id: xRequestId, data_id: dataId,
+    })
+    return new Response('Unauthorized', { status: 401 })
+  }
+
+  const signatureValid = verdict.signatureValid
+  if (verdict.reason === 'unverified_no_secret') {
+    log('warn', 'webhook.signature_unverified', { reason: 'MERCADOPAGO_WEBHOOK_SECRET ausente' })
   }
 
   const providerEventId = `${ipn.data.type}:${ipn.data.data.id}:${xRequestId || dataId}`
@@ -173,8 +159,12 @@ async function processEvent(
   const { data: creds } = await supabase.rpc('fn_provider_credentials', { p_account_id: acc.id })
   const accessToken = (creds as { access_token?: string } | null)?.access_token
   if (!accessToken) {
-    log('error', 'webhook.no_credentials', { account_id: acc.id })
-    return new Response('Credenciais do gateway ausentes', { status: 500 })
+    // `processEvent` devolve `void`: o `Response` construído aqui não ia a
+    // lugar nenhum — só encerrava a função. O evento ficava sem `processed_at`
+    // e sem `processing_error`, indistinguível de um que ainda não rodou.
+    // Lançar leva o erro ao `catch` do handler, que o grava no inbox para
+    // replay depois que a credencial for corrigida.
+    throw new Error(`credenciais ausentes para a conta ${acc.id}`)
   }
 
   const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${mpPaymentId}`, {
@@ -205,75 +195,30 @@ async function processEvent(
   }
 
   // ── approved ──────────────────────────────────────────────────────
+  // Os quatro passos (pagamento, alocação, razão, status do intent) viraram uma
+  // transação só. Antes eram quatro requisições ao PostgREST sem nada em volta:
+  // uma falha no meio deixava estado partido, e a retentativa do provedor não
+  // era barrada — o guarda perguntava pelo status do intent, que é justamente o
+  // último passo, o que nunca chegava a acontecer. A retentativa criava um
+  // segundo recebimento do mesmo dinheiro.
+  //
+  // A idempotência agora é do banco e está ancorada no pagamento ligado ao
+  // intent, então reprocessar o inbox é seguro em qualquer ponto.
   if (payment.status === 'approved') {
-    if (it.status === 'paid') {
-      log('info', 'webhook.already_paid', { intent_id: it.id })
-      await markProcessed(supabase, eventId, acc.tenant_id)
-      return
-    }
-
-    const { data: charge } = await supabase
-      .from('charges')
-      .select('customer_id, rental_id, charge_number')
-      .eq('id', it.charge_id)
-      .single()
-
-    const ch = charge as { customer_id: string; rental_id: string | null; charge_number: number }
-    const amount = payment.transaction_amount ?? it.amount
-    const paidAt = payment.date_approved ?? new Date().toISOString()
-
-    // F-02: o pagamento vira linha em `payments` COM alocação, exatamente como
-    // na baixa manual. Antes, este caminho só mexia no status do documento.
-    const { data: created, error: paymentError } = await supabase
-      .from('payments')
-      .insert({
-        tenant_id: it.tenant_id,
-        customer_id: ch.customer_id,
-        amount,
-        method: 'pix',
-        paid_at: paidAt,
-        payment_intent_id: it.id,
-        notes: 'Confirmado pelo gateway',
-      })
-      .select('id')
-      .single()
-
-    if (paymentError) throw new Error(`payment insert: ${paymentError.message}`)
-    const paymentId = (created as { id: string }).id
-
-    const { error: allocError } = await supabase.from('payment_allocations').insert({
-      tenant_id: it.tenant_id,
-      payment_id: paymentId,
-      charge_id: it.charge_id,
-      amount,
-    })
-    if (allocError) throw new Error(`allocation insert: ${allocError.message}`)
-
-    const { error: ledgerError } = await supabase.rpc('post_financial_transaction', {
-      p_tenant_id: it.tenant_id,
-      p_transaction: {
-        event_type: 'payment_received',
-        description: `Recebimento via gateway — cobrança #${ch.charge_number}`,
-        occurred_at: paidAt,
-        source_module: 'payment',
-        source_id: paymentId,
+    const { data: paymentId, error: confirmError } = await supabase.rpc(
+      'fn_confirm_gateway_payment',
+      {
+        p_tenant_id: it.tenant_id,
+        p_intent_id: it.id,
+        p_amount: payment.transaction_amount ?? it.amount,
+        p_paid_at: payment.date_approved ?? new Date().toISOString(),
       },
-      p_entries: [
-        { account_code: 'caixa_e_bancos', direction: 'debit', amount,
-          customer_id: ch.customer_id, rental_id: ch.rental_id, charge_id: it.charge_id },
-        { account_code: 'contas_a_receber', direction: 'credit', amount,
-          customer_id: ch.customer_id, rental_id: ch.rental_id, charge_id: it.charge_id },
-      ],
-    })
-    if (ledgerError) throw new Error(`ledger: ${ledgerError.message}`)
-
-    await supabase.from('payment_intents').update({ status: 'paid' }).eq('id', it.id)
-
-    // `paid` deixou de ser coluna escrita: a view deriva o status do saldo.
-    // Este bloco lia o saldo só para gravar de volta o que já estava calculado.
+    )
+    if (confirmError) throw new Error(`confirmação: ${confirmError.message}`)
 
     log('info', 'webhook.payment_confirmed', {
-      payment_id: paymentId, charge_id: it.charge_id, tenant_id: it.tenant_id, amount,
+      payment_id: paymentId, charge_id: it.charge_id, tenant_id: it.tenant_id,
+      amount: payment.transaction_amount ?? it.amount,
     })
     await markProcessed(supabase, eventId, acc.tenant_id)
     return
@@ -281,49 +226,44 @@ async function processEvent(
 
   // ── refunded / charged_back ───────────────────────────────────────
   // Antes eram descartados com HTTP 200: dinheiro saía e o sistema não sabia.
+  //
+  // Este bloco já refez à mão o que `fn_reverse_payment` faz — e em quatro
+  // chamadas HTTP separadas. Se o lançamento no razão falhasse depois do
+  // `reversed_at` gravado, o pagamento ficava marcado como estornado com o
+  // recebimento ainda de pé no razão, e o erro só ia para o log. Além disso a
+  // inversão escrita aqui presume duas pernas de valor cheio: bastaria o
+  // recebimento ganhar uma perna de tarifa para o estorno sair desequilibrado.
+  //
+  // A função faz tudo numa transação, inverte TODAS as pernas de TODAS as
+  // transações do pagamento preservando as dimensões, e liga cada estorno à
+  // original por `reverses_transaction_id` — o que também a torna idempotente.
   if (payment.status === 'refunded' || payment.status === 'charged_back') {
     const { data: existing } = await supabase
       .from('payments')
-      .select('id, amount, customer_id, reversed_at')
+      .select('id, reversed_at')
       .eq('payment_intent_id', it.id)
       .maybeSingle()
 
-    const p = existing as {
-      id: string; amount: number; customer_id: string; reversed_at: string | null
-    } | null
+    const p = existing as { id: string; reversed_at: string | null } | null
 
     if (!p || p.reversed_at) {
       await markProcessed(supabase, eventId, acc.tenant_id)
       return
     }
 
-    await supabase
-      .from('payments')
-      .update({
-        reversed_at: new Date().toISOString(),
-        reversal_reason: `Gateway: ${payment.status} (${payment.status_detail})`,
-      })
-      .eq('id', p.id)
-
-    const { error: ledgerError } = await supabase.rpc('post_financial_transaction', {
+    const { error: reversalError } = await supabase.rpc('fn_reverse_payment', {
       p_tenant_id: it.tenant_id,
-      p_transaction: {
-        event_type: 'payment_reversed',
-        description: `Estorno pelo gateway — ${payment.status}`,
-        source_module: 'payment',
-        source_id: p.id,
-      },
-      p_entries: [
-        { account_code: 'contas_a_receber', direction: 'debit', amount: p.amount,
-          customer_id: p.customer_id, charge_id: it.charge_id },
-        { account_code: 'caixa_e_bancos', direction: 'credit', amount: p.amount,
-          customer_id: p.customer_id, charge_id: it.charge_id },
-      ],
+      p_payment_id: p.id,
+      p_reason: `Gateway: ${payment.status} (${payment.status_detail})`,
+      p_reversed_by: null,
     })
-    if (ledgerError) throw new Error(`ledger reversal: ${ledgerError.message}`)
+    // Corrida com o estorno manual: outro caminho chegou primeiro e o dinheiro
+    // já voltou. Nada a fazer, e não é falha — reprocessar não muda nada.
+    if (reversalError && !reversalError.message.includes('PAYMENT_ALREADY_REVERSED')) {
+      throw new Error(`estorno: ${reversalError.message}`)
+    }
 
     await supabase.from('payment_intents').update({ status: 'refunded' }).eq('id', it.id)
-    await supabase.from('charges').update({ status: 'open' }).eq('id', it.charge_id)
 
     log('info', 'webhook.payment_reversed', {
       payment_id: p.id, charge_id: it.charge_id, status: payment.status,
