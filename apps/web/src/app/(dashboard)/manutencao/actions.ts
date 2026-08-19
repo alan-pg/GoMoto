@@ -7,7 +7,7 @@ import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { z } from 'zod'
 import type { ActionResult } from '@gomoto/core'
-import { registerCost } from '@/lib/financial/maintenance-cost'
+import { registerCost, checkMaintenanceDeletable } from '@/lib/financial/maintenance-cost'
 
 export async function uploadMaintenancePhoto(formData: FormData, prefix: string): Promise<string | null> {
   const file = formData.get('file') as File | null
@@ -112,9 +112,33 @@ export async function updateMaintenance(id: string, rawData: unknown) {
   return { data }
 }
 
+/**
+ * Exclui a manutenção — desde que ela ainda não tenha virado dinheiro.
+ *
+ * Antes isto era um `delete` seco. Manutenção com custo registrado gera conta a
+ * pagar, lançamento no razão e — quando o cliente executou — crédito a favor
+ * dele. Apagar a origem deixava tudo isso órfão: verificado na tela, o cliente
+ * continuava com R$ 100 de crédito por um serviço que já não existia, e a
+ * despesa seguia no DRE.
+ *
+ * O razão é append-only de propósito (ADR 0024, Princípio 3): o certo não é
+ * apagar lançamento, é estornar. E estorno de despesa já tem dono — é
+ * `cancelPayable`, que desfaz o custo E cancela a cobrança de repasse na mesma
+ * operação. Então esta função não inventa uma cascata paralela: ela recusa e
+ * diz onde fica o caminho, no mesmo espírito de "cobrança com pagamento não se
+ * cancela, estorne o pagamento primeiro".
+ */
 export async function deleteMaintenance(id: string) {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { error: 'Não autorizado' }
+
+  // A regra vive no serviço, pelo mesmo motivo de `registerCost`: Server Action
+  // depende de `cookies()` e é inalcançável por teste.
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { error: 'Tenant não encontrado' }
+
+  const permitido = await checkMaintenanceDeletable(supabase, tenantId, id)
+  if (!permitido.ok) return { error: permitido.message }
 
   const { data: before } = await supabase.from('maintenances').select().eq('id', id).single()
   const { error } = await supabase.from('maintenances').delete().eq('id', id)

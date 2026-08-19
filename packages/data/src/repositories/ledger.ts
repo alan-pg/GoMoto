@@ -521,6 +521,13 @@ export type PayableRow = {
   rental_id: string | null
   vendor_name: string | null
   source_module: string
+  /**
+   * Registro de origem: a manutenção, a multa, a obrigação do veículo.
+   * A consulta é `select('*')` e sempre trouxe o campo — só o tipo o omitia, e
+   * por isso a tela de manutenção não conseguia ligar a conta a pagar de volta
+   * ao serviço para mostrar o custo.
+   */
+  source_id: string | null
   attachment_url: string | null
   created_at: string
 }

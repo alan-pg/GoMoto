@@ -160,3 +160,61 @@ export async function registerCost(
     return { ok: false, error: { code: 'INTERNAL', message: `Erro ao registrar o custo: ${String(err)}` } }
   }
 }
+
+
+// ---------------------------------------------------------------------------
+// Exclusão de manutenção — a origem não pode sumir deixando o dinheiro
+// ---------------------------------------------------------------------------
+
+export type DeleteCheck =
+  | { ok: true }
+  | { ok: false; message: string }
+
+/**
+ * Diz se a manutenção pode ser apagada.
+ *
+ * `deleteMaintenance` era um `delete` seco. Manutenção com custo registrado
+ * gera conta a pagar, lançamento no razão e — quando o cliente executou —
+ * crédito a favor dele. Apagar a origem deixava tudo órfão: verificado na tela,
+ * o cliente seguia com R$ 100 de crédito por um serviço que já não existia, e a
+ * despesa continuava no DRE.
+ *
+ * O razão é append-only de propósito (Princípio 3): o certo não é apagar
+ * lançamento, é estornar — e estorno de despesa já tem dono, `cancelPayable`,
+ * que desfaz o custo E cancela a cobrança de repasse na mesma operação. Então
+ * aqui não se inventa uma cascata paralela: recusa-se, apontando o caminho.
+ *
+ * A pergunta usa o mesmo par `(source_module, source_id)` de `registerCost`.
+ * Conta cancelada não bloqueia: aí o dinheiro já foi desfeito.
+ */
+export async function checkMaintenanceDeletable(
+  supabase: SupabaseClient,
+  tenantId: string,
+  maintenanceId: string,
+): Promise<DeleteCheck> {
+  const { data, error } = await supabase
+    .from('payables')
+    .select('id, reimbursement')
+    .eq('tenant_id', tenantId)
+    .eq('source_module', 'maintenance')
+    .eq('source_id', maintenanceId)
+    .neq('status', 'cancelled')
+    .maybeSingle()
+
+  if (error) {
+    return { ok: false, message: `Não foi possível verificar o custo da manutenção: ${error.message}` }
+  }
+  if (!data) return { ok: true }
+
+  const p = data as { reimbursement: string }
+  return {
+    ok: false,
+    message: p.reimbursement === 'credit'
+      ? 'Esta manutenção foi paga pelo cliente e gerou crédito a favor dele. '
+        + 'Excluí-la deixaria o crédito sem origem. Acerte o valor em Cobranças '
+        + '(estorno do crédito ou cobrança avulsa) antes de excluir.'
+      : 'Esta manutenção já tem custo lançado. Cancele a despesa correspondente '
+        + 'em Despesas — o que estorna o razão e a cobrança de repasse — e só '
+        + 'então exclua a manutenção.',
+  }
+}

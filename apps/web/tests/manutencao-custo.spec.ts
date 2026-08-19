@@ -3,7 +3,8 @@ import {
   TEST_TAG, getSupabaseAdmin, getTestTenantId,
   createTestVehicle, deleteTestVehicle, createTestContract, deleteTestCustomer,
 } from './helpers'
-import { registerCost } from '../src/lib/financial/maintenance-cost'
+import { registerCost, checkMaintenanceDeletable } from '../src/lib/financial/maintenance-cost'
+import { cancelPayable } from '../src/lib/financial/payables'
 
 /** A Server Action é casca fina sobre isto; o serviço é o que tem a regra. */
 const registerMaintenanceCost = async (input: unknown) =>
@@ -315,5 +316,78 @@ test.describe('Manutenção — custo e rateio em valores', () => {
       .from('charges').select('id', { count: 'exact', head: true })
       .eq('source_module', 'maintenance').eq('source_id', manutencao)
     expect(cobrancas, 'cobrou de quem já pagou').toBe(0)
+  })
+})
+
+
+/**
+ * Excluir a manutenção não pode deixar o dinheiro para trás.
+ *
+ * `deleteMaintenance` era um `delete` seco. Verificado na tela antes da
+ * correção: apaguei uma manutenção paga pelo cliente e sobreviveram a conta a
+ * pagar, o crédito de R$ 100 a favor dela e o lançamento no razão — a locadora
+ * seguia devendo por um serviço que já não existia, e a despesa continuava no
+ * DRE.
+ *
+ * A correção não inventa uma cascata de estorno: recusa e aponta o caminho que
+ * já existe (`cancelPayable`), no mesmo espírito de "cobrança com pagamento não
+ * se cancela, estorne o pagamento primeiro".
+ */
+test.describe('Exclusão de manutenção', () => {
+  test('manutenção SEM custo pode ser excluída', async () => {
+    const tenantId = await getTestTenantId()
+    const id = await criarManutencao(`${TEST_TAG} Sem custo`)
+
+    const r = await checkMaintenanceDeletable(admin(), tenantId, id)
+    expect(r.ok).toBe(true)
+  })
+
+  test('manutenção com custo da EMPRESA é recusada e aponta para Despesas', async () => {
+    const tenantId = await getTestTenantId()
+    const id = await criarManutencao(`${TEST_TAG} Custo empresa`)
+
+    await registerMaintenanceCost({
+      maintenance_id: id, amount: 200, customer_amount: 0,
+      executor: 'company', due_date: new Date().toISOString().slice(0, 10),
+    })
+
+    const r = await checkMaintenanceDeletable(admin(), tenantId, id)
+    expect(r.ok, 'deixaria despesa e lançamento órfãos').toBe(false)
+    expect(r.ok === false && r.message).toMatch(/Despesas/i)
+  })
+
+  test('manutenção paga pelo CLIENTE é recusada e fala do crédito', async () => {
+    // O caso que produziu o estrago: o crédito é dinheiro que a empresa devolve.
+    const tenantId = await getTestTenantId()
+    const id = await criarManutencao(`${TEST_TAG} Custo cliente`)
+
+    await registerMaintenanceCost({
+      maintenance_id: id, amount: 100, customer_amount: 50,
+      executor: 'customer', due_date: new Date().toISOString().slice(0, 10),
+    })
+
+    const r = await checkMaintenanceDeletable(admin(), tenantId, id)
+    expect(r.ok, 'deixaria crédito do cliente sem origem').toBe(false)
+    expect(r.ok === false && r.message).toMatch(/crédito/i)
+  })
+
+  test('depois de cancelar a despesa, a exclusão é liberada', async () => {
+    // A saída existe: cancelar estorna o razão e a cobrança de repasse, e aí a
+    // origem pode sumir sem deixar nada para trás.
+    const tenantId = await getTestTenantId()
+    const id = await criarManutencao(`${TEST_TAG} Cancelada depois`)
+
+    const custo = await registerMaintenanceCost({
+      maintenance_id: id, amount: 150, customer_amount: 0,
+      executor: 'company', due_date: new Date().toISOString().slice(0, 10),
+    })
+    expect(custo.ok).toBe(true)
+
+    expect((await checkMaintenanceDeletable(admin(), tenantId, id)).ok).toBe(false)
+
+    await cancelPayable(admin(), tenantId, (custo as { data: { payable_id: string } }).data.payable_id)
+
+    const depois = await checkMaintenanceDeletable(admin(), tenantId, id)
+    expect(depois.ok, 'com a despesa cancelada não há mais dinheiro pendurado').toBe(true)
   })
 })

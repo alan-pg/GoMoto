@@ -434,9 +434,35 @@ export default function MaintenancePage() {
    * Computação: Injeta a label interna `_status` via processamento lógico de forma preventiva
    * para não chamar essa rotina pesada a cada render dentro dos laços.
    */
+  /**
+   * Custo por manutenção, vindo do payable.
+   *
+   * A coluna "Custo" da lista renderizava `item.cost`, e `maintenances` não tem
+   * essa coluna — o custo mudou para o payable na ADR 0024 (a tabela guarda
+   * `payable_id`). O resultado era um traço em TODA linha, para sempre. O KPI
+   * do topo já havia sido corrigido para ler do payable; a célula da tabela
+   * ficou para trás.
+   *
+   * A chave é `(source_module='maintenance', source_id)`, o mesmo par que
+   * `registerCost` usa para perguntar "esta manutenção já tem custo?".
+   */
+  const custoPorManutencao = useMemo(() => {
+    const mapa = new Map<string, number>()
+    for (const p of (payablesQuery.data ?? [])) {
+      if (p.source_module === 'maintenance' && p.source_id && p.status !== 'cancelled') {
+        mapa.set(p.source_id, Number(p.amount))
+      }
+    }
+    return mapa
+  }, [payablesQuery.data])
+
   const withStatus = useMemo(() =>
-    maintenances.map((m) => ({ ...m, _status: calcularStatus(m) })),
-    [maintenances]
+    maintenances.map((m) => ({
+      ...m,
+      _status: calcularStatus(m),
+      cost: custoPorManutencao.get(m.id) ?? null,
+    })),
+    [maintenances, custoPorManutencao]
   )
 
   /**
@@ -677,12 +703,17 @@ export default function MaintenancePage() {
       // `despesa_manutencao` ficava sem o lançamento e o custo sumia do
       // resultado do veículo.
       const custoExecutado = parseFloat(formData.cost) || 0
+      // O rateio ia fixo em zero: este atalho assumia que todo custo era da
+      // empresa. Com executor CLIENTE isso vira crédito do valor CHEIO — a
+      // empresa devolvia R$ 100 numa troca de óleo dividida meio a meio.
+      // O campo já existia no formulário e só não chegava aqui.
+      const parteDoCliente = Math.min(parseFloat(formData.customer_amount) || 0, custoExecutado)
       const criada = (res as { data?: { id: string } }).data
       if (isExecuted && custoExecutado > 0 && criada?.id) {
         const custoRes = await registerMaintenanceCost({
           maintenance_id: criada.id,
           amount: custoExecutado,
-          customer_amount: 0,
+          customer_amount: parteDoCliente,
           executor: formData.effective_executor,
           due_date: payload.completed_date as string,
         })
@@ -1315,6 +1346,15 @@ export default function MaintenancePage() {
                 <Input label="KM no Serviço *" type="number" value={formData.actual_km} onChange={(e) => setFormData({ ...formData, actual_km: e.target.value })} placeholder="Ex: 15500" />
                 <Input label="Oficina / Mecânico" value={formData.workshop} onChange={(e) => setFormData({ ...formData, workshop: e.target.value })} />
                 <Input label="Custo (R$)" type="number" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} placeholder="0.00" />
+                <Input
+                  label="Quanto o cliente paga (R$)"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.customer_amount}
+                  onChange={(e) => setFormData({ ...formData, customer_amount: e.target.value })}
+                  placeholder="0,00"
+                />
               </div>
 
               {/* Responsabilidade — snapshot D4 do PRD 0003. */}
@@ -1338,9 +1378,40 @@ export default function MaintenancePage() {
                     ))}
                   </div>
                 </div>
-                {/* O rateio é informado ao CONCLUIR a manutenção, junto do
-                    custo real, e em valores. Pedir um percentual no agendamento
-                    era pedir um palpite sobre um custo que ainda não existe. */}
+                {/* No AGENDAMENTO não se pede rateio: seria um palpite sobre um
+                    custo que ainda não existe. Aqui, porém, o custo já foi
+                    digitado — e o efeito precisa aparecer ANTES de salvar. Com
+                    executor Cliente, a parte da empresa vira crédito a favor
+                    dele, dinheiro que a locadora devolve; sem este resumo o
+                    operador só descobria o valor depois, na tela de cobranças. */}
+                {(parseFloat(formData.cost) || 0) > 0 && (() => {
+                  const custo = parseFloat(formData.cost) || 0
+                  const cliente = Math.min(parseFloat(formData.customer_amount) || 0, custo)
+                  const empresa = Math.round((custo - cliente) * 100) / 100
+                  const executouCliente = formData.effective_executor === 'customer'
+                  return (
+                    <div className="space-y-1 border-t border-divider pt-3 text-[13px]">
+                      <div className="flex justify-between">
+                        <span className="text-fg-mute">Despesa da empresa</span>
+                        <span className="text-fg">{formatCurrency(empresa)}</span>
+                      </div>
+                      {cliente > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-fg-mute">
+                            {executouCliente ? 'Pago pelo cliente' : 'Repassado ao cliente'}
+                          </span>
+                          <span className="text-fg">{formatCurrency(cliente)}</span>
+                        </div>
+                      )}
+                      {executouCliente && empresa > 0 && (
+                        <p className="pt-1 text-warning">
+                          Gera crédito de {formatCurrency(empresa)} a favor do cliente,
+                          abatido na próxima cobrança.
+                        </p>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Fotos — não obrigatórias, só sinalizadas como importantes. */}
@@ -1904,7 +1975,7 @@ export default function MaintenancePage() {
                   return (
                     <div className="space-y-2">
                       {missingPhotos && (
-                        <div className="flex items-start gap-2 rounded-xl border border-warning bg-warning p-3">
+                        <div className="flex items-start gap-2 rounded-xl border border-warning bg-warning-bg p-3 text-[13px] text-warning">
                           <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
                           <p className="text-[13px] text-warning">
                             Há itens sem fotos. As fotos não são obrigatórias, mas servem como comprovação — anexe sempre que possível.
