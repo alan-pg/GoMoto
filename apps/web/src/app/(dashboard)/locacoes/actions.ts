@@ -550,9 +550,26 @@ export async function removeFromQueue(
 // terminateRental — encerramento antecipado via RPC
 // ---------------------------------------------------------------------------
 
+/**
+ * Resultado da apuração no encerramento.
+ *
+ * A RPC sempre devolveu isto e a action o descartava com `void settlement` — a
+ * tela nunca soube que havia caução a devolver, nem (agora) crédito do cliente.
+ */
+export type RentalSettlement = {
+  rental_id: string
+  customer_id: string
+  open_amount: number
+  open_charges: number
+  deposit_balance: number
+  credit_balance: number
+  cancelled_schedules: number
+  requires_settlement: boolean
+}
+
 export async function terminateRental(
   data: TerminateRental,
-): Promise<ActionResult<void>> {
+): Promise<ActionResult<RentalSettlement>> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
@@ -610,12 +627,11 @@ export async function terminateRental(
     return { ok: false, error: { code: 'INTERNAL_ERROR', message: error.message } }
   }
 
-  void settlement
-
   await logAction({ action: 'update', table: 'rentals', recordId: parsed.data.lease_id })
   revalidateRentalPaths()
   revalidatePath('/veiculos')
-  return { ok: true, data: undefined }
+  revalidatePath('/clientes')
+  return { ok: true, data: settlement as RentalSettlement }
 }
 
 // ---------------------------------------------------------------------------

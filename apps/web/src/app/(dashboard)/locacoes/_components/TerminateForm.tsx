@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AlertTriangle, X, ChevronRight } from 'lucide-react'
 
-import { useRentalOpenCharges, useDepositBalance, useRentalSchedule } from '@gomoto/data'
+import { useRentalOpenCharges, useDepositBalance, useRentalSchedule, useCustomerCreditBalance } from '@gomoto/data'
 import {
   getEarlyTerminationImpact,
   CONTRACT_TERMINATION_FINE_BRL,
@@ -41,6 +41,17 @@ export function TerminateForm({ rental }: TerminateFormProps) {
 
   const openAmount     = openCharges.reduce((s, c) => s + c.open_amount, 0)
   const depositBalance = depositQuery.data ?? 0
+
+  /**
+   * Crédito do cliente — passivo igual à caução, e que estava fora da apuração.
+   *
+   * A diferença é o escopo: a caução é DESTA locação e precisa de destino aqui;
+   * o crédito é do CLIENTE e sobrevive ao contrato. Por isso ele aparece como
+   * aviso, não como decisão obrigatória — mas aparecer é o mínimo. Sem isto o
+   * contrato encerrava, não sobrava cobrança para abater, e o cliente ia embora
+   * credor sem ninguém saber.
+   */
+  const creditBalance = useCustomerCreditBalance(rental.customer_id).data ?? 0
 
   /**
    * O que o encerramento REALMENTE cancela, com o mesmo critério da RPC:
@@ -187,11 +198,29 @@ export function TerminateForm({ rental }: TerminateFormProps) {
             <span className="tabular-nums">{formatCurrency(depositBalance)}</span>
           </div>
           <div className="flex justify-between py-0.5">
+            <span className="text-fg-mute">Crédito do cliente</span>
+            <span className="tabular-nums">{formatCurrency(creditBalance)}</span>
+          </div>
+          <div className="flex justify-between py-0.5">
             <span className="text-fg-mute">Cronograma a cancelar</span>
             <span className="tabular-nums">{formatCurrency(cancelable.total)}</span>
           </div>
 
         </div>
+
+        {creditBalance > 0 && (
+          <div className="flex items-start gap-2 rounded-xl border border-warning bg-warning-bg p-3 text-[13px] text-warning">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              O cliente tem {formatCurrency(creditBalance)} de crédito. Encerrado o
+              contrato não haverá cobrança futura para abater — devolva o valor
+              pela ficha do cliente, ou ele fica credor.{' '}
+              <Link href={`/clientes/${rental.customer_id}`} className="underline">
+                Abrir ficha do cliente
+              </Link>
+            </span>
+          </div>
+        )}
 
         {depositBalance > 0 && (
           <div className="rounded-xl border border-border bg-surface p-4">

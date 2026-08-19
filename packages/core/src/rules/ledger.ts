@@ -104,6 +104,18 @@ export type LedgerEvent =
   | { type: 'credit_granted'; amount: number; expense_account: AccountCode; dimensions?: LedgerDimensions }
   /** Crédito abatido de cobrança. */
   | { type: 'credit_applied'; amount: number; dimensions?: LedgerDimensions }
+  /**
+   * Crédito devolvido ao cliente em dinheiro — PIX, transferência, espécie.
+   *
+   * O abatimento em cobrança futura resolve enquanto existe cobrança futura.
+   * Quando o contrato encerra, ou quando o cliente simplesmente pede o
+   * dinheiro, a empresa precisa devolver de fato — e isso não é estorno.
+   * Estornar `credit_granted` inverteria também a despesa e a recuperação,
+   * apagando o custo do serviço que realmente aconteceu.
+   *
+   * É a mesma forma de `deposit_returned`: passivo baixado contra o caixa.
+   */
+  | { type: 'credit_settled'; amount: number; dimensions?: LedgerDimensions }
   /** Encargo de atraso efetivamente cobrado. Não existe antes de ser realizado. */
   | { type: 'late_charge_realized'; amount: number; dimensions?: LedgerDimensions }
   /** Baixa por inadimplência. */
@@ -182,6 +194,11 @@ function translate(event: LedgerEvent, d: LedgerDimensions): LedgerEntry[] {
 
     case 'credit_applied':
       return pair(ACCOUNTS.CUSTOMER_CREDITS, ACCOUNTS.RECEIVABLE, amount, d)
+
+    // Devolução em dinheiro: idêntica em forma à da caução, porque as duas são
+    // a mesma coisa — dinheiro de terceiro que a empresa devolve.
+    case 'credit_settled':
+      return pair(ACCOUNTS.CUSTOMER_CREDITS, ACCOUNTS.CASH, amount, d)
 
     case 'late_charge_realized':
       return pair(ACCOUNTS.RECEIVABLE, ACCOUNTS.LATE_CHARGE_REVENUE, amount, d)

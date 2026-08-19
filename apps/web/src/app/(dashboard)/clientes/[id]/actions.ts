@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { logAction } from '@/lib/audit'
+import { settleCredit } from '@/lib/financial/credits'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { ACCOUNTS, type ActionResult } from '@gomoto/core'
 import { postTransaction, dimensionsOf } from '@/lib/financial'
@@ -216,4 +217,54 @@ export async function unblockCustomer(input: unknown): Promise<ActionResult<void
   revalidatePath(`/clientes/${parsed.data.customer_id}`)
   revalidatePath('/clientes')
   return { ok: true, data: undefined }
+}
+
+// ============================================================
+// settleCustomerCredit — devolve o crédito em dinheiro (PIX, TED, espécie)
+// ============================================================
+
+const SettleCreditSchema = z.object({
+  customer_id: uuid(),
+  amount:      z.number().positive(),
+  notes:       z.string().max(500).optional(),
+})
+
+/**
+ * Casca fina: a regra vive em `@/lib/financial/credits`, exercitável por teste.
+ *
+ * Existia só o abatimento em cobrança futura. Quando o contrato encerra não há
+ * cobrança para abater, e o cliente ia embora credor com o passivo pendurado no
+ * balanço para sempre. O caminho improvisado seria "estornar" — que apagaria
+ * também a despesa do serviço.
+ */
+export async function settleCustomerCredit(
+  input: unknown,
+): Promise<ActionResult<{ transaction_id: string }>> {
+  const ctx = await getAuth()
+  if ('error' in ctx) return { ok: false, error: { code: 'UNAUTHORIZED' as const, message: 'Não autorizado' } }
+
+  const parsed = SettleCreditSchema.safeParse(input)
+  if (!parsed.success) {
+    const first = parsed.error.issues[0]
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos', field: first?.path?.map(String).join('.') } }
+  }
+
+  const { supabase, user, tenantId } = ctx
+
+  const r = await settleCredit(supabase, tenantId, {
+    customerId: parsed.data.customer_id,
+    amount:     parsed.data.amount,
+    notes:      parsed.data.notes ?? null,
+    createdBy:  user.id,
+  })
+
+  if (!r.ok) return { ok: false, error: { code: r.code, message: r.message } }
+
+  await logAction({
+    action: 'create', table: 'financial_transactions', recordId: r.transactionId,
+    newData: { customer_id: parsed.data.customer_id, amount: parsed.data.amount, event: 'credit_settled' },
+  })
+  revalidatePath(`/clientes/${parsed.data.customer_id}`)
+  revalidatePath('/financeiro')
+  return { ok: true, data: { transaction_id: r.transactionId } }
 }

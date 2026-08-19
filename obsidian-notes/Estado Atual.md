@@ -69,6 +69,33 @@ Complemento no schema: `payments_one_per_intent` (índice único parcial) torna
 impossível dois pagamentos para o mesmo intent de gateway, inclusive para quem
 inserir por fora do código.
 
+## 💸 Crédito do cliente: as duas formas de quitar
+
+Crédito é passivo — dívida da empresa com o cliente, nascida quando ele
+desembolsou por algo que cabia à locadora. Há duas formas de quitá-lo, e elas
+produzem **exatamente o mesmo resultado contábil**:
+
+| | Abater | Devolver |
+|---|---|---|
+| Evento | `credit_applied` | `credit_settled` |
+| Contrapartida | `contas_a_receber` | `caixa_e_bancos` |
+| Quando serve | há cobrança futura | contrato encerrando, ou o cliente pede |
+
+Rastreadas até o fim, receita, custo da empresa e custo do cliente batem nas
+duas. O que muda é só o caminho do dinheiro: abater impede a entrada, devolver
+deixa entrar e sair.
+
+**O que NÃO serve é estorno.** Estorno desfaz o que não deveria ter acontecido;
+o crédito aconteceu e era devido. Inverter `credit_granted` apagaria também a
+despesa do serviço e a recuperação da parte do cliente — a moto passaria a
+constar com custo zero.
+
+Crédito e caução são estruturalmente a mesma coisa (dinheiro de terceiro que a
+empresa devolve), e a caução já tinha as três peças. O crédito só ganhou as
+outras duas agora: `fn_settle_customer_credit` (com o saldo verificado sob trava
+do CLIENTE, porque saldo derivado não tem linha para travar) e a apuração no
+encerramento.
+
 ## 🧱 Dívida técnica registrada
 
 **Leitura em escala — [[decisions/0025-leitura-em-escala-paginacao-agregacao-indice|ADR 0025]]** (2026-08-18)

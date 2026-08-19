@@ -129,6 +129,23 @@ describe('buildLedgerEntries — matriz de eventos (Spec 0014 §3.3)', () => {
       .toEqual([ACCOUNTS.CUSTOMER_CREDITS, ACCOUNTS.RECEIVABLE])
   })
 
+  it('credit_settled: passivo de crédito contra CAIXA, não contra recebível', () => {
+    // Devolver em dinheiro é diferente de abater em cobrança. A distinção
+    // importa: `credit_applied` reduz o que o cliente deve; `credit_settled`
+    // tira dinheiro do caixa. Confundir as duas faz a carteira ou o caixa
+    // mentir.
+    expect(pairOf({ type: 'credit_settled', amount: 50 }))
+      .toEqual([ACCOUNTS.CUSTOMER_CREDITS, ACCOUNTS.CASH])
+  })
+
+  it('credit_settled espelha deposit_returned — as duas devolvem dinheiro de terceiro', () => {
+    const credito = pairOf({ type: 'credit_settled', amount: 50 })
+    const caucao  = pairOf({ type: 'deposit_returned', amount: 50 })
+    expect(credito[1]).toBe(caucao[1])   // as duas creditam o caixa
+    expect(credito[0]).toBe(ACCOUNTS.CUSTOMER_CREDITS)
+    expect(caucao[0]).toBe(ACCOUNTS.DEPOSITS_PAYABLE)
+  })
+
   it('late_charge_realized: recebível contra receita de encargos', () => {
     expect(pairOf({ type: 'late_charge_realized', amount: 37.5 }))
       .toEqual([ACCOUNTS.RECEIVABLE, ACCOUNTS.LATE_CHARGE_REVENUE])
@@ -168,6 +185,7 @@ describe('buildLedgerEntries — invariante de balanço (Princípio 1)', () => {
     { type: 'payable_paid', amount: 200 },
     { type: 'credit_granted', amount: 300, expense_account: ACCOUNTS.MAINTENANCE_EXPENSE },
     { type: 'credit_applied', amount: 300 },
+    { type: 'credit_settled', amount: 300 },
     { type: 'late_charge_realized', amount: 37.5 },
     { type: 'charge_written_off', amount: 500 },
     { type: 'vehicle_acquired', amount: 14000 },
@@ -187,7 +205,7 @@ describe('buildLedgerEntries — invariante de balanço (Princípio 1)', () => {
   it('cobre todas as variantes de LedgerEvent', () => {
     // Se um evento novo entrar no union sem teste, este número quebra e obriga
     // a atualizar a matriz.
-    expect(new Set(eventos.map((e) => e.type)).size).toBe(16)
+    expect(new Set(eventos.map((e) => e.type)).size).toBe(17)
   })
 
   it('valor zero ou negativo é rejeitado', () => {

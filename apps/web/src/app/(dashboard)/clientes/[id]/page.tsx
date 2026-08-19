@@ -5,6 +5,7 @@ import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { applyCpfMask, applyCnpjMask, applyPhoneMask, applyZipMask } from '@gomoto/core'
 import { formatCurrency } from '@/lib/utils'
 import { BlockCustomerButton } from './_components/BlockCustomerButton'
+import { SettleCreditButton } from './_components/SettleCreditButton'
 import { MessageCircle } from 'lucide-react'
 import { CustomerAppAccess } from '../_components/CustomerAppAccess'
 import type { Customer, Rental } from '@gomoto/core'
@@ -48,7 +49,7 @@ export default async function CustomerDetailPage({
 
   const [
     customerResult, rentalResult, creditsResult, delinquencyBlocksResult,
-    positionResult, overdueResult,
+    positionResult, overdueResult, creditBalanceResult,
   ] = await Promise.all([
     supabase.from('customers').select('*').eq('id', id).single(),
     supabase
@@ -88,6 +89,17 @@ export default async function CustomerDetailPage({
       .eq('tenant_id', tenantId)
       .eq('status', 'open')
       .eq('is_overdue', true),
+    // Saldo REAL, derivado do razão. A tela somava `customer_credits.amount` —
+    // o total já CONCEDIDO — sob o rótulo "Créditos disponíveis". Crédito
+    // parcialmente usado aparecia inteiro: no banco de teste, um cliente com
+    // R$ 550 de saldo era exibido com R$ 1.100. É a tela que se consulta para
+    // decidir quanto devolver ao cliente, então o erro custava dinheiro.
+    supabase
+      .from('customer_credit_balances')
+      .select('balance')
+      .eq('customer_id', id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle(),
   ])
 
   if (customerResult.error || !customerResult.data) notFound()
@@ -96,6 +108,7 @@ export default async function CustomerDetailPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rental = rentalResult.data as (Rental & { vehicle?: { license_plate: string; make: string; model: string } | null }) | null
   const credits = (creditsResult.data ?? []) as { id: string; amount: number;  origin: string; reason: string; created_at: string }[]
+  const creditBalance = Number((creditBalanceResult.data as { balance: number } | null)?.balance ?? 0)
   const delinquencyBlocks = (delinquencyBlocksResult.data ?? []) as { action: string; reason: string; actor_id: string; acted_at: string }[]
   const position = positionResult.data as {
     revenue: number; attributed_cost: number; reimbursed: number
@@ -453,7 +466,11 @@ export default async function CustomerDetailPage({
             {/* P-8: as actions existiam corretas e sem chamador desde a Spec
                 0014. O bloqueio é registro administrativo — não impede locação,
                 marca a decisão da empresa com autor, data e motivo. */}
-            <BlockCustomerButton customerId={id} isBlocked={isBlocked} />
+            <div className="flex items-center gap-2">
+              {/* Só aparece com saldo: sem crédito não há o que devolver. */}
+              <SettleCreditButton customerId={id} balance={creditBalance} />
+              <BlockCustomerButton customerId={id} isBlocked={isBlocked} />
+            </div>
           </div>
           <div className="rounded-xl bg-surface overflow-hidden">
             <table className="w-full text-[13px]">
@@ -489,8 +506,10 @@ export default async function CustomerDetailPage({
                 <tr className="border-b border-divider last:border-0">
                   <td className="h-9 w-48 px-4 text-fg-mute">Créditos disponíveis</td>
                   <td className="h-9 px-4 font-mono text-fg">
-                    {formatCurrency(credits.reduce((s, c) => s + c.amount, 0))}
-                    <span className="ml-2 text-[12px] text-fg-mute">({credits.filter(c => c.amount > 0).length} ativos)</span>
+                    {formatCurrency(creditBalance)}
+                    <span className="ml-2 text-[12px] text-fg-mute">
+                      ({credits.length} concedido{credits.length === 1 ? '' : 's'})
+                    </span>
                   </td>
                 </tr>
               </tbody>
