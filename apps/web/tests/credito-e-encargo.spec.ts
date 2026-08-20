@@ -5,6 +5,7 @@ import {
   waitForPageLoad, getModal,
 } from './helpers'
 import { createCharge } from '../src/lib/financial/charges'
+import { receivePayment } from '../src/lib/financial/payments'
 
 /**
  * Crédito do cliente e encargo por atraso — dois fluxos que movimentam dinheiro
@@ -78,7 +79,7 @@ test.describe('Crédito do cliente e encargo por atraso', () => {
     await deleteTestVehicle(vehicleId).catch(() => {})
   })
 
-  test('encargo só vira receita quando consolidado', async ({ page }) => {
+  test('encargo só vira receita ao receber, com o valor do dia do pagamento', async ({ page }) => {
     const chargeId = await cobrancaVencida(500, 40)
 
     const antes = await saldo(chargeId)
@@ -93,13 +94,18 @@ test.describe('Crédito do cliente e encargo por atraso', () => {
 
     expect(semEncargo ?? [], 'encargo projetado não pode estar lançado').toEqual([])
 
+    // Receber é o que realiza o encargo. O botão "Consolidar encargo" fazia
+    // isso à parte e foi removido: ele recalculava do zero a cada clique — a
+    // multa sobre o saldo já acrescido, e os juros de TODOS os dias desde o
+    // vencimento original — então dois cliques no mesmo dia cobravam o encargo
+    // duas vezes, com base maior na segunda. Não havia guarda nenhuma.
     await page.goto(`/cobrancas/${chargeId}`)
     await waitForPageLoad(page)
-    await page.getByRole('button', { name: 'Consolidar encargo' }).click()
+    await page.getByRole('button', { name: 'Registrar pagamento' }).click()
 
     const modal = getModal(page)
     await expect(modal).toBeVisible()
-    await modal.getByRole('button', { name: 'Consolidar' }).click()
+    await modal.getByRole('button', { name: 'Confirmar pagamento' }).click()
     await expect(modal).toBeHidden({ timeout: 15_000 })
 
     // Agora sim: item na cobrança e receita no razão.
@@ -120,12 +126,18 @@ test.describe('Crédito do cliente e encargo por atraso', () => {
       .eq('account_code', 'receita_encargos_atraso')
 
     const l = (lancamentos ?? []) as { direction: string; amount: number }[]
-    expect(l.length, 'encargo consolidado sem lançamento').toBe(1)
+    expect(l.length, 'encargo realizado sem lançamento').toBe(1)
     expect(l[0]!.direction).toBe('credit')
 
-    // O saldo devido cresce pelo valor do encargo — nem mais, nem menos.
+    // O documento cresce pelo encargo — nem mais, nem menos — e o pagamento
+    // quita o principal MAIS o encargo do dia, deixando a cobrança zerada.
     const depois = await saldo(chargeId)
     expect(Number(depois!.total_amount)).toBe(500 + Number(it[0]!.amount))
+    expect(
+      Number(depois!.open_amount),
+      'o valor pago precisa cobrir principal + encargo calculado no dia',
+    ).toBe(0)
+    expect(Number(depois!.paid_amount)).toBe(500 + Number(it[0]!.amount))
 
     // E o encargo chega ao resultado do VEÍCULO.
     //
@@ -363,5 +375,82 @@ test.describe('Crédito do cliente e encargo por atraso', () => {
     // O crédito foi consumido e o saldo devido cai por ele.
     expect(Number(depois!.paid_amount)).toBe(100)
     expect(Number(depois!.open_amount)).toBeCloseTo(Number(depois!.total_amount) - 100, 2)
+  })
+})
+
+/**
+ * Os juros pagos são os do DIA DO PAGAMENTO.
+ *
+ * A cobrança é emitida, o cliente paga quando pode, e o encargo cobrado tem que
+ * refletir o atraso até aquele dia — nem o do vencimento, nem o de hoje.
+ *
+ * `realizeAccruedBefore` recebe `paidAt` e o repassa como `asOf` para
+ * `calculateAccruedCharges`. É isso que se prova aqui, com a mesma dívida
+ * quitada em datas diferentes.
+ */
+test.describe('Encargo segue a data do pagamento', () => {
+  test('pagar mais tarde custa mais, na proporção dos dias', async () => {
+    const tenantId = await getTestTenantId()
+
+    // Duas cobranças idênticas: mesmo valor, mesmo vencimento.
+    const cedo  = await cobrancaVencida(1000, 30)
+    const tarde = await cobrancaVencida(1000, 30)
+
+    const emT30 = new Date(); emT30.setHours(12, 0, 0, 0)
+    const emT60 = new Date(emT30); emT60.setDate(emT60.getDate() + 30)
+
+    // A primeira é quitada hoje (30 dias de atraso).
+    const b1 = await saldo(cedo)
+    await receivePayment(admin(), tenantId, {
+      customerId, amount: Number(b1!.open_amount), method: 'pix', paidAt: emT30,
+      allocations: [{ chargeId: cedo, amount: Number(b1!.open_amount) }],
+    }).catch(() => { /* o encargo entra antes de alocar; valor exato abaixo */ })
+
+    const encargoDe = async (chargeId: string) => {
+      const { data } = await admin()
+        .from('charge_items')
+        .select('amount')
+        .eq('charge_id', chargeId)
+        .eq('source_module', 'late_charge')
+      return ((data ?? []) as { amount: number }[]).reduce((s, i) => s + Number(i.amount), 0)
+    }
+
+    const encargo30 = await encargoDe(cedo)
+    expect(encargo30, 'atraso de 30 dias precisa gerar encargo').toBeGreaterThan(0)
+
+    // A segunda é quitada 30 dias depois (60 de atraso).
+    const b2 = await saldo(tarde)
+    await receivePayment(admin(), tenantId, {
+      customerId, amount: Number(b2!.open_amount), method: 'pix', paidAt: emT60,
+      allocations: [{ chargeId: tarde, amount: Number(b2!.open_amount) }],
+    }).catch(() => { /* idem */ })
+
+    const encargo60 = await encargoDe(tarde)
+
+    // Multa é única (mesma base, mesmo valor); os juros dobram com o dobro dos
+    // dias. Então o encargo de 60 dias é maior, mas NÃO é o dobro.
+    expect(encargo60, 'pagar depois tem que custar mais').toBeGreaterThan(encargo30)
+    expect(encargo60, 'o encargo não pode dobrar: a multa é cobrada uma vez só')
+      .toBeLessThan(encargo30 * 2)
+  })
+
+  test('pagar sem atraso não gera encargo nenhum', async () => {
+    const tenantId = await getTestTenantId()
+    const emDia = await cobrancaVencida(400, -5)   // vence daqui a 5 dias
+
+    const b = await saldo(emDia)
+    await receivePayment(admin(), tenantId, {
+      customerId, amount: Number(b!.open_amount), method: 'pix', paidAt: new Date(),
+      allocations: [{ chargeId: emDia, amount: Number(b!.open_amount) }],
+    })
+
+    const { data } = await admin()
+      .from('charge_items')
+      .select('id')
+      .eq('charge_id', emDia)
+      .eq('source_module', 'late_charge')
+
+    expect(data ?? [], 'cobrança em dia não pode ganhar encargo').toEqual([])
+    expect(Number((await saldo(emDia))!.open_amount)).toBe(0)
   })
 })

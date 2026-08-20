@@ -5,7 +5,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { formatCurrency } from '@/lib/utils'
 import { receivePaymentAction, cancelChargeAction } from '../../actions'
-import { applyCustomerCredits, consolidateLateCharge } from '../actions'
+import { applyCustomerCredits } from '../actions'
 
 interface AvailableCredit {
   id: string
@@ -20,9 +20,6 @@ interface BillingActionsProps {
   customerId: string
   status: string
   amountDue: number
-  /** Encargo acumulado ainda não realizado — projetado até ser consolidado (R-06). */
-  accruedCharges: number
-  isOverdue: boolean
   availableCredits: AvailableCredit[]
 }
 
@@ -50,23 +47,18 @@ const CREDIT_ORIGIN_LABELS: Record<string, string> = {
   customer_credit:    'Crédito ao cliente',
 }
 
-export function BillingActions({ billingId, customerId, status, amountDue, accruedCharges, isOverdue, availableCredits }: BillingActionsProps) {
+export function BillingActions({ billingId, customerId, status, amountDue, availableCredits }: BillingActionsProps) {
   const [isPending, startTransition] = useTransition()
   const [flashError, setFlashError] = useState<string | null>(null)
 
   const [payOpen, setPayOpen]     = useState(false)
-  const [realizeOpen, setRealizeOpen] = useState(false)
   const [creditOpen, setCreditOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
 
   // Register Payment form
   const [payAmount, setPayAmount]   = useState(amountDue > 0 ? amountDue.toFixed(2) : '')
-  const excedeSaldo = (parseFloat(payAmount) || 0) > amountDue
   const [payMethod, setPayMethod]   = useState('pix')
   const [payNotes, setPayNotes]     = useState('')
-
-  // Waive Charges form
-  const [realizeReason, setRealizeReason] = useState('')
 
   // Apply Credit form
   const [selectedCredit, setSelectedCredit] = useState(availableCredits[0]?.id ?? '')
@@ -97,7 +89,10 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
     const amount = parseFloat(payAmount)
     if (isNaN(amount) || amount <= 0) { setFlashError('Valor inválido'); return }
     if (amount > amountDue) {
-      setFlashError(`Acima do saldo de ${formatCurrency(amountDue)}.`)
+      setFlashError(
+        `Não é possível registrar ${formatCurrency(amount)}: esta cobrança deve `
+        + `${formatCurrency(amountDue)}. Nada foi gravado.`,
+      )
       return
     }
     setFlashError(null)
@@ -120,21 +115,6 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
       if (!result.ok) { setFlashError(result.error.message); return }
       setPayOpen(false)
       setPayNotes('')
-    })
-  }
-
-  function handleRealize() {
-    // Consolidar não exige justificativa: só realiza o encargo que a política
-    // já determina. A exigência de motivo vinha de "dispensar", ação que deixou
-    // de existir — e travava a confirmação num campo sem sentido.
-    setFlashError(null)
-    startTransition(async () => {
-      // O encargo projetado só vira receita quando consolidado (R-06); não
-      // existe mais "dispensar", porque nada foi lançado ainda.
-      const result = await consolidateLateCharge(billingId)
-      if (!result.ok) { setFlashError(result.error.message); return }
-      setRealizeOpen(false)
-      setRealizeReason('')
     })
   }
 
@@ -180,15 +160,6 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
             Registrar pagamento
           </button>
         )}
-        {isActionable && isOverdue && accruedCharges > 0 && (
-          <button
-            onClick={() => { setFlashError(null); setRealizeOpen(true) }}
-            disabled={isPending}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg disabled:opacity-50"
-          >
-            Consolidar encargo
-          </button>
-        )}
         {hasCredits && (
           <button
             onClick={() => { setFlashError(null); setCreditOpen(true) }}
@@ -213,10 +184,16 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
       <Modal open={payOpen} onClose={() => setPayOpen(false)} title="Registrar pagamento">
         <div className="space-y-4">
           {/* O campo cedia qualquer valor: R$ 50.000.000,00 numa cobrança de
-              R$ 500,00 passavam sem aviso. A alocação era limitada ao saldo e o
-              excedente sumia — ficava em `payments` e nunca no razão. O teto
-              aqui é conveniência; quem recusa de verdade é `receivePayment`,
-              porque tela se contorna. */}
+              R$ 500,00 passavam sem aviso, a alocação era limitada ao saldo e o
+              excedente sumia — ficava em `payments` e nunca no razão.
+
+              Três camadas, porque uma só não basta:
+              1. Ao sair do campo, o valor é ajustado ao saldo — digitar demais
+                 não deixa o formulário num estado inválido.
+              2. O botão segue CLICÁVEL. Desabilitar parecia proteger e não
+                 protegia: clique em botão desabilitado não dispara evento, e o
+                 operador via o modal parado sem nenhuma explicação.
+              3. `receivePayment` recusa no servidor, porque tela se contorna. */}
           <Input
             label="Valor pago (R$)"
             type="number"
@@ -224,18 +201,31 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
             min="0.01"
             max={amountDue.toFixed(2)}
             value={payAmount}
-            onChange={e => setPayAmount(e.target.value)}
+            onChange={e => {
+              const v = e.target.value
+              const n = parseFloat(v)
+
+              // Trava dura: o campo NUNCA guarda valor acima do saldo. Digitar
+              // ou colar um valor maior prende no teto, e a tarja explica por
+              // quê — senão o número mudaria sozinho sem motivo aparente.
+              if (!isNaN(n) && n > amountDue) {
+                setPayAmount(amountDue.toFixed(2))
+                setFlashError(
+                  `O máximo desta cobrança é ${formatCurrency(amountDue)}. Para `
+                  + 'receber a mais, registre o valor devido e conceda o excedente '
+                  + 'como crédito na ficha do cliente.',
+                )
+                return
+              }
+
+              setPayAmount(v)
+              setFlashError(null)
+            }}
           />
           <p className="-mt-2 text-[12px] text-fg-mute">
             Saldo desta cobrança: {formatCurrency(amountDue)}. Valor menor é
             aceito — ela segue em aberto pelo restante.
           </p>
-          {excedeSaldo && (
-            <p className="text-[13px] text-danger">
-              Acima do saldo de {formatCurrency(amountDue)}. Para receber a mais,
-              registre o valor devido e conceda o excedente como crédito ao cliente.
-            </p>
-          )}
           <Select
             label="Forma de pagamento"
             value={payMethod}
@@ -248,7 +238,11 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
             onChange={e => setPayNotes(e.target.value)}
             rows={2}
           />
-          {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
+          {flashError && (
+            <div className="rounded-lg border border-danger bg-danger-bg px-3 py-2 text-[13px] text-danger">
+              {flashError}
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <button
               onClick={() => setPayOpen(false)}
@@ -256,52 +250,15 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
             >
               Cancelar
             </button>
+            {/* Sem `disabled` no excedente: botão desabilitado não dispara
+                clique, e o operador ficava sem resposta nenhuma. Clicar sempre
+                responde — com o pagamento ou com o motivo da recusa. */}
             <button
               onClick={handlePay}
-              disabled={isPending || excedeSaldo}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-primary-hover disabled:opacity-50"
-            >
-              {isPending ? 'Salvando…' : 'Confirmar pagamento'}
-            </button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* ── Consolidar encargo ─────────────────────────────────────────────── */}
-      {/*
-        O texto dizia "os encargos serão ZERADOS" — herança do antigo "Dispensar
-        encargos". Consolidar faz o oposto: transforma o encargo calculado pelo
-        relógio em recebível de verdade (`late_charge_realized`). Quem lesse o
-        aviso clicaria esperando perdoar a dívida e acabaria cobrando o cliente.
-      */}
-      <Modal open={realizeOpen} onClose={() => setRealizeOpen(false)} title="Consolidar encargo">
-        <div className="space-y-4">
-          <p className="text-[13px] text-fg-mute">
-            A multa e os juros acumulados até hoje passam a ser cobrados do cliente:
-            saem do cálculo por tempo e viram valor devido, com lançamento no razão.
-            A partir daí seguem acumulando sobre o novo saldo.
-          </p>
-          <Textarea
-            label="Motivo"
-            value={realizeReason}
-            onChange={e => setRealizeReason(e.target.value)}
-            rows={3}
-            placeholder="Observação (opcional)…"
-          />
-          {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              onClick={() => setRealizeOpen(false)}
-              className="inline-flex h-9 items-center px-4 rounded-full border border-border text-[13px] text-fg-mute hover:text-fg"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleRealize}
               disabled={isPending}
               className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-primary-hover disabled:opacity-50"
             >
-              {isPending ? 'Salvando…' : 'Consolidar'}
+              {isPending ? 'Salvando…' : 'Confirmar pagamento'}
             </button>
           </div>
         </div>

@@ -92,6 +92,9 @@ export default function CobrancasPage() {
   const [search, setSearch] = useState('')
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
+  /** Erro do modal aberto. Separado de `feedback`, que vive no topo da página
+   *  e fica ATRÁS do modal — invisível justamente quando mais importa. */
+  const [modalError, setModalError] = useState<string | null>(null)
 
   const [newOpen, setNewOpen] = useState(false)
   const [form, setForm] = useState(emptyForm)
@@ -183,7 +186,8 @@ export default function CobrancasPage() {
     setSaving(false)
 
     if (!result.ok) {
-      setFeedback(result.error.message)
+      // Dentro do modal: `feedback` renderiza no topo da página, atrás dele.
+      setModalError(result.error.message)
       return
     }
 
@@ -195,31 +199,43 @@ export default function CobrancasPage() {
 
   async function handleReceive() {
     if (!receiving) return
-    setSaving(true)
-    setFeedback(null)
 
     const amount = Number(receiveAmount)
+
+    // Guarda no clique, além da trava do campo: colar via devtools, autofill ou
+    // um estado antigo não podem passar. Quem recusa de verdade é o servidor,
+    // mas o operador merece a resposta aqui, não depois do round-trip.
+    if (amount > receiving.amount_due) {
+      setModalError(
+        `Não é possível registrar ${formatCurrency(amount)}: esta cobrança deve `
+        + `${formatCurrency(receiving.amount_due)}. Nada foi gravado.`,
+      )
+      return
+    }
+
+    setSaving(true)
+    setModalError(null)
+    setFeedback(null)
+
     const result = await receivePaymentAction({
       customer_id: receiving.customer_id,
       amount,
       method: receiveMethod,
       paid_at: new Date().toISOString(),
-      allocations: [{ charge_id: receiving.charge_id, amount: Math.min(amount, receiving.amount_due) }],
+      // Era `Math.min(amount, amount_due)`: limitava a ALOCAÇÃO e deixava o
+      // pagamento com o valor cheio, criando a sobra que sumia do razão.
+      allocations: [{ charge_id: receiving.charge_id, amount }],
     })
 
     setSaving(false)
 
     if (!result.ok) {
-      setFeedback(result.error.message)
+      // Dentro do modal, não atrás dele.
+      setModalError(result.error.message)
       return
     }
 
-    const sobra = result.data.unallocated
-    setFeedback(
-      sobra > 0
-        ? `Recebimento registrado. Sobra de ${formatCurrency(sobra)} virou crédito do cliente.`
-        : 'Recebimento registrado.',
-    )
+    setFeedback('Recebimento registrado.')
     setReceiving(null)
     setReceiveAmount('')
     refresh()
@@ -233,7 +249,8 @@ export default function CobrancasPage() {
     setSaving(false)
 
     if (!result.ok) {
-      setFeedback(result.error.message)
+      // Dentro do modal: `feedback` renderiza no topo da página, atrás dele.
+      setModalError(result.error.message)
       return
     }
 
@@ -251,7 +268,8 @@ export default function CobrancasPage() {
     setSaving(false)
 
     if (!result.ok) {
-      setFeedback(result.error.message)
+      // Dentro do modal: `feedback` renderiza no topo da página, atrás dele.
+      setModalError(result.error.message)
       return
     }
 
@@ -271,7 +289,7 @@ export default function CobrancasPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <PageTitle title="Cobranças" subtitle="Recebíveis emitidos e seus saldos" />
-        <Button onClick={() => setNewOpen(true)}>
+        <Button onClick={() => { setModalError(null); setNewOpen(true) }}>
           <Plus className="h-4 w-4" /> Nova cobrança
         </Button>
       </div>
@@ -404,7 +422,7 @@ export default function CobrancasPage() {
                         <button
                           title="Registrar recebimento"
                           onClick={() => {
-                            setReceiving(c)
+                            setModalError(null); setReceiving(c)
                             setReceiveAmount(String(c.amount_due))
                           }}
                           className="p-1 text-[var(--fg-soft)] hover:text-[var(--success)]"
@@ -416,7 +434,7 @@ export default function CobrancasPage() {
                       {c.status === 'open' && c.paid_amount === 0 && (
                         <button
                           title="Cancelar cobrança"
-                          onClick={() => { setCancelling(c); setReason('') }}
+                          onClick={() => { setModalError(null); setCancelling(c); setReason('') }}
                           className="p-1 text-[var(--fg-soft)] hover:text-[var(--danger)]"
                         >
                           <XCircle className="h-4 w-4" />
@@ -426,7 +444,7 @@ export default function CobrancasPage() {
                       {c.status === 'open' && c.is_overdue && (
                         <button
                           title="Baixa por inadimplência"
-                          onClick={() => { setWritingOff(c); setReason('') }}
+                          onClick={() => { setModalError(null); setWritingOff(c); setReason('') }}
                           className="p-1 text-[var(--fg-soft)] hover:text-[var(--critical)]"
                         >
                           <TrendingDown className="h-4 w-4" />
@@ -514,6 +532,12 @@ export default function CobrancasPage() {
             geradas automaticamente pelos módulos de origem.
           </p>
 
+          {modalError && (
+            <div className="border border-[var(--danger)] bg-[var(--danger-bg)] px-3 py-2 text-[13px] text-[var(--danger)]">
+              {modalError}
+            </div>
+          )}
+
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setNewOpen(false)}>Cancelar</Button>
             <Button
@@ -547,12 +571,31 @@ export default function CobrancasPage() {
               )}
             </div>
 
+            {/* O campo aceitava qualquer valor e a alocação era limitada ao
+                devido — o excedente ficava em `payments` e nunca no razão.
+                Trava dura: digitar ou colar acima prende no teto e explica. */}
             <Input
               label="Valor recebido"
               type="number"
               step="0.01"
+              min="0.01"
+              max={receiving.amount_due.toFixed(2)}
               value={receiveAmount}
-              onChange={(e) => setReceiveAmount(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value
+                const n = parseFloat(v)
+                if (!isNaN(n) && n > receiving.amount_due) {
+                  setReceiveAmount(receiving.amount_due.toFixed(2))
+                  setModalError(
+                    `O máximo desta cobrança é ${formatCurrency(receiving.amount_due)}. `
+                    + 'Para receber a mais, registre o valor devido e conceda o '
+                    + 'excedente como crédito na ficha do cliente.',
+                  )
+                  return
+                }
+                setReceiveAmount(v)
+                setModalError(null)
+              }}
             />
 
             {Number(receiveAmount) > 0 && Number(receiveAmount) < receiving.amount_due && (
@@ -568,6 +611,16 @@ export default function CobrancasPage() {
               onChange={(e) => setReceiveMethod(e.target.value)}
               options={PAYMENT_METHODS}
             />
+
+            {/* O erro do recebimento ia para `feedback`, que renderiza no topo
+                da PÁGINA — atrás do modal. A recusa chegava e ficava invisível:
+                o operador via o modal parado, sem mensagem, sem saber se algo
+                havia sido gravado. Erro de modal se mostra dentro do modal. */}
+            {modalError && (
+              <div className="border border-[var(--danger)] bg-[var(--danger-bg)] px-3 py-2 text-[13px] text-[var(--danger)]">
+                {modalError}
+              </div>
+            )}
 
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setReceiving(null)}>Cancelar</Button>
@@ -595,7 +648,13 @@ export default function CobrancasPage() {
               placeholder="Descreva o motivo do cancelamento"
             />
 
-            <div className="flex justify-end gap-2">
+                        {modalError && (
+              <div className="border border-[var(--danger)] bg-[var(--danger-bg)] px-3 py-2 text-[13px] text-[var(--danger)]">
+                {modalError}
+              </div>
+            )}
+
+<div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setCancelling(null)}>Voltar</Button>
               <Button variant="danger" onClick={handleCancel} disabled={saving || reason.trim().length < 3}>
                 {saving ? 'Cancelando…' : 'Cancelar cobrança'}
@@ -632,7 +691,13 @@ export default function CobrancasPage() {
               placeholder="Descreva o motivo da baixa"
             />
 
-            <div className="flex justify-end gap-2">
+                        {modalError && (
+              <div className="border border-[var(--danger)] bg-[var(--danger-bg)] px-3 py-2 text-[13px] text-[var(--danger)]">
+                {modalError}
+              </div>
+            )}
+
+<div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setWritingOff(null)}>Voltar</Button>
               <Button variant="danger" onClick={handleWriteOff} disabled={saving || reason.trim().length < 3}>
                 {saving ? 'Registrando…' : 'Dar baixa'}

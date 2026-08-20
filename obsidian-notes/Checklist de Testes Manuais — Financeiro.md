@@ -357,20 +357,17 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 - [ ] O sistema recusa e explica o caminho — acerto por crédito ou cobrança
       avulsa.
 
-### 5.7 Baixa por inadimplência — ⚠️ sem tela hoje
+### 5.7 Baixa por inadimplência
 
-> **Lacuna conhecida.** O sistema sabe *exibir* o estado "Baixada" e o razão tem
-> o lançamento de perda, mas **não existe ação na tela** para dar baixa numa
-> cobrança incobrável. Hoje só chega lá quem escreve direto no banco.
->
-> Enquanto não houver o botão, o contorno é **cancelar** a cobrança — mas
-> atenção: cancelar e baixar são coisas diferentes. Cancelar diz "essa cobrança
-> não deveria existir" e apaga a receita; baixar diz "a receita existiu e não
-> vou receber" e reconhece a perda. Para efeito de DRE, cancelar uma dívida
-> incobrável **subestima tanto a receita quanto a perda**.
->
-> Se a inadimplência for relevante para vocês, este botão é o próximo item da
-> fila.
+- [ ] Em **Cobranças**, numa cobrança vencida e não paga, use o botão de
+      **baixa por inadimplência** e informe o motivo.
+
+**Verificar:**
+- [ ] A cobrança sai de "A receber" e passa a constar como **Baixada**.
+- [ ] No DRE aparece **Perda** pelo valor em aberto.
+- [ ] A **receita original permanece** — a venda aconteceu; o que se reconhece é
+      a perda. É isso que distingue baixa de cancelamento: cancelar apaga a
+      receita, baixar reconhece que ela não será recebida.
 
 ---
 
@@ -528,7 +525,7 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
       entrada + encargos realizados). **Sem caução, sem repasse.**
 - [ ] **Recuperação de despesas** = soma dos repasses cobrados.
 - [ ] **Custos operacionais** = soma das despesas lançadas, pelo valor **cheio**.
-- [ ] **Perdas** = baixas por inadimplência (hoje sempre zero — ver caso 5.7).
+- [ ] **Perdas** = baixas por inadimplência.
 - [ ] Cancelamentos e estornos **não aparecem** como valores; eles reduzem as
       linhas correspondentes.
 

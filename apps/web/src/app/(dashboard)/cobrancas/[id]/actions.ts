@@ -13,14 +13,12 @@ import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import {
   applyCredits,
-  calculateAccruedCharges,
   type ActionResult,
   type ErrorCode,
   type AvailableCredit,
   type ChargeBalance,
-  type LateChargePolicy,
 } from '@gomoto/core'
-import { postTransaction, dimensionsOf, realizeLateCharge, realizeAccruedBefore } from '@/lib/financial'
+import { postTransaction, dimensionsOf, realizeAccruedBefore } from '@/lib/financial'
 
 type Failure = { ok: false; error: { code: ErrorCode; message: string } }
 
@@ -211,72 +209,6 @@ export async function applyCustomerCredits(
   }
 }
 
-/**
- * Consolida o encargo acumulado como item da cobrança.
- *
- * Enquanto não consolidado, o encargo é valor projetado — não há receita de
- * juros antes de o juro ser efetivamente cobrado (R-06).
- */
-export async function consolidateLateCharge(
-  chargeId: string,
-): Promise<ActionResult<{ amount: number }>> {
-  const ctx = await getContext()
-  if (!ctx.ok) return ctx.failure
-
-  try {
-    const { data: balance, error } = await ctx.supabase
-      .from('charge_balances')
-      .select('charge_id, due_date, total_amount, paid_amount, open_amount, is_overdue')
-      .eq('charge_id', chargeId)
-      .eq('tenant_id', ctx.tenantId)
-      .maybeSingle()
-
-    if (error) return fail('INTERNAL', error.message)
-    if (!balance) return fail('NOT_FOUND', 'Cobrança não encontrada')
-
-    const b = balance as ChargeBalance & { is_overdue: boolean }
-    if (!b.is_overdue) return fail('CONFLICT', 'Cobrança não está vencida')
-
-    const { data: charge } = await ctx.supabase
-      .from('charges')
-      .select('late_charge_policy_id')
-      .eq('id', chargeId)
-      .maybeSingle()
-
-    const policyId = (charge as { late_charge_policy_id: string | null } | null)?.late_charge_policy_id
-    if (!policyId) return fail('CONFLICT', 'Cobrança sem política de encargo definida')
-
-    const { data: policyRow } = await ctx.supabase
-      .from('late_charge_policies')
-      .select('fee_type, fee_value, daily_interest_rate, grace_period_days, min_amount')
-      .eq('id', policyId)
-      .maybeSingle()
-
-    if (!policyRow) return fail('NOT_FOUND', 'Política de encargo não encontrada')
-
-    const accrued = calculateAccruedCharges(
-      policyRow as LateChargePolicy, b.open_amount, b.due_date,
-    )
-
-    if (accrued.total <= 0) {
-      return fail('CONFLICT', 'Não há encargo a consolidar (período de carência)')
-    }
-
-    await realizeLateCharge(ctx.supabase, ctx.tenantId, chargeId, accrued.total, ctx.userId)
-
-    await logAction({
-      action: 'update',
-      table: 'charges',
-      recordId: chargeId,
-      newData: { late_charge_realized: accrued.total, days_overdue: accrued.days_overdue },
-    })
-
-    revalidatePath('/cobrancas')
-    return { ok: true, data: { amount: accrued.total } }
-  } catch (err) {
-    return fail('INTERNAL', toMessage(err))
-  }
-}
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100

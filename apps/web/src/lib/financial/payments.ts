@@ -60,9 +60,15 @@ export type ReceivedPayment = {
  * receita.
  *
  * Realizar aqui elimina a ordem implícita: o encargo é devido por contrato no
- * momento em que o pagamento atrasa, não por decisão de quem recebe. O botão
- * "Consolidar encargo" continua existindo para congelar sem receber — fechamento
- * de mês, segunda via —, mas deixou de ser pré-requisito.
+ * momento em que o pagamento atrasa, não por decisão de quem recebe. E é feito
+ * com `paidAt` como referência, não com a data de hoje: o cliente paga quando
+ * pode, e o que ele deve é o encargo daquele dia.
+ *
+ * Este é o ÚNICO caminho que realiza encargo. Existia um botão "Consolidar
+ * encargo" que fazia isso à parte e foi removido: ele recalculava do zero a
+ * cada clique — multa sobre o saldo já acrescido, juros de todos os dias desde
+ * o vencimento original — sem guarda nenhuma. Quatro cliques no mesmo dia
+ * levavam uma dívida de R$ 1.000 para R$ 1.125, sem que um dia passasse.
  */
 export async function realizeAccruedBefore(
   supabase: SupabaseClient,

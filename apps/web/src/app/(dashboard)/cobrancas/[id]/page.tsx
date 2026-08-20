@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
-import { calculateAccruedCharges, type LateChargePolicy } from '@gomoto/core'
+import { calculateAmountDue, type LateChargePolicy } from '@gomoto/core'
 import { formatCurrency } from '@/lib/utils'
 import { calculateLateCharges } from '@gomoto/core'
 import type { LateChargeConfig } from '@gomoto/core'
@@ -253,28 +253,33 @@ export default async function BillingDetailPage({
     .maybeSingle()
 
   const policyId = (chargeRow as { late_charge_policy_id: string | null } | null)?.late_charge_policy_id
-  let accrued = { fee: 0, interest: 0, total: 0, days_overdue: 0, grace_period_active: false, days_since_due: 0 }
+  let policy: LateChargePolicy | null = null
 
-  if (policyId && balance.is_overdue) {
+  if (policyId) {
     const { data: policyRow } = await supabase
       .from('late_charge_policies')
       .select('fee_type, fee_value, daily_interest_rate, grace_period_days, min_amount')
       .eq('id', policyId)
       .maybeSingle()
 
-    if (policyRow) {
-      accrued = calculateAccruedCharges(
-        policyRow as LateChargePolicy, balance.open_amount, balance.due_date,
-      )
-    }
+    policy = (policyRow ?? null) as LateChargePolicy | null
   }
 
-  // Cobrança encerrada não tem valor a cobrar. `charge_balances.open_amount` é
-  // a aritmética do documento (total − alocado) e continua devolvendo o saldo
-  // de uma cobrança baixada — o que é correto para registrar a perda, e errado
-  // de exibir como "a pagar". Quem lê o saldo precisa olhar o status junto.
+  // Quanto esta cobrança deve — pela função canônica, a mesma que a LISTA de
+  // cobranças e o app do cliente usam.
+  //
+  // Aqui a conta era refeita à mão: `isTerminal ? 0 : max(0, open + accrued)`.
+  // Aritmeticamente igual, menos por um detalhe — a cópia perdeu o `round2`, e
+  // devolvia resíduo de ponto flutuante (250.00000000000003 onde a lista dava
+  // 250,00). Esse número vira o TETO do campo de recebimento, então as duas
+  // telas discordavam sobre o valor exato que quita a dívida.
+  //
+  // A regra de status terminal continua valendo e agora vive num lugar só:
+  // `charge_balances.open_amount` é a aritmética do documento (total − alocado)
+  // e devolve o saldo de uma cobrança baixada — correto para registrar a perda,
+  // errado de exibir como "a pagar".
+  const { accrued, amount_due: amountDue } = calculateAmountDue(balance, policy)
   const isTerminal = TERMINAL_STATUSES.has(balance.status)
-  const amountDue = isTerminal ? 0 : Math.max(0, balance.open_amount + accrued.total)
   const statusCfg = STATUS_CONFIG[balance.is_overdue ? 'overdue' : balance.status] ?? STATUS_CONFIG.open
   const isOverdue = balance.is_overdue
 
@@ -581,8 +586,6 @@ export default async function BillingDetailPage({
             billingId={id}
             status={(balance.is_overdue ? 'overdue' : balance.status)}
             amountDue={amountDue}
-            accruedCharges={accrued.total}
-            isOverdue={isOverdue}
             customerId={billing.customer_id ?? ''}
             availableCredits={availableCredits}
           />
