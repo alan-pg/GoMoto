@@ -17,12 +17,28 @@ Quando um caso disser "conferir no razão", a checagem é na tela de **DRE** ou
   parar no fim de qualquer bloco.
 - Valores são sugestões. Se mudar, ajuste as conferências proporcionalmente.
 
+### Dois atalhos que servem ao roteiro inteiro
+
+**Antecipar a emissão.** O critério do job é `period_start <= hoje + lead_days`
+— o INÍCIO do período, não o vencimento. O segundo parâmetro abre essa janela,
+para não esperar dias entre um caso e outro:
+
+```bash
+# Emite tudo que começa nos próximos 7 dias
+docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
+  -c "SELECT fn_run_billing_emission('manual', 7);"
+```
+
+**Não rode a suíte automatizada no meio do roteiro.** Ela faz login com o mesmo
+usuário do `.env.test` e **derruba a sua sessão no navegador**. Rode antes ou
+depois, nunca durante.
+
 ### Preparação
 
-- [ ] **P1.** Banco limpo (`pnpm db:reset`) e login feito.
-- [ ] **P2.** Anote o valor de **Caixa** no Painel financeiro. Vários casos
+- [x] **P1.** Banco limpo (`pnpm db:reset`) e login feito.
+- [x] **P2.** Anote o valor de **Caixa** no Painel financeiro. Vários casos
       comparam contra este ponto de partida.
-- [ ] **P3.** Escolha uma moto disponível e um cliente. Use os mesmos em todo o
+- [x] **P3.** Escolha uma moto disponível e um cliente. Use os mesmos em todo o
       roteiro — assim os relatórios por cliente e por veículo ficam legíveis.
 
 ---
@@ -31,19 +47,19 @@ Quando um caso disser "conferir no razão", a checagem é na tela de **DRE** ou
 
 ### 1.1 Criar locação semanal com caução e entrada
 
-- [ ] Em **Locações → Nova locação**, crie: ciclo **Semanal**, valor **R$ 350**,
+- [x] Em **Locações → Nova locação**, crie: ciclo **Semanal**, valor **R$ 350**,
       caução **R$ 500**, entrada **R$ 200**, início hoje, 3 meses.
 
 **Verificar:**
-- [ ] A locação aparece em **Locações** com status ativo.
-- [ ] A moto sai da lista de disponíveis (tente abrir outra locação: ela não
+- [x] A locação aparece em **Locações** com status ativo.
+- [x] A moto sai da lista de disponíveis (tente abrir outra locação: ela não
       deve ser oferecida no seletor).
-- [ ] Em **Cobranças**, existem cobranças de **Caução R$ 500** e
+- [x] Em **Cobranças**, existem cobranças de **Caução R$ 500** e
       **Entrada R$ 200**.
-- [ ] Na aba **financeira** da locação, a seção **Cronograma contratado** lista
+- [x] Na aba **financeira** da locação, a seção **Cronograma contratado** lista
       todas as parcelas semanais de R$ 350 — a primeira pode ser menor (pro
       rata) — todas com situação **A emitir**.
-- [ ] Os três totais dessa seção batem: **Total contratado** = soma das parcelas,
+- [x] Os três totais dessa seção batem: **Total contratado** = soma das parcelas,
       **Já emitido** = R$ 0,00 num contrato recém-aberto, **A emitir** = o total.
 
 > **Cronograma ≠ Cobranças.** O cronograma é o que o contrato PREVÊ; a seção
@@ -55,16 +71,24 @@ Quando um caso disser "conferir no razão", a checagem é na tela de **DRE** ou
 
 ### 1.2 A caução não pode virar receita
 
-- [ ] Abra **DRE** no mês corrente.
+- [x] Abra **DRE** no mês corrente.
 
 **Verificar:**
-- [ ] A **Receita bruta** inclui os **R$ 200** da entrada.
-- [ ] A **Receita bruta NÃO inclui os R$ 500** da caução.
+- [x] A **Receita bruta** inclui os **R$ 200** da entrada.
+- [x] A **Receita bruta NÃO inclui os R$ 500** da caução.
 
 ### 1.3 Emissão da parcela semanal
 
-- [ ] Aguarde o vencimento da primeira parcela, ou avance o cenário conforme o
-      procedimento de emissão que vocês usarem.
+A emissão roda sozinha às 9h todo dia (pg_cron chamando
+`fn_run_billing_emission`). Para não esperar, force pelo terminal:
+
+```bash
+# Emite exatamente como o cron emitiria hoje
+docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
+  -c "SELECT fn_run_billing_emission('manual');"
+```
+
+- [ ] Rode o comando acima.
 
 **Verificar:**
 - [ ] A parcela aparece em **Cobranças** com o valor do cronograma.
@@ -74,7 +98,7 @@ Quando um caso disser "conferir no razão", a checagem é na tela de **DRE** ou
 
 ### 1.4 Emitir duas vezes não duplica
 
-- [ ] Dispare a emissão novamente sem que nova parcela tenha vencido.
+- [ ] Rode o **mesmo comando** de novo, sem que nova parcela tenha começado.
 
 **Verificar:**
 - [ ] **Nenhuma cobrança nova** foi criada.
@@ -614,11 +638,18 @@ Casos que já falharam em produção ou em teste. Vale reconferir a cada release
 
 ### 13.6 Emissão relatando o que emitiu
 
-- [ ] Dispare a emissão com parcelas a vencer.
+- [ ] Rode a emissão com parcelas pendentes e confira o registro da execução:
+
+```bash
+docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
+  -c "SELECT triggered_by, charges_issued, error, finished_at
+        FROM billing_runs ORDER BY started_at DESC LIMIT 3;"
+```
 
 **Verificar:**
-- [ ] O retorno informa quantas cobranças saíram, e o número bate com o que
-      apareceu em Cobranças.
+- [ ] `charges_issued` bate com o número de cobranças que apareceram na tela.
+- [ ] `error` está vazio e `finished_at` preenchido — execução que começou e não
+      terminou é o sintoma que `billing_runs` existe para tornar visível.
 
 ---
 

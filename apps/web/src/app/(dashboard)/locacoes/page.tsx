@@ -7,7 +7,7 @@ import {
   CalendarClock, ChevronRight, Users,
 } from 'lucide-react'
 
-import { useRentals, useOverdueCharges } from '@gomoto/data'
+import { useRentals, useOverdueCharges, useScheduledForMonth } from '@gomoto/data'
 import { PageTitle } from '@/components/layout/PageTitle'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import type { Rental } from '@gomoto/core'
@@ -76,6 +76,9 @@ type TabId = 'active' | 'closed'
 export default function LocacoesPage() {
   const rentalsQuery  = useRentals()
   const overdueQuery = useOverdueCharges()
+  // Previsão do mês vem da view: somar o cronograma no cliente estouraria o
+  // teto de 1.000 linhas do PostgREST em qualquer carteira real (ADR 0025).
+  const scheduledQuery = useScheduledForMonth()
 
   const rentals  = useMemo(() => (rentalsQuery.data  ?? []) as Rental[], [rentalsQuery.data])
   const overdueCharges = useMemo(() => overdueQuery.data ?? [], [overdueQuery.data])
@@ -88,7 +91,6 @@ export default function LocacoesPage() {
   // ── KPIs
   const kpis = useMemo(() => {
     const active    = rentals.filter(r => r.status === 'active')
-    const monthlyRevenue = active.reduce((sum, r) => sum + (r.cycle_amount ?? r.monthly_amount ?? 0), 0)
 
     const today = new Date(); today.setHours(0,0,0,0)
     const in30  = new Date(today); in30.setDate(in30.getDate() + 30)
@@ -104,7 +106,7 @@ export default function LocacoesPage() {
     const overdueIds  = new Set(overdueCharges.map(c => c.rental_id).filter(Boolean))
     const withOverdue = active.filter(r => overdueIds.has(r.id)).length
 
-    return { total: active.length, monthlyRevenue, endingSoon, withOverdue }
+    return { total: active.length, endingSoon, withOverdue }
   }, [rentals, overdueCharges])
 
   // ── Filtro
@@ -154,13 +156,22 @@ export default function LocacoesPage() {
             label="Locações ativas"
             value={kpis.total}
           />
+          {/* Somava `cycle_amount` dos ativos — valores de PERÍODOS diferentes na
+              mesma conta: um mensal de R$ 1.500 com um semanal de R$ 350 dava
+              R$ 1.850, número que não significa nada. A variável chamava-se
+              `monthlyRevenue` enquanto somava valor semanal.
+
+              O cronograma resolve sem convenção: cada linha tem seu vencimento
+              e seu valor, com pro rata de início e fim já embutido. E é
+              PREVISÃO — não receita (que só existe quando emite) nem contas a
+              receber (que só existe quando o cliente deve). */}
           <KpiCard
             icon={DollarSign}
             iconBg="bg-success-bg"
             iconColor="text-success"
-            label="Receita/ciclo esperada"
-            value={formatCurrency(kpis.monthlyRevenue)}
-            sub="soma dos contratos ativos"
+            label="Previsto para o mês"
+            value={formatCurrency(scheduledQuery.data?.amount ?? 0)}
+            sub={`${scheduledQuery.data?.lines ?? 0} parcela${(scheduledQuery.data?.lines ?? 0) === 1 ? '' : 's'} vencendo`}
           />
           <KpiCard
             icon={CalendarClock}

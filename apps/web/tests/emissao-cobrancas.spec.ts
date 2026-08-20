@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import {
   TEST_TAG, getSupabaseAdmin, getTestTenantId,
   createTestVehicle, deleteTestVehicle, createTestCustomer, deleteTestCustomer,
+  createTestContract,
 } from './helpers'
 import { createCharge } from '../src/lib/financial/charges'
 import { waitForPageLoad } from './helpers'
@@ -387,5 +388,84 @@ test.describe('Emissão de cobranças a partir do cronograma', () => {
     await expect(page.getByText('Faturamento em dia')).toBeVisible({ timeout: 10_000 })
     await expect(page.getByText(/Última execução/)).toBeVisible()
     await expect(page.getByText(/\(manual\)/)).toBeVisible()
+  })
+})
+
+/**
+ * Previsão do cronograma por mês — o card "Previsto para o mês" de /locacoes.
+ *
+ * O card somava `rentals.cycle_amount` dos contratos ativos, o que junta
+ * valores de PERÍODOS diferentes: um contrato mensal de R$ 1.500 mais um
+ * semanal de R$ 350 davam R$ 1.850, número sem significado. A variável
+ * chamava-se `monthlyRevenue` enquanto somava valor semanal.
+ *
+ * Somar o cronograma dispensa convenção — cada linha tem vencimento e valor,
+ * com pro rata embutido. E a soma vive no BANCO porque uma carteira real passa
+ * das 1.000 linhas que o PostgREST devolve (ADR 0025).
+ */
+test.describe('Previsão do cronograma por mês', () => {
+  test('soma o que vence no mês, sem misturar unidade de ciclo', async () => {
+    const tenantId = await getTestTenantId()
+    const v = await createTestVehicle()
+    const c = await createTestContract(v.id)
+
+    const mes = '2027-04'
+    const linhas = [
+      { seq: 900, due: `${mes}-06`, amount: 350, status: 'scheduled' },
+      { seq: 901, due: `${mes}-13`, amount: 350, status: 'scheduled' },
+      // Emitida CONTA: a pergunta é o que o mês prevê, não o que falta emitir.
+      { seq: 902, due: `${mes}-20`, amount: 350, status: 'issued' },
+      // Estas não contam.
+      { seq: 903, due: `${mes}-27`, amount: 999, status: 'cancelled' },
+      // Outro mês.
+      { seq: 904, due: '2027-05-04', amount: 350, status: 'scheduled' },
+    ]
+
+    for (const l of linhas) {
+      await admin().from('rental_billing_schedules').insert({
+        tenant_id: tenantId, rental_id: c.contractId, sequence_number: l.seq,
+        period_start: l.due, period_end: l.due, due_date: l.due,
+        amount: l.amount, status: l.status,
+      })
+    }
+
+    const { data } = await admin()
+      .from('schedule_by_month')
+      .select('scheduled_amount, scheduled_lines')
+      .eq('month', `${mes}-01`)
+      .maybeSingle()
+
+    const row = data as { scheduled_amount: number; scheduled_lines: number } | null
+    expect(Number(row?.scheduled_amount), 'cancelada entrou, ou emitida ficou de fora').toBe(1050)
+    expect(Number(row?.scheduled_lines)).toBe(3)
+
+    await deleteTestCustomer(c.customerId).catch(() => {})
+    await deleteTestVehicle(v.id).catch(() => {})
+  })
+
+  test('contrato encerrado sai da previsão', async () => {
+    const tenantId = await getTestTenantId()
+    const v = await createTestVehicle()
+    const c = await createTestContract(v.id)
+    const mes = '2027-06'
+
+    await admin().from('rental_billing_schedules').insert({
+      tenant_id: tenantId, rental_id: c.contractId, sequence_number: 950,
+      period_start: `${mes}-01`, period_end: `${mes}-08`, due_date: `${mes}-08`,
+      amount: 500, status: 'scheduled',
+    })
+
+    const antes = await admin().from('schedule_by_month')
+      .select('scheduled_amount').eq('month', `${mes}-01`).maybeSingle()
+    expect(Number((antes.data as { scheduled_amount: number } | null)?.scheduled_amount)).toBe(500)
+
+    await admin().from('rentals').update({ status: 'closed' }).eq('id', c.contractId)
+
+    const depois = await admin().from('schedule_by_month')
+      .select('scheduled_amount').eq('month', `${mes}-01`).maybeSingle()
+    expect(depois.data, 'contrato encerrado continuou previsto').toBeNull()
+
+    await deleteTestCustomer(c.customerId).catch(() => {})
+    await deleteTestVehicle(v.id).catch(() => {})
   })
 })

@@ -371,6 +371,38 @@ export function useIncomeStatement(fromPeriod: string, toPeriod: string) {
  * `contracted_backlog` é o que ainda não virou documento. Métrica legítima —
  * e distinta de contas a receber, que é `useReceivables` (F-10).
  */
+/**
+ * Previsão do cronograma para um mês, somando os contratos ativos.
+ *
+ * A soma vem da view: um tenant com 100 contratos semanais tem mais de 5.000
+ * linhas de cronograma, e o PostgREST corta em 1.000 sem avisar (ADR 0025).
+ * Somar no cliente daria um número menor com cara de número certo.
+ *
+ * @param month `YYYY-MM`. Ausente, usa o mês corrente.
+ */
+export function useScheduledForMonth(month?: string) {
+  const supabase = useSupabaseContext()
+  const alvo = month ?? new Date().toISOString().slice(0, 7)
+
+  return useQuery({
+    queryKey: [KEY.schedule, 'month', alvo],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('schedule_by_month')
+        .select('scheduled_amount, scheduled_lines')
+        .eq('month', `${alvo}-01`)
+        .maybeSingle()
+
+      if (error) throw new Error(`Falha ao ler previsão do cronograma: ${error.message}`)
+      const row = data as { scheduled_amount: number; scheduled_lines: number } | null
+      return {
+        amount: Number(row?.scheduled_amount ?? 0),
+        lines:  Number(row?.scheduled_lines ?? 0),
+      }
+    },
+  })
+}
+
 export function useRentalSchedule(rentalId: string | undefined) {
   const supabase = useSupabaseContext()
 
