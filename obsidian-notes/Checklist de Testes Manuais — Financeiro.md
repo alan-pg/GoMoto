@@ -40,8 +40,15 @@ Quando um caso disser "conferir no razão", a checagem é na tela de **DRE** ou
       deve ser oferecida no seletor).
 - [ ] Em **Cobranças**, existem cobranças de **Caução R$ 500** e
       **Entrada R$ 200**.
-- [ ] Na aba financeira da locação, o cronograma mostra as parcelas semanais de
-      R$ 350 — a primeira pode ser menor (pro rata).
+- [ ] Na aba **financeira** da locação, a seção **Cronograma contratado** lista
+      todas as parcelas semanais de R$ 350 — a primeira pode ser menor (pro
+      rata) — todas com situação **A emitir**.
+- [ ] Os três totais dessa seção batem: **Total contratado** = soma das parcelas,
+      **Já emitido** = R$ 0,00 num contrato recém-aberto, **A emitir** = o total.
+
+> **Cronograma ≠ Cobranças.** O cronograma é o que o contrato PREVÊ; a seção
+> Cobranças mostra o que já virou documento. Num contrato novo só caução e
+> entrada aparecem em Cobranças — as parcelas ainda não foram emitidas.
 
 > **Por que importa:** caução e entrada parecem iguais e não são. Caução é
 > dinheiro do cliente que volta; entrada é receita da empresa.

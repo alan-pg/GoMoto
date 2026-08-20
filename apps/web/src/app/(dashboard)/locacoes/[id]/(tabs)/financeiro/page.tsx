@@ -3,6 +3,7 @@ import { formatCurrency } from '@/lib/utils'
 import {
   BILLING_STATUS_BADGE, BILLING_TYPE_LABEL,
 } from '@/lib/billing-status'
+import { contractedBacklog } from '@gomoto/core'
 import { getRentalCore } from '../_lib/get-rental-core'
 import { fmt } from '../_lib/shared'
 
@@ -31,6 +32,24 @@ type DepositMovementRow = {
   amount: number
   reason: string | null
   created_at: string
+}
+
+/** Linha do plano de cobrança. Existe antes de virar documento. */
+type ScheduleRow = {
+  id: string
+  sequence_number: number
+  period_start: string
+  period_end: string
+  due_date: string
+  amount: number
+  status: 'scheduled' | 'issued' | 'cancelled' | 'superseded'
+}
+
+const SCHEDULE_STATUS: Record<ScheduleRow['status'], { label: string; cls: string }> = {
+  scheduled:  { label: 'A emitir',  cls: 'text-info' },
+  issued:     { label: 'Emitida',   cls: 'text-fg' },
+  cancelled:  { label: 'Cancelada', cls: 'text-fg-mute line-through' },
+  superseded: { label: 'Substituída', cls: 'text-fg-mute line-through' },
 }
 
 type AdjustmentRow = {
@@ -62,7 +81,9 @@ export default async function RentalFinancialTab({
   const { id } = await params
   const { tenantId, supabase } = await getRentalCore(id)
 
-  const [billingsResult, depositResult, depositMovementsResult, adjustmentsResult] = await Promise.all([
+  const [
+    billingsResult, depositResult, depositMovementsResult, adjustmentsResult, scheduleResult,
+  ] = await Promise.all([
     supabase
       // Saldo derivado; atraso vem de `is_overdue`, sem recálculo na tela.
       .from('charge_balances')
@@ -92,12 +113,31 @@ export default async function RentalFinancialTab({
       .eq('rental_id', id)
       .eq('tenant_id', tenantId)
       .order('adjusted_at', { ascending: false }),
+    // Cronograma contratado. A aba só mostrava DOCUMENTO emitido, então um
+    // contrato recém-aberto exibia apenas caução e entrada — as parcelas
+    // existiam no plano e não apareciam em lugar nenhum da tela do contrato.
+    supabase
+      .from('rental_billing_schedules')
+      .select('id, sequence_number, period_start, period_end, due_date, amount, status')
+      .eq('rental_id', id)
+      .eq('tenant_id', tenantId)
+      .order('sequence_number', { ascending: true }),
   ])
 
   const deposit = depositResult.data as { amount: number; closed_at: string | null } | null
   const billings = (billingsResult.data ?? []) as unknown as BillingRow[]
   const depositMovements = (depositMovementsResult.data ?? []) as unknown as DepositMovementRow[]
   const adjustments = (adjustmentsResult.data ?? []) as unknown as AdjustmentRow[]
+  const schedule = (scheduleResult.data ?? []) as unknown as ScheduleRow[]
+
+  // `contractedBacklog` de @gomoto/core é a MESMA função que o reajuste e o
+  // encerramento usam. Recalcular aqui faria três telas divergirem sobre o
+  // mesmo contrato.
+  const backlog        = contractedBacklog(schedule)
+  const scheduleIssued = schedule.filter(l => l.status === 'issued')
+    .reduce((sum, l) => sum + Number(l.amount), 0)
+  const scheduleActive = schedule.filter(l => l.status !== 'cancelled' && l.status !== 'superseded')
+  const contractedTotal = scheduleActive.reduce((sum, l) => sum + Number(l.amount), 0)
 
   // A descrição vive nos ITENS, não no documento. Consulta separada: juntar
   // charge_items dentro de charge_balances reintroduziria o fan-out de F-01.
@@ -284,6 +324,71 @@ export default async function RentalFinancialTab({
                     <td className="h-9 px-4 text-right font-mono font-semibold text-fg">{formatCurrency(a.new_cycle_amount)}</td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* ── Cronograma contratado ─────────────────────────────────────── */}
+      {/* Distinto de "Cobranças": aqui está o que o contrato PREVÊ, incluindo o
+          que ainda não virou documento. Sem esta seção, um contrato novo
+          mostrava só caução e entrada, e o operador não tinha onde conferir as
+          parcelas que acabara de contratar. */}
+      {schedule.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-[14px] font-bold text-primary">Cronograma contratado</h2>
+
+          <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="rounded-xl bg-surface p-4">
+              <p className="text-[12px] text-fg-mute">Total contratado</p>
+              <p className="mt-1 text-lg font-bold text-fg">{formatCurrency(contractedTotal)}</p>
+              <p className="mt-0.5 text-[12px] text-fg-mute">
+                {scheduleActive.length} parcela{scheduleActive.length === 1 ? '' : 's'}
+              </p>
+            </div>
+            <div className="rounded-xl bg-surface p-4">
+              <p className="text-[12px] text-fg-mute">Já emitido</p>
+              <p className="mt-1 text-lg font-bold text-fg">{formatCurrency(scheduleIssued)}</p>
+              <p className="mt-0.5 text-[12px] text-fg-mute">virou cobrança</p>
+            </div>
+            <div className="rounded-xl bg-surface p-4">
+              <p className="text-[12px] text-fg-mute">A emitir</p>
+              <p className="mt-1 text-lg font-bold text-info">{formatCurrency(backlog)}</p>
+              {/* Carteira contratada ≠ contas a receber: isto ainda não é
+                  dívida do cliente, é previsão do contrato. */}
+              <p className="mt-0.5 text-[12px] text-fg-mute">ainda não cobrado</p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl bg-surface">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-b border-divider text-fg-mute">
+                  <th className="h-9 w-12 px-4 text-left font-medium">#</th>
+                  <th className="h-9 px-4 text-left font-medium">Período</th>
+                  <th className="h-9 px-4 text-left font-medium">Vencimento</th>
+                  <th className="h-9 px-4 text-right font-medium">Valor</th>
+                  <th className="h-9 px-4 text-right font-medium">Situação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {schedule.map((l) => {
+                  const st = SCHEDULE_STATUS[l.status]
+                  return (
+                    <tr key={l.id} className="border-b border-divider last:border-0">
+                      <td className="h-9 px-4 font-mono text-fg-mute">{l.sequence_number}</td>
+                      <td className="h-9 px-4 text-fg-mute">
+                        {fmt(l.period_start)} a {fmt(l.period_end)}
+                      </td>
+                      <td className="h-9 px-4 text-fg">{fmt(l.due_date)}</td>
+                      <td className="h-9 px-4 text-right font-mono tabular-nums text-fg">
+                        {formatCurrency(l.amount)}
+                      </td>
+                      <td className={`h-9 px-4 text-right ${st.cls}`}>{st.label}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
