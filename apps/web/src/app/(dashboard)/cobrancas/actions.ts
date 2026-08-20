@@ -144,17 +144,17 @@ export async function receivePaymentAction(
       receivedBy: ctx.userId,
     })
 
-    if (result.unallocated > 0) {
-      const { error } = await ctx.supabase.from('customer_credits').insert({
-        tenant_id: ctx.tenantId,
-        customer_id: parsed.data.customer_id,
-        amount: result.unallocated,
-        origin: 'overpayment',
-        reason: 'Sobra de pagamento sem cobrança em aberto',
-        created_by: ctx.userId,
-      })
-      if (error) return fail('INTERNAL', `Pagamento registrado, mas o crédito da sobra falhou: ${error.message}`)
-    }
+    // A sobra virava crédito AQUI: inseria a linha em `customer_credits` e não
+    // lançava nada no razão. Como o saldo de crédito agrega `creditos_de_clientes`,
+    // o crédito nascia visível na ficha do cliente e impossível de aplicar — e o
+    // dinheiro do pagamento existia em `payments` e em lugar nenhum do razão.
+    // Verificado na tela: R$ 50.000.000,00 numa cobrança de R$ 500,00 deixaram
+    // R$ 49.999.500,00 nesse limbo, sem mensagem nenhuma.
+    //
+    // `receivePayment` passou a recusar valor que não cabe na dívida (decisão do
+    // produto: quem quer receber a mais registra o devido e concede o crédito à
+    // parte, pela ficha do cliente, onde o lançamento é feito). Este bloco ficou
+    // inalcançável, e código morto com defeito dentro é pior que nenhum.
 
     await logAction({
       action: 'create',

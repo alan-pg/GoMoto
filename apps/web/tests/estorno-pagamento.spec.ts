@@ -353,3 +353,122 @@ test.describe('Estorno de pagamento', () => {
     ).toBe(320)
   })
 })
+
+/**
+ * Dinheiro que não cabe na dívida não entra.
+ *
+ * `receivePayment` calculava `unallocated` — o que sobrava depois de alocar —
+ * devolvia no retorno e nenhum chamador lia. A linha em `payments` gravava o
+ * valor cheio e o razão recebia só as alocações: a diferença existia na tabela
+ * de pagamentos e em lugar nenhum do razão.
+ *
+ * Verificado na tela: R$ 50.000.000,00 aceitos numa cobrança de R$ 500,00, sem
+ * mensagem, deixando R$ 49.999.500,00 órfãos. O caixa deixava de ser a soma dos
+ * lançamentos — a invariante central do módulo.
+ */
+test.describe('Pagamento acima do saldo', () => {
+  // Fixtures próprias: o `afterAll` do bloco anterior apaga cliente e veículo,
+  // e as variáveis de módulo passam a apontar para linhas que já não existem.
+  test.beforeAll(async () => {
+    const v = await createTestVehicle()
+    vehicleId = v.id
+    const contrato = await createTestContract(vehicleId)
+    customerId = contrato.customerId
+    rentalId = contrato.contractId
+  })
+
+  test.afterAll(async () => {
+    await admin().from('rentals').delete().eq('id', rentalId)
+    await deleteTestCustomer(customerId).catch(() => {})
+    await deleteTestVehicle(vehicleId).catch(() => {})
+  })
+
+  test('recusa e não grava nada', async () => {
+    const tenantId = await getTestTenantId()
+    const charge = await createCharge(admin(), tenantId, {
+      customerId, rentalId,
+      dueDate: new Date().toISOString().slice(0, 10),
+      sourceModule: 'manual',
+      items: [{
+        description: `${TEST_TAG} Acima do saldo`,
+        credit_account_code: 'receita_locacao',
+        quantity: 1, unit_amount: 500, amount: 500,
+      }],
+    })
+
+    const caixaAntes = await saldoConta('caixa_e_bancos')
+    const { count: pagamentosAntes } = await admin()
+      .from('payments').select('id', { count: 'exact', head: true })
+      .eq('customer_id', customerId)
+
+    await expect(receivePayment(admin(), tenantId, {
+      customerId, amount: 50_000_000, method: 'pix', paidAt: new Date(),
+      allocations: [{ chargeId: charge.chargeId, amount: 500 }],
+    })).rejects.toThrow(/acima do saldo/i)
+
+    // Nada gravado: nem pagamento, nem lançamento.
+    const { count: pagamentosDepois } = await admin()
+      .from('payments').select('id', { count: 'exact', head: true })
+      .eq('customer_id', customerId)
+    expect(pagamentosDepois, 'gravou o pagamento mesmo recusando').toBe(pagamentosAntes)
+    expect(await saldoConta('caixa_e_bancos'), 'o caixa se moveu').toBe(caixaAntes)
+
+    const s = await saldo(charge.chargeId)
+    expect(s.open_amount, 'a cobrança foi tocada').toBe(500)
+  })
+
+  test('recusa também quando ninguém informa a alocação', async () => {
+    // Sem alocação explícita o valor é espalhado pelas cobranças abertas. O que
+    // sobrar depois disso também não pode entrar.
+    const tenantId = await getTestTenantId()
+    const charge = await createCharge(admin(), tenantId, {
+      customerId, rentalId,
+      dueDate: new Date().toISOString().slice(0, 10),
+      sourceModule: 'manual',
+      items: [{
+        description: `${TEST_TAG} Sem alocacao`,
+        credit_account_code: 'receita_locacao',
+        quantity: 1, unit_amount: 120, amount: 120,
+      }],
+    })
+
+    const caixaAntes = await saldoConta('caixa_e_bancos')
+
+    await expect(receivePayment(admin(), tenantId, {
+      customerId, amount: 999_999, method: 'pix', paidAt: new Date(),
+    })).rejects.toThrow(/saldo/i)
+
+    expect(await saldoConta('caixa_e_bancos')).toBe(caixaAntes)
+    expect((await saldo(charge.chargeId)).open_amount).toBe(120)
+  })
+
+  test('valor exato e valor menor continuam passando', async () => {
+    const tenantId = await getTestTenantId()
+    const charge = await createCharge(admin(), tenantId, {
+      customerId, rentalId,
+      dueDate: new Date().toISOString().slice(0, 10),
+      sourceModule: 'manual',
+      items: [{
+        description: `${TEST_TAG} Parcial e exato`,
+        credit_account_code: 'receita_locacao',
+        quantity: 1, unit_amount: 300, amount: 300,
+      }],
+    })
+
+    // Parcial: a cobrança segue em aberto pelo restante.
+    await receivePayment(admin(), tenantId, {
+      customerId, amount: 100, method: 'pix', paidAt: new Date(),
+      allocations: [{ chargeId: charge.chargeId, amount: 100 }],
+    })
+    expect((await saldo(charge.chargeId)).open_amount).toBe(200)
+
+    // Exato sobre o que restou: quita.
+    await receivePayment(admin(), tenantId, {
+      customerId, amount: 200, method: 'pix', paidAt: new Date(),
+      allocations: [{ chargeId: charge.chargeId, amount: 200 }],
+    })
+    const s = await saldo(charge.chargeId)
+    expect(s.open_amount).toBe(0)
+    expect(s.status).toBe('paid')
+  })
+})

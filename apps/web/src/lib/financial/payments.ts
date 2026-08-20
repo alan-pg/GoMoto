@@ -11,6 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   allocatePayment,
   calculateAccruedCharges,
+  formatCurrency as formatBRL,
   type ChargeBalance,
   type LateChargePolicy,
 } from '@gomoto/core'
@@ -137,6 +138,28 @@ export async function receivePayment(
       throw new Error('A soma das alocações excede o valor recebido')
     }
     unallocated = round2(params.amount - total)
+  }
+
+  // Dinheiro que não cabe na dívida não entra.
+  //
+  // `unallocated` era calculado, devolvido no retorno e ignorado por todos os
+  // chamadores. A linha em `payments` registrava o valor cheio e o razão só
+  // recebia as alocações — a diferença sumia. Verificado no banco de teste:
+  // R$ 50.000.000,00 registrados numa cobrança de R$ 500,00, com R$ 49.999.500
+  // existindo em `payments` e em lugar nenhum do razão. O caixa deixava de ser
+  // a soma dos lançamentos, que é a invariante central do módulo.
+  //
+  // Recusar é a decisão do produto: cliente que paga a mais tem outro caminho
+  // (registrar o valor devido e conceder crédito à parte), e assim o erro de
+  // digitação para na porta em vez de virar passivo silencioso.
+  if (unallocated > 0) {
+    const alocado = round2(params.amount - unallocated)
+    throw new Error(
+      alocado > 0
+        ? `Valor acima do saldo. Esta cobrança comporta ${formatBRL(alocado)}, `
+          + `e foram informados ${formatBRL(params.amount)}.`
+        : 'Não há saldo em aberto para receber este valor.',
+    )
   }
 
   const { data: payment, error: paymentError } = await supabase

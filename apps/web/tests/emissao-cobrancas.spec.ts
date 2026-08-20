@@ -403,6 +403,17 @@ test.describe('Emissão de cobranças a partir do cronograma', () => {
  * com pro rata embutido. E a soma vive no BANCO porque uma carteira real passa
  * das 1.000 linhas que o PostgREST devolve (ADR 0025).
  */
+/** Leitura da view, para comparar antes e depois. */
+async function previsaoDoMes(mes: string): Promise<{ amount: number; lines: number }> {
+  const { data } = await getSupabaseAdmin()
+    .from('schedule_by_month')
+    .select('scheduled_amount, scheduled_lines')
+    .eq('month', `${mes}-01`)
+    .maybeSingle()
+  const row = data as { scheduled_amount: number; scheduled_lines: number } | null
+  return { amount: Number(row?.scheduled_amount ?? 0), lines: Number(row?.scheduled_lines ?? 0) }
+}
+
 test.describe('Previsão do cronograma por mês', () => {
   test('soma o que vence no mês, sem misturar unidade de ciclo', async () => {
     const tenantId = await getTestTenantId()
@@ -410,6 +421,7 @@ test.describe('Previsão do cronograma por mês', () => {
     const c = await createTestContract(v.id)
 
     const mes = '2027-04'
+    const antes = await previsaoDoMes(mes)
     const linhas = [
       { seq: 900, due: `${mes}-06`, amount: 350, status: 'scheduled' },
       { seq: 901, due: `${mes}-13`, amount: 350, status: 'scheduled' },
@@ -429,15 +441,13 @@ test.describe('Previsão do cronograma por mês', () => {
       })
     }
 
-    const { data } = await admin()
-      .from('schedule_by_month')
-      .select('scheduled_amount, scheduled_lines')
-      .eq('month', `${mes}-01`)
-      .maybeSingle()
+    const depois = await previsaoDoMes(mes)
 
-    const row = data as { scheduled_amount: number; scheduled_lines: number } | null
-    expect(Number(row?.scheduled_amount), 'cancelada entrou, ou emitida ficou de fora').toBe(1050)
-    expect(Number(row?.scheduled_lines)).toBe(3)
+    // Delta, não total: a view agrega por TENANT, e outros testes deixam
+    // cronograma no mesmo mês. Medir o absoluto tornava o teste refém da ordem
+    // de execução — foi o que aconteceu na primeira rodada da suíte inteira.
+    expect(depois.amount - antes.amount, 'cancelada entrou, ou emitida ficou de fora').toBe(1050)
+    expect(depois.lines - antes.lines).toBe(3)
 
     await deleteTestCustomer(c.customerId).catch(() => {})
     await deleteTestVehicle(v.id).catch(() => {})
@@ -455,15 +465,16 @@ test.describe('Previsão do cronograma por mês', () => {
       amount: 500, status: 'scheduled',
     })
 
-    const antes = await admin().from('schedule_by_month')
-      .select('scheduled_amount').eq('month', `${mes}-01`).maybeSingle()
-    expect(Number((antes.data as { scheduled_amount: number } | null)?.scheduled_amount)).toBe(500)
+    const comContratoAtivo = await previsaoDoMes(mes)
+    expect(comContratoAtivo.amount).toBeGreaterThanOrEqual(500)
 
     await admin().from('rentals').update({ status: 'closed' }).eq('id', c.contractId)
 
-    const depois = await admin().from('schedule_by_month')
-      .select('scheduled_amount').eq('month', `${mes}-01`).maybeSingle()
-    expect(depois.data, 'contrato encerrado continuou previsto').toBeNull()
+    const depoisDeEncerrar = await previsaoDoMes(mes)
+    expect(
+      comContratoAtivo.amount - depoisDeEncerrar.amount,
+      'contrato encerrado continuou previsto',
+    ).toBe(500)
 
     await deleteTestCustomer(c.customerId).catch(() => {})
     await deleteTestVehicle(v.id).catch(() => {})

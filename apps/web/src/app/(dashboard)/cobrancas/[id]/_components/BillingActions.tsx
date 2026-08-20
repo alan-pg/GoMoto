@@ -61,6 +61,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
 
   // Register Payment form
   const [payAmount, setPayAmount]   = useState(amountDue > 0 ? amountDue.toFixed(2) : '')
+  const excedeSaldo = (parseFloat(payAmount) || 0) > amountDue
   const [payMethod, setPayMethod]   = useState('pix')
   const [payNotes, setPayNotes]     = useState('')
 
@@ -95,17 +96,26 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
   function handlePay() {
     const amount = parseFloat(payAmount)
     if (isNaN(amount) || amount <= 0) { setFlashError('Valor inválido'); return }
+    if (amount > amountDue) {
+      setFlashError(`Acima do saldo de ${formatCurrency(amountDue)}.`)
+      return
+    }
     setFlashError(null)
     startTransition(async () => {
       // Recebimento é do cliente, alocado a esta cobrança. Valor menor que o
       // devido é aceito: a cobrança segue em aberto com o saldo restante.
+      //
+      // A alocação era `Math.min(amount, amountDue)` — limitava a alocação e
+      // deixava o pagamento com o valor cheio, criando a sobra que sumia. Com o
+      // valor já barrado acima, alocar o valor inteiro é o correto: o que entra
+      // no caixa é exatamente o que quita a dívida.
       const result = await receivePaymentAction({
         customer_id: customerId,
         amount,
         method:      payMethod,
         paid_at:     new Date().toISOString(),
         notes:       payNotes || undefined,
-        allocations: [{ charge_id: billingId, amount: Math.min(amount, amountDue) }],
+        allocations: [{ charge_id: billingId, amount }],
       })
       if (!result.ok) { setFlashError(result.error.message); return }
       setPayOpen(false)
@@ -202,14 +212,30 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
       {/* ── Registrar pagamento ────────────────────────────────────────────── */}
       <Modal open={payOpen} onClose={() => setPayOpen(false)} title="Registrar pagamento">
         <div className="space-y-4">
+          {/* O campo cedia qualquer valor: R$ 50.000.000,00 numa cobrança de
+              R$ 500,00 passavam sem aviso. A alocação era limitada ao saldo e o
+              excedente sumia — ficava em `payments` e nunca no razão. O teto
+              aqui é conveniência; quem recusa de verdade é `receivePayment`,
+              porque tela se contorna. */}
           <Input
             label="Valor pago (R$)"
             type="number"
             step="0.01"
             min="0.01"
+            max={amountDue.toFixed(2)}
             value={payAmount}
             onChange={e => setPayAmount(e.target.value)}
           />
+          <p className="-mt-2 text-[12px] text-fg-mute">
+            Saldo desta cobrança: {formatCurrency(amountDue)}. Valor menor é
+            aceito — ela segue em aberto pelo restante.
+          </p>
+          {excedeSaldo && (
+            <p className="text-[13px] text-danger">
+              Acima do saldo de {formatCurrency(amountDue)}. Para receber a mais,
+              registre o valor devido e conceda o excedente como crédito ao cliente.
+            </p>
+          )}
           <Select
             label="Forma de pagamento"
             value={payMethod}
@@ -232,7 +258,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, accru
             </button>
             <button
               onClick={handlePay}
-              disabled={isPending}
+              disabled={isPending || excedeSaldo}
               className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-primary-hover disabled:opacity-50"
             >
               {isPending ? 'Salvando…' : 'Confirmar pagamento'}

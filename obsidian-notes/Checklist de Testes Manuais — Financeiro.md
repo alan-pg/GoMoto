@@ -88,21 +88,21 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
   -c "SELECT fn_run_billing_emission('manual');"
 ```
 
-- [ ] Rode o comando acima.
+- [x] Rode o comando acima.
 
 **Verificar:**
-- [ ] A parcela aparece em **Cobranças** com o valor do cronograma.
-- [ ] Em **Cobranças**, o total "A receber" subiu exatamente pelo valor da
+- [x] A parcela aparece em **Cobranças** com o valor do cronograma.
+- [x] Em **Cobranças**, o total "A receber" subiu exatamente pelo valor da
       parcela.
-- [ ] A linha do cronograma correspondente saiu de *agendada* para *emitida*.
+- [x] A linha do cronograma correspondente saiu de *agendada* para *emitida*.
 
 ### 1.4 Emitir duas vezes não duplica
 
-- [ ] Rode o **mesmo comando** de novo, sem que nova parcela tenha começado.
+- [x] Rode o **mesmo comando** de novo, sem que nova parcela tenha começado.
 
 **Verificar:**
-- [ ] **Nenhuma cobrança nova** foi criada.
-- [ ] O total "A receber" não mudou.
+- [x] **Nenhuma cobrança nova** foi criada.
+- [x] O total "A receber" não mudou.
 
 ---
 
@@ -110,18 +110,18 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 2.1 Pagamento total
 
-- [ ] Abra a cobrança da caução (R$ 500) → **Registrar pagamento**, valor cheio,
+- [x] Abra a cobrança da caução (R$ 500) → **Registrar pagamento**, valor cheio,
       forma **PIX**.
 
 **Verificar:**
-- [ ] A cobrança passa a **Paga**, com "R$ 0,00 a pagar".
-- [ ] O pagamento aparece listado na própria cobrança, com data e forma.
-- [ ] No Painel financeiro, **Caixa** subiu R$ 500 em relação a **P2**.
-- [ ] Em **DRE**, a receita **não** subiu (caução é passivo).
+- [x] A cobrança passa a **Paga**, com "R$ 0,00 a pagar".
+- [x] O pagamento aparece listado na própria cobrança, com data e forma.
+- [x] No Painel financeiro, **Caixa** subiu R$ 500 em relação a **P2**.
+- [x] Em **DRE**, a receita **não** subiu (caução é passivo).
 
 ### 2.2 Pagamento parcial
 
-- [ ] Na parcela semanal de R$ 350, registre pagamento de **R$ 150**.
+- [x] Na parcela semanal de R$ 350, registre pagamento de **R$ 150**.
 
 **Verificar:**
 - [ ] A cobrança continua **Em aberto**, mostrando **R$ 200,00 a pagar**.
@@ -141,8 +141,14 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 - [ ] Em uma cobrança em aberto, tente registrar valor **maior** que o saldo.
 
 **Verificar:**
-- [ ] O sistema recusa, com mensagem explicando o motivo.
-- [ ] Nada foi gravado: o saldo da cobrança não mudou.
+- [ ] O campo mostra o saldo da cobrança e avisa quando o valor passa dele.
+- [ ] O botão **Confirmar pagamento** fica desabilitado enquanto o valor exceder.
+- [ ] Nada foi gravado: o saldo da cobrança não mudou, e o card **Recebido** e o
+      **Caixa** continuam iguais.
+
+> O aviso sugere o caminho para receber a mais de propósito: registrar o valor
+> devido e conceder o excedente como **crédito** na ficha do cliente — lá o
+> lançamento é feito, e o crédito fica utilizável.
 
 ---
 
