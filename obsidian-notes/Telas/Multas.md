@@ -131,7 +131,7 @@ A **placa extraída** é cruzada com `useVehicles()` via `matchVehicleByPlate` (
 
 > ⚠️ **Nenhuma Server Action deste arquivo importa de `@gomoto/data`.** O barrel do pacote (`packages/data/src/index.ts`) reexporta `./context` (client-only, `createContext`) junto com os repositórios — importar qualquer coisa de lá num arquivo `'use server'` quebra o boundary Server/Client do Next.js. Todas as queries daqui usam o `supabase` do escopo direto, mesmo padrão de `createFine`/`markFineAsPaid`/`syncFineBilling`.
 
-`DOCUMENT_EXTRACTION_MOCK=1` no servidor troca a chamada real por um resultado fixo, usado pela suíte E2E (`document-extraction-multa.spec.ts`) — o RENAINF do fixture é derivado do nome do arquivo (`mockRenainfNumber`) pra não colidir com a dedup entre os testes da suíte.
+Fora de produção a extração é SIMULADA por padrão — a suíte E2E (`document-extraction-multa.spec.ts`) roda sem configurar nada, e `DOCUMENT_EXTRACTION_REAL=1` exercita a IA de verdade — o RENAINF do fixture é derivado do nome do arquivo (`mockRenainfNumber`) pra não colidir com a dedup entre os testes da suíte.
 
 ### Responsável pelo pagamento → Cobrança automática (revisado em 2026-08-11)
 

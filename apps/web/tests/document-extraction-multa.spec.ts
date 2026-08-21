@@ -2,7 +2,8 @@
  * @file document-extraction-multa.spec.ts
  * @description Spec 0012 §9.2 — extração de notificação de multa via IA.
  *
- * Requer o servidor dev rodando com `DOCUMENT_EXTRACTION_MOCK=1`
+ * A extração é SIMULADA por padrão fora de produção — nada a configurar.
+ * Para exercitar a IA de verdade: `DOCUMENT_EXTRACTION_REAL=1`
  * (ver obsidian-notes/Desenvolvimento Local.md).
  */
 import { test, expect } from '@playwright/test'

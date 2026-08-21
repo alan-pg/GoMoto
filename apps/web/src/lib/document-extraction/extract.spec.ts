@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const { generateTextMock } = vi.hoisted(() => ({ generateTextMock: vi.fn() }))
 
@@ -8,6 +8,7 @@ vi.mock('ai', async (importOriginal) => {
 })
 
 const { extractFields, EXTRACTION_TIMEOUT_MS } = await import('./extract')
+const { isMockEnabled } = await import('./mock')
 
 function makeFile(name = 'cnh.pdf', type = 'application/pdf'): File {
   return new File([new Uint8Array([1, 2, 3])], name, { type })
@@ -15,7 +16,13 @@ function makeFile(name = 'cnh.pdf', type = 'application/pdf'): File {
 
 beforeEach(() => {
   generateTextMock.mockReset()
-  delete process.env.DOCUMENT_EXTRACTION_MOCK
+  // Fora de produção a simulação é o PADRÃO. Estes testes exercitam o caminho
+  // real — o dispatch para o provedor —, então pedem explicitamente por ele.
+  process.env.DOCUMENT_EXTRACTION_REAL = '1'
+})
+
+afterEach(() => {
+  delete process.env.DOCUMENT_EXTRACTION_REAL
 })
 
 describe('extractFields — dispatch do registry', () => {
@@ -120,10 +127,14 @@ describe('extractFields — falhas (RNF-001/CA-010)', () => {
   })
 })
 
-describe('extractFields — DOCUMENT_EXTRACTION_MOCK', () => {
-  it('não chama o provedor real quando o mock está habilitado', async () => {
-    process.env.DOCUMENT_EXTRACTION_MOCK = '1'
+describe('extractFields — simulação por padrão fora de produção', () => {
+  beforeEach(() => {
+    // Sem a variável: é o estado normal de quem roda `pnpm dev` ou a suíte E2E
+    // sem lembrar de configurar nada.
+    delete process.env.DOCUMENT_EXTRACTION_REAL
+  })
 
+  it('não chama o provedor real quando ninguém pede pelo real', async () => {
     const result = await extractFields('cnh', makeFile())
 
     expect(generateTextMock).not.toHaveBeenCalled()
@@ -131,10 +142,29 @@ describe('extractFields — DOCUMENT_EXTRACTION_MOCK', () => {
   })
 
   it('arquivo "mock-fail" simula falha do provedor', async () => {
-    process.env.DOCUMENT_EXTRACTION_MOCK = '1'
-
     const result = await extractFields('cnh', makeFile('cnh-mock-fail.pdf'))
 
     expect(result).toBeNull()
+  })
+
+  it('PRODUÇÃO nunca simula, mesmo com a variável setada por engano', async () => {
+    // O modo de falha aqui seria cadastrar cliente com o CPF fixo do fixture.
+    // Não pode depender de disciplina de configuração no deploy.
+    // `vi.stubEnv` porque `process.env.NODE_ENV` é somente-leitura sob vitest e
+    // `Object.defineProperty` recusa o descritor.
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      expect(isMockEnabled()).toBe(false)
+
+      vi.stubEnv('DOCUMENT_EXTRACTION_REAL', '0')
+      expect(isMockEnabled(), 'produção simulou extração').toBe(false)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('DOCUMENT_EXTRACTION_REAL=1 devolve o caminho real', async () => {
+    process.env.DOCUMENT_EXTRACTION_REAL = '1'
+    expect(isMockEnabled()).toBe(false)
   })
 })

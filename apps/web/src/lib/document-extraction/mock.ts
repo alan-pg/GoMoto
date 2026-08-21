@@ -2,13 +2,25 @@ import type { ExtractionDocumentType, ExtractionResult, CnhFields, FineNoticeFie
 import { summarize, type RegistryFieldsOf } from './shared'
 
 /**
- * `DOCUMENT_EXTRACTION_MOCK` só existe no ambiente de teste E2E (Spec 0012
- * §2.2/§9.2) — nunca setada em produção. Substitui a chamada real ao Gemini
- * por um `ExtractionResult` fixo, sem gastar chamada de IA nem exigir
- * `AI_GATEWAY_API_KEY` local.
+ * Fora de produção, a extração é SIMULADA por padrão.
+ *
+ * A regra era o contrário — real por padrão, mock só com
+ * `DOCUMENT_EXTRACTION_MOCK=1`. Na prática ninguém lembra da variável: bastava
+ * reiniciar o dev server sem ela para cinco testes E2E falharem por motivo
+ * ambiental, e a suíte passava a mentir sobre o estado do código. Aconteceu
+ * várias vezes nesta base.
+ *
+ * Padrão invertido, com uma trava: **produção nunca simula**. Mesmo que a
+ * variável esteja setada por engano no deploy, `NODE_ENV === 'production'`
+ * força a extração real — o modo de falha aqui seria cadastrar cliente com o
+ * CPF fixo do fixture, e isso não pode depender de disciplina de configuração.
+ *
+ * Para exercitar a IA de verdade em desenvolvimento (custa chamada e exige
+ * `AI_GATEWAY_API_KEY`): `DOCUMENT_EXTRACTION_REAL=1`.
  */
 export function isMockEnabled(): boolean {
-  return process.env.DOCUMENT_EXTRACTION_MOCK === '1'
+  if (process.env.NODE_ENV === 'production') return false
+  return process.env.DOCUMENT_EXTRACTION_REAL !== '1'
 }
 
 const CNH_FIXTURE: CnhFields = {

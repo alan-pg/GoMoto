@@ -443,7 +443,7 @@ nada. Reescritas contra a UI atual, e o caminho revelou mais dois defeitos.
 | `veiculos` | O wizard em modal virou página; a edição virou rota | `createVehicle` devolvia "Erro ao cadastrar veículo" sem o motivo do banco |
 | `clientes` | A edição virou rota | `createCustomer`/`updateCustomer` diziam só "Dados inválidos"; o `details` vinha no retorno e a tela nunca exibiu |
 | `manutencao` | `getModal` pegava o primeiro de **cinco** modais montados | **Agendar manutenção estava quebrado**: o payload enviava `cost`, removida pela ADR 0024. O erro ia para um `alert()`, que o Playwright dispensa em silêncio |
-| `document-extraction` (5) | O dev server precisa de `DOCUMENT_EXTRACTION_MOCK=1`; sem ela o Server Action chama o Gemini de verdade | — |
+| `document-extraction` (5) | ~~Precisava de `DOCUMENT_EXTRACTION_MOCK=1` no dev server~~ — resolvido: simulação virou o padrão fora de produção | — |
 | `document-extraction-multa` (3) | "Responsável pelo pagamento" virou obrigatório na PRD 0013 (11/08); a suíte é de 09/08 | `<select>` obrigatório vazio bloqueia o submit **sem renderizar nada** |
 
 Duas correções de fixture que valem além destas specs: o CPF do cliente de

@@ -2,7 +2,8 @@
  * @file document-extraction-cliente.spec.ts
  * @description Spec 0012 §9.2 — extração de CNH via IA na tela de Cliente.
  *
- * Requer o servidor dev rodando com `DOCUMENT_EXTRACTION_MOCK=1`
+ * A extração é SIMULADA por padrão fora de produção — nada a configurar.
+ * Para exercitar a IA de verdade: `DOCUMENT_EXTRACTION_REAL=1`
  * (ver obsidian-notes/Desenvolvimento Local.md) — sem isso, o Server Action
  * tentaria chamar o Gemini de verdade e essa suíte falharia/travaria no timeout.
  *
