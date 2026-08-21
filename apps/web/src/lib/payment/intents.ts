@@ -102,7 +102,7 @@ export async function getOrCreateIntent(
   }
 
   const policy = await resolvePolicy(supabase, tenantId, chargeId)
-  const { amount_due } = calculateAmountDue(b, policy)
+  const { accrued, amount_due } = calculateAmountDue(b, policy)
 
   if (amount_due <= 0) {
     throw Object.assign(new Error('Nada a cobrar nesta cobrança'), { code: 'CONFLICT' })
@@ -166,6 +166,13 @@ export async function getOrCreateIntent(
       method,
       provider_intent_id: created.providerIntentId,
       amount: amount_due,
+      // Quanto deste QR é encargo. A confirmação precisa saber para realizá-lo
+      // antes de alocar — sem isso o cliente paga principal + encargo, a
+      // cobrança só deve o principal, e o saldo fica NEGATIVO com o encargo
+      // nunca virando receita. Guardar em vez de recalcular na confirmação:
+      // entre gerar o código e o cliente pagar passam horas, e um recálculo
+      // daria outro número, deixando a conta sem fechar.
+      accrued_amount: accrued.total,
       status: 'pending',
       expires_at: created.expiresAt,
       payload: created.payload,

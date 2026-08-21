@@ -34,7 +34,7 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { useChargesList, useCustomers, useActiveRentals } from '@gomoto/data'
-import { ACCOUNTS } from '@gomoto/core'
+import { ACCOUNTS, calculateAmountDue } from '@gomoto/core'
 import {
   createChargeAction,
   receivePaymentAction,
@@ -60,6 +60,12 @@ const PAYMENT_METHODS = [
   { value: 'debit_card', label: 'Cartão de débito' },
   { value: 'other', label: 'Outro' },
 ]
+
+/** Hoje em `YYYY-MM-DD` local — `toISOString` devolve UTC e vira ontem à noite. */
+function hoje(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 const emptyForm = {
   customer_id: '',
@@ -102,6 +108,10 @@ export default function CobrancasPage() {
   const [receiving, setReceiving] = useState<ChargeRow | null>(null)
   const [receiveAmount, setReceiveAmount] = useState('')
   const [receiveMethod, setReceiveMethod] = useState('pix')
+  /** Data em que o dinheiro entrou — não a de hoje. O encargo cobrado é o
+   *  daquele dia: registrar na quarta um Pix recebido na segunda cobrava dois
+   *  dias de juros que não correram. */
+  const [receiveDate, setReceiveDate] = useState(hoje())
 
   const [cancelling, setCancelling] = useState<ChargeRow | null>(null)
   const [writingOff, setWritingOff] = useState<ChargeRow | null>(null)
@@ -201,14 +211,18 @@ export default function CobrancasPage() {
     if (!receiving) return
 
     const amount = Number(receiveAmount)
+    const quando = new Date(`${receiveDate}T12:00:00`)
+    const devidoNaData = calculateAmountDue(
+      receiving, receiving.late_charge_policy ?? null, quando,
+    ).amount_due
 
     // Guarda no clique, além da trava do campo: colar via devtools, autofill ou
     // um estado antigo não podem passar. Quem recusa de verdade é o servidor,
     // mas o operador merece a resposta aqui, não depois do round-trip.
-    if (amount > receiving.amount_due) {
+    if (amount > devidoNaData) {
       setModalError(
-        `Não é possível registrar ${formatCurrency(amount)}: esta cobrança deve `
-        + `${formatCurrency(receiving.amount_due)}. Nada foi gravado.`,
+        `Não é possível registrar ${formatCurrency(amount)}: em ${formatDate(receiveDate)} `
+        + `esta cobrança devia ${formatCurrency(devidoNaData)}. Nada foi gravado.`,
       )
       return
     }
@@ -221,7 +235,7 @@ export default function CobrancasPage() {
       customer_id: receiving.customer_id,
       amount,
       method: receiveMethod,
-      paid_at: new Date().toISOString(),
+      paid_at: quando.toISOString(),
       // Era `Math.min(amount, amount_due)`: limitava a ALOCAÇÃO e deixava o
       // pagamento com o valor cheio, criando a sobra que sumia do razão.
       allocations: [{ charge_id: receiving.charge_id, amount }],
@@ -422,7 +436,7 @@ export default function CobrancasPage() {
                         <button
                           title="Registrar recebimento"
                           onClick={() => {
-                            setModalError(null); setReceiving(c)
+                            setModalError(null); setReceiveDate(hoje()); setReceiveAmount(c.amount_due.toFixed(2)); setReceiving(c)
                             setReceiveAmount(String(c.amount_due))
                           }}
                           className="p-1 text-[var(--fg-soft)] hover:text-[var(--success)]"
@@ -552,7 +566,15 @@ export default function CobrancasPage() {
 
       {/* Recebimento -------------------------------------------------- */}
       <Modal open={!!receiving} onClose={() => setReceiving(null)} title="Registrar recebimento">
-        {receiving && (
+        {receiving && (() => {
+          // O devido muda com a data: menos dias de atraso, menos juros. A
+          // política vem junto na linha justamente para isto.
+          const naData = calculateAmountDue(
+            receiving,
+            receiving.late_charge_policy ?? null,
+            new Date(`${receiveDate}T12:00:00`),
+          )
+          return (
           <div className="space-y-4">
             <div className="border border-[var(--divider)] bg-[var(--surface-2)] p-3 text-[13px]">
               <div className="flex justify-between">
@@ -571,6 +593,34 @@ export default function CobrancasPage() {
               )}
             </div>
 
+            {/* Data em que o dinheiro ENTROU. Antes ia `new Date()` fixo: quem
+                via o Pix na segunda e registrava na quarta cobrava do cliente
+                dois dias de juros que não correram. Futuro é barrado — um
+                pagamento que ainda não aconteceu não se registra. */}
+            <Input
+              label="Data do recebimento"
+              type="date"
+              max={hoje()}
+              value={receiveDate}
+              onChange={(e) => {
+                const v = e.target.value
+                if (v > hoje()) {
+                  setModalError('A data do recebimento não pode ser futura.')
+                  return
+                }
+                setReceiveDate(v)
+                setModalError(null)
+                // O devido mudou com a data; o valor sugerido acompanha.
+                setReceiveAmount(
+                  calculateAmountDue(
+                    receiving,
+                    receiving.late_charge_policy ?? null,
+                    new Date(`${v}T12:00:00`),
+                  ).amount_due.toFixed(2),
+                )
+              }}
+            />
+
             {/* O campo aceitava qualquer valor e a alocação era limitada ao
                 devido — o excedente ficava em `payments` e nunca no razão.
                 Trava dura: digitar ou colar acima prende no teto e explica. */}
@@ -579,15 +629,15 @@ export default function CobrancasPage() {
               type="number"
               step="0.01"
               min="0.01"
-              max={receiving.amount_due.toFixed(2)}
+              max={naData.amount_due.toFixed(2)}
               value={receiveAmount}
               onChange={(e) => {
                 const v = e.target.value
                 const n = parseFloat(v)
-                if (!isNaN(n) && n > receiving.amount_due) {
-                  setReceiveAmount(receiving.amount_due.toFixed(2))
+                if (!isNaN(n) && n > naData.amount_due) {
+                  setReceiveAmount(naData.amount_due.toFixed(2))
                   setModalError(
-                    `O máximo desta cobrança é ${formatCurrency(receiving.amount_due)}. `
+                    `O máximo desta cobrança é ${formatCurrency(naData.amount_due)}. `
                     + 'Para receber a mais, registre o valor devido e conceda o '
                     + 'excedente como crédito na ficha do cliente.',
                   )
@@ -598,10 +648,10 @@ export default function CobrancasPage() {
               }}
             />
 
-            {Number(receiveAmount) > 0 && Number(receiveAmount) < receiving.amount_due && (
+            {Number(receiveAmount) > 0 && Number(receiveAmount) < naData.amount_due && (
               <p className="text-[12px] text-[var(--pending)]">
                 Recebimento parcial. A cobrança segue em aberto com saldo de{' '}
-                {formatCurrency(receiving.amount_due - Number(receiveAmount))}.
+                {formatCurrency(naData.amount_due - Number(receiveAmount))}.
               </p>
             )}
 
@@ -629,7 +679,8 @@ export default function CobrancasPage() {
               </Button>
             </div>
           </div>
-        )}
+          )
+        })()}
       </Modal>
 
       {/* Cancelamento ------------------------------------------------- */}

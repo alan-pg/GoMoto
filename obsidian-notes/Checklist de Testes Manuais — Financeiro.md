@@ -381,16 +381,36 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 - [ ] A tela mostra o encargo **calculado**.
 - [ ] O DRE **ainda não** tem receita de encargos.
 
-### 6.2 Realizar o encargo
+### 6.2 Receber realiza o encargo
 
-- [ ] Use **Consolidar encargo** na cobrança vencida.
+- [ ] Registre o pagamento da cobrança vencida, pelo valor que a tela oferece.
 
 **Verificar:**
 - [ ] O encargo vira **item da cobrança** e o total sobe.
+- [ ] A cobrança fica **paga**, com saldo zero — nunca negativo.
 - [ ] No DRE aparece **Receita de encargos**.
 - [ ] O encargo aparece atribuído ao veículo correto no ROI.
 
-### 6.3 Pagar com crédito não escapa do encargo
+> Não existe mais botão "Consolidar encargo". Ele recalculava o encargo do zero
+> a cada clique — multa sobre o saldo já acrescido, juros de todos os dias desde
+> o vencimento — e quatro cliques no mesmo dia levavam uma dívida de R$ 1.000
+> para R$ 1.125. Receber é o que realiza o encargo, e sempre foi o caminho que
+> importa.
+
+### 6.3 A data do recebimento manda no encargo
+
+- [ ] Numa cobrança vencida, abra **Registrar recebimento** e mude a **Data do
+      recebimento** para alguns dias atrás.
+
+**Verificar:**
+- [ ] O valor sugerido **diminui** — menos dias de atraso, menos juros.
+- [ ] Data futura é recusada com mensagem.
+- [ ] Registrando, o encargo lançado é o daquela data, não o de hoje.
+
+> É o caso de receber o Pix na segunda e registrar na quarta. Antes o sistema
+> mandava sempre a data de hoje, cobrando dias de juros que não correram.
+
+### 6.4 Pagar com crédito não escapa do encargo
 
 - [ ] Em cobrança vencida, aplique crédito.
 
@@ -496,7 +516,21 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 - [ ] **Nenhum erro** aparece para o cliente.
 - [ ] O **mesmo QR** é devolvido — não são gerados dois.
 
-### 9.3 Confirmação do pagamento
+### 9.3 Pagar em ATRASO pelo app
+
+- [ ] Deixe uma cobrança vencer, gere o Pix pelo app e pague o valor mostrado.
+
+**Verificar:**
+- [ ] A cobrança fica **paga**, com **saldo zero** — nunca negativo.
+- [ ] O total da cobrança cresceu pelo encargo: ele virou item, não sumiu.
+- [ ] No DRE aparece **Receita de encargos** pelo valor cobrado.
+- [ ] No ROI da moto, o encargo entra no resultado dela.
+
+> Este era o defeito: o QR cobrava principal + encargo, o cliente pagava, e a
+> cobrança — que só devia o principal — ficava com saldo NEGATIVO, com o encargo
+> nunca virando receita.
+
+### 9.4 Confirmação do pagamento
 
 - [ ] Pague o Pix.
 
@@ -505,7 +539,7 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 - [ ] **Caixa subiu** pelo valor.
 - [ ] O resultado é idêntico ao de uma baixa manual — mesma forma, mesmo efeito.
 
-### 9.4 Cobrança de outro cliente
+### 9.5 Cobrança de outro cliente
 
 - [ ] Tente abrir/pagar pelo app uma cobrança que não é do cliente logado.
 

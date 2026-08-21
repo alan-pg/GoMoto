@@ -586,6 +586,10 @@ export default async function BillingDetailPage({
             billingId={id}
             status={(balance.is_overdue ? 'overdue' : balance.status)}
             amountDue={amountDue}
+            openAmount={balance.open_amount}
+            dueDate={balance.due_date}
+            chargeStatus={balance.status}
+            latePolicy={policy}
             customerId={billing.customer_id ?? ''}
             availableCredits={availableCredits}
           />

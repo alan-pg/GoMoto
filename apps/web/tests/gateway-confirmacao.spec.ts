@@ -236,3 +236,105 @@ test.describe('Confirmação do gateway', () => {
     expect(error?.message).toContain('AMOUNT_MUST_BE_POSITIVE')
   })
 })
+
+/**
+ * Pagar com atraso pelo app não pode deixar saldo negativo.
+ *
+ * O QR é gerado por `calculateAmountDue`: principal MAIS o encargo do atraso. O
+ * cliente paga esse valor. Mas `fn_confirm_gateway_payment` só alocava o
+ * recebido, sem transformar o encargo em item — a cobrança continuava devendo
+ * apenas o principal.
+ *
+ * Reproduzido antes da correção: cobrança de R$ 350 vencida há 30 dias, app
+ * cobrando R$ 360,47, cliente pagando, e o resultado era `open_amount = −10,47`
+ * com R$ 0,00 de receita de encargo. O encargo sumia do DRE e o saldo ficava
+ * negativo — exatamente o defeito que `realizeAccruedBefore` já havia corrigido
+ * no recebimento manual, e que o caminho do gateway não tinha.
+ */
+test.describe('Gateway com cobrança em atraso', () => {
+  test('o encargo do QR vira item, e a cobrança fica quitada — não negativa', async () => {
+    const tenantId = await getTestTenantId()
+
+    const vencimento = new Date()
+    vencimento.setDate(vencimento.getDate() - 30)
+    const venceEm = vencimento.toISOString().slice(0, 10)
+
+    const { data: politica } = await admin()
+      .from('late_charge_policies').select('id').eq('tenant_id', tenantId).limit(1).maybeSingle()
+
+    const charge = await createCharge(admin(), tenantId, {
+      customerId, rentalId,
+      dueDate: venceEm,
+      sourceModule: 'manual',
+      items: [{
+        description: `${TEST_TAG} Atrasada gateway ${RUN}`,
+        credit_account_code: 'receita_locacao',
+        quantity: 1, unit_amount: 350, amount: 350,
+      }],
+    })
+
+    await admin().from('charges')
+      .update({ late_charge_policy_id: (politica as { id: string }).id })
+      .eq('id', charge.chargeId)
+
+    // O QR cobra principal + encargo, e a tentativa guarda quanto é encargo.
+    const encargo = 350 * 0.02 + Math.round(350 * 0.000330 * 30 * 100) / 100
+    const devido = Math.round((350 + encargo) * 100) / 100
+
+    const { data: intent, error } = await admin()
+      .from('payment_intents')
+      .insert({
+        tenant_id: tenantId, charge_id: charge.chargeId, provider: 'mercadopago',
+        provider_account_id: accountId, provider_intent_id: `mp-atraso-${RUN}`,
+        amount: devido, accrued_amount: Math.round(encargo * 100) / 100,
+        status: 'pending', method: 'pix',
+      })
+      .select('id').single()
+    if (error) throw new Error(`intent: ${error.message}`)
+
+    const paymentId = await entregaEvento(tenantId, (intent as { id: string }).id, devido)
+
+    const s = await saldo(charge.chargeId)
+    expect(s.total_amount, 'o encargo não virou item da cobrança').toBe(devido)
+    expect(s.paid_amount).toBe(devido)
+    expect(s.open_amount, 'saldo negativo: pagou mais do que a cobrança devia').toBe(0)
+    expect(s.status).toBe('paid')
+
+    // E o encargo entrou no resultado como receita.
+    const { data: receita } = await admin()
+      .from('financial_entries')
+      .select('amount_signed')
+      .eq('charge_id', charge.chargeId)
+      .eq('account_code', 'receita_encargos_atraso')
+
+    const total = ((receita ?? []) as { amount_signed: number }[])
+      .reduce((acc, e) => acc - Number(e.amount_signed), 0)
+    expect(total, 'encargo pago pelo app não virou receita').toBeCloseTo(encargo, 2)
+
+    // A dimensão do veículo precisa ir junto, senão o encargo some do ROI.
+    const { data: pernas } = await admin()
+      .from('financial_entries')
+      .select('vehicle_id, financial_transactions!inner(event_type)')
+      .eq('charge_id', charge.chargeId)
+      .eq('financial_transactions.event_type', 'late_charge_realized')
+
+    const p = (pernas ?? []) as { vehicle_id: string | null }[]
+    expect(p.length).toBe(2)
+    for (const perna of p) {
+      expect(perna.vehicle_id, 'encargo sem veículo some do resultado da moto').toBe(vehicleId)
+    }
+    void paymentId
+  })
+
+  test('cobrança em dia pelo gateway não ganha encargo', async () => {
+    const { tenantId, chargeId, intentId } = await cobrancaComIntent(275)
+    await entregaEvento(tenantId, intentId, 275)
+
+    const { data } = await admin()
+      .from('charge_items').select('id')
+      .eq('charge_id', chargeId).eq('source_module', 'late_charge')
+
+    expect(data ?? [], 'cobrança em dia ganhou encargo').toEqual([])
+    expect((await saldo(chargeId)).open_amount).toBe(0)
+  })
+})

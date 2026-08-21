@@ -175,7 +175,11 @@ export function useChargesList() {
 
       return rows.map((r) => {
         const { accrued, amount_due } = calculateAmountDue(r, p)
-        return { ...r, accrued_total: accrued.total, amount_due }
+        // A política vai junto: a tela precisa dela para RECALCULAR o valor
+        // quando o operador informa uma data de pagamento retroativa. Sem isso
+        // o modal ofereceria o valor de hoje para um recebimento de ontem, e o
+        // encargo cobrado seria de dias que não correram.
+        return { ...r, accrued_total: accrued.total, amount_due, late_charge_policy: p }
       })
     },
   })

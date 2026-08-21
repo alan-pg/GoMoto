@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { formatCurrency } from '@/lib/utils'
+import { calculateAmountDue, type LateChargePolicy } from '@gomoto/core'
 import { receivePaymentAction, cancelChargeAction } from '../../actions'
 import { applyCustomerCredits } from '../actions'
 
@@ -20,7 +21,19 @@ interface BillingActionsProps {
   customerId: string
   status: string
   amountDue: number
+  /** Saldo, vencimento, situação e política — o componente recalcula o devido
+   *  quando o recebimento é registrado com data retroativa. */
+  openAmount: number
+  dueDate: string
+  chargeStatus: string
+  latePolicy: LateChargePolicy | null
   availableCredits: AvailableCredit[]
+}
+
+/** Hoje em `YYYY-MM-DD` local — `toISOString` devolve UTC e vira ontem à noite. */
+function hojeLocal(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 const PAYMENT_METHOD_OPTIONS = [
@@ -47,7 +60,7 @@ const CREDIT_ORIGIN_LABELS: Record<string, string> = {
   customer_credit:    'Crédito ao cliente',
 }
 
-export function BillingActions({ billingId, customerId, status, amountDue, availableCredits }: BillingActionsProps) {
+export function BillingActions({ billingId, customerId, status, amountDue, openAmount, dueDate, chargeStatus, latePolicy, availableCredits }: BillingActionsProps) {
   const [isPending, startTransition] = useTransition()
   const [flashError, setFlashError] = useState<string | null>(null)
 
@@ -56,7 +69,19 @@ export function BillingActions({ billingId, customerId, status, amountDue, avail
   const [cancelOpen, setCancelOpen] = useState(false)
 
   // Register Payment form
+  /** Data em que o dinheiro ENTROU — não a de hoje. */
+  const [payDate, setPayDate] = useState(hojeLocal())
   const [payAmount, setPayAmount]   = useState(amountDue > 0 ? amountDue.toFixed(2) : '')
+
+  /** Devido na data informada: menos dias de atraso, menos juros. */
+  function devidoEm(data: string): number {
+    return calculateAmountDue(
+      { open_amount: openAmount, due_date: dueDate, status: chargeStatus },
+      latePolicy,
+      new Date(`${data}T12:00:00`),
+    ).amount_due
+  }
+  const devidoNaData = devidoEm(payDate)
   const [payMethod, setPayMethod]   = useState('pix')
   const [payNotes, setPayNotes]     = useState('')
 
@@ -88,10 +113,10 @@ export function BillingActions({ billingId, customerId, status, amountDue, avail
   function handlePay() {
     const amount = parseFloat(payAmount)
     if (isNaN(amount) || amount <= 0) { setFlashError('Valor inválido'); return }
-    if (amount > amountDue) {
+    if (amount > devidoNaData) {
       setFlashError(
-        `Não é possível registrar ${formatCurrency(amount)}: esta cobrança deve `
-        + `${formatCurrency(amountDue)}. Nada foi gravado.`,
+        `Não é possível registrar ${formatCurrency(amount)}: nessa data a cobrança `
+        + `devia ${formatCurrency(devidoNaData)}. Nada foi gravado.`,
       )
       return
     }
@@ -108,7 +133,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, avail
         customer_id: customerId,
         amount,
         method:      payMethod,
-        paid_at:     new Date().toISOString(),
+        paid_at:     new Date(`${payDate}T12:00:00`).toISOString(),
         notes:       payNotes || undefined,
         allocations: [{ charge_id: billingId, amount }],
       })
@@ -153,7 +178,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, avail
       <div className="flex flex-wrap gap-2">
         {isActionable && (
           <button
-            onClick={() => { setFlashError(null); setPayAmount(amountDue > 0 ? amountDue.toFixed(2) : ''); setPayOpen(true) }}
+            onClick={() => { setFlashError(null); setPayDate(hojeLocal()); setPayAmount(amountDue > 0 ? amountDue.toFixed(2) : ''); setPayOpen(true) }}
             disabled={isPending}
             className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-[13px] font-semibold text-bg transition-colors hover:bg-primary-hover disabled:opacity-50"
           >
@@ -183,6 +208,26 @@ export function BillingActions({ billingId, customerId, status, amountDue, avail
       {/* ── Registrar pagamento ────────────────────────────────────────────── */}
       <Modal open={payOpen} onClose={() => setPayOpen(false)} title="Registrar pagamento">
         <div className="space-y-4">
+          {/* Data em que o dinheiro ENTROU. Antes ia `new Date()` fixo: quem via
+              o Pix na segunda e registrava na quarta cobrava do cliente dois
+              dias de juros que não correram. Futuro é barrado. */}
+          <Input
+            label="Data do recebimento"
+            type="date"
+            max={hojeLocal()}
+            value={payDate}
+            onChange={e => {
+              const v = e.target.value
+              if (v > hojeLocal()) {
+                setFlashError('A data do recebimento não pode ser futura.')
+                return
+              }
+              setPayDate(v)
+              setFlashError(null)
+              setPayAmount(devidoEm(v).toFixed(2))
+            }}
+          />
+
           {/* O campo cedia qualquer valor: R$ 50.000.000,00 numa cobrança de
               R$ 500,00 passavam sem aviso, a alocação era limitada ao saldo e o
               excedente sumia — ficava em `payments` e nunca no razão.
@@ -199,7 +244,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, avail
             type="number"
             step="0.01"
             min="0.01"
-            max={amountDue.toFixed(2)}
+            max={devidoNaData.toFixed(2)}
             value={payAmount}
             onChange={e => {
               const v = e.target.value
@@ -208,10 +253,10 @@ export function BillingActions({ billingId, customerId, status, amountDue, avail
               // Trava dura: o campo NUNCA guarda valor acima do saldo. Digitar
               // ou colar um valor maior prende no teto, e a tarja explica por
               // quê — senão o número mudaria sozinho sem motivo aparente.
-              if (!isNaN(n) && n > amountDue) {
-                setPayAmount(amountDue.toFixed(2))
+              if (!isNaN(n) && n > devidoNaData) {
+                setPayAmount(devidoNaData.toFixed(2))
                 setFlashError(
-                  `O máximo desta cobrança é ${formatCurrency(amountDue)}. Para `
+                  `O máximo desta cobrança é ${formatCurrency(devidoNaData)}. Para `
                   + 'receber a mais, registre o valor devido e conceda o excedente '
                   + 'como crédito na ficha do cliente.',
                 )
@@ -223,7 +268,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, avail
             }}
           />
           <p className="-mt-2 text-[12px] text-fg-mute">
-            Saldo desta cobrança: {formatCurrency(amountDue)}. Valor menor é
+            Saldo desta cobrança: {formatCurrency(devidoNaData)}. Valor menor é
             aceito — ela segue em aberto pelo restante.
           </p>
           <Select
