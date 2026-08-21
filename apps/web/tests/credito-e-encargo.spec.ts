@@ -454,3 +454,126 @@ test.describe('Encargo segue a data do pagamento', () => {
     expect(Number((await saldo(emDia))!.open_amount)).toBe(0)
   })
 })
+
+/**
+ * O modal mostra a conta dos juros, e ela muda com a data do recebimento.
+ *
+ * Os dois modais exibiam só "Valor devido". Juros são conta que o cliente vai
+ * querer conferir: "R$ 360,47" não se discute, "350,00 de principal, 7,00 de
+ * multa e 3,47 de juros por 30 dias" se confere.
+ *
+ * E o cabeçalho da LISTA mostrava `amount_due` calculado para HOJE enquanto o
+ * campo de valor já usava a data escolhida — mudar a data alterava o que seria
+ * cobrado e o cabeçalho seguia afirmando outro número.
+ */
+/**
+ * Cobrança com descrição ÚNICA, para a busca da lista isolá-la.
+ *
+ * Filtrar por número não serve: a busca casa por substring, e "312" aparece em
+ * 1312, 3120… Todas as cobranças da rodada compartilham a mesma descrição.
+ */
+async function cobrancaBuscavel(valor: number, diasAtras: number, marca: string) {
+  const tenantId = await getTestTenantId()
+  const vencimento = new Date(Date.now() - diasAtras * 864e5).toISOString().slice(0, 10)
+  const { chargeId } = await createCharge(admin(), tenantId, {
+    customerId, rentalId, dueDate: vencimento,
+    sourceModule: 'manual', sourceId: crypto.randomUUID(),
+    items: [{
+      description: marca,
+      credit_account_code: 'receita_locacao',
+      quantity: 1, unit_amount: valor, amount: valor,
+    }],
+  })
+  return chargeId
+}
+
+test.describe('Detalhamento do encargo no recebimento', () => {
+  // Fixtures próprias: o `afterAll` do primeiro bloco apaga cliente, locação e
+  // veículo, e as variáveis de módulo passam a apontar para linhas que já não
+  // existem.
+  test.beforeAll(async () => {
+    const v = await createTestVehicle()
+    vehicleId = v.id
+    const contrato = await createTestContract(vehicleId)
+    customerId = contrato.customerId
+    rentalId = contrato.contractId
+  })
+
+  test.afterAll(async () => {
+    await admin().from('customer_credits').delete().eq('customer_id', customerId)
+    await admin().from('rentals').delete().eq('id', rentalId)
+    await deleteTestCustomer(customerId).catch(() => {})
+    await deleteTestVehicle(vehicleId).catch(() => {})
+  })
+
+  test('a tela mostra principal, multa, juros e dias — e refaz tudo ao mudar a data', async ({ page }) => {
+    const marca = `${TEST_TAG} Detalhe30 ${Date.now().toString(36)}`
+    const chargeId = await cobrancaBuscavel(350, 30, marca)
+
+    await page.goto('/cobrancas')
+    await waitForPageLoad(page)
+
+    await page.getByPlaceholder(/cliente, placa ou número/i).fill(marca)
+    // Filtrado, sobra uma linha: o único botão de receber é o dela.
+    await expect(page.getByTitle('Registrar recebimento')).toHaveCount(1)
+    await page.getByTitle('Registrar recebimento').click()
+
+    const modal = getModal(page)
+    await expect(modal).toBeVisible()
+
+    // Quantos dias a tela diz, sem fixar o número: `toISOString` devolve UTC e
+    // o cálculo usa data local, então "30 dias atrás" pode render 29. O que
+    // importa é a tela mostrar os dias e REFAZER a conta ao mudar a data.
+    const textoDias = modal.locator('text=/\\d+ dias? de atraso/')
+    await expect(textoDias, 'a tela precisa dizer quantos dias de atraso').toBeVisible()
+
+    const diasIniciais = Number((await textoDias.innerText()).match(/(\d+) dias?/)![1])
+    expect(diasIniciais).toBeGreaterThan(25)
+
+    await expect(modal.getByText('Principal')).toBeVisible()
+    await expect(modal.getByText('Multa')).toBeVisible()
+
+    const campoData  = modal.locator('input[type="date"]')
+    const campoValor = modal.locator('input[type="number"]')
+
+    const valorInicial = Number(await campoValor.inputValue())
+    expect(valorInicial, 'o valor tem que incluir o encargo').toBeGreaterThan(350)
+
+    // Recuando 20 dias, o atraso encolhe na mesma medida e os juros caem.
+    const antes = new Date()
+    antes.setDate(antes.getDate() - 20)
+    await campoData.fill(
+      `${antes.getFullYear()}-${String(antes.getMonth() + 1).padStart(2, '0')}-${String(antes.getDate()).padStart(2, '0')}`,
+    )
+
+    await expect(
+      modal.locator(`text=/${diasIniciais - 20} dias? de atraso/`),
+      'os dias de atraso precisam acompanhar a data escolhida',
+    ).toBeVisible()
+
+    const valorRecuado = Number(await campoValor.inputValue())
+    expect(valorRecuado, 'menos dias de atraso, menos juros').toBeLessThan(valorInicial)
+    expect(valorRecuado, 'a multa é única: o valor não pode cair abaixo do principal')
+      .toBeGreaterThan(350)
+
+    void chargeId
+  })
+
+  test('cobrança em dia não mostra multa nem juros', async ({ page }) => {
+    const marca = `${TEST_TAG} EmDia ${Date.now().toString(36)}`
+    await cobrancaBuscavel(200, -5, marca)   // vence daqui a 5 dias
+
+    await page.goto('/cobrancas')
+    await waitForPageLoad(page)
+
+    await page.getByPlaceholder(/cliente, placa ou número/i).fill(marca)
+    // Filtrado, sobra uma linha: o único botão de receber é o dela.
+    await expect(page.getByTitle('Registrar recebimento')).toHaveCount(1)
+    await page.getByTitle('Registrar recebimento').click()
+
+    const modal = getModal(page)
+    await expect(modal).toBeVisible()
+    await expect(modal.getByText('Valor devido')).toBeVisible()
+    await expect(modal.getByText(/dias de atraso/)).toHaveCount(0)
+  })
+})

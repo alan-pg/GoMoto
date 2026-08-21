@@ -576,19 +576,54 @@ export default function CobrancasPage() {
           )
           return (
           <div className="space-y-4">
+            {/* Todo número aqui é calculado NA DATA DO RECEBIMENTO, não na de
+                hoje. O bloco mostrava `receiving.amount_due` — o devido hoje —
+                enquanto o campo abaixo já usava a data escolhida: mudar a data
+                alterava o valor a cobrar e o cabeçalho seguia dizendo outro.
+
+                O detalhamento existe porque juros são uma conta que o cliente
+                vai querer conferir. "R$ 360,47" não se discute; "350,00 de
+                principal, 7,00 de multa e 3,47 de juros por 30 dias" se
+                confere. */}
             <div className="border border-[var(--divider)] bg-[var(--surface-2)] p-3 text-[13px]">
               <div className="flex justify-between">
                 <span className="text-[var(--fg-soft)]">Cobrança #{receiving.charge_number}</span>
                 <span className="tabular-nums">{receiving.customer_name}</span>
               </div>
-              <div className="mt-1 flex justify-between">
-                <span className="text-[var(--fg-soft)]">Valor devido</span>
-                <span className="tabular-nums font-medium">{formatCurrency(receiving.amount_due)}</span>
-              </div>
-              {receiving.accrued_total > 0 && (
-                <div className="mt-1 flex justify-between text-[12px] text-[var(--pending)]">
-                  <span>Inclui encargo de atraso</span>
-                  <span className="tabular-nums">{formatCurrency(receiving.accrued_total)}</span>
+
+              {naData.accrued.total > 0 ? (
+                <>
+                  <div className="mt-2 flex justify-between">
+                    <span className="text-[var(--fg-soft)]">Principal</span>
+                    <span className="tabular-nums">{formatCurrency(naData.open_amount)}</span>
+                  </div>
+                  {naData.accrued.fee > 0 && (
+                    <div className="mt-1 flex justify-between text-[var(--pending)]">
+                      <span>Multa</span>
+                      <span className="tabular-nums">{formatCurrency(naData.accrued.fee)}</span>
+                    </div>
+                  )}
+                  {naData.accrued.interest > 0 && (
+                    <div className="mt-1 flex justify-between text-[var(--pending)]">
+                      <span>
+                        Juros · {naData.accrued.days_overdue}{' '}
+                        {naData.accrued.days_overdue === 1 ? 'dia' : 'dias'} de atraso
+                      </span>
+                      <span className="tabular-nums">{formatCurrency(naData.accrued.interest)}</span>
+                    </div>
+                  )}
+                  <div className="mt-2 flex justify-between border-t border-[var(--divider)] pt-2">
+                    <span className="text-[var(--fg-soft)]">Total a receber</span>
+                    <span className="tabular-nums font-medium">{formatCurrency(naData.amount_due)}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="mt-1 flex justify-between">
+                  <span className="text-[var(--fg-soft)]">
+                    Valor devido
+                    {naData.accrued.grace_period_active && ' · dentro da carência'}
+                  </span>
+                  <span className="tabular-nums font-medium">{formatCurrency(naData.amount_due)}</span>
                 </div>
               )}
             </div>

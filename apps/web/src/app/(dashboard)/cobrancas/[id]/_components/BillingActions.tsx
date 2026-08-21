@@ -73,15 +73,16 @@ export function BillingActions({ billingId, customerId, status, amountDue, openA
   const [payDate, setPayDate] = useState(hojeLocal())
   const [payAmount, setPayAmount]   = useState(amountDue > 0 ? amountDue.toFixed(2) : '')
 
-  /** Devido na data informada: menos dias de atraso, menos juros. */
-  function devidoEm(data: string): number {
+  /** Cálculo completo na data informada: menos dias de atraso, menos juros. */
+  function calculoEm(data: string) {
     return calculateAmountDue(
       { open_amount: openAmount, due_date: dueDate, status: chargeStatus },
       latePolicy,
       new Date(`${data}T12:00:00`),
-    ).amount_due
+    )
   }
-  const devidoNaData = devidoEm(payDate)
+  const naData = calculoEm(payDate)
+  const devidoNaData = naData.amount_due
   const [payMethod, setPayMethod]   = useState('pix')
   const [payNotes, setPayNotes]     = useState('')
 
@@ -224,7 +225,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, openA
               }
               setPayDate(v)
               setFlashError(null)
-              setPayAmount(devidoEm(v).toFixed(2))
+              setPayAmount(calculoEm(v).amount_due.toFixed(2))
             }}
           />
 
@@ -267,10 +268,50 @@ export function BillingActions({ billingId, customerId, status, amountDue, openA
               setFlashError(null)
             }}
           />
-          <p className="-mt-2 text-[12px] text-fg-mute">
-            Saldo desta cobrança: {formatCurrency(devidoNaData)}. Valor menor é
-            aceito — ela segue em aberto pelo restante.
-          </p>
+          {/* Juros são conta que o cliente vai querer conferir: "R$ 360,47" não
+              se discute, "350,00 de principal, 7,00 de multa e 3,47 de juros
+              por 30 dias" se confere. Tudo calculado na DATA DO RECEBIMENTO —
+              mudar a data acima refaz estes números. */}
+          <div className="-mt-2 space-y-1 rounded-lg border border-divider bg-surface-2 px-3 py-2 text-[12px]">
+            {naData.accrued.total > 0 ? (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-fg-mute">Principal</span>
+                  <span className="tabular-nums text-fg">{formatCurrency(naData.open_amount)}</span>
+                </div>
+                {naData.accrued.fee > 0 && (
+                  <div className="flex justify-between text-warning">
+                    <span>Multa</span>
+                    <span className="tabular-nums">{formatCurrency(naData.accrued.fee)}</span>
+                  </div>
+                )}
+                {naData.accrued.interest > 0 && (
+                  <div className="flex justify-between text-warning">
+                    <span>
+                      Juros · {naData.accrued.days_overdue}{' '}
+                      {naData.accrued.days_overdue === 1 ? 'dia' : 'dias'} de atraso
+                    </span>
+                    <span className="tabular-nums">{formatCurrency(naData.accrued.interest)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between border-t border-divider pt-1">
+                  <span className="text-fg-mute">Total a receber</span>
+                  <span className="tabular-nums font-semibold text-fg">{formatCurrency(devidoNaData)}</span>
+                </div>
+              </>
+            ) : (
+              <div className="flex justify-between">
+                <span className="text-fg-mute">
+                  Saldo desta cobrança
+                  {naData.accrued.grace_period_active && ' · dentro da carência'}
+                </span>
+                <span className="tabular-nums text-fg">{formatCurrency(devidoNaData)}</span>
+              </div>
+            )}
+            <p className="pt-1 text-fg-mute">
+              Valor menor é aceito — a cobrança segue em aberto pelo restante.
+            </p>
+          </div>
           <Select
             label="Forma de pagamento"
             value={payMethod}
