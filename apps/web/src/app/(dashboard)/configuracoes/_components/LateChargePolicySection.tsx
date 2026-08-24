@@ -33,6 +33,11 @@ export type PolicyVersion = LateChargePolicy & {
   effective_from: string
 }
 
+/** Decimal com vírgula, como o resto do sistema — sem zeros à toa. */
+function num(n: number, casas = 2): string {
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: casas })
+}
+
 function hojeLocal(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -107,10 +112,10 @@ export function LateChargePolicySection({ versions }: { versions: PolicyVersion[
                 </span>
                 <span className="tabular-nums text-fg">
                   {vigente.fee_type === 'percentage'
-                    ? `${toPolicyInput(vigente).fee_value}% de multa`
+                    ? `${num(toPolicyInput(vigente).fee_value)}% de multa`
                     : `${formatCurrency(vigente.fee_value)} de multa`}
                   {' · '}
-                  {toPolicyInput(vigente).monthly_interest_percent}% ao mês
+                  {num(toPolicyInput(vigente).monthly_interest_percent)}% ao mês
                   {vigente.grace_period_days > 0 && ` · ${vigente.grace_period_days} dia(s) de carência`}
                   {vigente.min_amount > 0 && ` · mínimo ${formatCurrency(vigente.min_amount)}`}
                 </span>
@@ -157,7 +162,7 @@ export function LateChargePolicySection({ versions }: { versions: PolicyVersion[
                 onChange={(e) => setJuros(e.target.value)}
               />
               <p className="mt-1 text-[12px] text-fg-mute tabular-nums">
-                Equivale a {jurosDia.toFixed(4)}% ao dia, sobre o saldo em aberto.
+                Equivale a {num(jurosDia, 4)}% ao dia, sobre o saldo em aberto.
               </p>
             </div>
 
