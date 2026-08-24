@@ -399,16 +399,37 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 6.3 A data do recebimento manda no encargo
 
-- [ ] Numa cobrança vencida, abra **Registrar recebimento** e mude a **Data do
+- [ ] Numa cobrança vencida, abra **Registrar pagamento** e mude a **Data do
       recebimento** para alguns dias atrás.
 
 **Verificar:**
 - [ ] O valor sugerido **diminui** — menos dias de atraso, menos juros.
+- [ ] Os **dias de atraso acompanham a data**, nos dois lugares em que aparecem:
+      ao lado do vencimento, no cabeçalho, e na linha de juros.
 - [ ] Data futura é recusada com mensagem.
 - [ ] Registrando, o encargo lançado é o daquela data, não o de hoje.
 
 > É o caso de receber o Pix na segunda e registrar na quarta. Antes o sistema
 > mandava sempre a data de hoje, cobrando dias de juros que não correram.
+
+### 6.3-b O modal é o mesmo nas duas telas
+
+- [ ] Abra **Registrar pagamento** pela **lista** (/cobrancas, ícone $ na linha).
+- [ ] Abra a mesma cobrança em **detalhe** e clique em **Registrar pagamento**.
+
+**Verificar:**
+- [ ] Os dois modais são idênticos: cabeçalho com número da cobrança, cliente,
+      **vencimento** e dias de atraso; data do recebimento; valor; detalhamento
+      de principal/multa/juros; forma de pagamento; observações.
+- [ ] Nos dois, digitar valor **acima** do devido devolve o campo ao máximo e
+      mostra o erro **dentro** do modal.
+- [ ] Depois de receber, a tela de detalhe mostra **"Pago em"** com a data do
+      recebimento — a mesma que aparece na tabela de Pagamentos abaixo.
+
+> Eram dois modais separados que divergiram: um recusava valor acima do saldo, o
+> outro deixava passar, e um mandava o erro para o topo da PÁGINA — atrás de si.
+> "Pago em" exibia o VENCIMENTO com outro rótulo, e ainda um dia antes por causa
+> de fuso: cobrança recebida em 21/08 aparecia paga em 20/07, antes de vencer.
 
 ### 6.4 Pagar com crédito não escapa do encargo
 
