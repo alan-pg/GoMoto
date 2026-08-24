@@ -6,6 +6,25 @@ Rota: `/configuracoes` | Tipo: Client Component
 
 > Seção "Dados da Empresa" removida (2026-08-07) — os campos `empresa_*` na tabela `settings` não eram consumidos por nenhuma outra tela (contratos, relatórios, etc.).
 
+### Encargo por atraso (Owner apenas) — ADR 0024
+
+A única forma de configurar multa e juros. Antes desta seção, `late_charge_policies` só recebia escrita por migration: mudar a política exigia SQL direto no banco.
+
+| Campo | Unidade na tela | Unidade em `late_charge_policies` |
+|---|---|---|
+| Tipo de multa | percentual / valor fixo | `fee_type` |
+| Multa | **%** (2 = 2%) ou R$ | `fee_value` — **fração** (0.02) quando percentual |
+| Juros | **% ao mês** (1 = 1% a.m.) | `daily_interest_rate` — **fração ao dia** (÷ 30) |
+| Carência | dias | `grace_period_days` |
+| Encargo mínimo | R$ | `min_amount` |
+| Em vigor a partir de | data ≥ hoje | `effective_from` |
+
+A conversão entre as duas colunas vive em `toPolicyRow`/`toPolicyInput` (`@gomoto/core`, `rules/late-charge-policy.ts`), testada. Não é detalhe de formatação: a convenção já divergiu duas vezes nesta base — a função `calculateLateCharges` (removida) tratava `2` como 2%, enquanto a regra viva trata `0.02` como 2%.
+
+**Salvar cria uma VERSÃO nova, nunca edita a vigente.** Cobrança guarda `late_charge_policy_id`, então o que já foi emitido continua valendo o que valia no dia. A numeração e a trava de retroatividade estão em `fn_create_late_charge_policy`, sob `FOR UPDATE` do tenant — `MAX(version)+1` calculado no app daria o mesmo número a duas gravações simultâneas.
+
+Quem escolhe a política de uma cobrança é `fn_create_charge`, no banco, casando `effective_from <= due_date` — pela data de **vencimento**, não a de emissão.
+
 ### 1. Segurança (ícone Lock `#a880ff`)
 
 | Campo | Tipo |

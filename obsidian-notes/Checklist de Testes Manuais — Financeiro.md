@@ -441,6 +441,43 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 
 ---
 
+### 6.5 Configurar a política — Configurações → Encargo por atraso
+
+- [ ] Como **Owner**, abra `/configuracoes`. A seção **Encargo por atraso** existe
+      e mostra "Em vigor · versão N · desde DD/MM/AAAA" com multa, juros e carência.
+- [ ] O campo de juros mostra a taxa **diária** derivada ("Equivale a 0,0333% ao dia").
+- [ ] Como **Operator/Viewer**, a seção não aparece.
+
+**Alterar:**
+- [ ] Mude a multa para 5%, deixe a vigência em hoje e salve.
+- [ ] A confirmação aparece e o cabeçalho passa a mostrar a nova versão.
+- [ ] Tente vigência **anterior a hoje**: a tela recusa explicando que política
+      nova não retroage.
+
+**Verificar o que NÃO pode mudar:**
+- [ ] Uma cobrança **já vencida antes da alteração** continua com o mesmo valor
+      devido. Abra o modal de recebimento dela antes e depois — multa e juros
+      não podem se mexer.
+- [ ] Uma cobrança **emitida depois**, com vencimento após a vigência nova, usa
+      a nova multa.
+
+```sql
+-- Versões da política e qual cobrança usa qual
+select v.version, v.effective_from, v.fee_type, v.fee_value, v.daily_interest_rate,
+       count(c.id) as cobrancas
+  from late_charge_policies v
+  left join charges c on c.late_charge_policy_id = v.id
+ group by v.id order by v.version;
+```
+
+> A política é do TENANT, não da locação. O campo por locação existiu, foi
+> preenchido pelo operador e nunca chegou ao banco — `rentals` não tem essas
+> colunas e a emissão sempre resolveu a política vigente. Foi removido.
+>
+> Quem escolhe a política é o **vencimento** da cobrança, não a data de emissão:
+> `fn_create_charge` casa `effective_from <= due_date`. Agendar uma política
+> para daqui a 15 dias já afeta a cobrança emitida hoje que vence daqui a 30.
+
 ## Bloco 7 — Encerramento da locação
 
 ### 7.1 Apuração antes de encerrar

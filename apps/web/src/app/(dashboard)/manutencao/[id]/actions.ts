@@ -13,12 +13,6 @@ const UUID_LOOSE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const uuid = () => z.string().regex(UUID_LOOSE, 'ID inválido')
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (YYYY-MM-DD)')
 
-const LateChargeConfigSchema = z.object({
-  late_fee_type:       z.enum(['fixed', 'percentage']),
-  late_fee_value:      z.number().min(0),
-  daily_interest_rate: z.number().min(0).max(1),
-  grace_period_days:   z.number().int().min(0),
-})
 
 async function getAuth() {
   const supabase = await createClient()
@@ -40,7 +34,6 @@ const ConfirmSchema = z.discriminatedUnion('action', [
     amount:             z.number().positive(),
     due_date:           dateString,
     rental_id:          uuid().optional(),
-    late_charge_config: LateChargeConfigSchema,
   }),
   z.object({
     action:         z.literal('refuse'),

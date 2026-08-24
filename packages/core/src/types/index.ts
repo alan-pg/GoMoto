@@ -1,5 +1,4 @@
 import type { VehicleStatus } from '../schemas/vehicles'
-import type { LateChargeConfig } from './financial'
 
 export type { VehicleStatus }
 
@@ -415,7 +414,6 @@ export interface Rental {
   monthly_amount?: number | null;
   status: 'active' | 'closed' | 'transferred';
   observations?: string | null;
-  late_charge_config?: LateChargeConfig | null;
   contract_template_id?: string | null;
   signed_contract_path?: string | null;
   signed_contract_file_name?: string | null;

@@ -470,6 +470,26 @@ export async function getActiveLateChargePolicy(
   return (data ?? null) as LateChargePolicyRow | null
 }
 
+/**
+ * Todas as versões da política, da mais nova para a mais antiga.
+ *
+ * Mesma ordenação que `resolveLateChargePolicy` usa na emissão
+ * (`effective_from DESC, version DESC`): a tela precisa concordar com quem
+ * decide o que é cobrado, senão exibe "em vigor" uma regra que não está.
+ */
+export async function listLateChargePolicies(
+  client: SupabaseClient,
+): Promise<LateChargePolicyRow[]> {
+  const { data, error } = await client
+    .from('late_charge_policies')
+    .select('id, version, effective_from, fee_type, fee_value, daily_interest_rate, grace_period_days, min_amount')
+    .order('effective_from', { ascending: false })
+    .order('version', { ascending: false })
+
+  if (error) throw error
+  return (data ?? []) as LateChargePolicyRow[]
+}
+
 export type DelinquencyPolicyRow = {
   id: string
   version: number

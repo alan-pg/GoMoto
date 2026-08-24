@@ -1,15 +1,9 @@
 import type { z } from 'zod'
-import type {
-  LateChargeConfigSchema,
-  DelinquencySettingsSchema,
-} from '../schemas/financial'
+import type { DelinquencySettingsSchema } from '../schemas/financial'
 
 // ============================================================
 // Tipos base derivados de schemas Zod
 // ============================================================
-
-export type LateChargeConfig = z.infer<typeof LateChargeConfigSchema>
-export type DelinquencySettings = z.infer<typeof DelinquencySettingsSchema>
 
 export type DelinquencyLevel = 'current' | 'late' | 'delinquent' | 'blocked'
 export type DepositStatus = 'received' | 'fully_returned' | 'partially_returned' | 'fully_retained'
@@ -20,46 +14,9 @@ export type BillingSource = 'rental_cycle' | 'maintenance' | 'fine' | 'expense' 
 // Resultado de cálculo de encargos (rules/charges.ts)
 // ============================================================
 
-export interface LateChargesCalculation {
-  grace_period_active: boolean
-  fee: number
-  interest: number
-  total: number
-  days_since_due: number
-  days_overdue: number
-}
-
 // ============================================================
 // Cobrança enriquecida com encargos calculados (RF-014)
 // ============================================================
-
-
-// ============================================================
-// Resumo financeiro da locação (RF-045–046)
-// ============================================================
-
-export interface RentalAdjustment {
-  id: string
-  previous_cycle_amount: number
-  new_cycle_amount: number
-  previous_config: LateChargeConfig | null
-  new_config: LateChargeConfig | null
-  updated_billings_count: number
-  justification: string
-  adjusted_by: string
-  adjusted_at: string
-}
-
-export interface RentalFinancialSummary {
-  rental_id: string
-  total_billed: number
-  total_received: number
-  pending_balance: number
-  accumulated_charges: number
-  deposit: { amount: number; balance: number; status: DepositStatus } | null
-  credits_applied: number
-  adjustments: RentalAdjustment[]
-}
 
 // ============================================================
 // ROI por veículo (RF-041–044)
@@ -164,3 +121,5 @@ export type CreditValidationError = 'OVER_BALANCE' | 'OVER_BILLING'
 export type CreditValidationResult =
   | { ok: true }
   | { ok: false; errorCode: CreditValidationError }
+
+export type DelinquencySettings = z.infer<typeof DelinquencySettingsSchema>

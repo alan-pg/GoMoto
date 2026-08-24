@@ -322,36 +322,6 @@ async function reverseChargeIssuance(
 }
 
 /**
- * Veículo a atribuir à cobrança.
- *
- * Ordem: o que o item declarar vence; senão, o veículo da locação vinculada.
- *
- * Existe porque `vehicle_financial_position` agrega por
- * `financial_entries.vehicle_id`, e lançamento sem essa dimensão simplesmente
- * não aparece no resultado do veículo. Quem cria a cobrança nem sempre tem o
- * veículo em mãos — a cobrança avulsa pede cliente e locação, não veículo —, e
- * o resultado era receita real sumindo do relatório sem nenhum erro visível.
- */
-async function resolveVehicleId(
-  supabase: SupabaseClient,
-  tenantId: string,
-  params: CreateChargeParams,
-): Promise<string | null> {
-  const doItem = params.items.find((i) => i.vehicle_id)?.vehicle_id
-  if (doItem) return doItem
-  if (!params.rentalId) return null
-
-  const { data } = await supabase
-    .from('rentals')
-    .select('vehicle_id')
-    .eq('id', params.rentalId)
-    .eq('tenant_id', tenantId)
-    .maybeSingle()
-
-  return (data as { vehicle_id: string | null } | null)?.vehicle_id ?? null
-}
-
-/**
  * Veículo de uma cobrança JÁ emitida.
  *
  * A emissão resolve o veículo e grava nos itens; o que nasce depois — encargo
@@ -385,24 +355,19 @@ async function vehicleOfCharge(
   return (data as { vehicle_id: string | null } | null)?.vehicle_id ?? null
 }
 
-async function resolveLateChargePolicy(
-  supabase: SupabaseClient,
-  tenantId: string,
-  onDate: string,
-): Promise<string | null> {
-  const { data } = await supabase
-    .from('late_charge_policies')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .lte('effective_from', onDate)
-    .order('effective_from', { ascending: false })
-    .order('version', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  return (data as { id: string } | null)?.id ?? null
-}
-
+/**
+ * Resolução de política de encargo e de veículo na EMISSÃO vive no banco,
+ * dentro de `fn_create_charge`, na mesma transação que insere a cobrança.
+ *
+ * Havia aqui uma cópia TypeScript das duas, sem chamador desde que a emissão
+ * passou pela RPC. Cópia morta de regra viva é pior que código morto comum: a
+ * de política casava `effective_from <= onDate`, e o banco casa
+ * `effective_from <= due_date`. Eram duas respostas para "qual política vale",
+ * e quem lesse o TypeScript encontrava a errada.
+ *
+ * `vehicleOfCharge`, acima, é outra coisa e está viva: serve à REALIZAÇÃO do
+ * encargo, que acontece depois da emissão e precisa reencontrar o veículo.
+ */
 function round2(n: number): number {
   return Math.round(n * 100) / 100
 }

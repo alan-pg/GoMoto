@@ -6,7 +6,7 @@ import {
   FineSchema,
   ExtractDocumentFileSchema,
   ACCOUNTS,
-  type ActionResult, type ExtractionResult, type FineNoticeFields, type Fine, type LateChargeConfig,
+  type ActionResult, type ExtractionResult, type FineNoticeFields, type Fine,
 } from '@gomoto/core'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
@@ -55,15 +55,6 @@ async function findDuplicateFine(
   return data as FineDuplicateMatch | null
 }
 
-// Mesmo default hardcoded usado em manutencao/[id]/actions.ts::confirmAutoBilling
-// (RF-017) — não existe leitura de FinancialSettingsSchema.late_charge_defaults do
-// tenant em nenhum dos dois fluxos hoje; mantendo consistente entre os dois.
-const DEFAULT_LATE_CHARGE_CONFIG: LateChargeConfig = {
-  late_fee_type:       'percentage',
-  late_fee_value:      0.02,
-  daily_interest_rate: 0.001,
-  grace_period_days:   3,
-}
 
 interface SyncFineBillingParams {
   fineId: string

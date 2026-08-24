@@ -22,6 +22,7 @@ import {
   listChargesForCockpit,
   listPayables,
   listProviderAccounts,
+  listLateChargePolicies,
   listOpenChargesByRental,
   getChargeBalance,
   listChargeItems,
@@ -449,6 +450,22 @@ export function usePayables() {
 // ============================================================
 // Gateway
 // ============================================================
+
+/**
+ * Política de encargo por atraso — todas as versões.
+ *
+ * A tela de Configurações precisa da vigente para preencher o formulário e das
+ * futuras para avisar que há uma agendada. São poucas linhas por tenant: uma
+ * por mudança de política na história da empresa.
+ */
+export function useLateChargePolicies() {
+  const supabase = useSupabaseContext()
+
+  return useQuery({
+    queryKey: ['late-charge-policies'],
+    queryFn: () => listLateChargePolicies(supabase),
+  })
+}
 
 /**
  * Provedores conectados.
