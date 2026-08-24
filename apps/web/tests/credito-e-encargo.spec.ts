@@ -105,8 +105,27 @@ test.describe('Crédito do cliente e encargo por atraso', () => {
 
     const modal = getModal(page)
     await expect(modal).toBeVisible()
+
+    // Mesma implementação da lista: as duas telas eram modais separados que
+    // divergiram — um recusava valor acima do saldo, o outro deixava passar, e
+    // um deles mandava o erro pra trás de si. Aqui checamos que a tela de
+    // detalhe também mostra o cabeçalho com cobrança e vencimento.
+    await expect(modal.getByText(/Cobrança #\d+/)).toBeVisible()
+    await expect(modal.getByText('Vencimento')).toBeVisible()
+
     await modal.getByRole('button', { name: 'Confirmar pagamento' }).click()
     await expect(modal).toBeHidden({ timeout: 15_000 })
+
+    // "Pago em" é a data do RECEBIMENTO, e a cobrança foi recebida HOJE. O
+    // campo saía de `status === 'paid' ? due_date : null` — o vencimento com
+    // outro rótulo — e ainda passava por `toLocaleString`, que lê "YYYY-MM-DD"
+    // como meia-noite UTC: esta cobrança, vencida há 30 dias, aparecia paga um
+    // mês atrás, às 21:00 do dia ANTERIOR ao próprio vencimento.
+    const hoje = new Date()
+    const hojeBR = `${String(hoje.getDate()).padStart(2, '0')}/`
+      + `${String(hoje.getMonth() + 1).padStart(2, '0')}/${hoje.getFullYear()}`
+    const linhaPagoEm = page.locator('tr').filter({ hasText: 'Pago em' })
+    await expect(linhaPagoEm, 'a tela precisa dizer quando foi pago').toContainText(hojeBR)
 
     // Agora sim: item na cobrança e receita no razão.
     const { data: itens } = await admin()
@@ -484,7 +503,7 @@ async function cobrancaBuscavel(valor: number, diasAtras: number, marca: string)
       quantity: 1, unit_amount: valor, amount: valor,
     }],
   })
-  return chargeId
+  return { chargeId, vencimento }
 }
 
 test.describe('Detalhamento do encargo no recebimento', () => {
@@ -508,18 +527,23 @@ test.describe('Detalhamento do encargo no recebimento', () => {
 
   test('a tela mostra principal, multa, juros e dias — e refaz tudo ao mudar a data', async ({ page }) => {
     const marca = `${TEST_TAG} Detalhe30 ${Date.now().toString(36)}`
-    const chargeId = await cobrancaBuscavel(350, 30, marca)
+    const { vencimento } = await cobrancaBuscavel(350, 30, marca)
 
     await page.goto('/cobrancas')
     await waitForPageLoad(page)
 
     await page.getByPlaceholder(/cliente, placa ou número/i).fill(marca)
     // Filtrado, sobra uma linha: o único botão de receber é o dela.
-    await expect(page.getByTitle('Registrar recebimento')).toHaveCount(1)
-    await page.getByTitle('Registrar recebimento').click()
+    await expect(page.getByTitle('Registrar pagamento')).toHaveCount(1)
+    await page.getByTitle('Registrar pagamento').click()
 
     const modal = getModal(page)
     await expect(modal).toBeVisible()
+
+    // O vencimento no cabeçalho: sem ele o operador não sabe QUAL data gerou o
+    // encargo que está prestes a cobrar, e teria de fechar o modal pra conferir.
+    const [ano, mes, dia] = vencimento.split('-')
+    await expect(modal.getByText(`${dia}/${mes}/${ano}`)).toBeVisible()
 
     // Quantos dias a tela diz, sem fixar o número: `toISOString` devolve UTC e
     // o cálculo usa data local, então "30 dias atrás" pode render 29. O que
@@ -555,8 +579,6 @@ test.describe('Detalhamento do encargo no recebimento', () => {
     expect(valorRecuado, 'menos dias de atraso, menos juros').toBeLessThan(valorInicial)
     expect(valorRecuado, 'a multa é única: o valor não pode cair abaixo do principal')
       .toBeGreaterThan(350)
-
-    void chargeId
   })
 
   test('cobrança em dia não mostra multa nem juros', async ({ page }) => {
@@ -568,8 +590,8 @@ test.describe('Detalhamento do encargo no recebimento', () => {
 
     await page.getByPlaceholder(/cliente, placa ou número/i).fill(marca)
     // Filtrado, sobra uma linha: o único botão de receber é o dela.
-    await expect(page.getByTitle('Registrar recebimento')).toHaveCount(1)
-    await page.getByTitle('Registrar recebimento').click()
+    await expect(page.getByTitle('Registrar pagamento')).toHaveCount(1)
+    await page.getByTitle('Registrar pagamento').click()
 
     const modal = getModal(page)
     await expect(modal).toBeVisible()

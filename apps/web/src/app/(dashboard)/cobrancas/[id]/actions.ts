@@ -169,8 +169,6 @@ export async function applyCustomerCredits(
 
     let total = 0
     for (const app of applications) {
-      const charge = charges.find((c) => c.charge_id === app.charge_id)
-
       await postTransaction(ctx.supabase, ctx.tenantId, {
         event: {
           type: 'credit_applied',

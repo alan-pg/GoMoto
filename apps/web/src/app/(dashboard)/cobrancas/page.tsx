@@ -32,12 +32,12 @@ import { StatusBadge } from '@/components/ui/Badge'
 import { Card, StatCard } from '@/components/ui/Card'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
+import { RegistrarPagamentoModal } from '@/components/financial/RegistrarPagamentoModal'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { useChargesList, useCustomers, useActiveRentals } from '@gomoto/data'
-import { ACCOUNTS, calculateAmountDue } from '@gomoto/core'
+import { ACCOUNTS } from '@gomoto/core'
 import {
   createChargeAction,
-  receivePaymentAction,
   cancelChargeAction,
   writeOffChargeAction,
 } from './actions'
@@ -52,20 +52,6 @@ const TABS = [
   { label: 'Todas', value: 'all' },
 ]
 
-const PAYMENT_METHODS = [
-  { value: 'pix', label: 'Pix' },
-  { value: 'cash', label: 'Dinheiro' },
-  { value: 'bank_transfer', label: 'Transferência' },
-  { value: 'credit_card', label: 'Cartão de crédito' },
-  { value: 'debit_card', label: 'Cartão de débito' },
-  { value: 'other', label: 'Outro' },
-]
-
-/** Hoje em `YYYY-MM-DD` local — `toISOString` devolve UTC e vira ontem à noite. */
-function hoje(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
 
 const emptyForm = {
   customer_id: '',
@@ -106,12 +92,6 @@ export default function CobrancasPage() {
   const [form, setForm] = useState(emptyForm)
 
   const [receiving, setReceiving] = useState<ChargeRow | null>(null)
-  const [receiveAmount, setReceiveAmount] = useState('')
-  const [receiveMethod, setReceiveMethod] = useState('pix')
-  /** Data em que o dinheiro entrou — não a de hoje. O encargo cobrado é o
-   *  daquele dia: registrar na quarta um Pix recebido na segunda cobrava dois
-   *  dias de juros que não correram. */
-  const [receiveDate, setReceiveDate] = useState(hoje())
 
   const [cancelling, setCancelling] = useState<ChargeRow | null>(null)
   const [writingOff, setWritingOff] = useState<ChargeRow | null>(null)
@@ -204,54 +184,6 @@ export default function CobrancasPage() {
     setNewOpen(false)
     setForm(emptyForm)
     setFeedback(`Cobrança #${result.data.charge_number} criada.`)
-    refresh()
-  }
-
-  async function handleReceive() {
-    if (!receiving) return
-
-    const amount = Number(receiveAmount)
-    const quando = new Date(`${receiveDate}T12:00:00`)
-    const devidoNaData = calculateAmountDue(
-      receiving, receiving.late_charge_policy ?? null, quando,
-    ).amount_due
-
-    // Guarda no clique, além da trava do campo: colar via devtools, autofill ou
-    // um estado antigo não podem passar. Quem recusa de verdade é o servidor,
-    // mas o operador merece a resposta aqui, não depois do round-trip.
-    if (amount > devidoNaData) {
-      setModalError(
-        `Não é possível registrar ${formatCurrency(amount)}: em ${formatDate(receiveDate)} `
-        + `esta cobrança devia ${formatCurrency(devidoNaData)}. Nada foi gravado.`,
-      )
-      return
-    }
-
-    setSaving(true)
-    setModalError(null)
-    setFeedback(null)
-
-    const result = await receivePaymentAction({
-      customer_id: receiving.customer_id,
-      amount,
-      method: receiveMethod,
-      paid_at: quando.toISOString(),
-      // Era `Math.min(amount, amount_due)`: limitava a ALOCAÇÃO e deixava o
-      // pagamento com o valor cheio, criando a sobra que sumia do razão.
-      allocations: [{ charge_id: receiving.charge_id, amount }],
-    })
-
-    setSaving(false)
-
-    if (!result.ok) {
-      // Dentro do modal, não atrás dele.
-      setModalError(result.error.message)
-      return
-    }
-
-    setFeedback('Recebimento registrado.')
-    setReceiving(null)
-    setReceiveAmount('')
     refresh()
   }
 
@@ -434,11 +366,8 @@ export default function CobrancasPage() {
                     <div className="flex items-center justify-end gap-1">
                       {c.status === 'open' && (
                         <button
-                          title="Registrar recebimento"
-                          onClick={() => {
-                            setModalError(null); setReceiveDate(hoje()); setReceiveAmount(c.amount_due.toFixed(2)); setReceiving(c)
-                            setReceiveAmount(String(c.amount_due))
-                          }}
+                          title="Registrar pagamento"
+                          onClick={() => setReceiving(c)}
                           className="p-1 text-[var(--fg-soft)] hover:text-[var(--success)]"
                         >
                           <DollarSign className="h-4 w-4" />
@@ -564,159 +493,25 @@ export default function CobrancasPage() {
         </div>
       </Modal>
 
-      {/* Recebimento -------------------------------------------------- */}
-      <Modal open={!!receiving} onClose={() => setReceiving(null)} title="Registrar recebimento">
-        {receiving && (() => {
-          // O devido muda com a data: menos dias de atraso, menos juros. A
-          // política vem junto na linha justamente para isto.
-          const naData = calculateAmountDue(
-            receiving,
-            receiving.late_charge_policy ?? null,
-            new Date(`${receiveDate}T12:00:00`),
-          )
-          return (
-          <div className="space-y-4">
-            {/* Todo número aqui é calculado NA DATA DO RECEBIMENTO, não na de
-                hoje. O bloco mostrava `receiving.amount_due` — o devido hoje —
-                enquanto o campo abaixo já usava a data escolhida: mudar a data
-                alterava o valor a cobrar e o cabeçalho seguia dizendo outro.
-
-                O detalhamento existe porque juros são uma conta que o cliente
-                vai querer conferir. "R$ 360,47" não se discute; "350,00 de
-                principal, 7,00 de multa e 3,47 de juros por 30 dias" se
-                confere. */}
-            <div className="border border-[var(--divider)] bg-[var(--surface-2)] p-3 text-[13px]">
-              <div className="flex justify-between">
-                <span className="text-[var(--fg-soft)]">Cobrança #{receiving.charge_number}</span>
-                <span className="tabular-nums">{receiving.customer_name}</span>
-              </div>
-
-              {naData.accrued.total > 0 ? (
-                <>
-                  <div className="mt-2 flex justify-between">
-                    <span className="text-[var(--fg-soft)]">Principal</span>
-                    <span className="tabular-nums">{formatCurrency(naData.open_amount)}</span>
-                  </div>
-                  {naData.accrued.fee > 0 && (
-                    <div className="mt-1 flex justify-between text-[var(--pending)]">
-                      <span>Multa</span>
-                      <span className="tabular-nums">{formatCurrency(naData.accrued.fee)}</span>
-                    </div>
-                  )}
-                  {naData.accrued.interest > 0 && (
-                    <div className="mt-1 flex justify-between text-[var(--pending)]">
-                      <span>
-                        Juros · {naData.accrued.days_overdue}{' '}
-                        {naData.accrued.days_overdue === 1 ? 'dia' : 'dias'} de atraso
-                      </span>
-                      <span className="tabular-nums">{formatCurrency(naData.accrued.interest)}</span>
-                    </div>
-                  )}
-                  <div className="mt-2 flex justify-between border-t border-[var(--divider)] pt-2">
-                    <span className="text-[var(--fg-soft)]">Total a receber</span>
-                    <span className="tabular-nums font-medium">{formatCurrency(naData.amount_due)}</span>
-                  </div>
-                </>
-              ) : (
-                <div className="mt-1 flex justify-between">
-                  <span className="text-[var(--fg-soft)]">
-                    Valor devido
-                    {naData.accrued.grace_period_active && ' · dentro da carência'}
-                  </span>
-                  <span className="tabular-nums font-medium">{formatCurrency(naData.amount_due)}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Data em que o dinheiro ENTROU. Antes ia `new Date()` fixo: quem
-                via o Pix na segunda e registrava na quarta cobrava do cliente
-                dois dias de juros que não correram. Futuro é barrado — um
-                pagamento que ainda não aconteceu não se registra. */}
-            <Input
-              label="Data do recebimento"
-              type="date"
-              max={hoje()}
-              value={receiveDate}
-              onChange={(e) => {
-                const v = e.target.value
-                if (v > hoje()) {
-                  setModalError('A data do recebimento não pode ser futura.')
-                  return
-                }
-                setReceiveDate(v)
-                setModalError(null)
-                // O devido mudou com a data; o valor sugerido acompanha.
-                setReceiveAmount(
-                  calculateAmountDue(
-                    receiving,
-                    receiving.late_charge_policy ?? null,
-                    new Date(`${v}T12:00:00`),
-                  ).amount_due.toFixed(2),
-                )
-              }}
-            />
-
-            {/* O campo aceitava qualquer valor e a alocação era limitada ao
-                devido — o excedente ficava em `payments` e nunca no razão.
-                Trava dura: digitar ou colar acima prende no teto e explica. */}
-            <Input
-              label="Valor recebido"
-              type="number"
-              step="0.01"
-              min="0.01"
-              max={naData.amount_due.toFixed(2)}
-              value={receiveAmount}
-              onChange={(e) => {
-                const v = e.target.value
-                const n = parseFloat(v)
-                if (!isNaN(n) && n > naData.amount_due) {
-                  setReceiveAmount(naData.amount_due.toFixed(2))
-                  setModalError(
-                    `O máximo desta cobrança é ${formatCurrency(naData.amount_due)}. `
-                    + 'Para receber a mais, registre o valor devido e conceda o '
-                    + 'excedente como crédito na ficha do cliente.',
-                  )
-                  return
-                }
-                setReceiveAmount(v)
-                setModalError(null)
-              }}
-            />
-
-            {Number(receiveAmount) > 0 && Number(receiveAmount) < naData.amount_due && (
-              <p className="text-[12px] text-[var(--pending)]">
-                Recebimento parcial. A cobrança segue em aberto com saldo de{' '}
-                {formatCurrency(naData.amount_due - Number(receiveAmount))}.
-              </p>
-            )}
-
-            <Select
-              label="Forma de pagamento"
-              value={receiveMethod}
-              onChange={(e) => setReceiveMethod(e.target.value)}
-              options={PAYMENT_METHODS}
-            />
-
-            {/* O erro do recebimento ia para `feedback`, que renderiza no topo
-                da PÁGINA — atrás do modal. A recusa chegava e ficava invisível:
-                o operador via o modal parado, sem mensagem, sem saber se algo
-                havia sido gravado. Erro de modal se mostra dentro do modal. */}
-            {modalError && (
-              <div className="border border-[var(--danger)] bg-[var(--danger-bg)] px-3 py-2 text-[13px] text-[var(--danger)]">
-                {modalError}
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setReceiving(null)}>Cancelar</Button>
-              <Button onClick={handleReceive} disabled={saving || Number(receiveAmount) <= 0}>
-                {saving ? 'Registrando…' : 'Registrar'}
-              </Button>
-            </div>
-          </div>
-          )
-        })()}
-      </Modal>
+      {/* Implementação única, compartilhada com a tela de detalhe. Eram dois
+          modais com o mesmo propósito e comportamentos diferentes — títulos,
+          campos, tetos e até onde o erro aparecia. Cada correção precisava ser
+          feita duas vezes, e por duas vezes só uma foi. */}
+      <RegistrarPagamentoModal
+        open={!!receiving}
+        onClose={() => setReceiving(null)}
+        cobranca={receiving && {
+          chargeId:     receiving.charge_id,
+          chargeNumber: receiving.charge_number,
+          customerId:   receiving.customer_id,
+          customerName: receiving.customer_name,
+          dueDate:      receiving.due_date,
+          openAmount:   receiving.open_amount,
+          status:       receiving.status,
+        }}
+        policy={receiving?.late_charge_policy ?? null}
+        onRegistrado={() => { setFeedback('Recebimento registrado.'); refresh() }}
+      />
 
       {/* Cancelamento ------------------------------------------------- */}
       <Modal open={!!cancelling} onClose={() => setCancelling(null)} title="Cancelar cobrança">

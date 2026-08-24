@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from 'react'
 import { Modal } from '@/components/ui/Modal'
-import { Input, Select, Textarea } from '@/components/ui/Input'
+import { Input } from '@/components/ui/Input'
 import { formatCurrency } from '@/lib/utils'
-import { calculateAmountDue, type LateChargePolicy } from '@gomoto/core'
-import { receivePaymentAction, cancelChargeAction } from '../../actions'
+import { type LateChargePolicy } from '@gomoto/core'
+import { RegistrarPagamentoModal, type CobrancaParaPagamento } from '@/components/financial/RegistrarPagamentoModal'
+import { cancelChargeAction } from '../../actions'
 import { applyCustomerCredits } from '../actions'
 
 interface AvailableCredit {
@@ -21,29 +22,13 @@ interface BillingActionsProps {
   customerId: string
   status: string
   amountDue: number
-  /** Saldo, vencimento, situação e política — o componente recalcula o devido
-   *  quando o recebimento é registrado com data retroativa. */
-  openAmount: number
-  dueDate: string
-  chargeStatus: string
+  /** Tudo que o modal compartilhado precisa para identificar a cobrança e
+   *  recalcular o devido na data do recebimento. */
+  cobranca: CobrancaParaPagamento
   latePolicy: LateChargePolicy | null
   availableCredits: AvailableCredit[]
 }
 
-/** Hoje em `YYYY-MM-DD` local — `toISOString` devolve UTC e vira ontem à noite. */
-function hojeLocal(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-const PAYMENT_METHOD_OPTIONS = [
-  { label: 'PIX', value: 'pix' },
-  { label: 'Dinheiro', value: 'cash' },
-  { label: 'Cartão de crédito', value: 'credit_card' },
-  { label: 'Cartão de débito', value: 'debit_card' },
-  { label: 'Transferência bancária', value: 'bank_transfer' },
-  { label: 'Outro', value: 'other' },
-]
 
 // A origem gravada em `customer_credits.origin` é o `source_module` de quem
 // gerou o crédito. Faltavam justamente os que o produto cria hoje —
@@ -60,7 +45,7 @@ const CREDIT_ORIGIN_LABELS: Record<string, string> = {
   customer_credit:    'Crédito ao cliente',
 }
 
-export function BillingActions({ billingId, customerId, status, amountDue, openAmount, dueDate, chargeStatus, latePolicy, availableCredits }: BillingActionsProps) {
+export function BillingActions({ billingId, customerId, status, amountDue, cobranca, latePolicy, availableCredits }: BillingActionsProps) {
   const [isPending, startTransition] = useTransition()
   const [flashError, setFlashError] = useState<string | null>(null)
 
@@ -69,22 +54,6 @@ export function BillingActions({ billingId, customerId, status, amountDue, openA
   const [cancelOpen, setCancelOpen] = useState(false)
 
   // Register Payment form
-  /** Data em que o dinheiro ENTROU — não a de hoje. */
-  const [payDate, setPayDate] = useState(hojeLocal())
-  const [payAmount, setPayAmount]   = useState(amountDue > 0 ? amountDue.toFixed(2) : '')
-
-  /** Cálculo completo na data informada: menos dias de atraso, menos juros. */
-  function calculoEm(data: string) {
-    return calculateAmountDue(
-      { open_amount: openAmount, due_date: dueDate, status: chargeStatus },
-      latePolicy,
-      new Date(`${data}T12:00:00`),
-    )
-  }
-  const naData = calculoEm(payDate)
-  const devidoNaData = naData.amount_due
-  const [payMethod, setPayMethod]   = useState('pix')
-  const [payNotes, setPayNotes]     = useState('')
 
   // Apply Credit form
   const [selectedCredit, setSelectedCredit] = useState(availableCredits[0]?.id ?? '')
@@ -110,39 +79,6 @@ export function BillingActions({ billingId, customerId, status, amountDue, openA
   // exatamente na cobrança que mais precisa de ação.
   const isActionable = status === 'open' || status === 'overdue'
   const hasCredits = availableCredits.length > 0 && isActionable
-
-  function handlePay() {
-    const amount = parseFloat(payAmount)
-    if (isNaN(amount) || amount <= 0) { setFlashError('Valor inválido'); return }
-    if (amount > devidoNaData) {
-      setFlashError(
-        `Não é possível registrar ${formatCurrency(amount)}: nessa data a cobrança `
-        + `devia ${formatCurrency(devidoNaData)}. Nada foi gravado.`,
-      )
-      return
-    }
-    setFlashError(null)
-    startTransition(async () => {
-      // Recebimento é do cliente, alocado a esta cobrança. Valor menor que o
-      // devido é aceito: a cobrança segue em aberto com o saldo restante.
-      //
-      // A alocação era `Math.min(amount, amountDue)` — limitava a alocação e
-      // deixava o pagamento com o valor cheio, criando a sobra que sumia. Com o
-      // valor já barrado acima, alocar o valor inteiro é o correto: o que entra
-      // no caixa é exatamente o que quita a dívida.
-      const result = await receivePaymentAction({
-        customer_id: customerId,
-        amount,
-        method:      payMethod,
-        paid_at:     new Date(`${payDate}T12:00:00`).toISOString(),
-        notes:       payNotes || undefined,
-        allocations: [{ charge_id: billingId, amount }],
-      })
-      if (!result.ok) { setFlashError(result.error.message); return }
-      setPayOpen(false)
-      setPayNotes('')
-    })
-  }
 
   function handleCredit() {
     const amount = parseFloat(creditAmount)
@@ -179,7 +115,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, openA
       <div className="flex flex-wrap gap-2">
         {isActionable && (
           <button
-            onClick={() => { setFlashError(null); setPayDate(hojeLocal()); setPayAmount(amountDue > 0 ? amountDue.toFixed(2) : ''); setPayOpen(true) }}
+            onClick={() => { setFlashError(null); setPayOpen(true) }}
             disabled={isPending}
             className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-[13px] font-semibold text-bg transition-colors hover:bg-primary-hover disabled:opacity-50"
           >
@@ -206,149 +142,13 @@ export function BillingActions({ billingId, customerId, status, amountDue, openA
         )}
       </div>
 
-      {/* ── Registrar pagamento ────────────────────────────────────────────── */}
-      <Modal open={payOpen} onClose={() => setPayOpen(false)} title="Registrar pagamento">
-        <div className="space-y-4">
-          {/* Data em que o dinheiro ENTROU. Antes ia `new Date()` fixo: quem via
-              o Pix na segunda e registrava na quarta cobrava do cliente dois
-              dias de juros que não correram. Futuro é barrado. */}
-          <Input
-            label="Data do recebimento"
-            type="date"
-            max={hojeLocal()}
-            value={payDate}
-            onChange={e => {
-              const v = e.target.value
-              if (v > hojeLocal()) {
-                setFlashError('A data do recebimento não pode ser futura.')
-                return
-              }
-              setPayDate(v)
-              setFlashError(null)
-              setPayAmount(calculoEm(v).amount_due.toFixed(2))
-            }}
-          />
-
-          {/* O campo cedia qualquer valor: R$ 50.000.000,00 numa cobrança de
-              R$ 500,00 passavam sem aviso, a alocação era limitada ao saldo e o
-              excedente sumia — ficava em `payments` e nunca no razão.
-
-              Três camadas, porque uma só não basta:
-              1. Ao sair do campo, o valor é ajustado ao saldo — digitar demais
-                 não deixa o formulário num estado inválido.
-              2. O botão segue CLICÁVEL. Desabilitar parecia proteger e não
-                 protegia: clique em botão desabilitado não dispara evento, e o
-                 operador via o modal parado sem nenhuma explicação.
-              3. `receivePayment` recusa no servidor, porque tela se contorna. */}
-          <Input
-            label="Valor pago (R$)"
-            type="number"
-            step="0.01"
-            min="0.01"
-            max={devidoNaData.toFixed(2)}
-            value={payAmount}
-            onChange={e => {
-              const v = e.target.value
-              const n = parseFloat(v)
-
-              // Trava dura: o campo NUNCA guarda valor acima do saldo. Digitar
-              // ou colar um valor maior prende no teto, e a tarja explica por
-              // quê — senão o número mudaria sozinho sem motivo aparente.
-              if (!isNaN(n) && n > devidoNaData) {
-                setPayAmount(devidoNaData.toFixed(2))
-                setFlashError(
-                  `O máximo desta cobrança é ${formatCurrency(devidoNaData)}. Para `
-                  + 'receber a mais, registre o valor devido e conceda o excedente '
-                  + 'como crédito na ficha do cliente.',
-                )
-                return
-              }
-
-              setPayAmount(v)
-              setFlashError(null)
-            }}
-          />
-          {/* Juros são conta que o cliente vai querer conferir: "R$ 360,47" não
-              se discute, "350,00 de principal, 7,00 de multa e 3,47 de juros
-              por 30 dias" se confere. Tudo calculado na DATA DO RECEBIMENTO —
-              mudar a data acima refaz estes números. */}
-          <div className="-mt-2 space-y-1 rounded-lg border border-divider bg-surface-2 px-3 py-2 text-[12px]">
-            {naData.accrued.total > 0 ? (
-              <>
-                <div className="flex justify-between">
-                  <span className="text-fg-mute">Principal</span>
-                  <span className="tabular-nums text-fg">{formatCurrency(naData.open_amount)}</span>
-                </div>
-                {naData.accrued.fee > 0 && (
-                  <div className="flex justify-between text-warning">
-                    <span>Multa</span>
-                    <span className="tabular-nums">{formatCurrency(naData.accrued.fee)}</span>
-                  </div>
-                )}
-                {naData.accrued.interest > 0 && (
-                  <div className="flex justify-between text-warning">
-                    <span>
-                      Juros · {naData.accrued.days_overdue}{' '}
-                      {naData.accrued.days_overdue === 1 ? 'dia' : 'dias'} de atraso
-                    </span>
-                    <span className="tabular-nums">{formatCurrency(naData.accrued.interest)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between border-t border-divider pt-1">
-                  <span className="text-fg-mute">Total a receber</span>
-                  <span className="tabular-nums font-semibold text-fg">{formatCurrency(devidoNaData)}</span>
-                </div>
-              </>
-            ) : (
-              <div className="flex justify-between">
-                <span className="text-fg-mute">
-                  Saldo desta cobrança
-                  {naData.accrued.grace_period_active && ' · dentro da carência'}
-                </span>
-                <span className="tabular-nums text-fg">{formatCurrency(devidoNaData)}</span>
-              </div>
-            )}
-            <p className="pt-1 text-fg-mute">
-              Valor menor é aceito — a cobrança segue em aberto pelo restante.
-            </p>
-          </div>
-          <Select
-            label="Forma de pagamento"
-            value={payMethod}
-            onChange={e => setPayMethod(e.target.value)}
-            options={PAYMENT_METHOD_OPTIONS}
-          />
-          <Textarea
-            label="Observações (opcional)"
-            value={payNotes}
-            onChange={e => setPayNotes(e.target.value)}
-            rows={2}
-          />
-          {flashError && (
-            <div className="rounded-lg border border-danger bg-danger-bg px-3 py-2 text-[13px] text-danger">
-              {flashError}
-            </div>
-          )}
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              onClick={() => setPayOpen(false)}
-              className="inline-flex h-9 items-center px-4 rounded-full border border-border text-[13px] text-fg-mute hover:text-fg"
-            >
-              Cancelar
-            </button>
-            {/* Sem `disabled` no excedente: botão desabilitado não dispara
-                clique, e o operador ficava sem resposta nenhuma. Clicar sempre
-                responde — com o pagamento ou com o motivo da recusa. */}
-            <button
-              onClick={handlePay}
-              disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-primary-hover disabled:opacity-50"
-            >
-              {isPending ? 'Salvando…' : 'Confirmar pagamento'}
-            </button>
-          </div>
-        </div>
-      </Modal>
+      {/* Implementação única, a mesma da lista de cobranças. */}
+      <RegistrarPagamentoModal
+        open={payOpen}
+        onClose={() => setPayOpen(false)}
+        cobranca={cobranca}
+        policy={latePolicy}
+      />
 
       {/* ── Aplicar crédito ────────────────────────────────────────────────── */}
       <Modal open={creditOpen} onClose={() => setCreditOpen(false)} title="Aplicar crédito">

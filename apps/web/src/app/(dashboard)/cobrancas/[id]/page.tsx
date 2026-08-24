@@ -4,69 +4,15 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { calculateAmountDue, type LateChargePolicy } from '@gomoto/core'
 import { formatCurrency } from '@/lib/utils'
-import { calculateLateCharges } from '@gomoto/core'
-import type { LateChargeConfig } from '@gomoto/core'
 import { BillingActions } from './_components/BillingActions'
 import { ReversePaymentButton } from './_components/ReversePaymentButton'
 
 // ─── Local types ──────────────────────────────────────────────────────────────
 
-type PaymentRow = {
-  id: string
-  amount: number
-  payment_method: string
-  paid_at: string
-  notes: string | null
-}
 
-type LateChargeRow = {
-  id: string
-  fee: number
-  interest: number
-  total: number
-  days_overdue: number
-  captured_at: string
-}
 
-type CreditApplicationRow = {
-  id: string
-  amount: number
-  is_auto: boolean
-  created_at: string
-  credit: { origin: string; reason: string } | null
-}
 
-type CreditRow = {
-  id: string
-  amount: number
-  available_balance: number
-  origin: string
-  reason: string
-}
 
-type BillingRow = {
-  id: string
-  status: string
-  original_amount: number
-  discount_amount: number | null
-  credit_applied: number | null
-  charges_waived: boolean | null
-  waiver_reason: string | null
-  late_charge_config: LateChargeConfig | null
-  due_date: string
-  billing_type: string | null
-  source: string | null
-  description: string | null
-  lease_id: string | null
-  customer_id: string | null
-  paid_at: string | null
-  payment_method: string | null
-  rental: {
-    id: string
-    customer: { id: string; name: string; phone: string | null } | null
-    vehicle: { id: string; license_plate: string; make: string; model: string } | null
-  } | null
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -95,7 +41,6 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; b
 }
 
 /** Fora destes, a cobrança saiu de contas a receber e não há o que cobrar. */
-const TERMINAL_STATUSES = new Set(['paid', 'cancelled', 'written_off'])
 
 const BILLING_TYPE_LABELS: Record<string, string> = {
   cycle:         'Ciclo',
@@ -279,9 +224,7 @@ export default async function BillingDetailPage({
   // e devolve o saldo de uma cobrança baixada — correto para registrar a perda,
   // errado de exibir como "a pagar".
   const { accrued, amount_due: amountDue } = calculateAmountDue(balance, policy)
-  const isTerminal = TERMINAL_STATUSES.has(balance.status)
   const statusCfg = STATUS_CONFIG[balance.is_overdue ? 'overdue' : balance.status] ?? STATUS_CONFIG.open
-  const isOverdue = balance.is_overdue
 
   // Encargo já calculado acima a partir da política fixada na emissão.
   const lateChargesList: { id: string; fee: number; interest: number; total: number; days_overdue: number; captured_at: string }[] = []
@@ -292,6 +235,14 @@ export default async function BillingDetailPage({
   // representa a cobrança no título — no modelo novo a descrição vive nos
   // ITENS, não no documento.
   const principalItem = [...items].sort((a, b) => b.amount - a.amount)[0]
+
+  // Recebimentos que ainda valem — estornado não é pagamento.
+  const recebimentos = payments.filter((p) => !p.reversed)
+  const ultimoRecebimento = [...recebimentos].sort((a, b) =>
+    String(a.paid_at) < String(b.paid_at) ? 1 : -1)[0]
+  const formas = new Set(recebimentos.map((p) => p.payment_method))
+  const formaUnica: string | null =
+    balance.status === 'paid' && formas.size === 1 ? [...formas][0]! : null
   const billing = {
     id: balance.charge_id,
     charge_number: balance.charge_number,
@@ -299,8 +250,18 @@ export default async function BillingDetailPage({
     // representa a cobrança quando a tela precisa de um rótulo único (F-11).
     billing_type: balance.rental_id ? 'cycle' : 'one_time',
     source: principalItem?.source_module ?? 'manual',
-    paid_at: balance.status === 'paid' ? balance.due_date : null,
-    payment_method: null as string | null,
+    // "Pago em" é a data do RECEBIMENTO. A linha era
+    // `balance.status === 'paid' ? balance.due_date : null` — o vencimento com
+    // outro rótulo, e ainda por `fmtDatetime`, que lê "YYYY-MM-DD" como
+    // meia-noite UTC e devolve o dia anterior às 21:00. Uma cobrança recebida
+    // em 21/08/2026 aparecia "Pago em 20/07/2026, 21:00": um mês antes, e antes
+    // do próprio vencimento. A data real sempre esteve em `payments.paid_at`,
+    // logo abaixo na tabela de pagamentos.
+    paid_at: balance.status === 'paid' ? (ultimoRecebimento?.paid_at ?? null) : null,
+    // Só quando houver uma forma única: com dois recebimentos por meios
+    // diferentes, exibir um deles no cabeçalho seria escolher qual mentira
+    // contar. A tabela de pagamentos discrimina cada um.
+    payment_method: formaUnica,
     // Dispensa de encargo não existe mais: o encargo é projetado e só vira
     // receita quando consolidado (R-06) — não há o que dispensar.
     waiver_reason: null as string | null,
@@ -314,7 +275,6 @@ export default async function BillingDetailPage({
     customer_id: balance.customer_id,
     charges_waived: false,
   }
-  const baseAmount = balance.total_amount
   const creditApplied = 0
 
   return (
@@ -586,9 +546,15 @@ export default async function BillingDetailPage({
             billingId={id}
             status={(balance.is_overdue ? 'overdue' : balance.status)}
             amountDue={amountDue}
-            openAmount={balance.open_amount}
-            dueDate={balance.due_date}
-            chargeStatus={balance.status}
+            cobranca={{
+              chargeId:     balance.charge_id,
+              chargeNumber: balance.charge_number,
+              customerId:   balance.customer_id,
+              customerName: customer?.name ?? '—',
+              dueDate:      balance.due_date,
+              openAmount:   balance.open_amount,
+              status:       balance.status,
+            }}
             latePolicy={policy}
             customerId={billing.customer_id ?? ''}
             availableCredits={availableCredits}

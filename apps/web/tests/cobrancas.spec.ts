@@ -99,7 +99,7 @@ test.describe('Cobranças — emissão, pagamento parcial e baixa', () => {
     // ── Recebimento PARCIAL ──────────────────────────────────────────────────
     // O UNIQUE(billing_id) da ADR 0013 tornava isto fisicamente impossível.
     const row = page.locator('tr', { hasText: DESCRIPTION }).first()
-    await row.getByTitle(/registrar recebimento/i).click()
+    await row.getByTitle(/registrar pagamento/i).click()
 
     await expect(modal).toBeVisible()
     await modal.getByLabel('Valor recebido').fill('200')
@@ -107,7 +107,7 @@ test.describe('Cobranças — emissão, pagamento parcial e baixa', () => {
     // A tela avisa o saldo que permanece, antes de confirmar.
     await expect(modal.getByText(/recebimento parcial/i)).toBeVisible()
 
-    await modal.getByRole('button', { name: /^registrar$/i }).click()
+    await modal.getByRole('button', { name: /confirmar pagamento/i }).click()
     await expect(modal).not.toBeVisible({ timeout: 10_000 })
 
     const parcial = await chargeBalance(customerId)
