@@ -474,9 +474,32 @@ select v.version, v.effective_from, v.fee_type, v.fee_value, v.daily_interest_ra
 > preenchido pelo operador e nunca chegou ao banco — `rentals` não tem essas
 > colunas e a emissão sempre resolveu a política vigente. Foi removido.
 >
-> Quem escolhe a política é o **vencimento** da cobrança, não a data de emissão:
-> `fn_create_charge` casa `effective_from <= due_date`. Agendar uma política
-> para daqui a 15 dias já afeta a cobrança emitida hoje que vence daqui a 30.
+> Quem escolhe a política é a **data de emissão** da cobrança, via
+> `fn_late_charge_policy_at`. Agendar uma versão para daqui a 15 dias não afeta
+> nada emitido antes disso.
+
+### 6.6 As três telas mostram o mesmo encargo
+
+Só faz sentido com **duas ou mais versões** de política na base (crie uma em 6.5).
+
+- [ ] Pegue uma cobrança vencida **emitida antes** da versão nova.
+- [ ] Compare o valor em três lugares: coluna **Devido** na lista, modal
+      **Registrar pagamento** aberto pela lista, e a tela de **detalhe**
+      (bloco "Encargos por atraso") com o modal aberto por ela.
+
+**Verificar:**
+- [ ] Os quatro valores são idênticos.
+- [ ] O encargo é o da política **em vigor quando a cobrança foi emitida** — não
+      o da versão nova.
+- [ ] O badge de dias ao lado do vencimento (ex.: "30d") bate com os "N dias de
+      atraso" do modal. **Teste depois das 21h**: é a janela em que o banco, em
+      UTC, já virou o dia e a tela não.
+
+> A lista resolvia "a política vigente hoje" e aplicava a mesma a todas as
+> linhas; só a tela de detalhe lia `late_charge_policy_id`. E o app do cliente
+> não lia política nenhuma — faltava RLS —, então exibia o principal limpo e
+> gerava um Pix (service role) COM o encargo: o cliente via R$ 350,00 e recebia
+> um QR de R$ 360,47.
 
 ## Bloco 7 — Encerramento da locação
 

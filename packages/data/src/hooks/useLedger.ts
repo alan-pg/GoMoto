@@ -37,7 +37,6 @@ import {
   getRentalResult,
   listIncomeStatement,
   listRentalSchedule,
-  getActiveLateChargePolicy,
   getActiveDelinquencyPolicy,
   type ChargeBalanceRow,
 } from '../repositories/ledger'
@@ -82,6 +81,39 @@ export type ChargeWithDue = ChargeBalanceRow & {
 }
 
 /**
+ * Políticas do tenant indexadas por id.
+ *
+ * As três listagens resolviam a política vigente HOJE e aplicavam a MESMA a
+ * todas as linhas. Enquanto existiu uma versão só, ninguém percebeu; bastou a
+ * segunda para a mesma cobrança mostrar multa fixa de R$ 35 na lista e 2% na
+ * tela de detalhe — que é a única que lia `late_charge_policy_id`.
+ *
+ * São poucas linhas por tenant (uma por mudança de política na história da
+ * empresa), então buscar todas e indexar sai mais barato que juntar a política
+ * em cada consulta de cobrança.
+ */
+async function policyIndex(
+  supabase: Parameters<typeof listLateChargePolicies>[0],
+): Promise<Map<string, LateChargePolicy>> {
+  const versoes = await listLateChargePolicies(supabase)
+  return new Map(versoes.map((v) => [v.id, {
+    fee_type:            v.fee_type,
+    fee_value:           v.fee_value,
+    daily_interest_rate: v.daily_interest_rate,
+    grace_period_days:   v.grace_period_days,
+    min_amount:          v.min_amount,
+  }]))
+}
+
+/** A política que ESTA cobrança congelou — nunca a vigente hoje. */
+function policyOf(
+  index: Map<string, LateChargePolicy>,
+  row: { late_charge_policy_id: string | null },
+): LateChargePolicy | null {
+  return row.late_charge_policy_id ? index.get(row.late_charge_policy_id) ?? null : null
+}
+
+/**
  * Cobranças em aberto do cliente, já com encargo aplicado.
  *
  * `amount_due` é o valor a apresentar e a cobrar — não `open_amount`.
@@ -93,23 +125,13 @@ export function useOpenCharges(customerId: string | undefined) {
     queryKey: [KEY.charges, 'open', customerId],
     enabled: !!customerId,
     queryFn: async () => {
-      const [charges, policy] = await Promise.all([
+      const [charges, index] = await Promise.all([
         listOpenCharges(supabase, customerId!),
-        getActiveLateChargePolicy(supabase, today()),
+        policyIndex(supabase),
       ])
 
-      const p: LateChargePolicy | null = policy
-        ? {
-            fee_type: policy.fee_type,
-            fee_value: policy.fee_value,
-            daily_interest_rate: policy.daily_interest_rate,
-            grace_period_days: policy.grace_period_days,
-            min_amount: policy.min_amount,
-          }
-        : null
-
       return charges.map((c) => {
-        const { accrued, amount_due } = calculateAmountDue(c, p)
+        const { accrued, amount_due } = calculateAmountDue(c, policyOf(index, c))
         return { ...c, accrued_total: accrued.total, amount_due }
       })
     },
@@ -123,25 +145,15 @@ export function useChargeDetail(chargeId: string | undefined) {
     queryKey: [KEY.charges, chargeId],
     enabled: !!chargeId,
     queryFn: async () => {
-      const [balance, items, policy] = await Promise.all([
+      const [balance, items, index] = await Promise.all([
         getChargeBalance(supabase, chargeId!),
         listChargeItems(supabase, chargeId!),
-        getActiveLateChargePolicy(supabase, today()),
+        policyIndex(supabase),
       ])
 
       if (!balance) return null
 
-      const p: LateChargePolicy | null = policy
-        ? {
-            fee_type: policy.fee_type,
-            fee_value: policy.fee_value,
-            daily_interest_rate: policy.daily_interest_rate,
-            grace_period_days: policy.grace_period_days,
-            min_amount: policy.min_amount,
-          }
-        : null
-
-      const { accrued, amount_due } = calculateAmountDue(balance, p)
+      const { accrued, amount_due } = calculateAmountDue(balance, policyOf(index, balance))
       return { ...balance, items, accrued, amount_due }
     },
   })
@@ -159,22 +171,13 @@ export function useChargesList() {
   return useQuery({
     queryKey: [KEY.charges, 'cockpit'],
     queryFn: async () => {
-      const [rows, policy] = await Promise.all([
+      const [rows, index] = await Promise.all([
         listChargesForCockpit(supabase),
-        getActiveLateChargePolicy(supabase, today()),
+        policyIndex(supabase),
       ])
 
-      const p: LateChargePolicy | null = policy
-        ? {
-            fee_type: policy.fee_type,
-            fee_value: policy.fee_value,
-            daily_interest_rate: policy.daily_interest_rate,
-            grace_period_days: policy.grace_period_days,
-            min_amount: policy.min_amount,
-          }
-        : null
-
       return rows.map((r) => {
+        const p = policyOf(index, r)
         const { accrued, amount_due } = calculateAmountDue(r, p)
         // A política vai junto: a tela precisa dela para RECALCULAR o valor
         // quando o operador informa uma data de pagamento retroativa. Sem isso
@@ -518,22 +521,12 @@ export function useMyCharges(onlyOpen = true) {
 
       if (onlyOpen) query = query.eq('status', 'open').gt('open_amount', 0)
 
-      const [{ data, error }, policy] = await Promise.all([
+      const [{ data, error }, index] = await Promise.all([
         query,
-        getActiveLateChargePolicy(supabase, today()),
+        policyIndex(supabase),
       ])
 
       if (error) throw error
-
-      const p: LateChargePolicy | null = policy
-        ? {
-            fee_type: policy.fee_type,
-            fee_value: policy.fee_value,
-            daily_interest_rate: policy.daily_interest_rate,
-            grace_period_days: policy.grace_period_days,
-            min_amount: policy.min_amount,
-          }
-        : null
 
       const rows = (data ?? []) as ChargeBalanceRow[]
       if (rows.length === 0) return []
@@ -571,7 +564,7 @@ export function useMyCharges(onlyOpen = true) {
       )
 
       return rows.map((c) => {
-        const { accrued, amount_due } = calculateAmountDue(c, p)
+        const { accrued, amount_due } = calculateAmountDue(c, policyOf(index, c))
         const items = itemsByCharge.get(c.charge_id) ?? []
         const principal = [...items].sort((a, b) => b.amount - a.amount)[0]
 

@@ -27,6 +27,9 @@ export type ChargeBalanceRow = {
   open_amount: number
   is_overdue: boolean
   days_overdue: number
+  /** Política congelada na emissão. Sem ela a tela não tem como saber qual
+   *  regra esta cobrança carrega, e acaba aplicando a vigente hoje a todas. */
+  late_charge_policy_id: string | null
 }
 
 export type ChargeItemRow = {
@@ -452,23 +455,19 @@ export type LateChargePolicyRow = {
   min_amount: number
 }
 
-/** Política vigente na data informada. */
-export async function getActiveLateChargePolicy(
-  client: SupabaseClient,
-  onDate: string,
-): Promise<LateChargePolicyRow | null> {
-  const { data, error } = await client
-    .from('late_charge_policies')
-    .select('*')
-    .lte('effective_from', onDate)
-    .order('effective_from', { ascending: false })
-    .order('version', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (error) throw error
-  return (data ?? null) as LateChargePolicyRow | null
-}
+/**
+ * NÃO existe "a política vigente" para uma cobrança já emitida.
+ *
+ * Havia aqui `getActiveLateChargePolicy(client, hoje)`, e os quatro hooks que
+ * mostram encargo a chamavam: aplicavam a política de HOJE a todas as linhas,
+ * enquanto cada cobrança carrega a sua em `late_charge_policy_id`. Com uma
+ * versão só na base ninguém notava; a segunda fez a mesma cobrança valer R$ 35
+ * de multa fixa na lista e 2% na tela de detalhe.
+ *
+ * Quem precisa da política de uma cobrança usa `listLateChargePolicies` e
+ * indexa por id. Quem EMITE não resolve no TypeScript: `fn_create_charge` e
+ * `issue_due_charges` chamam `fn_late_charge_policy_at` na data de emissão.
+ */
 
 /**
  * Todas as versões da política, da mais nova para a mais antiga.

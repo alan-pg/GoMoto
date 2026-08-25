@@ -23,7 +23,11 @@ A conversão entre as duas colunas vive em `toPolicyRow`/`toPolicyInput` (`@gomo
 
 **Salvar cria uma VERSÃO nova, nunca edita a vigente.** Cobrança guarda `late_charge_policy_id`, então o que já foi emitido continua valendo o que valia no dia. A numeração e a trava de retroatividade estão em `fn_create_late_charge_policy`, sob `FOR UPDATE` do tenant — `MAX(version)+1` calculado no app daria o mesmo número a duas gravações simultâneas.
 
-Quem escolhe a política de uma cobrança é `fn_create_charge`, no banco, casando `effective_from <= due_date` — pela data de **vencimento**, não a de emissão.
+Quem escolhe a política de uma cobrança é o banco, por `fn_late_charge_policy_at(tenant, data)`, na **data de emissão**. Fonte única: emissão avulsa (`fn_create_charge`) e cron (`issue_due_charges`) chamam a mesma função.
+
+Havia três respostas para "qual política vale": `fn_create_charge` casava por `due_date`, o cron por `CURRENT_DATE` resolvido uma vez para o lote inteiro, e a lista do cockpit usava a vigente hoje para todas as linhas. Com uma versão só na base ninguém percebia; a segunda fez a mesma cobrança valer R$ 35 de multa fixa na lista e 2% na tela de detalhe.
+
+`due_date` tinha um efeito difícil de defender: cobrança emitida hoje com vencimento em 60 dias podia pegar uma versão **agendada**, ainda não vigente.
 
 ### 1. Segurança (ícone Lock `#a880ff`)
 

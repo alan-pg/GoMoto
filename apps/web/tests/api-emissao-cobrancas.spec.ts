@@ -49,7 +49,12 @@ function requisicao(authorization?: string): NextRequest {
 /** Agenda uma parcela vencendo hoje — o que a emissão deve pegar. */
 let proximaParcela = 0
 async function agendarParcela(valor: number) {
-  const hoje = new Date().toISOString().slice(0, 10)
+  // Data LOCAL, não `toISOString` (que é UTC). A emissão filtra por
+  // `fn_business_today()` — o dia do operador —, então das 21h à meia-noite a
+  // data em UTC já é a de amanhã e a parcela ficava fora da janela.
+  const agora = new Date()
+  const hoje = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`
+    + `-${String(agora.getDate()).padStart(2, '0')}`
   const { data, error } = await admin()
     .from('rental_billing_schedules')
     .insert({

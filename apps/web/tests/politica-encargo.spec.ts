@@ -31,6 +31,9 @@ function hoje(): string {
   return daquiA(0)
 }
 
+/** Deslocamento único por execução: duas rodadas não disputam a mesma data. */
+const OFFSET = 90 + Math.floor(Math.random() * 900)
+
 let tenantId: string
 let customerId: string
 let rentalId: string
@@ -50,8 +53,18 @@ test.afterAll(async () => {
   // As versões criadas aqui precisam sumir: `fn_create_charge` escolhe a
   // política por `effective_from <= due_date`, então uma versão esquecida
   // mudaria o valor esperado por outras suítes.
-  if (criadas.length > 0) {
-    await admin().from('late_charge_policies').delete().in('id', criadas)
+  // Uma por vez: `charges.late_charge_policy_id` é FK RESTRICT, e um único
+  // `delete ... in (...)` perdia TODAS as linhas quando uma delas estava presa.
+  // Presa fica a que cobranças de outros testes adotaram — política é do
+  // tenant, então criar uma versão aqui muda o que a empresa inteira passa a
+  // usar. Some no `pnpm db:reset`; as de data futura saem sempre.
+  const presas: string[] = []
+  for (const id of criadas) {
+    const { error } = await admin().from('late_charge_policies').delete().eq('id', id)
+    if (error) presas.push(id)
+  }
+  if (presas.length > 0) {
+    console.warn(`[politica-encargo] ${presas.length} política(s) seguem presas a cobranças`)
   }
   await admin().from('rentals').delete().eq('id', rentalId)
   await deleteTestCustomer(customerId).catch(() => {})
@@ -68,7 +81,7 @@ async function criarVersao(over: Partial<{
     monthly_interest_percent: 3,
     grace_period_days: 0,
     min_amount: 0,
-    effective_from: daquiA(90),
+    effective_from: daquiA(OFFSET + 5),
     ...over,
   })
 
@@ -142,7 +155,7 @@ test.describe('Política de encargo — versionamento', () => {
       .eq('tenant_id', tenantId).order('version', { ascending: false }).limit(1).single()
     const ultimo = (antes.data as { version: number }).version
 
-    const { id } = await criarVersao({ effective_from: daquiA(91) })
+    const { id } = await criarVersao({ effective_from: daquiA(OFFSET + 1) })
     const { data } = await admin()
       .from('late_charge_policies').select('version').eq('id', id!).single()
 
@@ -153,8 +166,8 @@ test.describe('Política de encargo — versionamento', () => {
     // `MAX(version) + 1` lido no app daria o mesmo número às duas: uma entra e
     // a outra estoura no UNIQUE. A função trava o tenant justamente por isso.
     const [a, b] = await Promise.all([
-      criarVersao({ effective_from: daquiA(92) }),
-      criarVersao({ effective_from: daquiA(93) }),
+      criarVersao({ effective_from: daquiA(OFFSET + 2) }),
+      criarVersao({ effective_from: daquiA(OFFSET + 3) }),
     ])
 
     expect(a.error, 'a primeira não pode falhar').toBeNull()
@@ -176,7 +189,7 @@ test.describe('Política de encargo — versionamento', () => {
   test('a fração chega ao banco como fração, não como o número digitado', async () => {
     // 5% grava 0.05. O CHECK `late_charge_percentage_is_fraction` recusa 5, e
     // era exatamente essa a convenção da `LateChargeConfig` removida.
-    const { id } = await criarVersao({ effective_from: daquiA(94), fee_value: 5 })
+    const { id } = await criarVersao({ effective_from: daquiA(OFFSET + 4), fee_value: 5 })
     const { data } = await admin()
       .from('late_charge_policies').select('fee_value, daily_interest_rate').eq('id', id!).single()
 
@@ -203,7 +216,7 @@ test.describe('Política de encargo — a tela', () => {
 
     const carencia = secao.getByLabel('Carência (dias)')
     await carencia.fill('7')
-    await secao.getByLabel('Em vigor a partir de').fill(daquiA(95))
+    await secao.getByLabel('Em vigor a partir de').fill(daquiA(OFFSET))
     await secao.getByRole('button', { name: /salvar nova versão/i }).click()
 
     await expect(secao.getByText(/Nova versão salva/i)).toBeVisible({ timeout: 15_000 })
@@ -212,12 +225,15 @@ test.describe('Política de encargo — a tela', () => {
       .from('late_charge_policies')
       .select('id, grace_period_days, effective_from')
       .eq('tenant_id', tenantId)
-      .eq('effective_from', daquiA(95))
-      .single()
+      .eq('effective_from', daquiA(OFFSET))
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-    const nova = data as { id: string; grace_period_days: number }
-    criadas.push(nova.id)
-    expect(nova.grace_period_days).toBe(7)
+    const nova = data as { id: string; grace_period_days: number } | null
+    if (nova) criadas.push(nova.id)   // antes de asserir: falha aqui não pode deixar resíduo
+    expect(nova, 'a tela precisa ter gravado a versão').not.toBeNull()
+    expect(nova!.grace_period_days).toBe(7)
   })
 
   test('a tela recusa vigência anterior a hoje', async ({ page }) => {
@@ -234,5 +250,151 @@ test.describe('Política de encargo — a tela', () => {
     await campo.fill(daquiA(-10))
     await secao.getByRole('button', { name: /salvar nova versão/i }).click()
     await expect(secao.getByText(/não pode começar antes de hoje/i)).toBeVisible({ timeout: 15_000 })
+  })
+})
+
+test.describe('Política de encargo — as três telas concordam', () => {
+  /**
+   * O bug que originou este bloco: a lista do cockpit resolvia "a política
+   * vigente HOJE" e aplicava a MESMA a todas as linhas, enquanto a tela de
+   * detalhe lia `late_charge_policy_id` de cada cobrança. Com uma versão só na
+   * base as duas concordavam por acidente. Bastou existir a segunda para a
+   * mesma cobrança valer R$ 35 de multa fixa na lista e 2% no detalhe.
+   */
+  test('lista, detalhe e modal mostram o mesmo encargo com duas políticas na base', async ({ page }) => {
+    const marca = `${TEST_TAG} Divergencia ${Date.now().toString(36)}`
+
+    // Cobrança emitida sob a política ATUAL, vencida há 20 dias.
+    // `issueDate` no passado de propósito: a política sai da data de EMISSÃO,
+    // então esta cobrança precisa nascer sob a regra antiga para que a nova,
+    // criada logo abaixo, tenha de que não vazar.
+    const { chargeId } = await createCharge(admin(), tenantId, {
+      customerId, rentalId,
+      dueDate:   daquiA(-20),
+      issueDate: daquiA(-25),
+      sourceModule: 'manual',
+      sourceId: crypto.randomUUID(),
+      items: [{
+        description: marca,
+        credit_account_code: 'receita_locacao',
+        quantity: 1, unit_amount: 1000, amount: 1000,
+      }],
+    })
+
+    // Segunda versão vigente HOJE, com regra bem diferente: multa FIXA de
+    // R$ 35 contra os 2% da anterior. É a que a lista usaria indevidamente.
+    const nova = toPolicyRow({
+      fee_type: 'fixed', fee_value: 35, monthly_interest_percent: 6,
+      grace_period_days: 0, min_amount: 0, effective_from: hoje(),
+    })
+    const { data: novaId, error } = await admin().rpc('fn_create_late_charge_policy', {
+      p_tenant_id: tenantId,
+      p_fee_type: nova.fee_type, p_fee_value: nova.fee_value,
+      p_daily_interest_rate: nova.daily_interest_rate,
+      p_grace_period_days: nova.grace_period_days,
+      p_min_amount: nova.min_amount, p_effective_from: nova.effective_from,
+    })
+    expect(error?.message ?? null, 'nova versão precisa entrar').toBeNull()
+    criadas.push(novaId as string)
+
+    /** Primeiro "R$ x,yz" do trecho. */
+    const valorDe = (texto: string) => {
+      const m = texto.match(/R\$\s*([\d.]+),(\d{2})/)
+      if (!m) throw new Error(`sem valor em: ${texto}`)
+      return parseFloat(`${m[1]!.replace(/\./g, '')}.${m[2]}`)
+    }
+
+    // ── 1. Lista ────────────────────────────────────────────────────────────
+    await page.goto('/cobrancas')
+    await waitForPageLoad(page)
+    await page.getByPlaceholder(/cliente, placa ou número/i).fill(marca)
+
+    const linha = page.locator('tr', { hasText: marca }).first()
+    await expect(linha).toBeVisible({ timeout: 10_000 })
+        // A célula "Devido" (7ª coluna), não a linha inteira: ali dentro vêm dois
+    // valores — o devido e o badge "+R$ x" do encargo — e a linha ainda traz
+    // Total e Pago antes deles.
+    const naLista = valorDe(await linha.locator('td').nth(6).innerText())
+
+    // ── 2. Modal da lista ───────────────────────────────────────────────────
+    await linha.getByTitle(/registrar pagamento/i).click()
+    const modalLista = page.locator('div.fixed.inset-0').first()
+    await expect(modalLista).toBeVisible()
+    const noModalLista = parseFloat(await modalLista.locator('input[type="number"]').inputValue())
+    await page.keyboard.press('Escape')
+
+    // ── 3. Tela de detalhe ──────────────────────────────────────────────────
+    await page.goto(`/cobrancas/${chargeId}`)
+    await waitForPageLoad(page)
+    const totalComEncargos = page.locator('tr').filter({ hasText: 'Total com encargos' })
+    await expect(totalComEncargos).toBeVisible({ timeout: 10_000 })
+    const noDetalhe = valorDe(await totalComEncargos.innerText())
+
+    // ── 4. Modal do detalhe ─────────────────────────────────────────────────
+    await page.getByRole('button', { name: 'Registrar pagamento' }).click()
+    const modalDetalhe = page.locator('div.fixed.inset-0').first()
+    await expect(modalDetalhe).toBeVisible()
+    const noModalDetalhe = parseFloat(await modalDetalhe.locator('input[type="number"]').inputValue())
+
+    // As quatro leituras precisam bater. A cobrança foi emitida sob a política
+    // ANTIGA (2% sobre 1.000 = R$ 20 de multa); a nova, fixa em R$ 35, não pode
+    // vazar para ela.
+    expect(noModalLista, 'lista e seu modal').toBeCloseTo(naLista, 2)
+    expect(noDetalhe, 'detalhe e lista').toBeCloseTo(naLista, 2)
+    expect(noModalDetalhe, 'modal do detalhe e detalhe').toBeCloseTo(noDetalhe, 2)
+
+    // E o valor tem que ser o da política antiga, não o da nova.
+    expect(naLista, 'a multa é 2% de 1.000, não os R$ 35 da política nova')
+      .toBeGreaterThan(1020)
+    expect(naLista).toBeLessThan(1030)
+  })
+})
+
+test.describe('Dias de atraso — o hoje do operador', () => {
+  /**
+   * O banco roda em UTC. Das 21h à meia-noite, `CURRENT_DATE` já é o dia
+   * seguinte enquanto a tela ainda mostra o dia corrente. A lista tirava os
+   * dias da view (UTC) e o modal de recebimento calculava em hora local: a
+   * mesma cobrança aparecia com "31d" ao lado do vencimento e "30 dias de
+   * atraso" dentro do modal, cobrando juros de 30.
+   */
+  test('a data do negócio é a data local, não a do servidor', async () => {
+    const { data } = await admin().rpc('fn_business_today')
+    expect(data, 'fn_business_today precisa concordar com o relógio do operador').toBe(hoje())
+  })
+
+  test('os dias de atraso da view batem com os do encargo', async () => {
+    const { chargeId } = await createCharge(admin(), tenantId, {
+      customerId, rentalId,
+      dueDate: daquiA(-10),
+      sourceModule: 'manual',
+      sourceId: crypto.randomUUID(),
+      items: [{
+        description: `${TEST_TAG} Dias ${Date.now().toString(36)}`,
+        credit_account_code: 'receita_locacao',
+        quantity: 1, unit_amount: 500, amount: 500,
+      }],
+    })
+
+    const { data } = await admin()
+      .from('charge_balances')
+      .select('days_overdue, open_amount, due_date, status, late_charge_policy_id')
+      .eq('charge_id', chargeId).single()
+
+    const b = data as {
+      days_overdue: number; open_amount: number; due_date: string
+      status: string; late_charge_policy_id: string
+    }
+
+    const { data: pol } = await admin()
+      .from('late_charge_policies')
+      .select('fee_type, fee_value, daily_interest_rate, grace_period_days, min_amount')
+      .eq('id', b.late_charge_policy_id).single()
+
+    // `calculateAmountDue` conta em hora LOCAL; a view contava em UTC.
+    const { accrued } = calculateAmountDue(b, pol as LateChargePolicy)
+    expect(b.days_overdue, 'view e encargo precisam contar os mesmos dias')
+      .toBe(accrued.days_overdue)
+    expect(b.days_overdue).toBe(10)
   })
 })
