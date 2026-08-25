@@ -108,17 +108,26 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 1.5 Contrato retroativo com caução/entrada já pagas
 
-- [ ] Crie uma locação com **data de início no passado** (ex.: 30 dias atrás),
+- [x] Crie uma locação com **data de início no passado** (ex.: 30 dias atrás),
       caução R$ 500 e entrada R$ 300, ambas com "já foi paga" marcada.
-- [ ] Confira no preview a data de vencimento das linhas Caução e Entrada.
+- [x] Confira no preview a data de vencimento das linhas Caução e Entrada.
 
 **Verificar:**
-- [ ] As duas cobranças nascem com situação **Paga**, devido R$ 0,00.
-- [ ] O vencimento gravado é a **data do pagamento** — a mesma que o preview
+- [x] As duas cobranças nascem com situação **Paga**, devido R$ 0,00.
+- [x] O vencimento gravado é a **data do pagamento** — a mesma que o preview
       mostrou —, não a data de início do contrato.
-- [ ] Nenhuma delas tem item "Encargo por atraso".
-- [ ] No razão, a caução credita `caucoes_a_devolver` (passivo) e a entrada
-      credita `receita_locacao` (receita).
+- [x] Nenhuma delas tem item "Encargo por atraso".
+- [ ] **A caução não virou receita, a entrada virou.** No **DRE**, a linha
+      *Receita bruta* do mês cresce **R$ 300,00** — só a entrada. Os R$ 500,00
+      da caução não aparecem em nenhuma linha do DRE.
+- [ ] Na locação, aba **Financeiro**, o movimento de caução aparece com os
+      R$ 500,00 recebidos.
+
+> Por quê: caução é dinheiro do cliente que a empresa segura e um dia devolve —
+> credita `caucoes_a_devolver`, conta de **passivo**, que não tem linha de DRE.
+> Entrada é receita não reembolsável — credita `receita_locacao`, que entra em
+> *Receita bruta* e na base de imposto. É a diferença entre as duas, e o DRE é
+> onde ela fica visível sem abrir o banco.
 
 > Emitidas com `due_date = start_date`, nasciam vencidas: o recebimento
 > realizava o encargo ANTES de alocar, e a alocação — fixa no principal —
