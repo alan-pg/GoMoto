@@ -54,15 +54,19 @@ export function LateChargePolicySection({ versions }: { versions: PolicyVersion[
   const vigente = versions.find((v) => v.effective_from <= hoje) ?? versions[0]
   const futuras = versions.filter((v) => v.effective_from > hoje)
 
-  const inicial = vigente
-    ? toPolicyInput(vigente)
-    : { fee_type: 'percentage' as const, fee_value: 2, monthly_interest_percent: 1, grace_period_days: 0, min_amount: 0 }
+  // Empresa nova nasce SEM política, e isso significa não cobrar encargo
+  // nenhum. O formulário nascia preenchido com 2% e 1% ao mês nesse caso — os
+  // valores de mercado —, e quem abria a tela lia isso como configuração
+  // vigente. Campos vazios não deixam dúvida: não há regra, e o que a empresa
+  // cobra hoje é zero.
+  const semPolitica = !vigente
+  const inicial = vigente ? toPolicyInput(vigente) : null
 
-  const [feeType, setFeeType]   = useState<'percentage' | 'fixed'>(inicial.fee_type)
-  const [fee, setFee]           = useState(String(inicial.fee_value))
-  const [juros, setJuros]       = useState(String(inicial.monthly_interest_percent))
-  const [carencia, setCarencia] = useState(String(inicial.grace_period_days))
-  const [minimo, setMinimo]     = useState(String(inicial.min_amount))
+  const [feeType, setFeeType]   = useState<'percentage' | 'fixed'>(inicial?.fee_type ?? 'percentage')
+  const [fee, setFee]           = useState(inicial ? String(inicial.fee_value) : '')
+  const [juros, setJuros]       = useState(inicial ? String(inicial.monthly_interest_percent) : '')
+  const [carencia, setCarencia] = useState(inicial ? String(inicial.grace_period_days) : '')
+  const [minimo, setMinimo]     = useState(inicial ? String(inicial.min_amount) : '')
   const [vigencia, setVigencia] = useState(hoje)
 
   // O operador digita ao mês porque é assim que a cláusula do contrato fala; o
@@ -73,6 +77,20 @@ export function LateChargePolicySection({ versions }: { versions: PolicyVersion[
   function salvar() {
     setErro(null)
     setOk(false)
+
+    // `parseFloat('')` é NaN, e o Zod devolveria "expected number, received
+    // nan" — mensagem de biblioteca para um campo que o operador só esqueceu
+    // de preencher. Zero é valor legítimo (isenta a linha); vazio não é.
+    const numeros = { Multa: fee, 'Juros ao mês': juros, Carência: carencia, 'Encargo mínimo': minimo }
+    const faltando = Object.entries(numeros)
+      .filter(([, v]) => v.trim() === '' || isNaN(parseFloat(v)))
+      .map(([k]) => k)
+
+    if (faltando.length > 0) {
+      setErro(`Preencha ${faltando.join(', ')} — use 0 para não cobrar essa parte.`)
+      return
+    }
+
     startTransition(async () => {
       const r = await createLateChargePolicyAction({
         fee_type: feeType,
@@ -104,6 +122,14 @@ export function LateChargePolicySection({ versions }: { versions: PolicyVersion[
 
       <Card>
         <div className="space-y-5">
+          {semPolitica && (
+            <div className="rounded-lg border border-warning bg-warning-bg px-4 py-3 text-[13px] text-warning">
+              <strong className="font-semibold">Nenhum encargo configurado.</strong>{' '}
+              Cobranças vencidas não recebem multa nem juros — o cliente deve o valor
+              original, por quanto tempo passar. Preencha abaixo para começar a cobrar.
+            </div>
+          )}
+
           {vigente && (
             <div className="rounded-lg border border-divider bg-surface-2 px-4 py-3 text-[13px]">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -148,6 +174,7 @@ export function LateChargePolicySection({ versions }: { versions: PolicyVersion[
               type="number"
               step="0.01"
               min="0"
+              placeholder={feeType === 'percentage' ? 'ex.: 2' : 'ex.: 35,00'}
               value={fee}
               onChange={(e) => setFee(e.target.value)}
             />
@@ -158,6 +185,7 @@ export function LateChargePolicySection({ versions }: { versions: PolicyVersion[
                 type="number"
                 step="0.01"
                 min="0"
+                placeholder="ex.: 1"
                 value={juros}
                 onChange={(e) => setJuros(e.target.value)}
               />
@@ -172,6 +200,7 @@ export function LateChargePolicySection({ versions }: { versions: PolicyVersion[
                 type="number"
                 step="1"
                 min="0"
+                placeholder="0"
                 value={carencia}
                 onChange={(e) => setCarencia(e.target.value)}
               />
@@ -185,6 +214,7 @@ export function LateChargePolicySection({ versions }: { versions: PolicyVersion[
               type="number"
               step="0.01"
               min="0"
+              placeholder="0,00"
               value={minimo}
               onChange={(e) => setMinimo(e.target.value)}
             />
@@ -210,13 +240,13 @@ export function LateChargePolicySection({ versions }: { versions: PolicyVersion[
           )}
           {ok && (
             <div className="rounded-lg border border-success bg-success-bg px-3 py-2 text-[13px] text-success">
-              Nova versão salva. Cobranças emitidas a partir da vigência usarão esta regra.
+              {semPolitica ? 'Encargo configurado' : 'Nova versão salva'}. Cobranças emitidas a partir da vigência usarão esta regra.
             </div>
           )}
 
           <div className="flex justify-end">
             <Button onClick={salvar} disabled={isPending}>
-              {isPending ? 'Salvando…' : 'Salvar nova versão'}
+              {isPending ? 'Salvando…' : semPolitica ? 'Começar a cobrar encargo' : 'Salvar nova versão'}
             </Button>
           </div>
         </div>

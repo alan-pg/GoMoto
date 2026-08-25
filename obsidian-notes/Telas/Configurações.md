@@ -19,6 +19,10 @@ A única forma de configurar multa e juros. Antes desta seção, `late_charge_po
 | Encargo mínimo | R$ | `min_amount` |
 | Em vigor a partir de | data ≥ hoje | `effective_from` |
 
+**Empresa nova nasce sem política, e isso é o estado correto.** `create_tenant_with_owner` não cria nenhuma; o back-fill da migration de políticas só alcançou os tenants que já existiam. Sem política, cobrança vencida não acumula multa nem juros — o cliente deve o valor original, por quanto tempo passar.
+
+Nesse estado a tela mostra um aviso e os campos ficam **vazios**, com a convenção de mercado apenas no placeholder. Antes eles nasciam preenchidos com 2% e 1% ao mês, e quem abria a tela lia configuração onde não havia nenhuma.
+
 A conversão entre as duas colunas vive em `toPolicyRow`/`toPolicyInput` (`@gomoto/core`, `rules/late-charge-policy.ts`), testada. Não é detalhe de formatação: a convenção já divergiu duas vezes nesta base — a função `calculateLateCharges` (removida) tratava `2` como 2%, enquanto a regra viva trata `0.02` como 2%.
 
 **Salvar cria uma VERSÃO nova, nunca edita a vigente.** Cobrança guarda `late_charge_policy_id`, então o que já foi emitido continua valendo o que valia no dia. A numeração e a trava de retroatividade estão em `fn_create_late_charge_policy`, sob `FOR UPDATE` do tenant — `MAX(version)+1` calculado no app daria o mesmo número a duas gravações simultâneas.

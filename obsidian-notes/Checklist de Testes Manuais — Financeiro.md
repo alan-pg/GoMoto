@@ -498,6 +498,27 @@ select v.version, v.effective_from, v.fee_type, v.fee_value, v.daily_interest_ra
 > `fn_late_charge_policy_at`. Agendar uma versão para daqui a 15 dias não afeta
 > nada emitido antes disso.
 
+### 6.5-b Empresa sem encargo configurado
+
+Estado de toda empresa recém-cadastrada. Para reproduzir em dev:
+`docker exec supabase_db_GoMoto psql -U postgres -d postgres -c "delete from late_charge_policies;"`
+(só funciona antes de emitir cobrança — depois a FK segura).
+
+- [ ] Em Configurações → Encargo por atraso, aparece o aviso **"Nenhum encargo
+      configurado"** e os campos estão **vazios** (a convenção de mercado fica
+      só no placeholder).
+- [ ] O botão diz **"Começar a cobrar encargo"**, não "Salvar nova versão".
+- [ ] Salvar com um campo em branco explica qual falta e sugere usar 0.
+
+**Verificar:**
+- [ ] Emita uma cobrança vencida. O valor devido é o **original**, sem multa nem
+      juros, por mais dias que passem.
+- [ ] A cobrança nasce com `late_charge_policy_id` nulo.
+- [ ] O modal de recebimento não mostra as linhas de Multa e Juros.
+
+> Sem política, o formulário nascia com 2% e 1% ao mês preenchidos. Quem abria a
+> tela lia isso como o que a empresa cobra — e não cobrava nada.
+
 ### 6.6 As três telas mostram o mesmo encargo
 
 Só faz sentido com **duas ou mais versões** de política na base (crie uma em 6.5).

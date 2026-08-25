@@ -398,3 +398,105 @@ test.describe('Dias de atraso — o hoje do operador', () => {
     expect(b.days_overdue).toBe(10)
   })
 })
+
+test.describe('Empresa sem política — encargo é zero, e a tela diz isso', () => {
+  /**
+   * Empresa nova nasce SEM política: `create_tenant_with_owner` não cria
+   * nenhuma, e o back-fill da migration de políticas só alcançou os tenants que
+   * existiam naquele momento. Este é o estado normal de quem acabou de se
+   * cadastrar, e ele precisa significar exatamente uma coisa — não cobrar nada.
+   *
+   * `Empresa Teste 2` do seed está nesse estado e serve de cobaia.
+   */
+  const TENANT_SEM_POLITICA = '00000000-0000-0000-0000-000000000002'
+  const lixo: { tabela: string; id: string }[] = []
+
+  test.afterAll(async () => {
+    for (const { tabela, id } of [...lixo].reverse()) {
+      await admin().from(tabela).delete().eq('id', id)
+    }
+  })
+
+  test('cobrança vencida há 60 dias não acumula multa nem juros', async () => {
+    const sufixo = Date.now().toString(36)
+
+    const semear = async (tabela: string, payload: Record<string, unknown>) => {
+      const { data, error } = await admin().from(tabela).insert(payload).select('id').single()
+      if (error) throw new Error(`${tabela}: ${error.message}`)
+      const id = (data as { id: string }).id
+      lixo.push({ tabela, id })
+      return id
+    }
+
+    // A empresa não pode ter política — se um dia ganhar uma, este teste passa
+    // a medir outra coisa e precisa saber disso.
+    const { count } = await admin()
+      .from('late_charge_policies')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', TENANT_SEM_POLITICA)
+    expect(count, 'a cobaia precisa estar sem política').toBe(0)
+
+    const clienteId = await semear('customers', {
+      tenant_id: TENANT_SEM_POLITICA, name: `${TEST_TAG} SemPolitica ${sufixo}`, in_queue: false,
+    })
+    const veiculoId = await semear('vehicles', {
+      tenant_id: TENANT_SEM_POLITICA,
+      license_plate: `SP${sufixo.slice(-5).toUpperCase()}`,
+      acquisition_type: 'used',
+    })
+    const locacaoId = await semear('rentals', {
+      tenant_id: TENANT_SEM_POLITICA, customer_id: clienteId, vehicle_id: veiculoId,
+    })
+
+    const { chargeId } = await createCharge(admin(), TENANT_SEM_POLITICA, {
+      customerId: clienteId, rentalId: locacaoId,
+      dueDate: daquiA(-60),
+      sourceModule: 'manual',
+      sourceId: crypto.randomUUID(),
+      items: [{
+        description: `${TEST_TAG} Sem encargo ${sufixo}`,
+        credit_account_code: 'receita_locacao',
+        quantity: 1, unit_amount: 1000, amount: 1000,
+      }],
+    })
+    lixo.push({ tabela: 'charges', id: chargeId })
+
+    const { data: c } = await admin()
+      .from('charges').select('late_charge_policy_id').eq('id', chargeId).single()
+    expect((c as { late_charge_policy_id: string | null }).late_charge_policy_id,
+      'sem política do tenant, a cobrança não pode apontar para nenhuma').toBeNull()
+
+    const { data: bal } = await admin()
+      .from('charge_balances')
+      .select('open_amount, due_date, status, days_overdue, late_charge_policy_id')
+      .eq('charge_id', chargeId).single()
+
+    const b = bal as {
+      open_amount: number; due_date: string; status: string
+      days_overdue: number; late_charge_policy_id: string | null
+    }
+
+    // Vencida de verdade — o que segue não é "não venceu ainda".
+    expect(b.days_overdue).toBeGreaterThan(55)
+
+    const { accrued, amount_due } = calculateAmountDue(b, null)
+    expect(accrued.total, 'sem política não há encargo a acumular').toBe(0)
+    expect(amount_due, 'o cliente deve o valor original, e só').toBe(1000)
+  })
+
+  test('a tela avisa que nada está sendo cobrado, em vez de sugerir 2%', async ({ page }) => {
+    // O formulário nascia com 2% e 1% ao mês preenchidos quando não havia
+    // política — os valores de mercado. Quem abria a tela lia configuração
+    // onde não havia nenhuma.
+    await page.goto('/configuracoes')
+    await waitForPageLoad(page)
+
+    const secao = page.locator('section').filter({ hasText: 'Encargo por atraso' })
+    await expect(secao).toBeVisible({ timeout: 10_000 })
+
+    // A empresa de teste TEM política, então aqui o aviso não pode aparecer —
+    // é o par de controle do caso acima.
+    await expect(secao.getByText(/Nenhum encargo configurado/i)).toHaveCount(0)
+    await expect(secao.getByText(/Em vigor · versão \d+/)).toBeVisible()
+  })
+})
