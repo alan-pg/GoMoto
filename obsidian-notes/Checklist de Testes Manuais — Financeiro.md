@@ -106,6 +106,26 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 
 ---
 
+### 1.5 Contrato retroativo com caução/entrada já pagas
+
+- [ ] Crie uma locação com **data de início no passado** (ex.: 30 dias atrás),
+      caução R$ 500 e entrada R$ 300, ambas com "já foi paga" marcada.
+- [ ] Confira no preview a data de vencimento das linhas Caução e Entrada.
+
+**Verificar:**
+- [ ] As duas cobranças nascem com situação **Paga**, devido R$ 0,00.
+- [ ] O vencimento gravado é a **data do pagamento** — a mesma que o preview
+      mostrou —, não a data de início do contrato.
+- [ ] Nenhuma delas tem item "Encargo por atraso".
+- [ ] No razão, a caução credita `caucoes_a_devolver` (passivo) e a entrada
+      credita `receita_locacao` (receita).
+
+> Emitidas com `due_date = start_date`, nasciam vencidas: o recebimento
+> realizava o encargo ANTES de alocar, e a alocação — fixa no principal —
+> deixava o encargo descoberto. Quem acabara de dizer "está pago" via
+> "Total R$ 514,79 · Pago R$ 500,00 · Devido R$ 14,79 · Vencido", crescendo
+> todo dia. Documento que nasce quitado não está atrasado.
+
 ## Bloco 2 — Recebimento
 
 ### 2.1 Pagamento total

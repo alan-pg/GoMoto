@@ -209,7 +209,20 @@ export async function createRental(
       const depositCharge = await createCharge(supabase, tenantId, {
         customerId: parsed.data.customer_id,
         rentalId,
-        dueDate: parsed.data.deposit_due_date ?? parsed.data.start_date,
+        // Declarada JÁ PAGA: o vencimento é a data do pagamento, não o início
+        // da locação. Cadastrar um contrato que começou há 30 dias emitia a
+        // caução nascendo vencida — `receivePayment` realizava o encargo antes
+        // de alocar, e a alocação, fixa no principal, deixava o encargo
+        // descoberto. A tela mostrava "Pago R$ 500,00 · Devido R$ 14,79 ·
+        // Vencido", com o valor crescendo todo dia, para quem tinha acabado de
+        // dizer que estava pago. Documento que nasce quitado não está atrasado.
+        //
+        // É também o que o PREVIEW do formulário sempre mostrou: ele exibe
+        // `depositPaid ? depositPaymentDate : ...`. Quem confirmava lia uma
+        // data e recebia outra.
+        dueDate: parsed.data.deposit_paid
+          ? (parsed.data.deposit_payment_date ?? parsed.data.start_date)
+          : (parsed.data.deposit_due_date ?? parsed.data.start_date),
         sourceModule: 'deposit',
         sourceId: rentalId,
         createdBy: user.id,
@@ -265,7 +278,10 @@ export async function createRental(
       const downPaymentCharge = await createCharge(supabase, tenantId, {
         customerId: parsed.data.customer_id,
         rentalId,
-        dueDate: parsed.data.down_payment_due_date ?? parsed.data.start_date,
+        // Mesmo racional da caução, acima.
+        dueDate: parsed.data.down_payment_paid
+          ? (parsed.data.down_payment_payment_date ?? parsed.data.start_date)
+          : (parsed.data.down_payment_due_date ?? parsed.data.start_date),
         sourceModule: 'down_payment',
         sourceId: rentalId,
         createdBy: user.id,

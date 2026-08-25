@@ -31,6 +31,12 @@ function hojeISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+/** Data local N dias atrás — para cadastrar contrato que já começou. */
+function diasAtrasISO(dias: number): string {
+  const d = new Date(Date.now() - dias * 864e5)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 // ---------------------------------------------------------------------------
 // Helpers de setup
 // ---------------------------------------------------------------------------
@@ -85,6 +91,8 @@ test.describe('Locações — Entrada na criação (Spec 0010)', () => {
   let customerId = ''
   let leasePaidId = ''
   let leasePendingId = ''
+  const veiculosRetroativos: string[] = []
+  const locacoesRetroativas: string[] = []
 
   test.beforeAll(async () => {
     vehiclePaidId = (await createTestVehicle()).id
@@ -96,6 +104,8 @@ test.describe('Locações — Entrada na criação (Spec 0010)', () => {
     const sb = await getSupabase()
     if (leasePaidId) await sb.from('rentals').delete().eq('id', leasePaidId)
     if (leasePendingId) await sb.from('rentals').delete().eq('id', leasePendingId)
+    for (const id of locacoesRetroativas) await sb.from('rentals').delete().eq('id', id)
+    for (const id of veiculosRetroativos) await deleteTestVehicle(id).catch(() => {})
     await deleteTestVehicle(vehiclePaidId)
     await deleteTestVehicle(vehiclePendingId)
     await deleteTestCustomer(customerId)
@@ -230,6 +240,84 @@ test.describe('Locações — Entrada na criação (Spec 0010)', () => {
     // execução. O que o teste garante é que continua em aberto — o valor
     // devido acima já provou isso no banco.
     await expect(extratoRow).toContainText(/Vencida|Pendente/)
+  })
+
+  /**
+   * Cadastrar um contrato que JÁ COMEÇOU, com caução e entrada declaradas
+   * pagas, não pode produzir dívida.
+   *
+   * O servidor emitia as duas com `due_date = start_date`. Com início 30 dias
+   * atrás, nasciam vencidas: `receivePayment` realizava o encargo ANTES de
+   * alocar, e a alocação — fixa no principal — deixava o encargo descoberto.
+   * O resultado na tela, para quem tinha acabado de dizer que estava pago:
+   * "Total R$ 514,79 · Pago R$ 500,00 · Devido R$ 14,79 · Vencido", crescendo
+   * todo dia.
+   *
+   * O preview do formulário sempre mostrou a data do PAGAMENTO como vencimento
+   * destas linhas; quem confirmava lia uma data e recebia outra.
+   */
+  test('contrato retroativo com caução e entrada pagas nasce quitado, sem encargo', async ({ page }) => {
+    const veiculo = (await createTestVehicle()).id
+    veiculosRetroativos.push(veiculo)
+
+    await page.goto('/locacoes/nova')
+    await waitForPageLoad(page)
+
+    await fieldAfterLabel(page, 'Cliente *').selectOption(customerId)
+    await fieldAfterLabel(page, 'Veículo *').selectOption(veiculo)
+    await fieldAfterLabel(page, 'Valor do ciclo (R$) *').fill('900')
+    await fieldAfterLabel(page, 'Data de início *').fill(diasAtrasISO(30))
+    await fieldAfterLabel(page, 'Caução / depósito de segurança (R$)').fill('500')
+    await fieldAfterLabel(page, 'Entrada (R$)').fill('300')
+    // "já foi paga" vem marcada nas duas, com pagamento hoje.
+
+    await page.getByRole('button', { name: 'Preview' }).click()
+    await expect(page.getByText('Resumo do contrato')).toBeVisible({ timeout: 10_000 })
+    await page.getByRole('button', { name: /Confirmar/ }).click()
+    await page.waitForURL(/\/locacoes\/[0-9a-f-]{36}$/, { timeout: 15_000 })
+    const locacaoId = page.url().split('/').pop()!
+    locacoesRetroativas.push(locacaoId)
+
+    const sb = await getSupabase()
+
+    for (const modulo of ['deposit', 'down_payment'] as const) {
+      const { data: item } = await sb
+        .from('charge_items')
+        .select('amount, charge:charges(id)')
+        .eq('source_module', modulo)
+        .eq('source_id', locacaoId)
+        .single()
+
+      const it = item as unknown as { amount: number; charge: { id: string } | { id: string }[] | null }
+      const cobranca = Array.isArray(it.charge) ? it.charge[0] : it.charge
+
+      const { data: bal } = await sb
+        .from('charge_balances')
+        .select('status, open_amount, total_amount, due_date, is_overdue')
+        .eq('charge_id', cobranca!.id)
+        .single()
+
+      const b = bal as {
+        status: string; open_amount: number; total_amount: number
+        due_date: string; is_overdue: boolean
+      }
+
+      expect(b.status, `${modulo}: declarada paga tem que nascer quitada`).toBe('paid')
+      expect(Number(b.open_amount), `${modulo}: não pode sobrar saldo`).toBe(0)
+      expect(b.is_overdue, `${modulo}: quitada não está vencida`).toBe(false)
+      // Vence no dia do pagamento — o mesmo que o preview mostra.
+      expect(b.due_date, `${modulo}: vencimento é a data do pagamento`).toBe(hojeISO())
+      // O total não pode ter sido inflado por encargo.
+      expect(Number(b.total_amount)).toBe(modulo === 'deposit' ? 500 : 300)
+
+      const { count } = await sb
+        .from('charge_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('charge_id', cobranca!.id)
+        .eq('source_module', 'late_charge')
+
+      expect(count, `${modulo}: não pode existir item de encargo`).toBe(0)
+    }
   })
 })
 
