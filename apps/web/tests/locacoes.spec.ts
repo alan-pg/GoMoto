@@ -318,6 +318,26 @@ test.describe('Locações — Entrada na criação (Spec 0010)', () => {
 
       expect(count, `${modulo}: não pode existir item de encargo`).toBe(0)
     }
+
+    // A aba financeira lista o movimento de caução lendo o RAZÃO. A tabela
+    // continuava lendo `movement_type` e `reason` — campos da extinta
+    // `deposit_movements` — então a coluna Tipo saía em branco e Motivo saía
+    // sempre "—", com o valor certo ao lado.
+    await page.goto(`/locacoes/${locacaoId}/financeiro`)
+    await waitForPageLoad(page)
+
+    const movimentos = page.locator('section').filter({ hasText: 'Movimentações de caução' })
+    await expect(movimentos).toBeVisible({ timeout: 10_000 })
+
+    const linha = movimentos.locator('tbody tr').first()
+    await expect(linha).toContainText('R$ 500,00')
+
+    const tipo = await linha.locator('td').nth(0).innerText()
+    expect(tipo.trim(), 'a coluna Tipo não pode sair vazia').not.toBe('')
+    expect(tipo).toContain('Caução cobrada')
+
+    const motivo = await linha.locator('td').nth(3).innerText()
+    expect(motivo.trim(), 'Motivo vem da descrição do lançamento').toMatch(/Cobrança #\d+/)
   })
 })
 

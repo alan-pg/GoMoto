@@ -26,12 +26,21 @@ type BillingRow = {
   due_date: string
 }
 
+/**
+ * Linha do razão na conta de caução.
+ *
+ * Já foi `deposit_movements`, tabela com `movement_type` e `reason` próprios.
+ * A consulta migrou para `financial_entries` (ADR 0024 — movimento de caução é
+ * transação no ledger, não tabela paralela); a TABELA da tela continuou lendo
+ * os campos antigos, que a consulta não traz. A coluna "Tipo" saía em branco e
+ * "Motivo" saía sempre "—".
+ */
 type DepositMovementRow = {
   id: string
-  movement_type: string
   amount: number
-  reason: string | null
+  direction: 'debit' | 'credit'
   created_at: string
+  transaction: { event_type: string; description: string } | { event_type: string; description: string }[] | null
 }
 
 /** Linha do plano de cobrança. Existe antes de virar documento. */
@@ -170,12 +179,11 @@ export default async function RentalFinancialTab({
 
   // Caução: movimentos são LANÇAMENTOS na conta de passivo. Crédito aumenta o
   // passivo (recebimento), débito reduz (devolução ou retenção).
-  type DepositEntry = {
-    id: string; amount: number; direction: 'debit' | 'credit'; created_at: string
-    transaction: { event_type: string; description: string } | { event_type: string; description: string }[] | null
-  }
-  const depositEntries = depositMovements as unknown as DepositEntry[]
-  const entryEvent = (e: DepositEntry) => {
+  // `DepositEntry` era uma segunda declaração da mesma linha, criada quando o
+  // tipo do topo ainda descrevia a tabela `deposit_movements`. Com aquele
+  // corrigido, sobra um.
+  const depositEntries = depositMovements
+  const entryEvent = (e: DepositMovementRow) => {
     const t = Array.isArray(e.transaction) ? e.transaction[0] : e.transaction
     return t?.event_type ?? ''
   }
@@ -191,12 +199,31 @@ export default async function RentalFinancialTab({
     .reduce((s, e) => s + e.amount, 0)
   const depositBalance = depositReceived - depositReturned - depositRetained
 
-  const MOVEMENT_TYPE_LABELS: Record<string, string> = {
-    received:       'Recebida',
-    returned:       'Devolvida',
-    partial_return: 'Devolução parcial',
-    retained:       'Retida',
-    forfeited:      'Perdida',
+  // Eventos do razão, não os `movement_type` da tabela extinta ('received',
+  // 'returned', 'partial_return', 'retained', 'forfeited') — nenhum deles
+  // chega mais aqui, por isso a coluna aparecia vazia.
+  //
+  // A caução credita o passivo na EMISSÃO da cobrança, então o evento é
+  // `charge_issued`: a empresa passa a dever a devolução a partir do momento em
+  // que a cobra. Devolver e reter têm evento próprio.
+  const EVENT_LABELS: Record<string, string> = {
+    charge_issued:    'Caução cobrada',
+    payment_received: 'Recebida',
+    deposit_returned: 'Devolvida',
+    deposit_retained: 'Retida',
+    charge_cancelled: 'Cobrança cancelada',
+    payment_reversed: 'Recebimento estornado',
+  }
+
+  /** Rótulo do movimento. Evento desconhecido aparece cru — em branco, não. */
+  const rotuloDoEvento = (m: DepositMovementRow) => {
+    const evento = entryEvent(m)
+    return EVENT_LABELS[evento] ?? evento ?? '—'
+  }
+
+  const motivoDoEvento = (m: DepositMovementRow) => {
+    const t = Array.isArray(m.transaction) ? m.transaction[0] : m.transaction
+    return t?.description ?? '—'
   }
 
   return (
@@ -286,10 +313,10 @@ export default async function RentalFinancialTab({
               <tbody>
                 {depositMovements.map(m => (
                   <tr key={m.id} className="border-b border-border last:border-0 hover:bg-surface-2">
-                    <td className="h-9 px-4 text-fg-soft">{MOVEMENT_TYPE_LABELS[m.movement_type] ?? m.movement_type}</td>
+                    <td className="h-9 px-4 text-fg-soft">{rotuloDoEvento(m)}</td>
                     <td className="h-9 px-4 text-fg-mute">{fmtDatetime(m.created_at)}</td>
                     <td className="h-9 px-4 text-right font-mono text-fg">{formatCurrency(m.amount)}</td>
-                    <td className="h-9 max-w-[200px] truncate px-4 text-fg-mute">{m.reason ?? '—'}</td>
+                    <td className="h-9 max-w-[200px] truncate px-4 text-fg-mute">{motivoDoEvento(m)}</td>
                   </tr>
                 ))}
               </tbody>

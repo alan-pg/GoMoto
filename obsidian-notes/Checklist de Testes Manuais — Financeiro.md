@@ -120,8 +120,9 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 - [ ] **A caução não virou receita, a entrada virou.** No **DRE**, a linha
       *Receita bruta* do mês cresce **R$ 300,00** — só a entrada. Os R$ 500,00
       da caução não aparecem em nenhuma linha do DRE.
-- [ ] Na locação, aba **Financeiro**, o movimento de caução aparece com os
-      R$ 500,00 recebidos.
+- [ ] Na locação, aba **Financeiro**, seção *Movimentações de caução*: a linha
+      mostra **Tipo "Caução cobrada"**, o valor de R$ 500,00 e o **Motivo** com
+      o número da cobrança. Nenhuma dessas colunas pode sair em branco.
 
 > Por quê: caução é dinheiro do cliente que a empresa segura e um dia devolve —
 > credita `caucoes_a_devolver`, conta de **passivo**, que não tem linha de DRE.
