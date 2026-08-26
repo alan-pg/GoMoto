@@ -114,6 +114,13 @@ export default function CobrancasPage() {
       overdueTotal: overdue.reduce((s, c) => s + c.amount_due, 0),
       overdueCount: overdue.length,
       received: charges.reduce((s, c) => s + c.paid_amount, 0),
+      // Quanto do recebido é caução — dinheiro do cliente que a empresa segura
+      // e um dia devolve. Somado ao aluguel sem distinção, o card mostra um mês
+      // bom que pode ter sido só depósito. Não sai da conta (o dinheiro entrou
+      // mesmo, e o card precisa bater com o extrato); fica declarado ao lado.
+      receivedDeposit: charges
+        .filter((c) => c.is_deposit)
+        .reduce((s, c) => s + c.paid_amount, 0),
     }
   }, [charges])
 
@@ -270,7 +277,9 @@ export default function CobrancasPage() {
           title="Recebido"
           value={formatCurrency(metrics.received)}
           icon={TrendingDown}
-          subtitle="Alocado a cobranças"
+          subtitle={metrics.receivedDeposit > 0
+            ? `Inclui ${formatCurrency(metrics.receivedDeposit)} de caução`
+            : 'Alocado a cobranças'}
         />
       </div>
 

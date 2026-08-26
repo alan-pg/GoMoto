@@ -118,7 +118,7 @@ export default async function FinancialDashboardPage() {
       .maybeSingle(),
     supabase
       .from('receivables_by_month')
-      .select('issued_total, paid_total, pending_total, charge_count, paid_count, pending_count')
+      .select('issued_total, paid_total, pending_total, charge_count, paid_count, pending_count, deposit_issued, deposit_paid')
       .eq('tenant_id', tenantId)
       .eq('month', monthStart)
       .maybeSingle(),
@@ -177,6 +177,7 @@ export default async function FinancialDashboardPage() {
   const mes = monthSummaryResult.data as {
     issued_total: number; paid_total: number; pending_total: number
     charge_count: number; paid_count: number; pending_count: number
+    deposit_issued: number; deposit_paid: number
   } | null
 
   const totalBilledMonth  = Number(mes?.issued_total  ?? 0)
@@ -185,6 +186,14 @@ export default async function FinancialDashboardPage() {
   // e somá-las aqui contaria o mesmo dinheiro duas vezes.
   const totalPendingMonth = Number(mes?.pending_total ?? 0)
   const totalOverdueAll   = Number(summary?.overdue_total ?? 0)
+
+  // Caução entra nos totais porque É recebível e ENTROU no caixa — tirá-la
+  // faria o card deixar de bater com o extrato. Mas somada ao aluguel sem
+  // distinção, "Recebido no mês" pode ser 100% depósito, dinheiro que sai de
+  // volta. Fica declarada ao lado, e o DRE — que ignora passivo, corretamente —
+  // deixa de parecer inconsistente com o painel.
+  const depositIssuedMonth = Number(mes?.deposit_issued ?? 0)
+  const depositPaidMonth   = Number(mes?.deposit_paid   ?? 0)
 
   const monthChargeCount  = Number(mes?.charge_count  ?? 0)
   const monthPaidCount    = Number(mes?.paid_count    ?? 0)
@@ -241,12 +250,18 @@ export default async function FinancialDashboardPage() {
           <div className="rounded-xl bg-surface p-4">
             <p className="text-[12px] text-fg-mute">Emitido no mês</p>
             <p className="mt-1 text-xl font-bold text-fg">{formatCurrency(totalBilledMonth)}</p>
-            <p className="mt-0.5 text-[12px] text-fg-mute">{monthChargeCount} cobranças</p>
+            <p className="mt-0.5 text-[12px] text-fg-mute">
+              {monthChargeCount} cobranças
+              {depositIssuedMonth > 0 && ` · inclui ${formatCurrency(depositIssuedMonth)} de caução`}
+            </p>
           </div>
           <div className="rounded-xl bg-surface p-4">
             <p className="text-[12px] text-fg-mute">Recebido no mês</p>
             <p className="mt-1 text-xl font-bold text-success">{formatCurrency(totalPaidMonth)}</p>
-            <p className="mt-0.5 text-[12px] text-fg-mute">{monthPaidCount} pagas</p>
+            <p className="mt-0.5 text-[12px] text-fg-mute">
+              {monthPaidCount} pagas
+              {depositPaidMonth > 0 && ` · inclui ${formatCurrency(depositPaidMonth)} de caução`}
+            </p>
           </div>
           <div className="rounded-xl bg-surface p-4">
             <p className="text-[12px] text-fg-mute">Pendente no mês</p>

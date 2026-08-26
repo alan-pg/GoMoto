@@ -695,6 +695,24 @@ Só faz sentido com **duas ou mais versões** de política na base (crie uma em 
 - [ ] Cancelamentos e estornos **não aparecem** como valores; eles reduzem as
       linhas correspondentes.
 
+### 10.1-b Caução declarada nos indicadores de caixa
+
+Depois de receber uma caução no mês:
+
+**Verificar:**
+- [ ] Em `/financeiro`, os cards **Emitido no mês** e **Recebido no mês** trazem
+      a linha *"inclui R$ X de caução"*.
+- [ ] Em `/cobrancas`, o card **Recebido** traz *"Inclui R$ X de caução"*.
+- [ ] O **DRE não muda** com a caução: ela não aparece em linha nenhuma.
+- [ ] Os totais dos cards **continuam somando a caução** — eles medem caixa e
+      recebíveis, e precisam bater com o extrato.
+
+> Caução é dinheiro de terceiro: entra no caixa e um dia sai. Tirá-la dos
+> totais faria os cards deixarem de bater com o banco; somá-la calada fazia
+> "Recebido no mês: R$ 500,00" ser 100% depósito, com o DRE mostrando outro
+> número e nenhuma explicação para a diferença. O total fica inteiro, a parcela
+> fica declarada.
+
 ### 10.2 Painel financeiro
 
 **Verificar:**

@@ -7,6 +7,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { ACCOUNTS } from '@gomoto/core'
 
 // ============================================================
 // Tipos das views
@@ -174,6 +175,8 @@ export type ChargeListRow = ChargeBalanceRow & {
   customer_phone: string | null
   vehicle_plate: string | null
   primary_description: string
+  /** Cobrança de caução — passivo, não receita. Ver `is_deposit` no map abaixo. */
+  is_deposit: boolean
 }
 
 /**
@@ -229,22 +232,22 @@ export async function listChargesForCockpit(
   const customerIds = [...new Set(rows.map((r) => r.customer_id))]
   const rentalIds = [...new Set(rows.map((r) => r.rental_id).filter(Boolean))] as string[]
 
-  type ItemRow = { charge_id: string; description: string; amount: number }
+  type ItemRow = { charge_id: string; description: string; amount: number; credit_account_code: string }
   type CustomerRow = { id: string; name: string; phone: string | null }
 
   const [items, customers, rentals] = await Promise.all([
     fetchByIdsInChunks<ItemRow>(chargeIds, 'charge_id', (chunk) =>
-      client.from('charge_items').select('charge_id, description, amount').in('charge_id', chunk)),
+      client.from('charge_items').select('charge_id, description, amount, credit_account_code').in('charge_id', chunk)),
     fetchByIdsInChunks<CustomerRow>(customerIds, 'customer_id', (chunk) =>
       client.from('customers').select('id, name, phone').in('id', chunk)),
     fetchByIdsInChunks<unknown>(rentalIds, 'rental_id', (chunk) =>
       client.from('rentals').select('id, vehicles(license_plate)').in('id', chunk)),
   ])
 
-  const itemsByCharge = new Map<string, { description: string; amount: number }[]>()
+  const itemsByCharge = new Map<string, ItemRow[]>()
   for (const i of items) {
     const list = itemsByCharge.get(i.charge_id) ?? []
-    list.push({ description: i.description, amount: i.amount })
+    list.push(i)
     itemsByCharge.set(i.charge_id, list)
   }
 
@@ -277,6 +280,12 @@ export async function listChargesForCockpit(
       customer_phone: customer?.phone ?? null,
       vehicle_plate: r.rental_id ? plateByRental.get(r.rental_id) ?? null : null,
       primary_description: principal?.description ?? 'Cobrança',
+      // Caução é dinheiro de terceiro: entra no caixa e um dia sai. Some com
+      // aluguel num total de "recebido", a tela mostra um mês bom que na
+      // verdade foi só depósito. A regra de origem única (ADR 0024) garante que
+      // a cobrança é inteira de caução ou nada dela é.
+      is_deposit: items.length > 0
+        && items.every((i) => i.credit_account_code === ACCOUNTS.DEPOSITS_PAYABLE),
     }
   })
 }
