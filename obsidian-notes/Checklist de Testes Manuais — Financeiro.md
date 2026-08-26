@@ -4,7 +4,12 @@ Roteiro para validar o financeiro inteiro clicando na tela, sem depender da
 suíte automatizada. Cada caso tem **o que fazer** e **como saber que deu certo**.
 
 Quando um caso disser "conferir no razão", a checagem é na tela de **DRE** ou
-**Painel financeiro** — nenhum caso aqui exige abrir o banco.
+**Painel financeiro**.
+
+A exceção é o **saldo de caixa**: não existe tela para ele, e isso é escolha de
+escopo — o produto registra valores e produz relatório gerencial, não faz
+controle de caixa. Os poucos casos que precisam do caixa usam o terceiro atalho
+abaixo.
 
 ---
 
@@ -17,7 +22,7 @@ Quando um caso disser "conferir no razão", a checagem é na tela de **DRE** ou
   parar no fim de qualquer bloco.
 - Valores são sugestões. Se mudar, ajuste as conferências proporcionalmente.
 
-### Dois atalhos que servem ao roteiro inteiro
+### Três atalhos que servem ao roteiro inteiro
 
 **Antecipar a emissão.** O critério do job é `period_start <= hoje + lead_days`
 — o INÍCIO do período, não o vencimento. O segundo parâmetro abre essa janela,
@@ -29,6 +34,15 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
   -c "SELECT fn_run_billing_emission('manual', 7);"
 ```
 
+**Conferir o caixa.** Sem tela, sai do razão. Rode antes e depois do caso e
+compare — positivo é dinheiro que entrou, negativo é dinheiro que saiu:
+
+```bash
+docker exec supabase_db_GoMoto psql -U postgres -d postgres \
+  -c "select coalesce(sum(amount_signed),0) as caixa
+        from financial_entries where account_code = 'caixa_e_bancos';"
+```
+
 **Não rode a suíte automatizada no meio do roteiro.** Ela faz login com o mesmo
 usuário do `.env.test` e **derruba a sua sessão no navegador**. Rode antes ou
 depois, nunca durante.
@@ -36,8 +50,8 @@ depois, nunca durante.
 ### Preparação
 
 - [x] **P1.** Banco limpo (`pnpm db:reset`) e login feito.
-- [x] **P2.** Anote o valor de **Caixa** no Painel financeiro. Vários casos
-      comparam contra este ponto de partida.
+- [x] **P2.** Anote o **caixa** pelo atalho acima. Vários casos comparam contra
+      este ponto de partida.
 - [x] **P3.** Escolha uma moto disponível e um cliente. Use os mesmos em todo o
       roteiro — assim os relatórios por cliente e por veículo ficam legíveis.
 
@@ -146,7 +160,8 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 **Verificar:**
 - [x] A cobrança passa a **Paga**, com "R$ 0,00 a pagar".
 - [x] O pagamento aparece listado na própria cobrança, com data e forma.
-- [x] No Painel financeiro, **Caixa** subiu R$ 500 em relação a **P2**.
+- [x] Em **Cobranças**, o card **Recebido** subiu R$ 500 — e declara
+      *"Inclui R$ 500,00 de caução"*.
 - [x] Em **DRE**, a receita **não** subiu (caução é passivo).
 
 ### 2.2 Pagamento parcial
@@ -156,7 +171,7 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 **Verificar:**
 - [x] A cobrança continua **Em aberto**, mostrando **R$ 200,00 a pagar**.
 - [x] O valor de face segue R$ 350 — pagamento parcial não reduz o documento.
-- [x] Caixa subiu R$ 150.
+- [x] Em **Cobranças**, o card **Recebido** subiu R$ 150.
 
 ### 2.3 Completar o pagamento
 
@@ -168,12 +183,12 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 2.4-b Fração de centavo
 
-- [ ] No modal de recebimento, tente digitar **446,83000000000000999999** e
+- [x] No modal de recebimento, tente digitar **446,83000000000000999999** e
       depois **446,836** numa cobrança de R$ 446,83.
 
 **Verificar:**
-- [ ] O campo **corta na segunda casa** — não aceita a terceira.
-- [ ] Nenhuma cobrança fica com valor devido **negativo**.
+- [x] O campo **corta na segunda casa** — não aceita a terceira.
+- [x] Nenhuma cobrança fica com valor devido **negativo**.
 
 ```sql
 -- Nenhuma cobrança pode ter saldo negativo, nunca
@@ -190,13 +205,13 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 2.4 Não aceitar mais que o devido
 
-- [ ] Em uma cobrança em aberto, tente registrar valor **maior** que o saldo.
+- [x] Em uma cobrança em aberto, tente registrar valor **maior** que o saldo.
 
 **Verificar:**
-- [ ] O campo mostra o saldo da cobrança e avisa quando o valor passa dele.
-- [ ] O botão **Confirmar pagamento** fica desabilitado enquanto o valor exceder.
-- [ ] Nada foi gravado: o saldo da cobrança não mudou, e o card **Recebido** e o
-      **Caixa** continuam iguais.
+- [x] O campo mostra o saldo da cobrança e avisa quando o valor passa dele.
+- [x] O botão **Confirmar pagamento** fica desabilitado enquanto o valor exceder.
+- [x] Nada foi gravado: o saldo da cobrança não mudou e o card **Recebido**
+      continua igual.
 
 > O aviso sugere o caminho para receber a mais de propósito: registrar o valor
 > devido e conceder o excedente como **crédito** na ficha do cliente — lá o
@@ -208,23 +223,28 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 3.1 Despesa avulsa
 
-- [ ] Em **Despesas → Nova despesa**, lance **R$ 300** de despesa operacional,
+- [x] Em **Despesas → Nova despesa**, lance **R$ 300** de despesa operacional,
       sem rateio.
 
 **Verificar:**
-- [ ] O KPI **Em aberto** subiu R$ 300.
-- [ ] **Caixa não mudou** — criar despesa não move dinheiro.
-- [ ] Em **DRE**, o custo do mês subiu R$ 300.
+- [x] O KPI **Em aberto** subiu R$ 300.
+- [x] Em **Despesas**, o card **Pago** não mudou — criar despesa não move
+      dinheiro, só reconhece o custo.
+- [x] Em **DRE**, o custo do mês subiu R$ 300.
 
 ### 3.2 Baixa da despesa
 
 - [ ] Dê baixa na despesa de R$ 300.
 
 **Verificar:**
-- [ ] Ela sai de "Em aberto" e entra em **Pagas**.
-- [ ] **Caixa caiu R$ 300**.
+- [ ] Ela sai da aba **Em aberto** e passa a aparecer em **Pagas**.
+- [ ] Nos cards da tela: **Em aberto** cai R$ 300 e **Pago** sobe R$ 300.
 - [ ] O custo no DRE **não mudou** — o custo já era do lançamento, não do
       pagamento.
+
+> Não existe tela de saldo de caixa, e é de propósito: o produto registra
+> valores e produz relatório gerencial, não faz controle de caixa. O par de
+> cards *Em aberto* / *Pago* é onde a saída do dinheiro fica visível.
 
 ### 3.3 Manutenção executada pela empresa, sem rateio
 
@@ -265,7 +285,8 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 - [ ] O resumo avisa que **gera crédito de R$ 50 a favor do cliente**.
 - [ ] Em **Despesas**, a conta nasce **já quitada** — o cliente pagou a oficina,
       a empresa nunca deveu.
-- [ ] **Caixa não mudou.**
+- [ ] Em **Despesas**, o card **Pago** não subiu: quem pagou a oficina foi o
+      cliente, não a empresa.
 - [ ] Na ficha do cliente, **Créditos disponíveis** subiu **R$ 50**.
 - [ ] **NÃO** nasceu cobrança de repasse (quem deve é a empresa, não o cliente).
 
@@ -331,7 +352,8 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 - [ ] Após aplicar, a cobrança mostra **valor de face inalterado** e
       **"a pagar" reduzido** pelo crédito.
 - [ ] O abatimento aparece na lista de pagamentos como **Crédito do cliente**.
-- [ ] **Caixa NÃO mudou** — crédito não é dinheiro entrando.
+- [ ] **O caixa NÃO mudou** (atalho acima) — abater crédito troca passivo por
+      recebível, não entra dinheiro.
 - [ ] O saldo de crédito do cliente foi a **R$ 0,00**.
 
 ### 4.3 Devolver crédito em dinheiro
@@ -341,7 +363,8 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 **Verificar:**
 - [ ] O modal mostra o saldo disponível e recusa valor maior que ele.
-- [ ] Após confirmar, **Caixa caiu** exatamente pelo valor devolvido.
+- [ ] Após confirmar, o **caixa caiu** exatamente pelo valor devolvido (atalho
+      acima) — aqui sai dinheiro de verdade, e é o ponto do caso.
 - [ ] O saldo de crédito caiu pelo mesmo valor, e **o resto continua disponível**.
 - [ ] **O custo da manutenção que originou o crédito continua no DRE e no ROI do
       veículo.** Devolver não é estornar.
@@ -366,7 +389,8 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 **Verificar:**
 - [ ] A cobrança volta a **Em aberto**, com o valor devido de volta.
 - [ ] O pagamento **continua listado**, marcado como estornado — não some.
-- [ ] **Caixa voltou** ao valor anterior ao pagamento.
+- [ ] Em **Cobranças**, o card **Recebido** voltou ao valor anterior — e o
+      **caixa** também (atalho acima).
 
 ### 5.2 Estornar abatimento por crédito
 
@@ -607,7 +631,8 @@ Só faz sentido com **duas ou mais versões** de política na base (crie uma em 
 - [ ] Encerre escolhendo **Devolver tudo**.
 
 **Verificar:**
-- [ ] **Caixa caiu** pelo valor da caução.
+- [ ] O **caixa caiu** pelo valor da caução (atalho acima) — devolver é saída
+      de dinheiro de verdade.
 - [ ] O saldo de caução do contrato foi a zero.
 - [ ] A moto voltou para **disponível** e pode ser locada de novo.
 
@@ -616,7 +641,8 @@ Só faz sentido com **duas ou mais versões** de política na base (crie uma em 
 - [ ] Em outro contrato, encerre escolhendo **Reter tudo**.
 
 **Verificar:**
-- [ ] **Caixa não mudou** — o dinheiro já estava com a empresa.
+- [ ] O **caixa não mudou** (atalho acima) — reter só converte passivo em
+      abatimento; o dinheiro já estava com a empresa.
 - [ ] A dívida do cliente foi abatida pelo valor retido.
 - [ ] O saldo de caução foi a zero.
 
@@ -690,7 +716,8 @@ Só faz sentido com **duas ou mais versões** de política na base (crie uma em 
 
 **Verificar:**
 - [ ] A cobrança fica **Paga**, com o pagamento listado.
-- [ ] **Caixa subiu** pelo valor.
+- [ ] Em **Cobranças**, o card **Recebido** subiu pelo valor — e o **caixa**
+      também (atalho acima).
 - [ ] O resultado é idêntico ao de uma baixa manual — mesma forma, mesmo efeito.
 
 ### 9.5 Cobrança de outro cliente
@@ -813,7 +840,8 @@ Casos que já falharam em produção ou em teste. Vale reconferir a cada release
 - [ ] Em uma despesa em aberto, clique em **dar baixa** duas vezes rapidamente.
 
 **Verificar:**
-- [ ] O caixa caiu **uma única vez** pelo valor da despesa.
+- [ ] O **caixa caiu uma única vez** pelo valor da despesa (atalho acima).
+      Em **Despesas**, o card **Pago** subiu uma vez só.
 - [ ] Não há dois pagamentos para a mesma conta.
 
 ### 13.2 Excluir manutenção que virou dinheiro
