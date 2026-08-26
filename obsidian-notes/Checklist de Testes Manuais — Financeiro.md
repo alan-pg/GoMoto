@@ -117,10 +117,10 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 - [x] O vencimento gravado é a **data do pagamento** — a mesma que o preview
       mostrou —, não a data de início do contrato.
 - [x] Nenhuma delas tem item "Encargo por atraso".
-- [ ] **A caução não virou receita, a entrada virou.** No **DRE**, a linha
+- [x] **A caução não virou receita, a entrada virou.** No **DRE**, a linha
       *Receita bruta* do mês cresce **R$ 300,00** — só a entrada. Os R$ 500,00
       da caução não aparecem em nenhuma linha do DRE.
-- [ ] Na locação, aba **Financeiro**, seção *Movimentações de caução*: a linha
+- [x] Na locação, aba **Financeiro**, seção *Movimentações de caução*: a linha
       mostra **Tipo "Caução cobrada"**, o valor de R$ 500,00 e o **Motivo** com
       o número da cobrança. Nenhuma dessas colunas pode sair em branco.
 
@@ -154,17 +154,39 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 - [x] Na parcela semanal de R$ 350, registre pagamento de **R$ 150**.
 
 **Verificar:**
-- [ ] A cobrança continua **Em aberto**, mostrando **R$ 200,00 a pagar**.
-- [ ] O valor de face segue R$ 350 — pagamento parcial não reduz o documento.
-- [ ] Caixa subiu R$ 150.
+- [x] A cobrança continua **Em aberto**, mostrando **R$ 200,00 a pagar**.
+- [x] O valor de face segue R$ 350 — pagamento parcial não reduz o documento.
+- [x] Caixa subiu R$ 150.
 
 ### 2.3 Completar o pagamento
 
-- [ ] Registre os **R$ 200** restantes.
+- [x] Registre os **R$ 200** restantes.
 
 **Verificar:**
-- [ ] A cobrança passa a **Paga**.
-- [ ] Aparecem **dois** pagamentos na cobrança, não um de R$ 350.
+- [x] A cobrança passa a **Paga**.
+- [x] Aparecem **dois** pagamentos na cobrança, não um de R$ 350.
+
+### 2.4-b Fração de centavo
+
+- [ ] No modal de recebimento, tente digitar **446,83000000000000999999** e
+      depois **446,836** numa cobrança de R$ 446,83.
+
+**Verificar:**
+- [ ] O campo **corta na segunda casa** — não aceita a terceira.
+- [ ] Nenhuma cobrança fica com valor devido **negativo**.
+
+```sql
+-- Nenhuma cobrança pode ter saldo negativo, nunca
+docker exec supabase_db_GoMoto psql -U postgres -d postgres \
+  -c "select charge_number, open_amount from charge_balances where open_amount < 0;"
+```
+
+> `type="number"` com `step="0.01"` só é validado em submit de formulário
+> NATIVO, que a tela não usa: o campo aceitava a terceira casa. O banco guarda
+> `NUMERIC(14,2)` e arredonda calado — 446,836 virava 446,84 e a cobrança
+> terminava devendo −0,01, paga a mais sem ninguém ter recusado nada.
+> A tela corta na digitação; a recusa que vale está no banco
+> (`trg_allocation_within_charge`), porque nem todo caminho passa pela tela.
 
 ### 2.4 Não aceitar mais que o devido
 

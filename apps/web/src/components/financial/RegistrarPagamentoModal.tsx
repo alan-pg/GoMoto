@@ -107,7 +107,10 @@ export function RegistrarPagamentoModal({
   const devido = naData.amount_due
 
   function confirmar() {
-    const montante = parseFloat(valor)
+    // Arredondar aqui, não confiar no truncamento do banco: NUMERIC(14,2)
+    // aceita a fração e a arredonda PARA CIMA, o que transforma um centavo a
+    // mais em saldo negativo na cobrança.
+    const montante = Math.round(parseFloat(valor) * 100) / 100
     if (isNaN(montante) || montante <= 0) { setErro('Informe um valor maior que zero.'); return }
 
     if (montante > devido) {
@@ -189,7 +192,12 @@ export function RegistrarPagamentoModal({
           max={devido.toFixed(2)}
           value={valor}
           onChange={(e) => {
-            const v = e.target.value
+            // Dinheiro tem duas casas. `type="number"` com `step="0.01"` só
+            // valida em submit de formulário nativo — aqui não há —, então o
+            // campo aceitava "446,83000000000000999999" e frações de centavo
+            // como 446,836. O banco guarda NUMERIC(14,2) e arredonda calado:
+            // 446,836 vira 446,84 e a cobrança fica devendo −0,01.
+            const v = e.target.value.replace(/^(\d*[.,]?\d{0,2}).*$/, '$1')
             const n = parseFloat(v)
 
             if (!isNaN(n) && n > devido) {
