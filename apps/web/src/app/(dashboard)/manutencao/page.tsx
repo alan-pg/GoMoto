@@ -14,6 +14,7 @@ import {
   useVehicles,
   useMaintenancePlans,
   usePayables,
+  useActiveRentals,
   useSupabaseContext,
 } from '@gomoto/data'
 import {
@@ -327,10 +328,22 @@ export default function MaintenancePage() {
   // Custo da manutenção vive no payable desde a ADR 0024 — a coluna
   // `maintenances.cost` não existe mais.
   const payablesQuery = usePayables()
+  // Quem responde pelo repasse é o cliente da locação ATIVA do veículo — o
+  // formulário não tinha essa informação e por isso deixava escolher rateio
+  // para moto sem contrato, descobrindo o problema só depois de salvar.
+  const activeRentalsQuery = useActiveRentals()
   const maintenances = (maintenancesQuery.data ?? []) as MaintenanceWithMoto[]
   const vehicles = (vehiclesQuery.data ?? []) as VehicleOption[]
   const plans = plansQuery.data ?? []
   const loading = maintenancesQuery.isLoading || vehiclesQuery.isLoading
+
+  /** Locação ativa do veículo escolhido, ou null — mesma regra do servidor. */
+  const locacaoDoVeiculo = useCallback((vehicleId: string) => {
+    type LinhaLocacao = { vehicle_id: string; customer?: { name?: string } | null }
+    const lista = (activeRentalsQuery.data ?? []) as unknown as LinhaLocacao[]
+    const r = lista.find((l) => l.vehicle_id === vehicleId)
+    return r ? { clienteNome: r.customer?.name ?? 'cliente sem nome' } : null
+  }, [activeRentalsQuery.data])
 
   const invalidateMaintenances = useCallback(
     () => queryClient.invalidateQueries({ queryKey: ['maintenances'] }),
@@ -639,9 +652,26 @@ export default function MaintenancePage() {
       alert('Por favor, preencha a moto e a descrição.')
       return
     }
-    setSaving(true)
-
     const isExecuted = formData.mode === 'executed'
+
+    // Antes de gravar qualquer coisa: o repasse exige locação ativa, e isso é
+    // sabido aqui. Sem esta checagem a manutenção era criada, o custo falhava
+    // logo depois, e sobrava um registro sem custo com um alerta dizendo
+    // "salva, mas o custo falhou" — estado que o operador não pediu e não
+    // consegue desfazer pela tela.
+    const parteClientePrevia = Math.min(
+      parseFloat(formData.customer_amount) || 0,
+      parseFloat(formData.cost) || 0,
+    )
+    if (isExecuted && parteClientePrevia > 0 && !locacaoDoVeiculo(formData.vehicle_id)) {
+      alert(
+        'Esta moto não tem locação ativa, então não há a quem repassar o custo. '
+        + 'Deixe "Quanto o cliente paga" em zero, ou registre a locação antes.',
+      )
+      return
+    }
+
+    setSaving(true)
 
     // Upload das fotos só faz sentido no modo executado; quando o usuário
     // está apenas agendando, nem enviamos os campos no payload.
@@ -717,7 +747,22 @@ export default function MaintenancePage() {
           executor: formData.effective_executor,
           due_date: payload.completed_date as string,
         })
-        if (!custoRes.ok) { alert(`Manutenção salva, mas o custo falhou: ${custoRes.error.message}`); return }
+        if (!custoRes.ok) {
+          // Ou salva tudo, ou não salva nada. São duas chamadas separadas —
+          // PostgREST não abre transação entre elas —, então a atomicidade sai
+          // por compensação: a manutenção acabou de nascer nesta função, não
+          // tem nada pendurado nela, e desfazê-la é seguro.
+          const desfeita = await deleteMaintenance(criada.id)
+          alert(
+            desfeita.error
+              ? `Não foi possível registrar o custo: ${custoRes.error.message}\n\n`
+                + `A manutenção ${criada.id} ficou salva SEM custo e precisa ser `
+                + 'removida à mão — avise o suporte.'
+              : `Não foi possível registrar o custo: ${custoRes.error.message}\n\n`
+                + 'Nada foi salvo.',
+          )
+          return
+        }
       }
 
       closeFormModal()
@@ -727,7 +772,7 @@ export default function MaintenancePage() {
     } finally {
       setSaving(false)
     }
-  }, [formData, editingMaintenance, closeFormModal, invalidateMaintenances])
+  }, [formData, editingMaintenance, closeFormModal, invalidateMaintenances, locacaoDoVeiculo])
 
   /**
    * @function handleDelete
@@ -1297,7 +1342,18 @@ export default function MaintenancePage() {
             <Select
               label="Motocicleta *"
               value={formData.vehicle_id}
-              onChange={(e) => setFormData({ ...formData, vehicle_id: e.target.value })}
+              onChange={(e) => {
+                // Trocar para uma moto sem locação ativa zera o repasse: o
+                // campo fica desabilitado e vazio, e o estado precisa
+                // acompanhar — senão o valor antigo seguia escondido e o save
+                // era recusado por um número que a tela não mostrava mais.
+                const id = e.target.value
+                setFormData({
+                  ...formData,
+                  vehicle_id: id,
+                  customer_amount: locacaoDoVeiculo(id) ? formData.customer_amount : '',
+                })
+              }}
               options={vehicleSelectOptions}
             />
             <div>
@@ -1346,15 +1402,34 @@ export default function MaintenancePage() {
                 <Input label="KM no Serviço *" type="number" value={formData.actual_km} onChange={(e) => setFormData({ ...formData, actual_km: e.target.value })} placeholder="Ex: 15500" />
                 <Input label="Oficina / Mecânico" value={formData.workshop} onChange={(e) => setFormData({ ...formData, workshop: e.target.value })} />
                 <Input label="Custo (R$)" type="number" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} placeholder="0.00" />
-                <Input
-                  label="Quanto o cliente paga (R$)"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={formData.customer_amount}
-                  onChange={(e) => setFormData({ ...formData, customer_amount: e.target.value })}
-                  placeholder="0,00"
-                />
+                {/* Quem responde pelo repasse é o cliente da locação ATIVA do
+                    veículo — o servidor resolve assim, e a tela precisa dizer o
+                    mesmo ANTES de salvar. Sem isto o operador digitava um valor,
+                    salvava, e só então descobria que não havia a quem cobrar. */}
+                {(() => {
+                  const locacao = formData.vehicle_id ? locacaoDoVeiculo(formData.vehicle_id) : null
+                  return (
+                    <div>
+                      <Input
+                        label="Quanto o cliente paga (R$)"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={locacao ? formData.customer_amount : ''}
+                        disabled={!locacao}
+                        onChange={(e) => setFormData({ ...formData, customer_amount: e.target.value })}
+                        placeholder={locacao ? '0,00' : '—'}
+                      />
+                      <p className="mt-1 text-[12px] text-fg-mute">
+                        {!formData.vehicle_id
+                          ? 'Escolha a moto para ver a quem o custo pode ser repassado.'
+                          : locacao
+                            ? `Será cobrado de ${locacao.clienteNome}.`
+                            : 'Moto sem locação ativa — não há a quem repassar. O custo fica todo da empresa.'}
+                      </p>
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Responsabilidade — snapshot D4 do PRD 0003. */}

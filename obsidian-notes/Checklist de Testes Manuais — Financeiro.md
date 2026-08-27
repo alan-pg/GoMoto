@@ -234,12 +234,12 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 3.2 Baixa da despesa
 
-- [ ] Dê baixa na despesa de R$ 300.
+- [x] Dê baixa na despesa de R$ 300.
 
 **Verificar:**
-- [ ] Ela sai da aba **Em aberto** e passa a aparecer em **Pagas**.
-- [ ] Nos cards da tela: **Em aberto** cai R$ 300 e **Pago** sobe R$ 300.
-- [ ] O custo no DRE **não mudou** — o custo já era do lançamento, não do
+- [x] Ela sai da aba **Em aberto** e passa a aparecer em **Pagas**.
+- [x] Nos cards da tela: **Em aberto** cai R$ 300 e **Pago** sobe R$ 300.
+- [x] O custo no DRE **não mudou** — o custo já era do lançamento, não do
       pagamento.
 
 > Não existe tela de saldo de caixa, e é de propósito: o produto registra
@@ -248,14 +248,14 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 3.3 Manutenção executada pela empresa, sem rateio
 
-- [ ] Em **Manutenção → Nova Manutenção → Já executada**: custo **R$ 400**,
+- [x] Em **Manutenção → Nova Manutenção → Já executada**: custo **R$ 400**,
       cliente paga **R$ 0**, executor **Empresa**.
 
 **Verificar:**
-- [ ] A manutenção aparece na aba **Concluídas mês**, com a coluna **Custo**
+- [x] A manutenção aparece na aba **Concluídas mês**, com a coluna **Custo**
       preenchida com R$ 400 (não pode ficar "—").
-- [ ] Em **Despesas**, existe uma conta de R$ 400 de origem manutenção.
-- [ ] No ROI do veículo (**Painel financeiro → clicar na placa**), o custo do
+- [x] Em **Despesas**, existe uma conta de R$ 400 de origem manutenção.
+- [x] No ROI do veículo (**Painel financeiro → clicar na placa**), o custo do
       veículo subiu R$ 400.
 
 ### 3.4 Manutenção rateada, executada pela empresa
@@ -275,6 +275,26 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 > **Por que importa:** repasse não é receita. Se os R$ 300 aparecerem em Receita
 > bruta, o faturamento está inflado e a base de imposto também.
+
+### 3.4-b Rateio em moto sem locação ativa
+
+- [ ] Em **Nova manutenção → Já executada**, escolha uma moto **sem contrato
+      ativo**.
+
+**Verificar:**
+- [ ] O campo **Quanto o cliente paga** fica **desabilitado**, com o aviso
+      *"Moto sem locação ativa — não há a quem repassar"*.
+- [ ] Trocando para uma moto **com** contrato, o campo abre e diz
+      *"Será cobrado de \<nome do cliente\>"*.
+- [ ] Digite um valor com a moto locada, depois **troque para a moto sem
+      contrato**: o campo volta a **vazio**, sem guardar o valor por baixo.
+
+> A tela deixava digitar o rateio para qualquer moto. A manutenção era criada, o
+> custo falhava logo depois — "sem locação ativa para este veículo" — e sobrava
+> o alerta *"Manutenção salva, mas o custo falhou"*, com um registro sem custo
+> que o operador não pediu. Quem responde pelo repasse é o cliente da locação
+> ATIVA do veículo: ou existe, ou não há a quem cobrar. Agora a tela diz isso
+> antes de gravar, e se o custo falhar mesmo assim a manutenção é desfeita.
 
 ### 3.5 Manutenção executada pelo CLIENTE, rateada
 
