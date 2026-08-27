@@ -631,6 +631,7 @@ export default async function BillingDetailPage({
             latePolicy={policy}
             customerId={billing.customer_id ?? ''}
             availableCredits={availableCredits}
+            creditBalance={creditBalance}
           />
         </section>
 

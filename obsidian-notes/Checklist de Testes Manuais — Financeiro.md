@@ -376,6 +376,26 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
       recebível, não entra dinheiro.
 - [ ] O saldo de crédito do cliente foi a **R$ 0,00**.
 
+### 4.2-b O abatimento vai na cobrança que você abriu
+
+- [ ] Com crédito disponível, deixe **duas** cobranças em aberto: uma **antiga**
+      e uma **de hoje**.
+- [ ] Abra a **de hoje** e clique em **Aplicar crédito**.
+
+**Verificar:**
+- [ ] O modal mostra **Saldo de crédito**, **Esta cobrança deve** e **Pode
+      abater até** — o teto é o menor dos dois.
+- [ ] O campo já vem com o teto e **não aceita passar dele**, nem com três casas.
+- [ ] Após aplicar, o abatimento caiu **nesta** cobrança. A **antiga continua
+      intacta**.
+- [ ] Na **Composição** da cobrança, o valor abatido aparece.
+
+> O modal pedia qual crédito e quanto, validava os dois e chamava a action com
+> apenas o cliente — que varria todo o saldo para as cobranças MAIS ANTIGAS.
+> Escolher R$ 50 na #7 e ver R$ 200 abatidos na #3 era o comportamento correto
+> do código. O seletor "qual crédito" saiu: o saldo é um pool por cliente,
+> derivado do razão, e escolher entre as linhas era decisão sem efeito.
+
 ### 4.3 Devolver crédito em dinheiro
 
 - [ ] Gere um novo crédito (repita 3.5) e, na ficha do cliente, use

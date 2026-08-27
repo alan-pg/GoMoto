@@ -27,6 +27,12 @@ interface BillingActionsProps {
   cobranca: CobrancaParaPagamento
   latePolicy: LateChargePolicy | null
   availableCredits: AvailableCredit[]
+  /** Saldo de crédito do cliente — um POOL, vindo do razão.
+   *
+   *  Cada linha de `availableCredits` carrega este MESMO número em
+   *  `available_balance`: somá-las multiplicaria o saldo pela quantidade de
+   *  créditos concedidos. Por isso ele vem separado, uma vez só. */
+  creditBalance: number
 }
 
 
@@ -45,7 +51,7 @@ const CREDIT_ORIGIN_LABELS: Record<string, string> = {
   customer_credit:    'Crédito ao cliente',
 }
 
-export function BillingActions({ billingId, customerId, status, amountDue, cobranca, latePolicy, availableCredits }: BillingActionsProps) {
+export function BillingActions({ billingId, customerId, status, amountDue, cobranca, latePolicy, availableCredits, creditBalance }: BillingActionsProps) {
   const [isPending, startTransition] = useTransition()
   const [flashError, setFlashError] = useState<string | null>(null)
 
@@ -55,23 +61,20 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
 
   // Register Payment form
 
-  // Apply Credit form
-  const [selectedCredit, setSelectedCredit] = useState(availableCredits[0]?.id ?? '')
+  // O SELETOR de crédito saiu. O saldo é um POOL por cliente, derivado de
+  // `creditos_de_clientes` no razão; as linhas de `customer_credits` guardam o
+  // que foi concedido, não o que resta. Escolher entre elas era decisão sem
+  // efeito — e a action nem recebia a escolha.
+  const saldoDeCredito = creditBalance
 
-  /** Quanto faz sentido abater: o menor entre o crédito e o que se deve. */
-  function suggestedCredit(creditId: string): string {
-    const saldo = availableCredits.find(c => c.id === creditId)?.available_balance ?? 0
-    const valor = Math.min(saldo, amountDue)
-    return valor > 0 ? valor.toFixed(2) : ''
-  }
+  /** Nunca mais que o saldo, nunca mais que a dívida. */
+  const tetoDoCredito = Math.round(Math.min(saldoDeCredito, amountDue) * 100) / 100
 
-  // O campo nascia VAZIO com o saldo disponível como placeholder. Em cinza,
-  // "R$ 300,00" é indistinguível de um valor preenchido: o operador via o campo
-  // pronto, clicava em Aplicar e recebia "Valor inválido" — como se o sistema
-  // tivesse recusado um valor perfeitamente válido. O modal de pagamento ao
-  // lado já nascia preenchido com o valor devido; este é que destoava.
+  // Nasce preenchido com o teto: é o abatimento que o operador quer em quase
+  // todo caso, e um campo vazio com placeholder cinza já foi confundido com
+  // campo preenchido — clicava em Aplicar e recebia "Valor inválido".
   const [creditAmount, setCreditAmount] = useState(() =>
-    suggestedCredit(availableCredits[0]?.id ?? ''))
+    tetoDoCredito > 0 ? tetoDoCredito.toFixed(2) : '')
 
   // Vencida é estado DERIVADO de uma cobrança aberta, não um status terminal:
   // a página envia 'overdue' no lugar de 'open' quando há atraso. Comparar com
@@ -81,14 +84,25 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
   const hasCredits = availableCredits.length > 0 && isActionable
 
   function handleCredit() {
-    const amount = parseFloat(creditAmount)
-    if (!selectedCredit) { setFlashError('Selecione um crédito'); return }
-    if (isNaN(amount) || amount <= 0) { setFlashError('Valor inválido'); return }
+    const amount = Math.round((parseFloat(creditAmount) || 0) * 100) / 100
+    if (amount <= 0) { setFlashError('Informe um valor maior que zero.'); return }
+    if (amount > tetoDoCredito) {
+      setFlashError(
+        `O máximo aqui é ${formatCurrency(tetoDoCredito)} — o menor entre o saldo `
+        + 'de crédito do cliente e o que esta cobrança ainda deve.',
+      )
+      return
+    }
     setFlashError(null)
     startTransition(async () => {
-      // A aplicação percorre todos os créditos do cliente e abate a cobrança
-      // de vencimento mais antigo — regra de applyCredits em @gomoto/core.
-      const result = await applyCustomerCredits(customerId)
+      // Dirigido: este valor, NESTA cobrança. A versão anterior mandava só o
+      // cliente e a action varria o saldo para as cobranças mais antigas —
+      // podia abater numa que o operador nem tinha aberto.
+      const result = await applyCustomerCredits({
+        customer_id: customerId,
+        charge_id: billingId,
+        amount,
+      })
       if (!result.ok) { setFlashError(result.error.message); return }
       setCreditOpen(false)
       setCreditAmount('')
@@ -153,30 +167,51 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
       {/* ── Aplicar crédito ────────────────────────────────────────────────── */}
       <Modal open={creditOpen} onClose={() => setCreditOpen(false)} title="Aplicar crédito">
         <div className="space-y-4">
-          <div>
-            <label className="mb-1 block text-[13px] text-fg-mute">Crédito disponível</label>
-            <select
-              value={selectedCredit}
-              onChange={e => {
-                setSelectedCredit(e.target.value)
-                setCreditAmount(suggestedCredit(e.target.value))
-              }}
-              className="w-full rounded-lg border border-divider bg-surface px-3 py-2 text-[13px] text-fg focus:border-primary focus:outline-none"
-            >
-              {availableCredits.map(c => (
-                <option key={c.id} value={c.id}>
-                  {CREDIT_ORIGIN_LABELS[c.origin] ?? c.origin} — saldo {formatCurrency(c.available_balance)}
-                </option>
-              ))}
-            </select>
+          {/* De onde vem e para onde vai, antes de confirmar. O modal antigo
+              pedia "qual crédito" — escolha sem efeito, porque o saldo é um
+              pool — e mandava só o cliente para a action, que abatia nas
+              cobranças mais antigas. Podia nem ser esta. */}
+          <div className="rounded-lg border border-divider bg-surface-2 px-3 py-2 text-[13px]">
+            <div className="flex justify-between">
+              <span className="text-fg-mute">Saldo de crédito</span>
+              <span className="tabular-nums text-fg">{formatCurrency(saldoDeCredito)}</span>
+            </div>
+            <div className="mt-1 flex justify-between">
+              <span className="text-fg-mute">Esta cobrança deve</span>
+              <span className="tabular-nums text-fg">{formatCurrency(amountDue)}</span>
+            </div>
+            <div className="mt-1 flex justify-between border-t border-divider pt-1">
+              <span className="text-fg-mute">Pode abater até</span>
+              <span className="tabular-nums font-semibold text-fg">{formatCurrency(tetoDoCredito)}</span>
+            </div>
+            {availableCredits.length > 0 && (
+              <p className="mt-2 text-[12px] text-fg-mute">
+                Origem: {[...new Set(availableCredits.map(c => CREDIT_ORIGIN_LABELS[c.origin] ?? c.origin))].join(', ')}.
+              </p>
+            )}
           </div>
+
           <Input
             label="Valor a aplicar (R$)"
             type="number"
             step="0.01"
             min="0.01"
+            max={tetoDoCredito.toFixed(2)}
             value={creditAmount}
-            onChange={e => setCreditAmount(e.target.value)}
+            onChange={e => {
+              // Duas casas e teto na digitação, como no modal de recebimento:
+              // o campo aceitava qualquer valor e o excesso só era descoberto
+              // depois — quando era descoberto.
+              const v = e.target.value.replace(/^(\d*[.,]?\d{0,2}).*$/, '$1')
+              const n = parseFloat(v)
+              if (!isNaN(n) && n > tetoDoCredito) {
+                setCreditAmount(tetoDoCredito.toFixed(2))
+                setFlashError(`O máximo aqui é ${formatCurrency(tetoDoCredito)}.`)
+                return
+              }
+              setCreditAmount(v)
+              setFlashError(null)
+            }}
           />
           {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
           <div className="flex justify-end gap-2 pt-2">
