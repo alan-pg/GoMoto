@@ -500,3 +500,41 @@ test.describe('Empresa sem política — encargo é zero, e a tela diz isso', ()
     await expect(secao.getByText(/Em vigor · versão \d+/)).toBeVisible()
   })
 })
+
+test.describe('Composição da cobrança', () => {
+  /**
+   * A tela de detalhe carregava `charge_items` e só os usava para escolher o
+   * título. Quem abria uma cobrança via o total e nada do que o forma: nem o
+   * principal, nem o encargo realizado, nem o quanto já foi abatido. Conta que
+   * não se abre não se confere — só se acredita.
+   */
+  test('a tela abre o que forma o total e o que já foi abatido', async ({ page }) => {
+    const marca = `${TEST_TAG} Composicao ${Date.now().toString(36)}`
+    const { chargeId } = await createCharge(admin(), tenantId, {
+      customerId, rentalId,
+      dueDate: daquiA(-15),
+      sourceModule: 'manual', sourceId: crypto.randomUUID(),
+      items: [{
+        description: marca, credit_account_code: 'receita_locacao',
+        quantity: 1, unit_amount: 400, amount: 400,
+      }],
+    })
+
+    await page.goto(`/cobrancas/${chargeId}`)
+    await waitForPageLoad(page)
+
+    const composicao = page.locator('section').filter({ hasText: 'Composição' })
+    await expect(composicao).toBeVisible({ timeout: 10_000 })
+
+    // O item que forma a cobrança, com origem legível — não o código cru.
+    await expect(composicao.getByText(marca)).toBeVisible()
+    await expect(composicao.getByText('R$ 400,00').first()).toBeVisible()
+    await expect(composicao.getByText('Total emitido')).toBeVisible()
+    await expect(composicao.getByText('A pagar')).toBeVisible()
+
+    // Vencida: o encargo ainda é PROJEÇÃO e precisa aparecer como tal, senão o
+    // total emitido não bate com o "a pagar" do topo e a conta parece errada.
+    await expect(composicao.getByText(/Encargo previsto/)).toBeVisible()
+    await expect(composicao.getByText(/ainda não lançado/)).toBeVisible()
+  })
+})

@@ -260,17 +260,17 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 3.4 Manutenção rateada, executada pela empresa
 
-- [ ] Registre manutenção de **R$ 1.000**, cliente paga **R$ 300**, executor
+- [x] Registre manutenção de **R$ 1.000**, cliente paga **R$ 300**, executor
       **Empresa**.
 
 **Verificar:**
-- [ ] Antes de salvar, o resumo mostra **Despesa da empresa R$ 700** e
+- [x] Antes de salvar, o resumo mostra **Despesa da empresa R$ 700** e
       **Repassado ao cliente R$ 300**.
-- [ ] Em **Despesas**, a linha mostra **Total R$ 1.000**, **Empresa R$ 700**,
+- [x] Em **Despesas**, a linha mostra **Total R$ 1.000**, **Empresa R$ 700**,
       **Cliente R$ 300**.
-- [ ] Em **Cobranças**, nasceu uma cobrança de repasse de **R$ 300** para o
+- [x] Em **Cobranças**, nasceu uma cobrança de repasse de **R$ 300** para o
       cliente.
-- [ ] Em **DRE**, o custo subiu **R$ 1.000** e a **Recuperação de despesas**
+- [x] Em **DRE**, o custo subiu **R$ 1.000** e a **Recuperação de despesas**
       subiu **R$ 300**.
 
 > **Por que importa:** repasse não é receita. Se os R$ 300 aparecerem em Receita
@@ -278,15 +278,15 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 3.4-b Rateio em moto sem locação ativa
 
-- [ ] Em **Nova manutenção → Já executada**, escolha uma moto **sem contrato
+- [x] Em **Nova manutenção → Já executada**, escolha uma moto **sem contrato
       ativo**.
 
 **Verificar:**
-- [ ] O campo **Quanto o cliente paga** fica **desabilitado**, com o aviso
+- [x] O campo **Quanto o cliente paga** fica **desabilitado**, com o aviso
       *"Moto sem locação ativa — não há a quem repassar"*.
-- [ ] Trocando para uma moto **com** contrato, o campo abre e diz
+- [x] Trocando para uma moto **com** contrato, o campo abre e diz
       *"Será cobrado de \<nome do cliente\>"*.
-- [ ] Digite um valor com a moto locada, depois **troque para a moto sem
+- [x] Digite um valor com a moto locada, depois **troque para a moto sem
       contrato**: o campo volta a **vazio**, sem guardar o valor por baixo.
 
 > A tela deixava digitar o rateio para qualquer moto. A manutenção era criada, o
@@ -298,27 +298,27 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 3.5 Manutenção executada pelo CLIENTE, rateada
 
-- [ ] Registre manutenção de **R$ 100**, cliente paga **R$ 50**, executor
+- [x] Registre manutenção de **R$ 100**, cliente paga **R$ 50**, executor
       **Cliente**.
 
 **Verificar:**
-- [ ] O resumo avisa que **gera crédito de R$ 50 a favor do cliente**.
-- [ ] Em **Despesas**, a conta nasce **já quitada** — o cliente pagou a oficina,
+- [x] O resumo avisa que **gera crédito de R$ 50 a favor do cliente**.
+- [x] Em **Despesas**, a conta nasce **já quitada** — o cliente pagou a oficina,
       a empresa nunca deveu.
-- [ ] Em **Despesas**, o card **Pago** não subiu: quem pagou a oficina foi o
+- [x] Em **Despesas**, o card **Pago** não subiu: quem pagou a oficina foi o
       cliente, não a empresa.
-- [ ] Na ficha do cliente, **Créditos disponíveis** subiu **R$ 50**.
-- [ ] **NÃO** nasceu cobrança de repasse (quem deve é a empresa, não o cliente).
+- [x] Na ficha do cliente, **Créditos disponíveis** subiu **R$ 50**.
+- [x] **NÃO** nasceu cobrança de repasse (quem deve é a empresa, não o cliente).
 
 ### 3.6 Manutenção 100% do cliente, executada por ele
 
-- [ ] Registre manutenção de **R$ 80**, cliente paga **R$ 80**, executor
+- [x] Registre manutenção de **R$ 80**, cliente paga **R$ 80**, executor
       **Cliente**.
 
 **Verificar:**
-- [ ] **Nenhum crédito** foi gerado — nada mudou de mão.
-- [ ] **Nenhuma cobrança** de repasse foi criada.
-- [ ] O custo aparece no veículo, mas o resultado da empresa não piora.
+- [x] **Nenhum crédito** foi gerado — nada mudou de mão.
+- [x] **Nenhuma cobrança** de repasse foi criada.
+- [x] O custo aparece no veículo, mas o resultado da empresa não piora.
 
 ### 3.7 IPVA / licenciamento
 

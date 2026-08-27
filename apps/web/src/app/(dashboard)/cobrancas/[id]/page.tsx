@@ -53,6 +53,11 @@ const BILLING_TYPE_LABELS: Record<string, string> = {
 const SOURCE_LABELS: Record<string, string> = {
   cycle:        'Ciclo',
   rental_cycle: 'Ciclo',
+  // Origens que os ITENS realmente usam. `late_charge` faltava, e é o do
+  // encargo realizado — apareceria cru na composição, que é onde ele mais
+  // aparece.
+  rental:       'Locação',
+  late_charge:  'Encargo por atraso',
   fine:         'Multa',
   maintenance:  'Manutenção',
   expense:      'Despesa',
@@ -418,6 +423,74 @@ export default async function BillingDetailPage({
             </p>
           </div>
         )}
+
+        {/* ── Composição da cobrança ────────────────────────────────────── */}
+        {/* A tela CARREGAVA os itens e só os usava para escolher o título. Quem
+            abria uma cobrança de R$ 370 via o total e nada do que o forma: nem
+            o aluguel, nem o encargo realizado, nem o crédito abatido. Sem isso
+            não há como conferir uma conta — só acreditar nela. */}
+        <section>
+          <h2 className="mb-3 text-[14px] font-bold text-primary">
+            Composição
+            <span className="ml-2 text-[12px] font-normal text-fg-mute">({items.length})</span>
+          </h2>
+          <div className="overflow-hidden rounded-xl border border-divider">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-b border-divider bg-surface">
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Item</th>
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Origem</th>
+                  <th className="h-9 px-4 text-right font-medium text-fg-mute">Valor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it) => (
+                  <tr key={it.id} className="border-b border-border last:border-0">
+                    <td className="h-9 px-4 text-fg">{it.description}</td>
+                    <td className="h-9 px-4 text-fg-mute">
+                      {SOURCE_LABELS[it.source_module] ?? it.source_module}
+                    </td>
+                    <td className="h-9 px-4 text-right font-mono text-fg">{formatCurrency(it.amount)}</td>
+                  </tr>
+                ))}
+                <tr className="border-t border-divider bg-surface">
+                  <td className="h-9 px-4 font-medium text-fg-mute" colSpan={2}>Total emitido</td>
+                  <td className="h-9 px-4 text-right font-mono font-bold text-fg">
+                    {formatCurrency(balance.total_amount)}
+                  </td>
+                </tr>
+                {/* Encargo AINDA NÃO realizado é projeção, não item: só vira
+                    linha da cobrança quando alguém recebe. Aparece aqui como
+                    previsão para o total bater com o "a pagar" do topo. */}
+                {accrued.total > 0 && (
+                  <tr className="border-t border-divider">
+                    <td className="h-9 px-4 text-warning" colSpan={2}>
+                      Encargo previsto · {accrued.days_overdue} dia(s) de atraso
+                      <span className="ml-2 text-[12px] text-fg-mute">ainda não lançado</span>
+                    </td>
+                    <td className="h-9 px-4 text-right font-mono text-warning">
+                      + {formatCurrency(accrued.total)}
+                    </td>
+                  </tr>
+                )}
+                {balance.paid_amount > 0 && (
+                  <tr className="border-t border-divider">
+                    <td className="h-9 px-4 text-success" colSpan={2}>Recebido e abatido</td>
+                    <td className="h-9 px-4 text-right font-mono text-success">
+                      − {formatCurrency(balance.paid_amount)}
+                    </td>
+                  </tr>
+                )}
+                <tr className="border-t border-divider bg-surface">
+                  <td className="h-9 px-4 font-medium text-fg-mute" colSpan={2}>A pagar</td>
+                  <td className="h-9 px-4 text-right font-mono font-bold text-fg">
+                    {formatCurrency(amountDue)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         {/* ── Histórico de pagamentos ───────────────────────────────────── */}
         <section>
