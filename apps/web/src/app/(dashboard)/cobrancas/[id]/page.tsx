@@ -198,11 +198,14 @@ export default async function BillingDetailPage({
   // Encargo acumulado: projetado até ser consolidado (R-06).
   const { data: chargeRow } = await supabase
     .from('charges')
-    .select('late_charge_policy_id')
+    .select('late_charge_policy_id, cancellation_reason')
     .eq('id', id)
     .maybeSingle()
 
-  const policyId = (chargeRow as { late_charge_policy_id: string | null } | null)?.late_charge_policy_id
+  const charge = chargeRow as {
+    late_charge_policy_id: string | null; cancellation_reason: string | null
+  } | null
+  const policyId = charge?.late_charge_policy_id
   let policy: LateChargePolicy | null = null
 
   if (policyId) {
@@ -267,9 +270,15 @@ export default async function BillingDetailPage({
     // diferentes, exibir um deles no cabeçalho seria escolher qual mentira
     // contar. A tabela de pagamentos discrimina cada um.
     payment_method: formaUnica,
-    // Dispensa de encargo não existe mais: o encargo é projetado e só vira
-    // receita quando consolidado (R-06) — não há o que dispensar.
-    waiver_reason: null as string | null,
+    // `waiver_reason` era fixo em `null` desde que a dispensa de encargo saiu
+    // (R-06: encargo é projetado e só vira receita ao receber). A linha da
+    // tabela existia e nunca renderizava.
+    //
+    // No lugar entra o motivo que o operador REALMENTE digita. Cancelar e dar
+    // baixa exigem justificativa, `cancelCharge`/`writeOffCharge` gravam em
+    // `charges.cancellation_reason` — e nenhuma tela lia. O operador escrevia
+    // para o nada.
+    cancellation_reason: charge?.cancellation_reason ?? null,
     lease_id: balance.rental_id,
     description: principalItem?.description ?? `Cobrança #${balance.charge_number}`,
     original_amount: balance.total_amount,
@@ -342,10 +351,12 @@ export default async function BillingDetailPage({
                     <td className="h-9 px-4 text-fg">{value}</td>
                   </tr>
                 ))}
-                {billing.waiver_reason && (
+                {billing.cancellation_reason && (
                   <tr className="border-b border-divider last:border-0">
-                    <td className="h-9 w-44 shrink-0 px-4 text-fg-mute">Motivo dispensa</td>
-                    <td className="h-9 px-4 text-fg-mute italic">{billing.waiver_reason}</td>
+                    <td className="h-9 w-44 shrink-0 px-4 text-fg-mute">
+                      {balance.status === 'written_off' ? 'Motivo da baixa' : 'Motivo do cancelamento'}
+                    </td>
+                    <td className="h-9 px-4 text-fg italic">{billing.cancellation_reason}</td>
                   </tr>
                 )}
               </tbody>

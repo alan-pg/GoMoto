@@ -3,7 +3,7 @@ import {
   TEST_TAG, getSupabaseAdmin, getTestTenantId, waitForPageLoad,
   createTestVehicle, createTestContract, deleteTestCustomer,
 } from './helpers'
-import { createCharge } from '../src/lib/financial/charges'
+import { createCharge, cancelCharge, writeOffCharge } from '../src/lib/financial/charges'
 import { calculateAmountDue, toPolicyRow, type LateChargePolicy } from '@gomoto/core'
 
 /**
@@ -536,5 +536,59 @@ test.describe('Composição da cobrança', () => {
     // total emitido não bate com o "a pagar" do topo e a conta parece errada.
     await expect(composicao.getByText(/Encargo previsto/)).toBeVisible()
     await expect(composicao.getByText(/ainda não lançado/)).toBeVisible()
+  })
+})
+
+test.describe('Motivo do cancelamento e da baixa', () => {
+  /**
+   * Cancelar e dar baixa EXIGEM justificativa, e `cancelCharge`/`writeOffCharge`
+   * gravam em `charges.cancellation_reason`. Nenhuma tela lia a coluna: o
+   * operador escrevia para o nada, e depois não havia como saber por que
+   * aquela cobrança tinha sido encerrada.
+   */
+  async function cobrancaSimples(marca: string) {
+    const { chargeId } = await createCharge(admin(), tenantId, {
+      customerId, rentalId, dueDate: hoje(),
+      sourceModule: 'manual', sourceId: crypto.randomUUID(),
+      items: [{
+        description: marca, credit_account_code: 'receita_locacao',
+        quantity: 1, unit_amount: 250, amount: 250,
+      }],
+    })
+    return chargeId
+  }
+
+  test('cobrança cancelada mostra o motivo digitado', async ({ page }) => {
+    const run = Date.now().toString(36)
+    const chargeId = await cobrancaSimples(`${TEST_TAG} Cancelada ${run}`)
+    const motivo = `Cobrança em duplicidade ${run}`
+
+    // Pelo caminho real: é `cancelCharge` que a Server Action chama.
+    await cancelCharge(admin(), tenantId, chargeId, motivo)
+
+    await page.goto(`/cobrancas/${chargeId}`)
+    await waitForPageLoad(page)
+
+    await expect(
+      page.getByText('Motivo do cancelamento'),
+      'o rótulo precisa existir para a cobrança cancelada',
+    ).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(motivo)).toBeVisible()
+  })
+
+  test('baixa por inadimplência mostra o motivo, com o rótulo certo', async ({ page }) => {
+    const run = Date.now().toString(36)
+    const chargeId = await cobrancaSimples(`${TEST_TAG} Baixada ${run}`)
+    const motivo = `Cliente inadimplente há 90 dias ${run}`
+
+    await writeOffCharge(admin(), tenantId, chargeId, motivo)
+
+    await page.goto(`/cobrancas/${chargeId}`)
+    await waitForPageLoad(page)
+
+    // Baixa não é cancelamento: o rótulo acompanha o desfecho.
+    await expect(page.getByText('Motivo da baixa')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('Motivo do cancelamento')).toHaveCount(0)
+    await expect(page.getByText(motivo)).toBeVisible()
   })
 })

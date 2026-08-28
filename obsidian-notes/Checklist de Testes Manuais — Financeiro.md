@@ -322,25 +322,25 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 3.7 IPVA / licenciamento
 
-- [ ] Na ficha do veículo, cadastre a obrigação anual e o valor (**R$ 1.200**).
+- [x] Na ficha do veículo, cadastre a obrigação anual e o valor (**R$ 1.200**).
 
 **Verificar:**
-- [ ] O veículo aparece com documentação **em atraso** ou **em aberto**,
+- [x] O veículo aparece com documentação **em atraso** ou **em aberto**,
       conforme o vencimento.
-- [ ] Em **Despesas**, existe conta a pagar de R$ 1.200.
-- [ ] Após dar baixa, o veículo passa a constar **em dia** — sem que você precise
+- [x] Em **Despesas**, existe conta a pagar de R$ 1.200.
+- [x] Após dar baixa, o veículo passa a constar **em dia** — sem que você precise
       editar nada na obrigação.
 
 ### 3.8 Multa com responsável CLIENTE
 
-- [ ] Em **Multas → Nova**, lance multa de **R$ 293,47** na placa, com
+- [x] Em **Multas → Nova**, lance multa de **R$ 293,47** na placa, com
       responsável **Cliente**.
 
 **Verificar:**
-- [ ] Em **Despesas**, nasceu conta a pagar da multa.
-- [ ] Em **Cobranças**, nasceu cobrança de repasse ao cliente da locação vigente
+- [x] Em **Despesas**, nasceu conta a pagar da multa.
+- [x] Em **Cobranças**, nasceu cobrança de repasse ao cliente da locação vigente
       **na data da infração**.
-- [ ] O cliente cobrado é o correto para aquela data (não o atual, se mudou).
+- [x] O cliente cobrado é o correto para aquela data (não o atual, se mudou).
 
 ### 3.9 Trocar o responsável da multa para EMPRESA
 
@@ -357,38 +357,38 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 4.1 Saldo exibido é o disponível, não o concedido
 
-- [ ] Abra a ficha do cliente que recebeu o crédito de R$ 50 (caso 3.5).
+- [x] Abra a ficha do cliente que recebeu o crédito de R$ 50 (caso 3.5).
 
 **Verificar:**
-- [ ] **Créditos disponíveis** mostra **R$ 50,00**.
-- [ ] A contagem ao lado fala em *concedidos*, e é coerente com a lista abaixo.
+- [x] **Créditos disponíveis** mostra **R$ 50,00**.
+- [x] A contagem ao lado fala em *concedidos*, e é coerente com a lista abaixo.
 
 ### 4.2 Abater o crédito em cobrança
 
-- [ ] Abra uma cobrança em aberto do cliente → **Aplicar crédito**.
+- [x] Abra uma cobrança em aberto do cliente → **Aplicar crédito**.
 
 **Verificar:**
-- [ ] O modal já traz o saldo correto e o valor preenchido.
-- [ ] Após aplicar, a cobrança mostra **valor de face inalterado** e
+- [x] O modal já traz o saldo correto e o valor preenchido.
+- [x] Após aplicar, a cobrança mostra **valor de face inalterado** e
       **"a pagar" reduzido** pelo crédito.
-- [ ] O abatimento aparece na lista de pagamentos como **Crédito do cliente**.
-- [ ] **O caixa NÃO mudou** (atalho acima) — abater crédito troca passivo por
+- [x] O abatimento aparece na lista de pagamentos como **Crédito do cliente**.
+- [x] **O caixa NÃO mudou** (atalho acima) — abater crédito troca passivo por
       recebível, não entra dinheiro.
-- [ ] O saldo de crédito do cliente foi a **R$ 0,00**.
+- [x] O saldo de crédito do cliente foi a **R$ 0,00**.
 
 ### 4.2-b O abatimento vai na cobrança que você abriu
 
-- [ ] Com crédito disponível, deixe **duas** cobranças em aberto: uma **antiga**
+- [x] Com crédito disponível, deixe **duas** cobranças em aberto: uma **antiga**
       e uma **de hoje**.
-- [ ] Abra a **de hoje** e clique em **Aplicar crédito**.
+- [x] Abra a **de hoje** e clique em **Aplicar crédito**.
 
 **Verificar:**
-- [ ] O modal mostra **Saldo de crédito**, **Esta cobrança deve** e **Pode
+- [x] O modal mostra **Saldo de crédito**, **Esta cobrança deve** e **Pode
       abater até** — o teto é o menor dos dois.
-- [ ] O campo já vem com o teto e **não aceita passar dele**, nem com três casas.
-- [ ] Após aplicar, o abatimento caiu **nesta** cobrança. A **antiga continua
+- [x] O campo já vem com o teto e **não aceita passar dele**, nem com três casas.
+- [x] Após aplicar, o abatimento caiu **nesta** cobrança. A **antiga continua
       intacta**.
-- [ ] Na **Composição** da cobrança, o valor abatido aparece.
+- [x] Na **Composição** da cobrança, o valor abatido aparece.
 
 > O modal pedia qual crédito e quanto, validava os dois e chamava a action com
 > apenas o cliente — que varria todo o saldo para as cobranças MAIS ANTIGAS.
@@ -398,24 +398,24 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 4.3 Devolver crédito em dinheiro
 
-- [ ] Gere um novo crédito (repita 3.5) e, na ficha do cliente, use
+- [x] Gere um novo crédito (repita 3.5) e, na ficha do cliente, use
       **Devolver crédito** com **valor parcial**.
 
 **Verificar:**
-- [ ] O modal mostra o saldo disponível e recusa valor maior que ele.
-- [ ] Após confirmar, o **caixa caiu** exatamente pelo valor devolvido (atalho
+- [x] O modal mostra o saldo disponível e recusa valor maior que ele.
+- [x] Após confirmar, o **caixa caiu** exatamente pelo valor devolvido (atalho
       acima) — aqui sai dinheiro de verdade, e é o ponto do caso.
-- [ ] O saldo de crédito caiu pelo mesmo valor, e **o resto continua disponível**.
-- [ ] **O custo da manutenção que originou o crédito continua no DRE e no ROI do
+- [x] O saldo de crédito caiu pelo mesmo valor, e **o resto continua disponível**.
+- [x] **O custo da manutenção que originou o crédito continua no DRE e no ROI do
       veículo.** Devolver não é estornar.
 
 ### 4.4 Sem saldo, sem botão
 
-- [ ] Devolva todo o saldo restante e recarregue a ficha.
+- [x] Devolva todo o saldo restante e recarregue a ficha.
 
 **Verificar:**
-- [ ] O botão **Devolver crédito** desaparece.
-- [ ] **Créditos disponíveis** mostra R$ 0,00, mas a lista de créditos concedidos
+- [x] O botão **Devolver crédito** desaparece.
+- [x] **Créditos disponíveis** mostra R$ 0,00, mas a lista de créditos concedidos
       continua lá (é histórico).
 
 ---
@@ -424,21 +424,21 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 5.1 Estornar pagamento
 
-- [ ] Em uma cobrança paga, estorne o pagamento.
+- [x] Em uma cobrança paga, estorne o pagamento.
 
 **Verificar:**
-- [ ] A cobrança volta a **Em aberto**, com o valor devido de volta.
-- [ ] O pagamento **continua listado**, marcado como estornado — não some.
-- [ ] Em **Cobranças**, o card **Recebido** voltou ao valor anterior — e o
+- [x] A cobrança volta a **Em aberto**, com o valor devido de volta.
+- [x] O pagamento **continua listado**, marcado como estornado — não some.
+- [x] Em **Cobranças**, o card **Recebido** voltou ao valor anterior — e o
       **caixa** também (atalho acima).
 
 ### 5.2 Estornar abatimento por crédito
 
-- [ ] Aplique um crédito e depois estorne esse abatimento.
+- [x] Aplique um crédito e depois estorne esse abatimento.
 
 **Verificar:**
-- [ ] A cobrança volta a dever o valor.
-- [ ] **O crédito volta para o saldo do cliente** — não evapora.
+- [x] A cobrança volta a dever o valor.
+- [x] **O crédito volta para o saldo do cliente** — não evapora.
 
 ### 5.3 Cancelar cobrança
 
@@ -447,6 +447,12 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 **Verificar:**
 - [ ] Ela sai de "A receber".
 - [ ] Se era cobrança de receita, a **Receita bruta do DRE caiu** pelo valor.
+
+> Abra a cobrança cancelada depois: o bloco **Cobrança** traz **Motivo do
+> cancelamento** com o texto que você digitou. Ele era gravado em
+> `charges.cancellation_reason` e nenhuma tela lia — o operador escrevia a
+> justificativa para o nada, e depois não havia como saber por que aquela
+> cobrança tinha sido encerrada.
 
 ### 5.4 Cobrança com pagamento não se cancela
 
@@ -486,6 +492,9 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
       receita, baixar reconhece que ela não será recebida.
 
 ---
+
+> Na cobrança baixada, o bloco **Cobrança** traz **Motivo da baixa** — mesmo
+> campo do cancelamento, com o rótulo que corresponde ao desfecho.
 
 ## Bloco 6 — Encargos por atraso
 
