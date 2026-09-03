@@ -61,7 +61,10 @@ export default async function CustomerDetailPage({
     supabase
       .from('customer_credits')
       // Saldo disponível é derivado em `customer_credit_balances`, não coluna.
-      .select('id, amount, origin, reason, created_at')
+      // `cancelled_at` vem junto: concessão desfeita continua no histórico —
+      // ela moveu o razão duas vezes e some do saldo, mas não da história —, e
+      // sem essa coluna a lista mostrava um crédito cancelado com cara de vivo.
+      .select('id, amount, origin, reason, created_at, cancelled_at, cancellation_reason')
       .eq('customer_id', id)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false }),
@@ -107,7 +110,13 @@ export default async function CustomerDetailPage({
   const customer = customerResult.data as Customer
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rental = rentalResult.data as (Rental & { vehicle?: { license_plate: string; make: string; model: string } | null }) | null
-  const credits = (creditsResult.data ?? []) as { id: string; amount: number;  origin: string; reason: string; created_at: string }[]
+  const credits = (creditsResult.data ?? []) as {
+    id: string; amount: number; origin: string; reason: string; created_at: string
+    cancelled_at: string | null; cancellation_reason: string | null
+  }[]
+
+  /** Concessões que ainda valem. Cancelada não conta como "concedido". */
+  const creditsVivos = credits.filter((c) => !c.cancelled_at)
   const creditBalance = Number((creditBalanceResult.data as { balance: number } | null)?.balance ?? 0)
   const delinquencyBlocks = (delinquencyBlocksResult.data ?? []) as { action: string; reason: string; actor_id: string; acted_at: string }[]
   const position = positionResult.data as {
@@ -115,10 +124,17 @@ export default async function CustomerDetailPage({
     absorbed_cost: number; net_result: number; bad_debt: number
   } | null
 
+  // Duas gramáticas convivem em `customer_credits.origin`, e a coluna é TEXT:
+  // o crédito lançado à mão usa o enum de `CreateCreditSchema`, e o que nasce
+  // de despesa paga pelo cliente grava o `source_module` de quem originou
+  // (`fn_create_payable`). Sem as duas aqui, a tela mostrava "maintenance" cru.
   const CREDIT_ORIGIN_LABELS: Record<string, string> = {
     maintenance_refund: 'Estorno manutenção',
     reversal:          'Estorno',
     manual_adjustment: 'Ajuste manual',
+    maintenance:       'Manutenção',
+    fine:              'Multa',
+    expense:           'Despesa',
   }
   const DELINQUENCY_ACTION_LABELS: Record<string, string> = {
     block:   'Bloqueado',
@@ -508,7 +524,7 @@ export default async function CustomerDetailPage({
                   <td className="h-9 px-4 font-mono text-fg">
                     {formatCurrency(creditBalance)}
                     <span className="ml-2 text-[12px] text-fg-mute">
-                      ({credits.length} concedido{credits.length === 1 ? '' : 's'})
+                      ({creditsVivos.length} concedido{creditsVivos.length === 1 ? '' : 's'})
                     </span>
                   </td>
                 </tr>
@@ -556,6 +572,7 @@ export default async function CustomerDetailPage({
                   <tr className="border-b border-divider bg-surface">
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Origem</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Situação</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Total</th>
                   </tr>
                 </thead>
@@ -564,11 +581,26 @@ export default async function CustomerDetailPage({
                     <tr key={c.id} className="border-b border-border last:border-0 hover:bg-surface-2">
                       <td className="h-9 px-4 text-fg-soft">{CREDIT_ORIGIN_LABELS[c.origin] ?? c.origin}</td>
                       <td className="h-9 px-4 text-fg-mute">{new Date(c.created_at).toLocaleDateString('pt-BR')}</td>
-                      <td className="h-9 px-4 text-right font-mono text-fg">{formatCurrency(c.amount)}</td>
+                      {/* Concessão desfeita fica na lista, e diz POR QUÊ. Sumir
+                          com ela esconderia dois lançamentos que existem no
+                          razão; deixá-la sem marca era pior — o cliente
+                          aparecia com R$ 0,00 disponível e "1 concedido", e
+                          nada na tela explicava o descompasso. */}
+                      <td className="h-9 max-w-[280px] truncate px-4 text-[12px]">
+                        {c.cancelled_at
+                          ? <span className="text-danger">
+                              Cancelado em {new Date(c.cancelled_at).toLocaleDateString('pt-BR')}
+                              {c.cancellation_reason && ` — ${c.cancellation_reason}`}
+                            </span>
+                          : <span className="text-fg-mute">Concedido</span>}
+                      </td>
                       {/* A coluna de saldo disponível saiu: ele é derivado em
                           `customer_credit_balances`, a partir do quanto do
                           crédito já foi aplicado. Exibir o valor lançado é
                           honesto; exibir uma coluna inexistente não era. */}
+                      <td className={`h-9 px-4 text-right font-mono ${c.cancelled_at ? 'text-fg-mute line-through' : 'text-fg'}`}>
+                        {formatCurrency(c.amount)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
