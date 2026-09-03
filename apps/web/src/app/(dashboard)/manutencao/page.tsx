@@ -298,11 +298,11 @@ function SituacaoCell({ m }: { m: MaintenanceWithMoto }) {
 
   // Senão, analisa datas (temporal)
   if (dias !== null) {
-    if (dias < 0) return <span className="text-[13px] font-medium text-danger">Vencida há {Math.abs(dias)} dias</span>
+    if (dias < 0) return <span className="text-[13px] font-medium text-danger">Vencida há {Math.abs(dias)} dia{Math.abs(dias) === 1 ? '' : 's'}</span>
     if (dias === 0) return <span className="text-[13px] font-medium text-warning">Vence hoje</span>
     return (
       <span className={`text-[13px] font-medium ${dias <= 18 ? 'text-warning' : 'text-fg-mute'}`}>
-        Em {dias} dias
+        Em {dias} dia{dias === 1 ? '' : 's'}
       </span>
     )
   }
