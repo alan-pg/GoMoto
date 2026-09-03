@@ -43,7 +43,21 @@ function hojeLocal(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export function LateChargePolicySection({ versions }: { versions: PolicyVersion[] }) {
+export function LateChargePolicySection({
+  versions,
+  onSaved,
+}: {
+  versions: PolicyVersion[]
+  /** Recarrega a lista de versões após gravar.
+   *
+   *  A action chama `revalidatePath('/configuracoes')`, e isso não tem efeito
+   *  nenhum aqui: a tela é Client Component e as versões vêm de
+   *  `useLateChargePolicies()`, um cache do TanStack Query. Sem invalidar esse
+   *  cache, salvar respondia "salvo" com a tabela mostrando a política antiga —
+   *  o operador só via a nova depois de recarregar a página, e no meio tempo a
+   *  tela afirmava que a regra em vigor era outra. */
+  onSaved?: () => void
+}) {
   const [isPending, startTransition] = useTransition()
   const [erro, setErro] = useState<string | null>(null)
   const [ok, setOk] = useState(false)
@@ -102,6 +116,7 @@ export function LateChargePolicySection({ versions }: { versions: PolicyVersion[
       })
       if (!r.ok) { setErro(r.error.message); return }
       setOk(true)
+      onSaved?.()
     })
   }
 

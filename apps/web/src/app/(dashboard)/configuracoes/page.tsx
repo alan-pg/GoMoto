@@ -573,7 +573,10 @@ export default function SettingsPage() {
             de pagamento: define quanto TODO cliente paga de multa e juros, não é
             preferência operacional. Até aqui só dava pra mudar por SQL. */}
         {isOwner ? (
-          <LateChargePolicySection versions={(policiesQuery.data ?? []) as PolicyVersion[]} />
+          <LateChargePolicySection
+            versions={(policiesQuery.data ?? []) as PolicyVersion[]}
+            onSaved={() => { void policiesQuery.refetch() }}
+          />
         ) : null}
 
         {/* SEÇÃO 4: Usuários (Spec 0011) — só visível pra Owner/Admin do tenant;
