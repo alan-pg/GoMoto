@@ -27,7 +27,7 @@ import {
   type ErrorCode,
   type AccountCode,
 } from '@gomoto/core'
-import { cancelPayable, createPayable, payPayable } from '@/lib/financial'
+import { businessToday, cancelPayable, createPayable, payPayable } from '@/lib/financial'
 
 type Failure = { ok: false; error: { code: ErrorCode; message: string } }
 
@@ -131,19 +131,39 @@ export async function createExpenseAction(
 /** Baixa da despesa: dinheiro sai do caixa. */
 export async function payExpenseAction(
   payableId: string,
-  paidAt: string,
+  paidAt?: string,
 ): Promise<ActionResult<void>> {
   const ctx = await getContext()
   if (!ctx.ok) return ctx.failure
 
   try {
-    await payPayable(ctx.supabase, ctx.tenantId, payableId, paidAt, ctx.userId)
+    // A data do pagamento vira `occurred_at` do lançamento, e `occurred_at`
+    // decide em que MÊS a saída de caixa cai no DRE. Ela não pode sair do
+    // relógio de quem clicou: a tela mandava `new Date()` do NAVEGADOR, então
+    // um operador em outro fuso — ou viajando — gravava um dia que o negócio
+    // ainda não começou.
+    //
+    // Sem data explícita, quem responde é o banco, no fuso do tenant (migration
+    // `fuso_horario_por_tenant`). O parâmetro continua existindo para quando a
+    // tela oferecer escolher a data — pagar a oficina na sexta e lançar na
+    // segunda é caso real, o mesmo que o recebimento já trata.
+    const hoje = await businessToday(ctx.supabase, ctx.tenantId)
+    const quando = paidAt ?? hoje
+
+    // O `max` do input fecha o seletor, não o teclado — mesma lição do
+    // encerramento de locação e da vigência da política de encargo. Dinheiro
+    // que ainda não saiu não pode virar lançamento.
+    if (quando > hoje) {
+      return fail('VALIDATION_ERROR', 'A data do pagamento não pode ser futura.')
+    }
+
+    await payPayable(ctx.supabase, ctx.tenantId, payableId, quando, ctx.userId)
 
     await logAction({
       action: 'update',
       table: 'payables',
       recordId: payableId,
-      newData: { status: 'paid', paid_at: paidAt },
+      newData: { status: 'paid', paid_at: quando },
     })
 
     revalidatePath('/despesas')
