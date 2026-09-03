@@ -160,6 +160,10 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 **Verificar:**
 - [x] A cobrança passa a **Paga**, com "R$ 0,00 a pagar".
 - [x] O pagamento aparece listado na própria cobrança, com data e forma.
+- [ ] Se você escreveu algo em **Observações** no modal, o texto aparece
+      **inteiro** na coluna *Observação* do bloco **Pagamentos** — inclusive
+      observação longa, de mais de uma linha. Ela era cortada em 200px, o que
+      escondia justamente a explicação que valia a pena escrever.
 - [x] Em **Cobranças**, o card **Recebido** subiu R$ 500 — e declara
       *"Inclui R$ 500,00 de caução"*.
 - [x] Em **DRE**, a receita **não** subiu (caução é passivo).
@@ -431,6 +435,12 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 - [x] O pagamento **continua listado**, marcado como estornado — não some.
 - [x] Em **Cobranças**, o card **Recebido** voltou ao valor anterior — e o
       **caixa** também (atalho acima).
+- [x] Se a cobrança estava **vencida**, o encargo que foi lançado no recebimento
+      **continua como item** — o atraso aconteceu, e o estorno não o desfaz.
+- [x] Recebendo de novo **no mesmo dia**, o valor é **o mesmo de antes**: a multa
+      não é cobrada duas vezes e não há juros sobre o encargo anterior. Na tela
+      de detalhe isso aparece como a linha **"Já lançado"**, descontada do
+      encargo corrente (ADR 0028).
 
 ### 5.2 Estornar abatimento por crédito
 
@@ -442,11 +452,11 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 5.3 Cancelar cobrança
 
-- [ ] Cancele uma cobrança **sem pagamento**.
+- [x] Cancele uma cobrança **sem pagamento**.
 
 **Verificar:**
-- [ ] Ela sai de "A receber".
-- [ ] Se era cobrança de receita, a **Receita bruta do DRE caiu** pelo valor.
+- [x] Ela sai de "A receber".
+- [x] Se era cobrança de receita, a **Receita bruta do DRE caiu** pelo valor.
 
 > Abra a cobrança cancelada depois: o bloco **Cobrança** traz **Motivo do
 > cancelamento** com o texto que você digitou. Ele era gravado em
@@ -456,38 +466,38 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 5.4 Cobrança com pagamento não se cancela
 
-- [ ] Tente cancelar uma cobrança que já recebeu pagamento.
+- [x] Tente cancelar uma cobrança que já recebeu pagamento.
 
 **Verificar:**
-- [ ] O sistema recusa e explica que é preciso estornar o pagamento antes.
-- [ ] Nada mudou na cobrança.
+- [x] O sistema recusa e explica que é preciso estornar o pagamento antes.
+- [x] Nada mudou na cobrança.
 
 ### 5.5 Cancelar despesa rateada
 
-- [ ] Cancele a despesa do caso 3.4 (R$ 1.000 com R$ 300 de repasse).
+- [x] Cancele a despesa do caso 3.4 (R$ 1.000 com R$ 300 de repasse).
 
 **Verificar:**
-- [ ] O custo de R$ 1.000 **saiu do DRE**.
-- [ ] A **cobrança de repasse de R$ 300 foi cancelada junto** — o cliente não
+- [x] O custo de R$ 1.000 **saiu do DRE**.
+- [x] A **cobrança de repasse de R$ 300 foi cancelada junto** — o cliente não
       pode continuar devendo por um custo que a empresa diz não ter tido.
 
 ### 5.6 Despesa paga pelo cliente não se cancela por ali
 
-- [ ] Tente cancelar a despesa do caso 3.5 (executada pelo cliente).
+- [x] Tente cancelar a despesa do caso 3.5 (executada pelo cliente).
 
 **Verificar:**
-- [ ] O sistema recusa e explica o caminho — acerto por crédito ou cobrança
+- [x] O sistema recusa e explica o caminho — acerto por crédito ou cobrança
       avulsa.
 
 ### 5.7 Baixa por inadimplência
 
-- [ ] Em **Cobranças**, numa cobrança vencida e não paga, use o botão de
+- [x] Em **Cobranças**, numa cobrança vencida e não paga, use o botão de
       **baixa por inadimplência** e informe o motivo.
 
 **Verificar:**
-- [ ] A cobrança sai de "A receber" e passa a constar como **Baixada**.
-- [ ] No DRE aparece **Perda** pelo valor em aberto.
-- [ ] A **receita original permanece** — a venda aconteceu; o que se reconhece é
+- [x] A cobrança sai de "A receber" e passa a constar como **Baixada**.
+- [x] No DRE aparece **Perda** pelo valor em aberto.
+- [x] A **receita original permanece** — a venda aconteceu; o que se reconhece é
       a perda. É isso que distingue baixa de cancelamento: cancelar apaga a
       receita, baixar reconhece que ela não será recebida.
 
@@ -500,21 +510,25 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 6.1 Encargo é projeção até ser realizado
 
-- [ ] Deixe uma cobrança vencer e abra-a.
+- [x] Deixe uma cobrança vencer e abra-a.
 
 **Verificar:**
-- [ ] A tela mostra o encargo **calculado**.
-- [ ] O DRE **ainda não** tem receita de encargos.
+- [x] A tela mostra o encargo **calculado**.
+- [x] O DRE **ainda não** tem receita de encargos.
 
 ### 6.2 Receber realiza o encargo
 
-- [ ] Registre o pagamento da cobrança vencida, pelo valor que a tela oferece.
+- [x] Registre o pagamento da cobrança vencida, pelo valor que a tela oferece.
 
 **Verificar:**
-- [ ] O encargo vira **item da cobrança** e o total sobe.
-- [ ] A cobrança fica **paga**, com saldo zero — nunca negativo.
-- [ ] No DRE aparece **Receita de encargos**.
-- [ ] O encargo aparece atribuído ao veículo correto no ROI.
+- [x] O encargo vira **item da cobrança** e o total sobe.
+- [x] A cobrança fica **paga**, com saldo zero — nunca negativo.
+- [x] No DRE aparece em **Receitas financeiras**, marcada *tributável* — e
+      **não** somada à Receita bruta. O encargo é lançado na conta *Receita de
+      encargos*, e o DRE agrupa contas em LINHAS: a linha dessa conta é
+      `financial_income`. Juros de atraso não são faturamento de locação, e
+      separá-los é o que permite ao contador ler as duas coisas.
+- [x] O encargo aparece atribuído ao veículo correto no ROI.
 
 > Não existe mais botão "Consolidar encargo". Ele recalculava o encargo do zero
 > a cada clique — multa sobre o saldo já acrescido, juros de todos os dias desde
@@ -524,31 +538,31 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 6.3 A data do recebimento manda no encargo
 
-- [ ] Numa cobrança vencida, abra **Registrar pagamento** e mude a **Data do
+- [x] Numa cobrança vencida, abra **Registrar pagamento** e mude a **Data do
       recebimento** para alguns dias atrás.
 
 **Verificar:**
-- [ ] O valor sugerido **diminui** — menos dias de atraso, menos juros.
-- [ ] Os **dias de atraso acompanham a data**, nos dois lugares em que aparecem:
+- [x] O valor sugerido **diminui** — menos dias de atraso, menos juros.
+- [x] Os **dias de atraso acompanham a data**, nos dois lugares em que aparecem:
       ao lado do vencimento, no cabeçalho, e na linha de juros.
-- [ ] Data futura é recusada com mensagem.
-- [ ] Registrando, o encargo lançado é o daquela data, não o de hoje.
+- [x] Data futura é recusada com mensagem.
+- [x] Registrando, o encargo lançado é o daquela data, não o de hoje.
 
 > É o caso de receber o Pix na segunda e registrar na quarta. Antes o sistema
 > mandava sempre a data de hoje, cobrando dias de juros que não correram.
 
 ### 6.3-b O modal é o mesmo nas duas telas
 
-- [ ] Abra **Registrar pagamento** pela **lista** (/cobrancas, ícone $ na linha).
-- [ ] Abra a mesma cobrança em **detalhe** e clique em **Registrar pagamento**.
+- [x] Abra **Registrar pagamento** pela **lista** (/cobrancas, ícone $ na linha).
+- [x] Abra a mesma cobrança em **detalhe** e clique em **Registrar pagamento**.
 
 **Verificar:**
-- [ ] Os dois modais são idênticos: cabeçalho com número da cobrança, cliente,
+- [x] Os dois modais são idênticos: cabeçalho com número da cobrança, cliente,
       **vencimento** e dias de atraso; data do recebimento; valor; detalhamento
       de principal/multa/juros; forma de pagamento; observações.
-- [ ] Nos dois, digitar valor **acima** do devido devolve o campo ao máximo e
+- [x] Nos dois, digitar valor **acima** do devido devolve o campo ao máximo e
       mostra o erro **dentro** do modal.
-- [ ] Depois de receber, a tela de detalhe mostra **"Pago em"** com a data do
+- [x] Depois de receber, a tela de detalhe mostra **"Pago em"** com a data do
       recebimento — a mesma que aparece na tabela de Pagamentos abaixo.
 
 > Eram dois modais separados que divergiram: um recusava valor acima do saldo, o
@@ -558,33 +572,44 @@ docker exec supabase_db_GoMoto psql -U postgres -d postgres \
 
 ### 6.4 Pagar com crédito não escapa do encargo
 
-- [ ] Em cobrança vencida, aplique crédito.
+- [x] Em cobrança vencida, aplique crédito.
 
 **Verificar:**
-- [ ] O encargo é realizado antes do abatimento — quem paga com crédito paga o
+- [x] O encargo é realizado antes do abatimento — quem paga com crédito paga o
       mesmo que quem paga em dinheiro.
 
 ---
 
 ### 6.5 Configurar a política — Configurações → Encargo por atraso
 
-- [ ] Como **Owner**, abra `/configuracoes`. A seção **Encargo por atraso** existe
+- [x] Como **Owner**, abra `/configuracoes`. A seção **Encargo por atraso** existe
       e mostra "Em vigor · versão N · desde DD/MM/AAAA" com multa, juros e carência.
-- [ ] O campo de juros mostra a taxa **diária** derivada ("Equivale a 0,0333% ao dia").
-- [ ] Como **Operator/Viewer**, a seção não aparece.
+- [x] O campo de juros mostra a taxa **diária** derivada ("Equivale a 0,0333% ao dia").
+- [x] Como **Operator/Viewer**, a seção não aparece.
 
 **Alterar:**
-- [ ] Mude a multa para 5%, deixe a vigência em hoje e salve.
-- [ ] A confirmação aparece e o cabeçalho passa a mostrar a nova versão.
-- [ ] Tente vigência **anterior a hoje**: a tela recusa explicando que política
+- [x] Mude a multa para 5%, deixe a vigência em hoje e salve.
+- [x] A confirmação aparece e o cabeçalho passa a mostrar a nova versão
+      **sem recarregar a página**. A tela é Client Component e lê as versões por
+      `useLateChargePolicies()`: o `revalidatePath` da action não alcança esse
+      cache, então salvar respondia "salvo" com a versão antiga no cabeçalho.
+- [x] Tente vigência **anterior a hoje**: a tela recusa explicando que política
       nova não retroage.
 
 **Verificar o que NÃO pode mudar:**
-- [ ] Uma cobrança **já vencida antes da alteração** continua com o mesmo valor
+- [x] Uma cobrança **já vencida antes da alteração** continua com o mesmo valor
       devido. Abra o modal de recebimento dela antes e depois — multa e juros
       não podem se mexer.
-- [ ] Uma cobrança **emitida depois**, com vencimento após a vigência nova, usa
+- [x] Uma cobrança **emitida depois**, com vencimento após a vigência nova, usa
       a nova multa.
+- [x] No **detalhe** de cada uma, o bloco *Encargos por atraso* diz de qual
+      versão saiu o número: uma mostra "política versão N", a outra "versão N+1",
+      com a data de vigência de cada uma. Duas cobranças abertas no mesmo dia,
+      com regras diferentes, é o que significa fixar a política na emissão — e
+      agora dá para conferir isso sem SQL.
+- [x] Ainda no detalhe, cada linha traz a **conta**: "2% sobre R$ 142,86" na
+      multa, "0,99% ao mês (0,033% ao dia) × 25 dias sobre R$ 142,86" nos juros.
+      Os valores têm de bater com a política daquela versão.
 
 ```sql
 -- Versões da política e qual cobrança usa qual
@@ -609,17 +634,17 @@ Estado de toda empresa recém-cadastrada. Para reproduzir em dev:
 `docker exec supabase_db_GoMoto psql -U postgres -d postgres -c "delete from late_charge_policies;"`
 (só funciona antes de emitir cobrança — depois a FK segura).
 
-- [ ] Em Configurações → Encargo por atraso, aparece o aviso **"Nenhum encargo
+- [x] Em Configurações → Encargo por atraso, aparece o aviso **"Nenhum encargo
       configurado"** e os campos estão **vazios** (a convenção de mercado fica
       só no placeholder).
-- [ ] O botão diz **"Começar a cobrar encargo"**, não "Salvar nova versão".
-- [ ] Salvar com um campo em branco explica qual falta e sugere usar 0.
+- [x] O botão diz **"Começar a cobrar encargo"**, não "Salvar nova versão".
+- [x] Salvar com um campo em branco explica qual falta e sugere usar 0.
 
 **Verificar:**
-- [ ] Emita uma cobrança vencida. O valor devido é o **original**, sem multa nem
+- [x] Emita uma cobrança vencida. O valor devido é o **original**, sem multa nem
       juros, por mais dias que passem.
-- [ ] A cobrança nasce com `late_charge_policy_id` nulo.
-- [ ] O modal de recebimento não mostra as linhas de Multa e Juros.
+- [x] A cobrança nasce com `late_charge_policy_id` nulo.
+- [x] O modal de recebimento não mostra as linhas de Multa e Juros.
 
 > Sem política, o formulário nascia com 2% e 1% ao mês preenchidos. Quem abria a
 > tela lia isso como o que a empresa cobra — e não cobrava nada.
@@ -628,16 +653,16 @@ Estado de toda empresa recém-cadastrada. Para reproduzir em dev:
 
 Só faz sentido com **duas ou mais versões** de política na base (crie uma em 6.5).
 
-- [ ] Pegue uma cobrança vencida **emitida antes** da versão nova.
-- [ ] Compare o valor em três lugares: coluna **Devido** na lista, modal
+- [x] Pegue uma cobrança vencida **emitida antes** da versão nova.
+- [x] Compare o valor em três lugares: coluna **Devido** na lista, modal
       **Registrar pagamento** aberto pela lista, e a tela de **detalhe**
       (bloco "Encargos por atraso") com o modal aberto por ela.
 
 **Verificar:**
-- [ ] Os quatro valores são idênticos.
-- [ ] O encargo é o da política **em vigor quando a cobrança foi emitida** — não
+- [x] Os quatro valores são idênticos.
+- [x] O encargo é o da política **em vigor quando a cobrança foi emitida** — não
       o da versão nova.
-- [ ] O badge de dias ao lado do vencimento (ex.: "30d") bate com os "N dias de
+- [x] O badge de dias ao lado do vencimento (ex.: "30d") bate com os "N dias de
       atraso" do modal. **Teste depois das 21h**: é a janela em que o banco, em
       UTC, já virou o dia e a tela não.
 
@@ -651,55 +676,67 @@ Só faz sentido com **duas ou mais versões** de política na base (crie uma em 
 
 ### 7.1 Apuração antes de encerrar
 
-- [ ] Abra **Locações → contrato → Encerrar**.
+- [x] Abra **Locações → contrato → Encerrar**.
 
 **Verificar:**
-- [ ] A **Apuração financeira** mostra quatro linhas: cobranças em aberto, saldo
+- [x] A **Apuração financeira** mostra quatro linhas: cobranças em aberto, saldo
       de caução, **crédito do cliente** e cronograma a cancelar.
-- [ ] Os valores batem com o que você vê em Cobranças e na ficha do cliente.
+- [x] Os valores batem com o que você vê em Cobranças e na ficha do cliente.
+- [x] **Cobranças em aberto** traz a abertura embaixo — *"3 vencidas R$ X · 1 a
+      vencer R$ Y"* — e a soma das duas bate com o total da linha. Ela soma o
+      que foi EMITIDO e não pago, vencido ou não: é o que sobrevive ao
+      encerramento, e é o mesmo recorte que a RPC usa para travar. A contagem de
+      vencidas aqui é a MESMA do alerta amarelo abaixo.
+- [x] A **Data de encerramento** abre em **hoje**, não na data de fim do
+      contrato, e não aceita data futura (o seletor trava em hoje; digitando
+      uma data à frente, o encerramento é recusado com explicação).
+- [x] Com a data em hoje, **Cronograma a cancelar** mostra as parcelas ainda não
+      emitidas cujo período começa depois de hoje — não zero. Abrindo na data de
+      fim do contrato dava R$ 0,00, porque nenhum período começa depois dela.
+
+> Encerrar com data futura não existe de propósito: a RPC fecha a locação e
+> libera o veículo no ato, então uma data à frente significaria "moto liberada
+> hoje, contrato até dezembro", com as parcelas do intervalo presas em
+> `scheduled` — nunca emitidas (`issue_due_charges` exige locação ativa) e nunca
+> canceladas (o corte é `period_start > p_termination_date`). Encerramento
+> AGENDADO é outra feature.
 
 ### 7.2 Encerrar com débito em aberto é barrado
 
-- [ ] Com cobrança em aberto, tente encerrar sem marcar a confirmação.
+- [x] Com cobrança em aberto, tente encerrar sem marcar a confirmação.
 
 **Verificar:**
-- [ ] O sistema recusa e explica.
-- [ ] Marcando a confirmação explícita, ele permite — e avisa que as cobranças
+- [x] O sistema recusa e explica.
+- [x] Marcando a confirmação explícita, ele permite — e avisa que as cobranças
       continuam cobráveis.
 
 ### 7.3 Aviso de crédito pendente
 
-- [ ] Encerre um contrato de cliente **com saldo de crédito**.
+- [x] Encerre um contrato de cliente **com saldo de crédito**.
 
 **Verificar:**
-- [ ] Aparece aviso de que o cliente ficará credor, com link para a ficha.
-- [ ] O aviso está **legível** (texto contrastando com o fundo).
-
-### 7.4 Destino da caução — devolver
-
-- [ ] Encerre escolhendo **Devolver tudo**.
-
+- [x] Aparece aviso de que o cliente ficará credor, com link para a ficha.cont
 **Verificar:**
-- [ ] O **caixa caiu** pelo valor da caução (atalho acima) — devolver é saída
+- [x] O **caixa caiu** pelo valor da caução (atalho acima) — devolver é saída
       de dinheiro de verdade.
-- [ ] O saldo de caução do contrato foi a zero.
-- [ ] A moto voltou para **disponível** e pode ser locada de novo.
+- [x] O saldo de caução do contrato foi a zero.
+- [x] A moto voltou para **disponível** e pode ser locada de novo.
 
 ### 7.5 Destino da caução — reter
 
-- [ ] Em outro contrato, encerre escolhendo **Reter tudo**.
+- [x] Em outro contrato, encerre escolhendo **Reter tudo**.
 
 **Verificar:**
-- [ ] O **caixa não mudou** (atalho acima) — reter só converte passivo em
+- [x] O **caixa não mudou** (atalho acima) — reter só converte passivo em
       abatimento; o dinheiro já estava com a empresa.
-- [ ] A dívida do cliente foi abatida pelo valor retido.
-- [ ] O saldo de caução foi a zero.
+- [x] A dívida do cliente foi abatida pelo valor retido.
+- [x] O saldo de caução foi a zero.
 
 ### 7.6 Cronograma futuro é cancelado
 
 **Verificar (após qualquer encerramento):**
-- [ ] Parcelas com período posterior ao encerramento **não** são mais emitidas.
-- [ ] Parcelas já emitidas **continuam** existindo e cobráveis.
+- [x] Parcelas com período posterior ao encerramento **não** são mais emitidas.
+- [x] Parcelas já emitidas **continuam** existindo e cobráveis.
 
 ---
 
@@ -707,20 +744,25 @@ Só faz sentido com **duas ou mais versões** de política na base (crie uma em 
 
 ### 8.1 Reajuste altera só o futuro
 
-- [ ] Em **Locações → contrato → Reajustar**, mude o valor do ciclo.
+> A tela aplicava e não dizia nada: a página não passava `onDone`, então nem a
+> confirmação nem o botão Cancelar faziam efeito, e a prévia (cache do TanStack)
+> seguia mostrando os valores antigos. Agora ela confirma quantas parcelas
+> mudaram e a prévia se atualiza sozinha.
+
+- [x] Em **Locações → contrato → Reajustar**, mude o valor do ciclo.
 
 **Verificar:**
-- [ ] Parcelas **ainda não emitidas** passam a valer o novo valor.
-- [ ] Parcelas **já emitidas** permanecem com o valor antigo.
+- [x] Parcelas **ainda não emitidas** passam a valer o novo valor.
+- [x] Parcelas **já emitidas** permanecem com o valor antigo.
 
 ### 8.2 Renovação estende o contrato
 
-- [ ] Renove um contrato.
+- [x] Renove um contrato.
 
 **Verificar:**
-- [ ] A data de fim avançou.
-- [ ] Novas parcelas apareceram no cronograma.
-- [ ] Tentar renovar com data que **não estende** é recusado.
+- [x] A data de fim avançou.
+- [x] Novas parcelas apareceram no cronograma.
+- [x] Tentar renovar com data que **não estende** é recusado.
 
 ---
 
@@ -731,29 +773,29 @@ Só faz sentido com **duas ou mais versões** de política na base (crie uma em 
 
 ### 9.1 Gerar o QR
 
-- [ ] No app do cliente, abra uma cobrança em aberto e gere o Pix.
+- [x] No app do cliente, abra uma cobrança em aberto e gere o Pix.
 
 **Verificar:**
-- [ ] O valor do QR é o **valor devido** — considerando crédito já aplicado e
+- [x] O valor do QR é o **valor devido** — considerando crédito já aplicado e
       encargo já realizado, não o valor de face.
 
 ### 9.2 Dois toques no botão
 
-- [ ] Toque para gerar o QR duas vezes seguidas.
+- [x] Toque para gerar o QR duas vezes seguidas.
 
 **Verificar:**
-- [ ] **Nenhum erro** aparece para o cliente.
-- [ ] O **mesmo QR** é devolvido — não são gerados dois.
+- [x] **Nenhum erro** aparece para o cliente.
+- [x] O **mesmo QR** é devolvido — não são gerados dois.
 
 ### 9.3 Pagar em ATRASO pelo app
 
-- [ ] Deixe uma cobrança vencer, gere o Pix pelo app e pague o valor mostrado.
+- [x] Deixe uma cobrança vencer, gere o Pix pelo app e pague o valor mostrado.
 
 **Verificar:**
-- [ ] A cobrança fica **paga**, com **saldo zero** — nunca negativo.
-- [ ] O total da cobrança cresceu pelo encargo: ele virou item, não sumiu.
-- [ ] No DRE aparece **Receita de encargos** pelo valor cobrado.
-- [ ] No ROI da moto, o encargo entra no resultado dela.
+- [x] A cobrança fica **paga**, com **saldo zero** — nunca negativo.
+- [x] O total da cobrança cresceu pelo encargo: ele virou item, não sumiu.
+- [x] No DRE aparece **Receita de encargos** pelo valor cobrado.
+- [x] No ROI da moto, o encargo entra no resultado dela.
 
 > Este era o defeito: o QR cobrava principal + encargo, o cliente pagava, e a
 > cobrança — que só devia o principal — ficava com saldo NEGATIVO, com o encargo
@@ -782,27 +824,45 @@ Só faz sentido com **duas ou mais versões** de política na base (crie uma em 
 
 ### 10.1 DRE
 
-- [ ] Abra **Financeiro → DRE** no mês em que você fez os testes.
+- [x] Abra **Financeiro → DRE**. Deixe o intervalo em 6 meses: o que você lançou
+      pode estar em mais de um mês, e a conferência é por **coluna**, não pelo
+      total.
 
 **Verificar:**
-- [ ] **Receita bruta** = soma das cobranças de receita emitidas (aluguel +
-      entrada + encargos realizados). **Sem caução, sem repasse.**
-- [ ] **Recuperação de despesas** = soma dos repasses cobrados.
-- [ ] **Custos operacionais** = soma das despesas lançadas, pelo valor **cheio**.
-- [ ] **Perdas** = baixas por inadimplência.
-- [ ] Cancelamentos e estornos **não aparecem** como valores; eles reduzem as
+- [x] **Receita bruta** = aluguel + entrada, no mês da **EMISSÃO** de cada
+      cobrança. **Sem caução, sem repasse, sem encargo.**
+- [x] **Receitas financeiras** = encargos por atraso **realizados**, no mês do
+      **RECEBIMENTO** — não no mês da cobrança que os gerou.
+- [x] **Recuperação de despesas** = soma dos repasses cobrados.
+- [x] **Custos operacionais** = soma das despesas lançadas, pelo valor **cheio**.
+- [x] **Perdas** = baixas por inadimplência.
+- [x] Cancelamentos e estornos **não aparecem** como valores; eles reduzem as
       linhas correspondentes.
+
+> **Encargo não é receita bruta, e raramente é do mesmo mês.** Duas coisas que
+> fazem a conferência falhar quando se procura tudo numa linha só:
+>
+> 1. O encargo entra em **Receitas financeiras** — juros de atraso não são
+>    faturamento de locação (conta `receita_encargos_atraso`, linha
+>    `financial_income`).
+> 2. Ele nasce no **recebimento**, não na emissão: enquanto a cobrança está
+>    vencida e não paga, o encargo é projeção e não existe no razão.
+>
+> Exemplo real desta bateria: cobranças emitidas em 31/08 e pagas em 01/09
+> produziram **Receita bruta R$ 1.028,57 em ago/26** e **Receitas financeiras
+> R$ 10,36 em set/26**. As duas colunas estão certas; a soma numa linha só não
+> existiria em mês nenhum.
 
 ### 10.1-b Caução declarada nos indicadores de caixa
 
 Depois de receber uma caução no mês:
 
 **Verificar:**
-- [ ] Em `/financeiro`, os cards **Emitido no mês** e **Recebido no mês** trazem
+- [x] Em `/financeiro`, os cards **Emitido no mês** e **Recebido no mês** trazem
       a linha *"inclui R$ X de caução"*.
-- [ ] Em `/cobrancas`, o card **Recebido** traz *"Inclui R$ X de caução"*.
-- [ ] O **DRE não muda** com a caução: ela não aparece em linha nenhuma.
-- [ ] Os totais dos cards **continuam somando a caução** — eles medem caixa e
+- [x] Em `/cobrancas`, o card **Recebido** traz *"Inclui R$ X de caução"*.
+- [x] O **DRE não muda** com a caução: ela não aparece em linha nenhuma.
+- [x] Os totais dos cards **continuam somando a caução** — eles medem caixa e
       recebíveis, e precisam bater com o extrato.
 
 > Caução é dinheiro de terceiro: entra no caixa e um dia sai. Tirá-la dos
@@ -814,26 +874,26 @@ Depois de receber uma caução no mês:
 ### 10.2 Painel financeiro
 
 **Verificar:**
-- [ ] **A receber** = soma dos saldos em aberto das cobranças.
-- [ ] **Vencido** conta apenas cobranças com vencimento passado e saldo > 0.
-- [ ] **Recebido** = soma dos pagamentos não estornados.
-- [ ] Os totais batem com o que a tela de Cobranças mostra.
+- [x] **A receber** = soma dos saldos em aberto das cobranças.
+- [x] **Vencido** conta apenas cobranças com vencimento passado e saldo > 0.
+- [x] **Recebido** = soma dos pagamentos não estornados.
+- [x] Os totais batem com o que a tela de Cobranças mostra.
 
 ### 10.3 Resultado por veículo (ROI)
 
-- [ ] Abra o ROI da moto usada nos testes.
+- [x] Abra o ROI da moto usada nos testes.
 
 **Verificar:**
-- [ ] **Receita** = parcelas daquela locação + repasses recuperados.
-- [ ] **Custos** = manutenções e multas do veículo, pelo valor cheio.
-- [ ] Valor de compra e de venda aparecem, quando cadastrados.
-- [ ] Uma moto **sem nenhum lançamento** ainda aparece no relatório (não some).
+- [x] **Receita** = parcelas daquela locação + repasses recuperados.
+- [x] **Custos** = manutenções e multas do veículo, pelo valor cheio.
+- [x] Valor de compra e de venda aparecem, quando cadastrados.
+- [x] Uma moto **sem nenhum lançamento** ainda aparece no relatório (não some).
 
 ### 10.4 Resultado por cliente
 
 **Verificar:**
-- [ ] **Receita** do cliente = o que ele foi cobrado de aluguel e encargos.
-- [ ] **Custo absorvido** = o que a empresa comeu depois do repasse (bruto menos
+- [x] **Receita** do cliente = o que ele foi cobrado de aluguel e encargos.
+- [x] **Custo absorvido** = o que a empresa comeu depois do repasse (bruto menos
       repassado), e a tela mostra as duas parcelas.
 
 ### 10.5 Documentação da frota
@@ -886,19 +946,24 @@ Casos que já falharam em produção ou em teste. Vale reconferir a cada release
 
 ### 13.1 Dois cliques na baixa de despesa
 
-- [ ] Em uma despesa em aberto, clique em **dar baixa** duas vezes rapidamente.
+- [x] Em uma despesa em aberto, clique em **dar baixa** duas vezes rapidamente.
 
 **Verificar:**
-- [ ] O **caixa caiu uma única vez** pelo valor da despesa (atalho acima).
+- [x] O **caixa caiu uma única vez** pelo valor da despesa (atalho acima).
       Em **Despesas**, o card **Pago** subiu uma vez só.
-- [ ] Não há dois pagamentos para a mesma conta.
+- [x] Não há dois pagamentos para a mesma conta.
 
 ### 13.2 Excluir manutenção que virou dinheiro
 
-- [ ] Tente excluir a manutenção do caso 3.4 (com custo lançado).
+- [x] Tente excluir a manutenção do caso 3.4 (com custo lançado).
 
 **Verificar:**
-- [ ] O sistema **recusa** e diz para cancelar a despesa antes.
+- [x] O sistema **recusa** e diz para cancelar a despesa antes — a mensagem
+      aparece **dentro do modal de confirmação**, ao abri-lo, e o botão
+      **Excluir** já vem desabilitado. Nada de confirmar para só então ouvir não.
+- [x] Se a manutenção foi paga pelo cliente, a mensagem é outra: fala do
+      **crédito** que ficaria sem origem, e aponta Cobranças.
+- [x] Manutenção **sem** custo abre o modal normal, com o botão habilitado.
 - [ ] Depois de cancelar a despesa, a exclusão passa.
 
 ### 13.3 Rateio no atalho "Já executada"
@@ -924,7 +989,7 @@ Casos que já falharam em produção ou em teste. Vale reconferir a cada release
 
 ### 13.6 Emissão relatando o que emitiu
 
-- [ ] Rode a emissão com parcelas pendentes e confira o registro da execução:
+- [x] Rode a emissão com parcelas pendentes e confira o registro da execução:
 
 ```bash
 docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
@@ -933,8 +998,8 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 ```
 
 **Verificar:**
-- [ ] `charges_issued` bate com o número de cobranças que apareceram na tela.
-- [ ] `error` está vazio e `finished_at` preenchido — execução que começou e não
+- [x] `charges_issued` bate com o número de cobranças que apareceram na tela.
+- [x] `error` está vazio e `finished_at` preenchido — execução que começou e não
       terminou é o sintoma que `billing_runs` existe para tornar visível.
 
 ---

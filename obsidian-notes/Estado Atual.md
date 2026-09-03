@@ -69,6 +69,28 @@ Complemento no schema: `payments_one_per_intent` (índice único parcial) torna
 impossível dois pagamentos para o mesmo intent de gateway, inclusive para quem
 inserir por fora do código.
 
+## ⏱ Encargo por atraso: grandeza corrente, não dívida nova
+
+[[decisions/0028-encargo-e-grandeza-corrente-nao-divida-nova|ADR 0028]]
+(2026-09-01). Encargo realizado vira item da cobrança e passa a compor
+`open_amount`. A apuração seguinte usava esse saldo cru como base — e cobrava
+multa de novo, com juros sobre o encargo anterior.
+
+A regra hoje: apura-se o encargo **corrente** sobre o principal (saldo menos o
+encargo ainda não pago) e **desconta-se o que já foi documentado**. A subtração
+faz a multa ser uma vez só sem guardar estado, e `min_amount` passa a valer para
+o encargo inteiro em vez de por realização.
+
+Três portas levavam ao mesmo estado — estorno de pagamento, pagamento parcial e
+o antigo botão "Consolidar encargo". A correção fica na conta, não no gatilho:
+`charge_balances.late_charge_amount` alimenta `calculateAmountDue`, a fonte única
+do cockpit, do mobile e do gateway. Portão em `estorno-pagamento.spec.ts`,
+verificado nos dois sentidos.
+
+`calculateAmountDue` **lança** se `open_amount`, `paid_amount` ou
+`late_charge_amount` faltarem no `select` — coluna ausente virava `NaN`, que
+atravessava a conta inteira sem reclamar.
+
 ## 💸 Crédito do cliente: as duas formas de quitar
 
 Crédito é passivo — dívida da empresa com o cliente, nascida quando ele
@@ -97,6 +119,52 @@ do CLIENTE, porque saldo derivado não tem linha para travar) e a apuração no
 encerramento.
 
 ## 🧱 Dívida técnica registrada
+
+**Leitura do cliente sobre o razão — [[decisions/0027-como-o-cliente-le-saldo-derivado-do-razao|ADR 0027]]** (2026-08-31)
+
+**Portão decidido e implementado; uma questão em aberto.** As views de saldo são
+`security_invoker`: se uma tabela que elas agregam não for legível pelo cliente,
+a view não erra — devolve um número menor, plausível e falso. Foi assim que uma
+cobrança de R$ 102,69 com R$ 100,00 abatidos apareceu como R$ 105,45 no app
+contra R$ 2,76 no cockpit.
+
+`leitura-do-cliente.spec.ts` fecha a classe: lê **com token do cliente**, nunca
+com service role, e congela o inventário das views que ainda divergem
+(`customer_credit_balances`, `deposit_balances`, `customer_financial_position` —
+todas sobre `financial_entries`, nenhuma consumida pelo app hoje).
+
+Em aberto: como o cliente passa a ler crédito e caução — policy no razão
+(expõe custo e estrutura do plano) ou view dedicada `security_definer` (abre
+exceção ao invariante de `security_invoker`). Recomendação registrada: a segunda.
+Até decidir, **o app não deve exibir crédito nem caução** — hoje mostraria zero.
+
+**Acerto final no encerramento — [[decisions/0026-acerto-final-caucao-e-credito|ADR 0026]]** (2026-08-29)
+
+**Aceita e implementada** (fases 1–3): como caução e crédito são resolvidos ao
+encerrar a locação.
+
+O razão já trata os dois como a mesma coisa — dois passivos com os mesmos dois
+desfechos, abater a dívida (`→ contas_a_receber`) ou devolver (`→ caixa`). A
+tela não: a caução tem decisão obrigatória, o crédito tem um texto e um link
+para a ficha, onde só existe devolver em dinheiro. Abater crédito em lote não
+existe em lugar nenhum — é uma cobrança por vez.
+
+O sintoma é a apuração pedir *"encerrar mesmo com R$ 1.200,00 em aberto"* de um
+cliente cujo dinheiro a empresa está segurando em R$ 1.000 entre caução e
+crédito. O líquido real, R$ 200, não aparece.
+
+A ADR fixa o princípio (**abater vem antes de devolver**), a decisão por quantia
+e três fases — a primeira só de leitura, sem mudar nenhuma escrita. Duas regras
+já decididas: **retenção de caução existe apenas contra dívida** (sem dívida,
+devolve-se; para reter por avaria, lança-se a despesa com rateio, que emite a
+cobrança), e **qual quantia entra no acerto é escolha do operador**, com caução
+primeiro como sugestão e o efeito visível antes de confirmar. As duas quantias
+têm a mesma forma de controle — *quanto abater* e *o que fazer com a sobra* —, e
+sobra pode ser devolvida em dinheiro.
+
+A primeira regra dissolve um defeito achado por leitura: reter caução de cliente
+**sem dívida** credita `contas_a_receber` sem ter onde alocar, e o `unallocated`
+volta ignorado pelo chamador.
 
 **Leitura em escala — [[decisions/0025-leitura-em-escala-paginacao-agregacao-indice|ADR 0025]]** (2026-08-18)
 

@@ -197,8 +197,8 @@ Todas usam `LEFT JOIN LATERAL` com subconsulta agregada, nunca `JOIN` irmão seg
 | Função | Responsabilidade |
 |---|---|
 | `buildLedgerEntries(event)` | Traduz evento de domínio em pernas de débito/crédito. Cobre as 19 linhas de §3.3 |
-| `calculateAmountDue(charge, policy, asOf)` | Total + encargo acumulado − crédito. **Fonte única** — consumida por web, Route Handler do mobile e criação de intent |
-| `calculateAccruedCharges(policy, principal, dueDate, asOf)` | Encargo projetado; não vira lançamento até ser realizado |
+| `calculateAmountDue(charge, policy, asOf)` | Saldo + encargo ainda a acrescentar. **Fonte única** — consumida por web, Route Handler do mobile e criação de intent. Desconta o encargo já realizado do corrente (ADR 0028) |
+| `calculateAccruedCharges(policy, principal, dueDate, asOf)` | Encargo projetado; não vira lançamento até ser realizado. Recebe o principal **líquido** de encargo já lançado — quem compõe isso é `calculateAmountDue` |
 | `allocatePayment(payment, openCharges)` | Aloca por vencimento mais antigo |
 | `applyCredits(credits, charges, policy)` | Todos os créditos não expirados, cobrança mais antiga, só recebível operacional |
 | `splitResponsibility(amount, responsibility, customerAmount)` | Valida rateio; percentual é entrada de UI |
@@ -486,9 +486,154 @@ não tem como errar.
 sinal: a view já entrega receita positiva e despesa negativa, então um sinal
 errado na tela é sinal errado no lançamento — que é o que se quer ver.
 
+**O detalhe da cobrança mostra a REGRA do encargo, não só o valor
+(2026-08-28).** O bloco *Encargos por atraso* exibia "Multa R$ 2,86 / Juros
+R$ 1,18 / Total" — três números sem procedência. Quem conferia não tinha como
+saber de onde saíram, nem que a regra daquela cobrança é a **fixada na emissão**
+e não a que está em Configurações agora. Cada linha passou a trazer a conta ao
+lado ("2% sobre R$ 142,86"; "0,99% ao mês (0,033% ao dia) × 25 dias sobre
+R$ 142,86"), e o rodapé identifica a versão: *política versão N, vigente desde
+DD/MM/AAAA*. `version` e `effective_from` entraram no SELECT só para isso — não
+tocam no cálculo. O percentual ao mês sai de `toPolicyInput`, a mesma conversão
+que a tela de Configurações usa, para não existir uma segunda tradução de taxa
+diária para mensal.
+
+Dois casos que eram silêncio e agora falam: o **encargo mínimo**, que ganha
+linha própria quando morde (o total deixa de ser a soma das duas linhas acima, e
+sem dizer isso a tabela parece errada); e a cobrança **vencida sem política**,
+que não mostrava encargo nenhum e não explicava por quê.
+
+Auditado logo depois, e o bloco estava preso a um único estado: a seção inteira
+dependia de `accrued.total > 0`. Numa cobrança **paga** o `open_amount` cai a
+zero, o acúmulo zera e o bloco sumia — justamente quando o encargo virou ITEM e
+receita, que é quando há o que conferir. A seção passou a existir sempre que a
+cobrança tem política, com quatro estados: cobrando agora (tabela), em carência,
+encargo já realizado, e nenhum encargo ainda ("se vencer, é esta a regra"). A
+frase da carência tinha um off-by-one — o encargo nasce quando `days_since_due`
+ULTRAPASSA a carência, não quando a iguala, e no último dia de carência a tela
+dizia "começam a correr em 0 dias".
+
+**A cobrança paga usa a MESMA abertura da não paga.** O estado "já lançado"
+tinha virado um parágrafo com o total, e a tela pedia que o operador lesse o
+encargo de dois jeitos conforme a cobrança estivesse paga ou não. Agora os dois
+usam a mesma tabela — multa, juros e a regra que produziu cada um —, mudando só
+a última linha (*Total com encargos* enquanto corre, *Encargo lançado* depois de
+virar item).
+
+Isso exigiu reconstruir o rateio: `realizeLateCharge` grava um `charge_items`
+com `amount = accrued.total` e **o rateio multa/juros não é persistido em lugar
+nenhum**. A reconstrução refaz a conta com a mesma função que a produziu
+(`calculateAccruedCharges`) e os mesmos insumos — o saldo em aberto antes
+daquele recebimento e a DATA do recebimento, que é quem manda no encargo
+(caso 6.3) — e **só exibe o resultado quando ele reproduz o total gravado ao
+centavo**. Sem essa checagem a tela estaria mostrando uma decomposição plausível
+de um número que ela não explicou; quando não fecha, cai no parágrafo com o
+total e diz que a abertura não pôde ser reconstruída.
+
+Persistir fee/interest na realização resolveria isso na origem e dispensaria a
+reconstrução — fica como opção, não feita aqui porque não ajudaria as cobranças
+já lançadas.
+
+**A tela do DRE explica o que é cada linha (2026-08-28).** O demonstrativo chegava
+correto e mudo: "Receitas financeiras — R$ 2,83" não diz ao operador que aquilo
+é o encargo por atraso, nem por que não somou à Receita bruta. Quem testou o
+encargo pela primeira vez leu a linha como erro. Agora a tela traz um bloco
+recolhido *Como ler este demonstrativo* — o que o DRE responde e o que ele não
+responde (resultado ≠ caixa), competência, por que caução e crédito não
+aparecem, o que a marca *tributável* significa — e, por linha, o significado
+mais **quais contas caem nela**. O nome da linha na tabela também carrega o
+resumo em `title`.
+
+A composição não é lista fixa no componente: sai de `financial_accounts`
++ `tenant_account_mappings`, resolvida como `fn_resolve_report_line` resolve.
+Escrever o mapa na tela seria a segunda cópia de uma decisão que já tem dona — e
+a cópia mentiria no dia em que um tenant remapeasse uma conta. A data usada é
+**hoje**, porque a pergunta da legenda é "onde esta conta cai agora"; os valores
+da tabela continuam vindo da view, que resolve na data de cada fato.
+
 Cobertura em dois níveis: `dre.spec.ts` prova que o número está certo (sinal,
 competência, política que não reclassifica o passado); `dre-tela.spec.ts` prova
 que ele chega ao operador com o nome e o sinal certos — o elo que faltava.
+
+---
+
+## 10.4-b O app do cliente mostrava a cobrança já paga, cheia (2026-08-31)
+
+Cobrança de R$ 102,69 com R$ 100,00 abatidos por crédito: o cockpit exibia
+R$ 2,76 a pagar e o app do cliente, **R$ 105,45**.
+
+`charge_balances` é `security_invoker` e deriva `paid_amount` somando
+`payment_allocations`. Essa tabela tinha **apenas** a policy de tenant — nenhuma
+`customer_read_own_*`, ao contrário de `charges`, `charge_items` e `payments`,
+que todas ganharam a sua. Para a sessão do cliente o LATERAL voltava vazio,
+`allocated` virava 0, e a view respondia `open_amount = total_amount`.
+
+O erro se multiplicava: `calculateAmountDue` recebia o principal errado e
+calculava o encargo sobre ele. Sobre R$ 102,69 o encargo dá R$ 2,76 — o mesmo
+número que o cockpit mostrava como TOTAL, o que torna a divergência fácil de ler
+como acerto.
+
+Não era só uma cobrança: **toda** cobrança parcial ou totalmente paga aparecia
+cheia no app, e uma quitada continuava listada como em aberto, porque o filtro
+do app (`status = 'open' AND open_amount > 0`) roda sobre os mesmos números.
+
+O cliente não chegou a pagar a mais porque a criação da intent roda com service
+role e recalcula no servidor — a rota inclusive já documentava ter ido para
+service role porque "a RLS bloqueia as leituras necessárias". Era o aviso de que
+faltava policy, tratado como detalhe de implementação da rota.
+
+Correção: migration `20260901000332`, dando ao cliente a leitura das alocações
+das **próprias** cobranças. O teste de regressão vive em
+`api-payment-intent.spec.ts` e lê pela sessão real do cliente, com token — ler
+com service role passaria mesmo sem a policy, que é exatamente por que o defeito
+sobreviveu.
+
+---
+
+## 10.4-c O dia do negócio passa a ser o do TENANT (2026-09-01)
+
+Às 22h de 31/08, com a receita toda emitida naquele dia, a **tela do DRE ficou
+em branco**. O cabeçalho pedia "mar/26 a ago/26" e a view respondia setembro.
+
+Três relógios discordando ao mesmo tempo:
+
+| relógio | valor | quem usava |
+|---|---|---|
+| `fn_business_today()` | 31/08 | `charge_balances`, `fn_create_charge`, `issue_due_charges` |
+| `date_trunc(occurred_at)` em UTC | 01/09 | `income_statement` |
+| `new Date()` do servidor Node | 31/08 (BRT em dev, **UTC na Vercel**) | a tela |
+
+O modo de falha muda com o ambiente, e o de produção é o pior: em dev tela e
+view discordam e o DRE fica vazio — falha barulhenta; na Vercel as duas
+concordam em UTC e o DRE aparece **preenchido com o mês errado**, contando toda
+emissão feita depois das 21h no exercício seguinte.
+
+No banco de então: 8 das 10 transações mudavam de mês, e **100% da receita**
+estava classificada em setembro quando pertencia a agosto.
+
+**Decisão:** o fuso é do TENANT, não uma constante. Locadora em Manaus (−04) ou
+Fernando de Noronha (−02) tem outro corte de dia.
+
+- `tenants.timezone` (NOT NULL, default `America/Sao_Paulo`), com CHECK que
+  recusa fuso inexistente na hora da escrita.
+- `fn_business_date(ts, tz)` — IMMUTABLE, o único lugar que sabe converter.
+- `fn_tenant_timezone(id)` — STABLE, SECURITY DEFINER: a data do negócio não
+  pode depender de o leitor ter permissão em `tenants` (o app do cliente lê
+  `charge_balances` e não lê tenants).
+- `fn_business_today(tenant)` — e a versão **sem argumento foi removida**:
+  mantê-la deixaria vivo o atalho que ignora o tenant, que foi a origem disto.
+- `income_statement` compete por `fn_business_date(occurred_at, fuso do tenant)`.
+- A tela busca o "hoje" com `rpc('fn_business_today')` em vez de `new Date()`.
+
+Migration `20260901011843_fuso_horario_por_tenant`.
+
+Dois ajustes de teste que a mudança exigiu, ambos legítimos: `dre.spec.ts`
+lançava com `occurred_at = '2026-07-01'`, que é meia-noite UTC — 30/06 21h em
+São Paulo, ou seja, o mês anterior. O fixture passou a usar meio-dia no fuso do
+negócio. E `politica-encargo.spec.ts` chamava `fn_business_today()` sem tenant.
+
+O teste que trava a regra é novo: lançamento em `2026-09-01T01:30Z` (22h30 de
+31/08 em São Paulo) precisa entrar em **agosto** e não vazar para setembro.
 
 ---
 
@@ -843,6 +988,49 @@ nem cobrança.
 `available`: o PostgREST devolvia erro, `?? 0` engolia, e a asserção passava sem
 olhar nada. Terceira ocorrência na mesma sessão — o padrão é sempre `?? 0` ou
 `?.x` mascarando uma consulta que falhou.
+
+---
+
+## 10.13 Encargo realizado virava base de encargo novo (2026-09-01)
+
+Testando estorno e baixa depois do reset do banco. Cobrança de R$ 100 vencida há
+22 dias, recebida (encargo de R$ 2,73 realizado, total R$ 102,73) e estornada. A
+tela passou a projetar **R$ 2,80** de encargo novo: multa R$ 2,05 + juros R$
+0,75, calculados sobre R$ 102,73.
+
+Dois erros no mesmo número. A multa era cobrada de novo — `allocation.ts`
+comenta *"Multa: uma única vez"*, e era verdade só dentro de uma chamada. E os
+juros corriam sobre o encargo anterior.
+
+`fn_reverse_payment` inverte as pernas da transação do PAGAMENTO e reabre a
+cobrança. A `late_charge_realized` é outra transação e continua de pé — o que
+está certo: o atraso aconteceu, e desfazer o recebimento não desfaz os dias. O
+defeito estava na apuração seguinte, que usava `open_amount` cru.
+
+**O estorno era só a porta mais visível.** `realizeAccruedBefore` sempre passou
+`open_amount`, então **pagamento parcial** de cobrança vencida chegava ao mesmo
+estado sem estorno nenhum. E o comentário que já estava no código descrevia o
+mesmo defeito por uma terceira porta: o botão "Consolidar encargo", removido
+porque *"recalculava do zero a cada clique — multa sobre o saldo já acrescido"*.
+A regra tinha sido corrigida no gatilho, não na conta.
+
+A saída está na [[decisions/0028-encargo-e-grandeza-corrente-nao-divida-nova|ADR
+0028]]: o encargo é grandeza corrente sobre o principal, e o já realizado é
+parcela dela. `charge_balances` ganhou `late_charge_amount`, e
+`calculateAmountDue` apura o corrente sobre o principal e desconta o que já foi
+documentado. A subtração faz a multa ser uma vez só sem precisar guardar estado.
+
+Estornar o encargo junto com o pagamento foi considerado e descartado:
+`charge_items` recusa UPDATE e DELETE pelo mesmo guardião do razão, e o mérito
+também não sustenta — o encargo foi ganho pelo atraso, não pelo recebimento.
+
+### Coluna faltando no `select` virava NaN
+
+Ao trocar a assinatura, dois testes passaram a comparar `NaN` com `NaN` e
+falharam com "Expected: NaN, Received: NaN". A causa: `select` sem a coluna nova,
+com `as` escondendo a ausência do typecheck. `calculateAmountDue` agora valida os
+três insumos e **lança** dizendo qual falta, em vez de propagar NaN até a tela ou
+o gateway. O guard achou um terceiro `select` incompleto que ninguém tinha visto.
 
 ---
 
