@@ -390,3 +390,84 @@ test.describe('Valor do QR — getOrCreateIntent', () => {
     }
   })
 })
+
+test.describe('O saldo que o app do cliente lê', () => {
+  /**
+   * A cobrança aparecia CHEIA no app depois de paga.
+   *
+   * `charge_balances` é `security_invoker` e deriva `paid_amount` somando
+   * `payment_allocations`. Essa tabela tinha só a policy de tenant — nenhuma
+   * `customer_read_own_*`, ao contrário de `charges`, `charge_items` e
+   * `payments`. Para a sessão do cliente o LATERAL voltava vazio, `allocated`
+   * era 0, e a view respondia `open_amount = total_amount`.
+   *
+   * O erro se multiplicava: `calculateAmountDue` recebia o principal errado e
+   * calculava o encargo sobre ele. Ao vivo, R$ 102,69 com R$ 100,00 abatidos
+   * viraram R$ 105,45 no app contra R$ 2,76 no cockpit.
+   *
+   * O teste lê pela sessão REAL do cliente — com o token, como o app faz. Ler
+   * com service role passa mesmo com a policy faltando, que é exatamente por
+   * que o defeito sobreviveu: a rota do QR usa service role e calculava certo,
+   * enquanto a tela mostrava outro número.
+   */
+  test('o abatimento aparece no saldo, e só as alocações do próprio cliente', async () => {
+    const cliente  = await criarClienteComApp()
+    const vizinho  = await criarClienteComApp()
+
+    const chargeId = await cobrancaPara(cliente.customerId, 300)
+
+    // Crédito precisa existir antes de ser abatido — `fn_apply_customer_credit`
+    // recusa acima do saldo. O erro da RPC é conferido: sem isso o teste falha
+    // depois, na asserção, dizendo que o abatimento "sumiu" quando na verdade
+    // nunca aconteceu.
+    const { error: concessao } = await admin().rpc('post_financial_transaction', {
+      p_tenant_id: tenantId,
+      p_transaction: {
+        event_type: 'credit_granted', description: `${TEST_TAG} Crédito`,
+        source_module: 'maintenance', source_id: crypto.randomUUID(),
+      },
+      p_entries: [
+        { account_code: 'despesa_manutencao',   direction: 'debit',  amount: 100, customer_id: cliente.customerId },
+        { account_code: 'creditos_de_clientes', direction: 'credit', amount: 100, customer_id: cliente.customerId },
+      ],
+    })
+    expect(concessao, 'setup: concessão de crédito falhou').toBeNull()
+
+    const { error: abatimento } = await admin().rpc('fn_apply_customer_credit', {
+      p_tenant_id: tenantId, p_customer_id: cliente.customerId,
+      p_charge_id: chargeId, p_amount: 100, p_created_by: null,
+    })
+    expect(abatimento, 'setup: abatimento falhou').toBeNull()
+
+    const comoOCliente = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: `Bearer ${cliente.token}` } } },
+    )
+
+    const { data: saldo } = await comoOCliente
+      .from('charge_balances')
+      .select('total_amount, paid_amount, open_amount')
+      .eq('charge_id', chargeId)
+      .maybeSingle()
+
+    const s = saldo as { total_amount: number; paid_amount: number; open_amount: number } | null
+    expect(s, 'o cliente precisa enxergar a própria cobrança').not.toBeNull()
+    expect(Number(s!.paid_amount), 'o abatimento sumiu para o cliente').toBe(100)
+    expect(Number(s!.open_amount), 'a cobrança apareceu cheia depois de paga').toBe(200)
+
+    // A leitura não pode ser a porta para as alocações alheias.
+    const comoOVizinho = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: `Bearer ${vizinho.token}` } } },
+    )
+
+    const { data: alheias } = await comoOVizinho
+      .from('payment_allocations')
+      .select('id')
+      .eq('charge_id', chargeId)
+
+    expect((alheias ?? []).length, 'o vizinho leu alocação de outro cliente').toBe(0)
+  })
+})
