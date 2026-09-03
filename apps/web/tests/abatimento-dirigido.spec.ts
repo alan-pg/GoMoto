@@ -67,10 +67,16 @@ async function cobranca(valor: number, dueDate: string, marca: string) {
  * tela de verdade.
  */
 async function concederCredito(valor: number) {
-  const { error: linhaErr } = await admin().from('customer_credits').insert({
+  // A origem do lançamento é o CRÉDITO, como no caminho real
+  // (`fn_create_payable`: source_module 'customer_credit', source_id = id da
+  // linha). O fixture usava 'manual' com um UUID aleatório e por isso a linha
+  // parecia órfã para `reconciliacao.spec.ts`, que procura o lançamento por
+  // (source_module='customer_credit', source_id=credito.id) — um teste deixava
+  // resíduo que derrubava o outro, e só ao rodar a suíte inteira isso aparece.
+  const { data: linha, error: linhaErr } = await admin().from('customer_credits').insert({
     tenant_id: tenantId, customer_id: customerId, amount: valor,
     origin: 'manual', reason: `${TEST_TAG} crédito de teste`,
-  })
+  }).select('id').single()
   if (linhaErr) throw new Error(`customer_credits: ${linhaErr.message}`)
 
   const { error } = await admin().rpc('post_financial_transaction', {
@@ -78,8 +84,8 @@ async function concederCredito(valor: number) {
     p_transaction: {
       event_type: 'credit_granted',
       description: `${TEST_TAG} crédito de teste`,
-      source_module: 'manual',
-      source_id: crypto.randomUUID(),
+      source_module: 'customer_credit',
+      source_id: (linha as { id: string }).id,
     },
     p_entries: [
       { account_code: 'despesa_manutencao', direction: 'debit', amount: valor, customer_id: customerId },
