@@ -44,7 +44,6 @@ const uuid = () => z.string().regex(UUID_LOOSE, 'ID inválido')
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (YYYY-MM-DD)')
 import { logAction } from '@/lib/audit'
 import { createCharge, cancelCharge, receivePayment, postTransaction, dimensionsOf } from '@/lib/financial'
-import { allocateWithoutCash } from '@/lib/financial/payments'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 
 function revalidateRentalPaths() {
@@ -1208,6 +1207,121 @@ export async function createRentalWithDeposit(
 }
 
 // ---------------------------------------------------------------------------
+// applyCreditToRentalDebt — abate o crédito do cliente na dívida da locação
+// ---------------------------------------------------------------------------
+
+/**
+ * Abate o saldo de crédito do cliente nas cobranças EM ABERTO desta locação,
+ * da mais antiga para a mais nova (ADR 0026, fase 2).
+ *
+ * Por que orquestrar aqui em vez de uma RPC nova: a decisão de dinheiro já está
+ * no banco. `fn_apply_customer_credit` trava o CLIENTE (`FOR UPDATE`), relê o
+ * saldo e o que a cobrança deve, e recusa acima de qualquer um dos dois — a
+ * cada chamada. O laço não decide nada; só escolhe a próxima cobrança. Dois
+ * operadores abatendo ao mesmo tempo serializam no banco, e não existe o
+ * ler-decidir-escrever que essa RPC nasceu para eliminar.
+ *
+ * O que o laço NÃO dá é atomicidade entre cobranças: se a terceira falhar, as
+ * duas primeiras ficam abatidas. Isso não corrompe nada — cada abatimento é um
+ * par pagamento+alocação completo, com lançamento fechado —, e o operador
+ * reexecuta com o saldo que sobrou. É o mesmo grão que a retenção de caução já
+ * usa em `allocateWithoutCash`.
+ *
+ * Escopo é a LOCAÇÃO, não o cliente: quem encerra este contrato não deveria
+ * consumir crédito abatendo dívida de outro contrato que segue vivo.
+ */
+export async function applyCreditToRentalDebt(
+  input: unknown,
+): Promise<ActionResult<{ applied: number; charges: number }>> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
+
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não encontrado' } }
+
+  const parsed = z.object({
+    rental_id:   z.string().uuid(),
+    customer_id: z.string().uuid(),
+    /** Teto pedido pela tela. O saldo real ainda manda — quem confere é o banco. */
+    amount:      z.number().positive(),
+  }).safeParse(input)
+
+  if (!parsed.success) {
+    return { ok: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.issues[0]?.message ?? 'Dados inválidos' } }
+  }
+
+  const { data: rows, error } = await supabase
+    .from('charge_balances')
+    .select('charge_id, open_amount')
+    .eq('tenant_id', tenantId)
+    .eq('rental_id', parsed.data.rental_id)
+    .eq('customer_id', parsed.data.customer_id)
+    .eq('status', 'open')
+    .gt('open_amount', 0)
+    .order('due_date', { ascending: true })
+
+  if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
+
+  let restante = Math.round(parsed.data.amount * 100) / 100
+  let aplicado = 0
+  let cobrancas = 0
+
+  for (const row of (rows ?? []) as { charge_id: string; open_amount: number }[]) {
+    if (restante <= 0) break
+
+    const parcela = Math.round(Math.min(restante, row.open_amount) * 100) / 100
+    if (parcela <= 0) continue
+
+    const { error: rpcError } = await supabase.rpc('fn_apply_customer_credit', {
+      p_tenant_id:   tenantId,
+      p_customer_id: parsed.data.customer_id,
+      p_charge_id:   row.charge_id,
+      p_amount:      parcela,
+      p_created_by:  user.id,
+    })
+
+    if (rpcError) {
+      // Saldo acabou antes do previsto (outro operador abateu no meio): o que
+      // já foi aplicado vale, e a mensagem diz onde parou.
+      const semSaldo = rpcError.message.includes('AMOUNT_EXCEEDS_BALANCE')
+      return {
+        ok: false,
+        error: {
+          code: semSaldo ? 'CONFLICT' : 'INTERNAL',
+          message: semSaldo
+            ? `Abatido ${formatBRL(aplicado)} antes de o saldo de crédito acabar. Confira o saldo do cliente.`
+            : rpcError.message,
+        },
+      }
+    }
+
+    aplicado = Math.round((aplicado + parcela) * 100) / 100
+    restante = Math.round((restante - parcela) * 100) / 100
+    cobrancas += 1
+  }
+
+  if (aplicado > 0) {
+    await logAction({
+      action: 'update',
+      table: 'customer_credits',
+      recordId: parsed.data.customer_id,
+      newData: { rental_id: parsed.data.rental_id, applied: aplicado, charges: cobrancas },
+    })
+    revalidatePath('/cobrancas')
+    revalidatePath('/clientes')
+    revalidatePath('/financeiro')
+  }
+
+  return { ok: true, data: { applied: aplicado, charges: cobrancas } }
+}
+
+/** R$ 1.234,56 — só para mensagem de erro; a formatação da UI vive na UI. */
+function formatBRL(v: number): string {
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+// ---------------------------------------------------------------------------
 // closeRentalFinancial — encerramento financeiro (caução) de uma locação
 // ---------------------------------------------------------------------------
 
@@ -1265,6 +1379,8 @@ export async function closeRentalFinancial(
   }
 
   const now = new Date().toISOString()
+  /** Capturado fora da closure: dentro dela o TS não estreita o union do Zod. */
+  const rentalId = parsed.data.rental_id
   const dims = dimensionsOf({
     customerId: dep.customer_id,
     rentalId: parsed.data.rental_id,
@@ -1272,30 +1388,55 @@ export async function closeRentalFinancial(
 
   async function settle(returned: number, retained: number, reason: string | null) {
     // Retenção: o passivo com o cliente vira quitação de dívida dele.
+    //
+    // ADR 0026, fase 3 — reter é abater, e só existe contra dívida. Antes daqui
+    // saía um `deposit_retained` pelo valor inteiro mais `allocateWithoutCash`,
+    // cujo `unallocated` era ignorado: sem dívida suficiente, sobrava
+    // `contas_a_receber` creditado sem contrapartida e um `payments` sem
+    // alocação. Agora quem lança é `fn_retain_deposit_on_charge`, uma cobrança
+    // por chamada, com a guarda no banco — este laço só escolhe a próxima.
     if (retained > 0) {
-      await postTransaction(supabase, tenantId!, {
-        event: { type: 'deposit_retained', amount: retained, dimensions: dims },
-        description: reason ? `Retenção de caução — ${reason}` : 'Retenção de caução',
-        sourceModule: 'deposit',
-        sourceId: dep!.id,
-        createdBy: user!.id,
-      })
+      const { data: abertas, error: abertasError } = await supabase
+        .from('charge_balances')
+        .select('charge_id, open_amount')
+        .eq('tenant_id', tenantId!)
+        .eq('customer_id', dep!.customer_id)
+        .eq('status', 'open')
+        .gt('open_amount', 0)
+        .order('due_date', { ascending: true })
 
-      // O lançamento acima credita `contas_a_receber`, mas `charge_balances` é
-      // itens − ALOCAÇÕES: sem o par pagamento+alocação, a dívida seguia
-      // inteira na tela. Reter R$ 400 de caução para cobrir R$ 893,47 deixava
-      // o razão dizendo 493,47 e a cobrança dizendo 893,47 — a empresa com o
-      // dinheiro e o sistema cobrando de novo.
-      //
-      // Mesmo defeito que `applyCustomerCredits` já documentava e havia
-      // corrigido no caminho do crédito; a caução ficou de fora.
-      await allocateWithoutCash(supabase, tenantId!, {
-        customerId: dep!.customer_id,
-        amount: retained,
-        method: 'deposit_retention',
-        notes: reason ? `Retenção de caução — ${reason}` : 'Retenção de caução',
-        receivedBy: user!.id,
-      })
+      if (abertasError) throw new Error(abertasError.message)
+
+      let restante = Math.round(retained * 100) / 100
+
+      for (const row of (abertas ?? []) as { charge_id: string; open_amount: number }[]) {
+        if (restante <= 0) break
+
+        const parcela = Math.round(Math.min(restante, row.open_amount) * 100) / 100
+        if (parcela <= 0) continue
+
+        const { error: rpcError } = await supabase.rpc('fn_retain_deposit_on_charge', {
+          p_tenant_id:  tenantId!,
+          p_rental_id:  rentalId,
+          p_charge_id:  row.charge_id,
+          p_amount:     parcela,
+          p_reason:     reason ? `Retenção de caução — ${reason}` : 'Retenção de caução',
+          p_created_by: user!.id,
+        })
+
+        if (rpcError) throw new Error(rpcError.message)
+        restante = Math.round((restante - parcela) * 100) / 100
+      }
+
+      // Sobrou retenção sem dívida onde pousar. Falhar aqui é o ponto: antes
+      // esse resto virava recebível sem lastro, calado.
+      if (restante > 0) {
+        throw new Error(
+          `Retenção de ${formatBRL(restante)} sem dívida para abater. `
+          + 'Lance a despesa (avaria, diária em aberto) com rateio ao cliente para gerar a cobrança, '
+          + 'ou devolva a caução.',
+        )
+      }
     }
     // Devolução: sai do caixa e zera o passivo.
     if (returned > 0) {

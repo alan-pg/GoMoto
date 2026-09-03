@@ -138,9 +138,15 @@ test.describe('Encerramento antecipado preserva garantias emitidas (RN-003)', ()
 
     // Com caução emitida E lançada, encerrar exige dizer para onde o dinheiro
     // do cliente vai — a seção só aparece quando há saldo de caução, e o
-    // fixture antigo a escondia por não lançar no razão. Aqui devolve-se
-    // integralmente, que é o padrão da tela.
+    // fixture antigo a escondia por não lançar no razão.
+    //
+    // A devolução integral passou a ser ESCOLHA explícita: desde a ADR 0026 o
+    // padrão da tela é abater, porque devolver dinheiro a quem deve é a ordem
+    // errada. Este teste é sobre garantias emitidas sobreviverem ao
+    // encerramento, e para isso as cobranças precisam continuar em aberto —
+    // então aqui se devolve, de propósito.
     await expect(page.getByText('Destino da caução')).toBeVisible({ timeout: 10_000 })
+    await page.getByRole('radio', { name: /Devolver tudo/ }).check()
 
     await page.getByRole('button', { name: 'Confirmar Encerramento' }).click()
 
@@ -177,6 +183,112 @@ test.describe('Encerramento antecipado preserva garantias emitidas (RN-003)', ()
       expect(c.status).toBe('open')
       expect(Number(c.open_amount)).toBeGreaterThan(0)
     }
+  })
+})
+
+test.describe('Reter caução só existe contra dívida (ADR 0026)', () => {
+  /**
+   * `closeRentalFinancial` lançava `deposit_retained` pelo valor inteiro e
+   * chamava `allocateWithoutCash` ignorando o `unallocated`. Sem dívida — ou com
+   * dívida menor que a retenção — sobrava `contas_a_receber` creditado sem
+   * contrapartida e um `payments` sem alocação: a empresa com o dinheiro, o
+   * razão dizendo que o cliente tem a receber, e nenhuma cobrança quitada.
+   *
+   * A guarda mora em `fn_retain_deposit_on_charge`, não na tela: a Server Action
+   * é chamável direto, e invariante de dinheiro não mora no cliente (ADR 0024).
+   */
+  let vId = ''
+  let cId = ''
+  let rId = ''
+
+  test.beforeAll(async () => {
+    const v = await createTestVehicle()
+    const c = await createTestCustomer()
+    vId = v.id
+    cId = c.id
+  })
+
+  test.afterAll(async () => {
+    await getSupabaseAdmin().from('rental_billing_schedules').delete().eq('rental_id', rId)
+    await getSupabaseAdmin().from('rentals').delete().eq('id', rId)
+    await deleteTestCustomer(cId).catch(() => {})
+    await deleteTestVehicle(vId).catch(() => {})
+  })
+
+  test('a RPC recusa reter acima do que a cobrança deve', async () => {
+    const sb = getSupabaseAdmin()
+    const tenantId = await getTestTenantId()
+    const hoje = new Date().toISOString().slice(0, 10)
+
+    const { data: novoId, error } = await sb.rpc('create_rental_with_schedule', {
+      p_tenant_id: tenantId,
+      p_rental: {
+        customer_id: cId, vehicle_id: vId,
+        start_date: hoje, end_date: new Date(Date.now() + 60 * 864e5).toISOString().slice(0, 10),
+        cycle: 'monthly', cycle_amount: 500, due_day: 10, use_pro_rata: false, contract_type: 'rental',
+      },
+      p_schedule: [],
+    })
+    if (error) throw new Error(`Setup: ${error.message}`)
+    rId = novoId as string
+
+    // Caução de 800 recebida, pelo mesmo caminho do produto.
+    const { chargeId } = await createCharge(sb, tenantId, {
+      customerId: cId, rentalId: rId, dueDate: hoje,
+      sourceModule: 'deposit', sourceId: crypto.randomUUID(),
+      items: [{
+        description: `${TEST_TAG} Caução`, credit_account_code: 'caucoes_a_devolver',
+        quantity: 1, unit_amount: 800, amount: 800, vehicle_id: vId,
+      }],
+    })
+    await sb.from('deposits').insert({
+      tenant_id: tenantId, rental_id: rId, customer_id: cId, amount: 800, charge_id: chargeId,
+    })
+    await sb.rpc('post_financial_transaction', {
+      p_tenant_id: tenantId,
+      p_transaction: { event_type: 'payment_received', description: `${TEST_TAG} Caução recebida`, source_module: 'deposit', source_id: rId },
+      p_entries: [
+        { account_code: 'caixa_e_bancos',   direction: 'debit',  amount: 800, rental_id: rId, customer_id: cId, vehicle_id: vId, charge_id: chargeId },
+        { account_code: 'contas_a_receber', direction: 'credit', amount: 800, rental_id: rId, customer_id: cId, vehicle_id: vId, charge_id: chargeId },
+      ],
+    })
+
+    // Uma dívida de 200 — bem menor que a caução de 800.
+    const { chargeId: dividaId } = await createCharge(sb, tenantId, {
+      customerId: cId, rentalId: rId, dueDate: hoje,
+      sourceModule: 'manual', sourceId: crypto.randomUUID(),
+      items: [{
+        description: `${TEST_TAG} Diária avulsa`, credit_account_code: 'receita_locacao',
+        quantity: 1, unit_amount: 200, amount: 200, vehicle_id: vId,
+      }],
+    })
+
+    // Reter 500 numa cobrança que deve 200: é o caso que produzia recebível sem
+    // lastro. O banco recusa, e nada é gravado.
+    const { error: excedeu } = await sb.rpc('fn_retain_deposit_on_charge', {
+      p_tenant_id: tenantId, p_rental_id: rId, p_charge_id: dividaId,
+      p_amount: 500, p_reason: 'Avaria', p_created_by: null,
+    })
+    expect(excedeu?.message ?? '', 'reter acima da dívida precisa ser recusado').toContain('AMOUNT_EXCEEDS_CHARGE')
+
+    const { data: semPagamento } = await sb
+      .from('payments').select('id').eq('customer_id', cId).eq('method', 'deposit_retention')
+    expect((semPagamento ?? []).length, 'a recusa não pode deixar pagamento órfão').toBe(0)
+
+    // Até o limite da dívida, passa — e vira abatimento de verdade.
+    const { error: dentro } = await sb.rpc('fn_retain_deposit_on_charge', {
+      p_tenant_id: tenantId, p_rental_id: rId, p_charge_id: dividaId,
+      p_amount: 200, p_reason: 'Avaria no para-choque', p_created_by: null,
+    })
+    expect(dentro, 'reter dentro da dívida precisa passar').toBeNull()
+
+    const { data: saldo } = await sb
+      .from('charge_balances').select('open_amount').eq('charge_id', dividaId).maybeSingle()
+    expect(Number((saldo as { open_amount: number } | null)?.open_amount), 'a retenção não abateu a cobrança').toBe(0)
+
+    const { data: caucao } = await sb
+      .from('deposit_balances').select('balance').eq('rental_id', rId).maybeSingle()
+    expect(Number((caucao as { balance: number } | null)?.balance), 'o passivo da caução não caiu').toBe(600)
   })
 })
 
@@ -262,7 +374,9 @@ test.describe('Encerramento liquida a caução', () => {
     await waitForPageLoad(page)
 
     await expect(page.getByText('Destino da caução')).toBeVisible({ timeout: 10_000 })
-    await page.getByRole('radio', { name: /Reter parte/ }).check()
+    // O rótulo mudou de "Reter parte" para "Abater parte da dívida" (ADR 0026):
+    // reter É abater, e o nome antigo sugeria que a empresa ficava com o dinheiro.
+    await page.getByRole('radio', { name: /Abater parte da dívida/ }).check()
     await page.locator('#retido').fill('300')
     await page.locator('#motivo').fill('Avaria no para-choque')
 
