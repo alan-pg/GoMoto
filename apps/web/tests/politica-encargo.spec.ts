@@ -128,9 +128,12 @@ test.describe('Política de encargo — versionamento', () => {
     const saldo = async () => {
       const { data } = await admin()
         .from('charge_balances')
-        .select('open_amount, due_date, status')
+        .select('open_amount, paid_amount, late_charge_amount, due_date, status')
         .eq('charge_id', chargeId).single()
-      return data as { open_amount: number; due_date: string; status: string }
+      return data as {
+        open_amount: number; paid_amount: number; late_charge_amount: number
+        due_date: string; status: string
+      }
     }
 
     const antes = await politicaDe(chargeId)
@@ -359,7 +362,9 @@ test.describe('Dias de atraso — o hoje do operador', () => {
    * atraso" dentro do modal, cobrando juros de 30.
    */
   test('a data do negócio é a data local, não a do servidor', async () => {
-    const { data } = await admin().rpc('fn_business_today')
+    // `fn_business_today` passou a exigir o tenant: o dia do negócio é dele, não
+    // um fuso cravado no banco (migration `fuso_horario_por_tenant`).
+    const { data } = await admin().rpc('fn_business_today', { p_tenant_id: tenantId })
     expect(data, 'fn_business_today precisa concordar com o relógio do operador').toBe(hoje())
   })
 
@@ -378,11 +383,12 @@ test.describe('Dias de atraso — o hoje do operador', () => {
 
     const { data } = await admin()
       .from('charge_balances')
-      .select('days_overdue, open_amount, due_date, status, late_charge_policy_id')
+      .select('days_overdue, open_amount, paid_amount, late_charge_amount, due_date, status, late_charge_policy_id')
       .eq('charge_id', chargeId).single()
 
     const b = data as {
-      days_overdue: number; open_amount: number; due_date: string
+      days_overdue: number; open_amount: number; paid_amount: number
+      late_charge_amount: number; due_date: string
       status: string; late_charge_policy_id: string
     }
 
@@ -468,11 +474,12 @@ test.describe('Empresa sem política — encargo é zero, e a tela diz isso', ()
 
     const { data: bal } = await admin()
       .from('charge_balances')
-      .select('open_amount, due_date, status, days_overdue, late_charge_policy_id')
+      .select('open_amount, paid_amount, late_charge_amount, due_date, status, days_overdue, late_charge_policy_id')
       .eq('charge_id', chargeId).single()
 
     const b = bal as {
-      open_amount: number; due_date: string; status: string
+      open_amount: number; paid_amount: number; late_charge_amount: number
+      due_date: string; status: string
       days_overdue: number; late_charge_policy_id: string | null
     }
 

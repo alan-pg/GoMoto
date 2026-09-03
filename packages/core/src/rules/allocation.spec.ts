@@ -21,7 +21,28 @@ const POLICY: LateChargePolicy = {
 const HOJE = new Date(2026, 7, 12)      // 2026-08-12
 
 function charge(id: string, due: string, open: number): ChargeBalance {
-  return { charge_id: id, due_date: due, total_amount: open, paid_amount: 0, open_amount: open }
+  return {
+    charge_id: id, due_date: due, total_amount: open,
+    paid_amount: 0, open_amount: open, late_charge_amount: 0,
+  }
+}
+
+/**
+ * Linha de saldo para `calculateAmountDue`. `late_charge` é quanto do total já
+ * virou item de encargo — o insumo da ADR 0028.
+ */
+function saldo(
+  open_amount: number,
+  due_date: string,
+  extra: { status?: string; paid_amount?: number; late_charge?: number } = {},
+) {
+  return {
+    open_amount,
+    due_date,
+    paid_amount: extra.paid_amount ?? 0,
+    late_charge_amount: extra.late_charge ?? 0,
+    ...(extra.status ? { status: extra.status } : {}),
+  }
 }
 
 describe('calculateAccruedCharges', () => {
@@ -78,7 +99,7 @@ describe('calculateAmountDue — fonte única do valor devido (F-05)', () => {
       // dívida já reconhecida como perda. `open_amount` continua sendo a
       // aritmética do documento — quem lê precisa considerar o status.
       const r = calculateAmountDue(
-        { open_amount: 300, due_date: '2020-01-01', status },
+        saldo(300, '2020-01-01', { status }),
         POLICY,
         HOJE,
       )
@@ -92,7 +113,7 @@ describe('calculateAmountDue — fonte única do valor devido (F-05)', () => {
   it('cobrança aberta e vencida segue devendo principal + encargo', () => {
     // Contraprova do caso acima: o status é o que muda o resultado, não a data.
     const r = calculateAmountDue(
-      { open_amount: 300, due_date: '2020-01-01', status: 'open' },
+      saldo(300, '2020-01-01', { status: 'open' }),
       POLICY,
       HOJE,
     )
@@ -101,26 +122,96 @@ describe('calculateAmountDue — fonte única do valor devido (F-05)', () => {
   })
 
   it('cobrança em dia deve o saldo em aberto, sem encargo', () => {
-    const r = calculateAmountDue({ open_amount: 500, due_date: '2026-08-20' }, POLICY, HOJE)
+    const r = calculateAmountDue(saldo(500, '2026-08-20'), POLICY, HOJE)
     expect(r.amount_due).toBe(500)
     expect(r.accrued.total).toBe(0)
   })
 
   it('cobrança vencida deve saldo + encargo', () => {
-    const r = calculateAmountDue({ open_amount: 1000, due_date: '2026-08-02' }, POLICY, HOJE)
+    const r = calculateAmountDue(saldo(1000, '2026-08-02'), POLICY, HOJE)
     expect(r.amount_due).toBe(1027)
   })
 
   it('saldo parcial já abatido reduz a base do encargo', () => {
     // cobrança de 1000 com 600 pagos → encargo incide sobre 400
-    const r = calculateAmountDue({ open_amount: 400, due_date: '2026-08-02' }, POLICY, HOJE)
+    const r = calculateAmountDue(saldo(400, '2026-08-02'), POLICY, HOJE)
     expect(r.accrued.fee).toBe(8)     // 2% de 400
     expect(r.amount_due).toBe(410.8)  // 400 + 8 + 2.8
   })
 
   it('nunca devolve valor negativo', () => {
-    const r = calculateAmountDue({ open_amount: 0, due_date: '2026-01-01' }, POLICY, HOJE)
+    const r = calculateAmountDue(saldo(0, '2026-01-01'), POLICY, HOJE)
     expect(r.amount_due).toBe(0)
+  })
+})
+
+describe('calculateAmountDue — encargo já realizado (ADR 0028)', () => {
+  // Cenário base: cobrança de 1000 vencida em 2026-08-02. Em 12/08 são 10 dias
+  // corridos, 7 depois da carência → multa 20 + juros 7 = 27 de encargo.
+  // Recebida com o encargo realizado, o total vira 1027 e o item de 27 fica
+  // DENTRO da cobrança. Um estorno — ou um pagamento parcial — devolve essa
+  // cobrança para aberto com o encargo já lá.
+  const VENCIMENTO = '2026-08-02'
+  const AMANHA = new Date(2026, 7, 13)
+
+  it('não cobra multa de novo nem juros sobre juros', () => {
+    const r = calculateAmountDue(
+      saldo(1027, VENCIMENTO, { status: 'open', late_charge: 27 }),
+      POLICY,
+      HOJE,
+    )
+    // Sem a regra, a apuração rodava sobre 1027: multa 20,54 + juros 7,19.
+    expect(r.accrued.fee).toBe(20)          // 2% de 1000, não de 1027
+    expect(r.accrued.total).toBe(27)        // o corrente, não um segundo encargo
+    expect(r.late_charge_realized).toBe(27)
+    expect(r.accrued_pending).toBe(0)       // nenhum dia novo passou
+    expect(r.amount_due).toBe(1027)
+  })
+
+  it('no dia seguinte acrescenta só o juro do dia', () => {
+    const r = calculateAmountDue(
+      saldo(1027, VENCIMENTO, { status: 'open', late_charge: 27 }),
+      POLICY,
+      AMANHA,
+    )
+    expect(r.accrued.total).toBe(28)        // 8 dias de juros sobre 1000
+    expect(r.accrued_pending).toBe(1)       // juro de um dia, sem multa nova
+    expect(r.amount_due).toBe(1028)
+  })
+
+  it('o pagamento quita o encargo antes do principal (art. 354 CC)', () => {
+    // Pagou exatamente os 27 do encargo: o principal continua inteiro, e é
+    // sobre ele que a apuração roda.
+    const r = calculateAmountDue(
+      saldo(1000, VENCIMENTO, { status: 'open', paid_amount: 27, late_charge: 27 }),
+      POLICY,
+      HOJE,
+    )
+    expect(r.accrued.fee).toBe(20)          // 2% de 1000
+    expect(r.accrued_pending).toBe(0)
+    expect(r.amount_due).toBe(1000)
+  })
+
+  it('pagamento parcial do principal trava em zero, nunca devolve encargo', () => {
+    // Pagou 527 (os 27 do encargo + 500 do principal). O corrente sobre os 500
+    // que sobraram vale 13,50 — menos que os 27 já documentados. A diferença
+    // não vira crédito nem some do documento: apenas nada se acrescenta até o
+    // corrente voltar a passar de 27. Subcobra, jamais sobrecobra.
+    const r = calculateAmountDue(
+      saldo(500, VENCIMENTO, { status: 'open', paid_amount: 527, late_charge: 27 }),
+      POLICY,
+      HOJE,
+    )
+    expect(r.accrued.total).toBe(13.5)
+    expect(r.accrued_pending).toBe(0)
+    expect(r.amount_due).toBe(500)
+  })
+
+  it('cobrança sem encargo realizado continua exatamente como antes', () => {
+    const r = calculateAmountDue(saldo(1000, VENCIMENTO, { status: 'open' }), POLICY, HOJE)
+    expect(r.late_charge_realized).toBe(0)
+    expect(r.accrued_pending).toBe(27)
+    expect(r.amount_due).toBe(1027)
   })
 })
 

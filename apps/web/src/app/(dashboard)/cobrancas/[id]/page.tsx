@@ -2,7 +2,10 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
-import { calculateAmountDue, type LateChargePolicy } from '@gomoto/core'
+import {
+  calculateAmountDue, calculateAccruedCharges, toPolicyInput, DAYS_PER_MONTH,
+  type LateChargePolicy, type AccruedCharges,
+} from '@gomoto/core'
 import { formatCurrency } from '@/lib/utils'
 import { BillingActions } from './_components/BillingActions'
 import { ReversePaymentButton } from './_components/ReversePaymentButton'
@@ -20,6 +23,71 @@ function fmt(d: string | null | undefined) {
   if (!d) return '—'
   const date = d.includes('T') ? new Date(d) : new Date(d + 'T12:00:00')
   return date.toLocaleDateString('pt-BR')
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+/** "5% sobre R$ 142,86" — de onde a multa saiu. */
+function regraDaMulta(
+  policy: LateChargePolicy,
+  view: ReturnType<typeof toPolicyInput>,
+  principal: number,
+): string {
+  return policy.fee_type === 'percentage'
+    ? `${num(view.fee_value)}% sobre ${formatCurrency(principal)}`
+    : `valor fixo de ${formatCurrency(policy.fee_value)}`
+}
+
+/** "0,99% ao mês (0,033% ao dia) × 25 dias sobre R$ 142,86" — de onde os juros saíram. */
+function regraDosJuros(
+  view: ReturnType<typeof toPolicyInput>,
+  principal: number,
+  dias: number,
+): string {
+  return `${num(view.monthly_interest_percent)}% ao mês (${num(view.monthly_interest_percent / DAYS_PER_MONTH, 4)}% ao dia)`
+    + ` × ${dias} dia${dias !== 1 ? 's' : ''} sobre ${formatCurrency(principal)}`
+}
+
+/**
+ * Reconstrói multa e juros de um encargo JÁ REALIZADO.
+ *
+ * O banco guarda só o TOTAL: `realizeLateCharge` grava um `charge_items` com
+ * `amount = accrued.total` e o rateio não é persistido em lugar nenhum. Para a
+ * cobrança paga exibir a mesma abertura da não paga, a conta precisa ser
+ * refeita — e refeita pela MESMA função que a produziu, com os mesmos insumos:
+ * o saldo em aberto antes daquele recebimento e a DATA do recebimento (é ela
+ * que manda no encargo, não a data de hoje).
+ *
+ * A garantia contra inventar número está no final: só devolve o rateio quando
+ * ele reproduz, ao centavo, o total que está gravado. Sem essa checagem a tela
+ * mostraria uma decomposição plausível de um valor que ela não explicou.
+ */
+function rateioDoEncargoRealizado(
+  policy: LateChargePolicy,
+  dueDate: string,
+  principalEmitido: number,
+  totalGravado: number,
+  recebimentos: { paid_at: string; amount: number }[],
+): AccruedCharges | null {
+  let abatido = 0
+
+  for (const r of [...recebimentos].sort((a, b) => (a.paid_at < b.paid_at ? -1 : 1))) {
+    const principal = round2(principalEmitido - abatido)
+    if (principal > 0) {
+      const tentativa = calculateAccruedCharges(policy, principal, dueDate, new Date(r.paid_at))
+      if (round2(tentativa.total) === totalGravado) return tentativa
+    }
+    abatido = round2(abatido + r.amount)
+  }
+
+  return null
+}
+
+/** Decimal em pt-BR, sem zeros à toa — mesma forma da tela de Configurações. */
+function num(n: number, casas = 2): string {
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: casas })
 }
 
 function fmtDatetime(d: string | null | undefined) {
@@ -129,6 +197,7 @@ export default async function BillingDetailPage({
     charge_number: number; status: 'open' | 'paid' | 'cancelled' | 'written_off'
     issue_date: string; due_date: string
     total_amount: number; paid_amount: number; open_amount: number
+    late_charge_amount: number
     is_overdue: boolean; days_overdue: number
   }
 
@@ -208,14 +277,22 @@ export default async function BillingDetailPage({
   const policyId = charge?.late_charge_policy_id
   let policy: LateChargePolicy | null = null
 
+  // `version` e `effective_from` não entram na conta — entram na EXPLICAÇÃO.
+  // Sem elas a tela mostrava "Multa R$ 17,50" e o operador não tinha como saber
+  // de onde saiu o número, nem que a regra desta cobrança é a fixada na emissão
+  // e não a que está em Configurações agora.
+  let policyMeta: { version: number; effective_from: string } | null = null
+
   if (policyId) {
     const { data: policyRow } = await supabase
       .from('late_charge_policies')
-      .select('fee_type, fee_value, daily_interest_rate, grace_period_days, min_amount')
+      .select('fee_type, fee_value, daily_interest_rate, grace_period_days, min_amount, version, effective_from')
       .eq('id', policyId)
       .maybeSingle()
 
-    policy = (policyRow ?? null) as LateChargePolicy | null
+    const row = policyRow as (LateChargePolicy & { version: number; effective_from: string }) | null
+    policy = row
+    policyMeta = row ? { version: row.version, effective_from: row.effective_from } : null
   }
 
   // Quanto esta cobrança deve — pela função canônica, a mesma que a LISTA de
@@ -231,13 +308,70 @@ export default async function BillingDetailPage({
   // `charge_balances.open_amount` é a aritmética do documento (total − alocado)
   // e devolve o saldo de uma cobrança baixada — correto para registrar a perda,
   // errado de exibir como "a pagar".
-  const { accrued, amount_due: amountDue } = calculateAmountDue(balance, policy)
+  const {
+    accrued, amount_due: amountDue,
+    principal: principalEmAberto, late_charge_realized: jaLancado, accrued_pending: aAcrescentar,
+  } = calculateAmountDue(balance, policy)
   const statusCfg = STATUS_CONFIG[balance.is_overdue ? 'overdue' : balance.status] ?? STATUS_CONFIG.open
+
+  // A REGRA em números que o operador reconhece: percentual ao mês como ele
+  // digitou em Configurações, não a taxa diária que o banco guarda. Mesma
+  // conversão que a tela de Configurações usa, pela mesma função.
+  const policyView = policy ? toPolicyInput(policy) : null
+
+  // O mínimo só aparece quando MORDE: multa + juros abaixo do piso significa que
+  // o total exibido não é a soma das duas linhas acima, e sem dizer isso a
+  // tabela parece errada.
+
+  /** Encargo em PROJEÇÃO: corre enquanto a cobrança está aberta e vencida. */
+  const chargesCalc = accrued.total > 0 ? accrued : null
+
+  // Encargo REALIZADO: virou item da cobrança no recebimento (R-06). Depois
+  // disso `open_amount` cai a zero, `calculateAccruedCharges` devolve zero e o
+  // bloco de encargos sumia inteiro — a regra que gerou receita de verdade
+  // ficava invisível exatamente quando havia o que auditar.
+  const encargoRealizado = Math.round(
+    items.filter((i) => i.source_module === 'late_charge').reduce((sum, i) => sum + i.amount, 0) * 100,
+  ) / 100
+
+  const cobrandoAgora  = !!chargesCalc && !chargesCalc.grace_period_active && chargesCalc.total > 0
+  const naCarencia     = !!chargesCalc?.grace_period_active
+
+  // Principal sobre o qual o encargo correu: o que a cobrança emitiu SEM o
+  // próprio encargo. Somar o item de encargo aqui faria juros sobre juros.
+  const principalEmitido = round2(
+    items.filter((i) => i.source_module !== 'late_charge').reduce((sum, i) => sum + i.amount, 0),
+  )
+
+  const rateioRealizado = policy && encargoRealizado > 0 && !cobrandoAgora
+    ? rateioDoEncargoRealizado(
+        policy, balance.due_date, principalEmitido, encargoRealizado,
+        payments.filter((p) => !p.reversed).map((p) => ({ paid_at: p.paid_at, amount: p.amount })),
+      )
+    : null
+
+  // Uma abertura só, usada pelos dois estados: o encargo que ainda corre e o
+  // que já virou item. O que muda é a origem dos números, não a forma.
+  const encargoExibido = cobrandoAgora
+    // O principal é o saldo SEM o encargo ainda não pago (ADR 0028). Usar
+    // `open_amount` aqui descrevia a regra sobre uma base que incluía o próprio
+    // encargo — e era a mesma base que a conta usava, cobrando multa de novo.
+    ? { accrued: chargesCalc!, principal: principalEmAberto, realizado: false }
+    : rateioRealizado
+      ? { accrued: rateioRealizado, principal: principalEmitido, realizado: true }
+      : null
+
+  // O mínimo só aparece quando MORDE: com multa + juros abaixo do piso, o total
+  // deixa de ser a soma das duas linhas acima, e sem dizer isso a tabela parece
+  // errada.
+  const somaBruta = encargoExibido
+    ? round2(encargoExibido.accrued.fee + encargoExibido.accrued.interest)
+    : 0
+  const minimoMordeu = !!policy && !!encargoExibido && policy.min_amount > 0 && somaBruta < policy.min_amount
 
   // Encargo já calculado acima a partir da política fixada na emissão.
   const lateChargesList: { id: string; fee: number; interest: number; total: number; days_overdue: number; captured_at: string }[] = []
   const creditAppsList: { id: string; amount: number; is_auto: boolean; created_at: string; credit: { origin: string; reason: string } | null }[] = []
-  const chargesCalc = accrued.total > 0 ? accrued : null
 
   // Alias com a forma que o JSX desta página consome. O item de maior valor
   // representa a cobrança no título — no modelo novo a descrição vive nos
@@ -309,8 +443,17 @@ export default async function BillingDetailPage({
 
         {/* ── Status + valor ────────────────────────────────────────────── */}
         <div className="flex flex-wrap items-center gap-4">
+          {/* "Vencida" sozinha não diz o tamanho do problema: vencida ontem e
+              vencida há três meses são conversas diferentes com o cliente. O
+              número vem de `charge_balances.days_overdue`, que é a distância até
+              o vencimento — NÃO desconta carência. É por isso que ele pode ser
+              maior que os "N dias de atraso" do bloco de encargo, que conta os
+              dias em que multa e juros efetivamente correram. */}
           <span className={`inline-flex h-7 items-center rounded-full border px-3 text-[13px] font-medium ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
             {statusCfg.label}
+            {balance.is_overdue && balance.days_overdue > 0 && (
+              <> há {balance.days_overdue} dia{balance.days_overdue !== 1 ? 's' : ''}</>
+            )}
           </span>
           <span className="text-2xl font-bold text-fg">
             {formatCurrency(billing.original_amount)}
@@ -395,44 +538,166 @@ export default async function BillingDetailPage({
           </section>
         )}
 
-        {/* ── Encargos atuais ───────────────────────────────────────────── */}
-        {chargesCalc && !chargesCalc.grace_period_active && chargesCalc.total > 0 && (
+        {/* ── Encargo por atraso ────────────────────────────────────────── */}
+        {/* A seção vale para os dois momentos do encargo: enquanto ele é
+            PROJEÇÃO (cobrança aberta e vencida) e depois que virou ITEM, no
+            recebimento. A abertura é a mesma nos dois — multa, juros e a regra
+            que produziu cada um. O que muda é de onde vêm os números, e isso
+            não é motivo para o operador reaprender a ler a tela. */}
+        {(policy || (balance.is_overdue && balance.status === 'open')) && (
           <section>
             <h2 className="mb-3 text-[14px] font-bold text-primary">
-              Encargos por atraso
-              <span className="ml-2 text-[12px] font-normal text-fg-mute">{chargesCalc.days_overdue} dia{chargesCalc.days_overdue !== 1 ? 's' : ''} de atraso</span>
+              Encargo por atraso
+              {encargoExibido && (
+                <span className="ml-2 text-[12px] font-normal text-fg-mute">
+                  {encargoExibido.accrued.days_overdue} dia{encargoExibido.accrued.days_overdue !== 1 ? 's' : ''} de atraso
+                  {encargoExibido.realizado && ' · já lançado'}
+                </span>
+              )}
             </h2>
-            <div className="overflow-hidden rounded-xl bg-surface">
-              <table className="w-full text-[13px]">
-                <tbody>
-                  <tr className="border-b border-divider">
-                    <td className="h-9 w-44 px-4 text-fg-mute">Multa</td>
-                    <td className="h-9 px-4 font-mono text-fg">{formatCurrency(chargesCalc.fee)}</td>
-                  </tr>
-                  <tr className="border-b border-divider">
-                    <td className="h-9 w-44 px-4 text-fg-mute">Juros</td>
-                    <td className="h-9 px-4 font-mono text-fg">{formatCurrency(chargesCalc.interest)}</td>
-                  </tr>
-                  <tr>
-                    <td className="h-9 w-44 px-4 font-medium text-fg">Total com encargos</td>
-                    {/* `amountDue` JÁ inclui o encargo acumulado (saldo +
-                        acréscimo). Somar de novo aqui exibia o encargo em
-                        dobro: R$ 532,88 no bloco contra R$ 516,44 no cabeçalho,
-                        dois números para a mesma coisa na mesma tela. */}
-                    <td className="h-9 px-4 font-mono font-bold text-danger">{formatCurrency(amountDue)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
 
-        {chargesCalc?.grace_period_active && (
-          <div className="rounded-xl border border-border bg-surface px-4 py-3">
-            <p className="text-[13px] text-fg-mute">
-              Dentro do período de carência — encargos não aplicados ainda.
-            </p>
-          </div>
+            {!policy ? (
+              /* Vencida sem regra é resultado legítimo, e silêncio parecia falha:
+                 a tela não mostrava encargo e não dizia por quê. */
+              <div className="rounded-xl bg-surface px-4 py-3">
+                <p className="text-[13px] text-fg-mute">
+                  Esta cobrança foi emitida sem política de encargo — vencida, ela continua
+                  devendo o valor original, sem multa nem juros.
+                </p>
+              </div>
+            ) : (
+              <>
+                {encargoExibido && (
+                  <div className="overflow-hidden rounded-xl bg-surface">
+                    {/* Terceira coluna: a REGRA que produziu o número. Sem ela o bloco
+                        informava "Multa R$ 17,50" e deixava o operador sem meio de
+                        conferir. */}
+                    <table className="w-full text-[13px]">
+                      <tbody>
+                        <tr className="border-b border-divider">
+                          <td className="h-9 w-44 px-4 text-fg-mute">Multa</td>
+                          <td className="h-9 w-32 px-4 font-mono text-fg">{formatCurrency(encargoExibido.accrued.fee)}</td>
+                          <td className="h-9 px-4 text-[12px] text-fg-mute">
+                            {regraDaMulta(policy, policyView!, encargoExibido.principal)}
+                          </td>
+                        </tr>
+                        <tr className="border-b border-divider">
+                          <td className="h-9 w-44 px-4 text-fg-mute">Juros</td>
+                          <td className="h-9 w-32 px-4 font-mono text-fg">{formatCurrency(encargoExibido.accrued.interest)}</td>
+                          <td className="h-9 px-4 text-[12px] text-fg-mute">
+                            {regraDosJuros(policyView!, encargoExibido.principal, encargoExibido.accrued.days_overdue)}
+                          </td>
+                        </tr>
+                        {minimoMordeu && (
+                          <tr className="border-b border-divider">
+                            <td className="h-9 w-44 px-4 text-fg-mute">Encargo mínimo</td>
+                            <td className="h-9 w-32 px-4 font-mono text-fg">{formatCurrency(policy.min_amount)}</td>
+                            <td className="h-9 px-4 text-[12px] text-fg-mute">
+                              aplicado — multa + juros somariam {formatCurrency(somaBruta)}
+                            </td>
+                          </tr>
+                        )}
+                        {!encargoExibido.realizado && jaLancado > 0 && (
+                          <tr className="border-b border-divider">
+                            <td className="h-9 w-44 px-4 text-fg-mute">Já lançado</td>
+                            <td className="h-9 w-32 px-4 font-mono text-fg">−{formatCurrency(jaLancado)}</td>
+                            <td className="h-9 px-4 text-[12px] text-fg-mute">
+                              já é item desta cobrança, de um recebimento anterior — está dentro
+                              dos {formatCurrency(balance.open_amount)} em aberto e não é cobrado de novo
+                            </td>
+                          </tr>
+                        )}
+                        {encargoExibido.realizado ? (
+                          <tr>
+                            <td className="h-9 w-44 px-4 font-medium text-fg">Encargo lançado</td>
+                            <td className="h-9 w-32 px-4 font-mono font-bold text-fg">{formatCurrency(encargoExibido.accrued.total)}</td>
+                            <td className="h-9 px-4 text-[12px] text-fg-mute">
+                              virou item desta cobrança no recebimento — a composição abaixo traz a linha
+                            </td>
+                          </tr>
+                        ) : (
+                          <tr>
+                            <td className="h-9 w-44 px-4 font-medium text-fg">Total com encargos</td>
+                            {/* `amountDue` JÁ inclui o encargo acumulado (saldo +
+                                acréscimo). Somar de novo aqui exibia o encargo em
+                                dobro: R$ 532,88 no bloco contra R$ 516,44 no cabeçalho,
+                                dois números para a mesma coisa na mesma tela. */}
+                            <td className="h-9 w-32 px-4 font-mono font-bold text-danger">{formatCurrency(amountDue)}</td>
+                            <td className="h-9 px-4 text-[12px] text-fg-mute">
+                              {formatCurrency(balance.open_amount)} em aberto + {formatCurrency(aAcrescentar)} de encargo
+                              {jaLancado > 0 && ' ainda não lançado'}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {naCarencia && (
+                  <div className="rounded-xl bg-surface px-4 py-3">
+                    <p className="text-[13px] text-fg-mute">
+                      Dentro do período de carência — encargo não aplicado ainda.
+                      {policyView && (
+                        <>
+                          {' '}A política desta cobrança dá {policyView.grace_period_days} dia
+                          {policyView.grace_period_days !== 1 ? 's' : ''} de carência e o vencimento
+                          passou há {chargesCalc!.days_since_due}. Multa e juros começam a correr
+                          {/* +1: o encargo passa a existir no dia em que `days_since_due`
+                              ULTRAPASSA a carência, não no dia em que a iguala. Sem isto a
+                              frase dizia "em 0 dias" no último dia de carência. */}
+                          {' '}em {policyView.grace_period_days - chargesCalc!.days_since_due + 1} dia
+                          {policyView.grace_period_days - chargesCalc!.days_since_due + 1 !== 1 ? 's' : ''}.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                )}
+
+                {/* Encargo lançado que a reconstrução não conseguiu reproduzir ao
+                    centavo. Mostrar um rateio que não fecha seria pior que mostrar
+                    só o total: o operador confere e não bate. */}
+                {!encargoExibido && !naCarencia && encargoRealizado > 0 && (
+                  <div className="rounded-xl bg-surface px-4 py-3">
+                    <p className="text-[13px] text-fg-mute">
+                      Encargo de <span className="font-mono text-fg">{formatCurrency(encargoRealizado)}</span>{' '}
+                      já lançado como item desta cobrança, no recebimento. A composição abaixo
+                      traz a linha; a abertura em multa e juros não pôde ser reconstruída para
+                      este caso.
+                    </p>
+                  </div>
+                )}
+
+                {!encargoExibido && !naCarencia && encargoRealizado === 0 && (
+                  <div className="rounded-xl bg-surface px-4 py-3">
+                    <p className="text-[13px] text-fg-mute">
+                      {balance.status === 'open'
+                        ? 'Nenhum encargo até aqui. Se esta cobrança vencer, é esta a regra que passa a correr:'
+                        : 'Nenhum encargo foi cobrado nesta cobrança. A regra que valia para ela era:'}
+                    </p>
+                  </div>
+                )}
+
+                {policyView && (
+                  <p className="mt-2 text-[12px] leading-relaxed text-fg-mute">
+                    Regra fixada na emissão desta cobrança
+                    {policyMeta && <>: <span className="text-fg-soft">política versão {policyMeta.version}</span>, vigente desde {fmt(policyMeta.effective_from)}</>}.
+                    {' '}Multa de{' '}
+                    <span className="text-fg-soft">
+                      {policy.fee_type === 'percentage'
+                        ? `${num(policyView.fee_value)}% sobre o saldo`
+                        : formatCurrency(policy.fee_value)}
+                    </span>, cobrada uma vez;
+                    {' '}juros de <span className="text-fg-soft">{num(policyView.monthly_interest_percent)}% ao mês</span>{' '}
+                    ({num(policyView.monthly_interest_percent / DAYS_PER_MONTH, 4)}% ao dia, sobre o saldo em aberto);
+                    {' '}carência de {policyView.grace_period_days} dia{policyView.grace_period_days !== 1 ? 's' : ''} após o vencimento;
+                    {' '}encargo mínimo de {formatCurrency(policyView.min_amount)}.
+                    {' '}Alterar a política em Configurações passa a valer para cobranças emitidas depois — esta continua com a regra do dia em que saiu.
+                  </p>
+                )}
+              </>
+            )}
+          </section>
         )}
 
         {/* ── Composição da cobrança ────────────────────────────────────── */}
@@ -472,15 +737,17 @@ export default async function BillingDetailPage({
                 </tr>
                 {/* Encargo AINDA NÃO realizado é projeção, não item: só vira
                     linha da cobrança quando alguém recebe. Aparece aqui como
-                    previsão para o total bater com o "a pagar" do topo. */}
-                {accrued.total > 0 && (
+                    previsão para o total bater com o "a pagar" do topo — por
+                    isso é o que FALTA acrescentar, não o encargo corrente: o já
+                    lançado está em "Total emitido", uma linha acima (ADR 0028). */}
+                {aAcrescentar > 0 && (
                   <tr className="border-t border-divider">
                     <td className="h-9 px-4 text-warning" colSpan={2}>
-                      Encargo previsto · {accrued.days_overdue} dia(s) de atraso
+                      Encargo previsto · {accrued.days_overdue} dia{accrued.days_overdue === 1 ? '' : 's'} de atraso
                       <span className="ml-2 text-[12px] text-fg-mute">ainda não lançado</span>
                     </td>
                     <td className="h-9 px-4 text-right font-mono text-warning">
-                      + {formatCurrency(accrued.total)}
+                      + {formatCurrency(aAcrescentar)}
                     </td>
                   </tr>
                 )}
@@ -521,21 +788,30 @@ export default async function BillingDetailPage({
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Forma</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Valor</th>
-                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Obs.</th>
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Observação</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
                   {payments.map(p => (
                     <tr key={p.id} className="border-b border-border last:border-0 hover:bg-surface-2">
-                      <td className="h-9 px-4 text-fg-soft">{fmtDatetime(p.paid_at)}</td>
-                      <td className="h-9 px-4 text-fg-mute">{PAYMENT_METHOD_LABELS[p.payment_method] ?? p.payment_method}</td>
+                      {/* `nowrap` nas duas primeiras: com a observação ocupando largura,
+                          a data quebrava no meio ("24/08/2026," numa linha, "12:00" na outra). */}
+                      <td className="h-9 whitespace-nowrap px-4 text-fg-soft">{fmtDatetime(p.paid_at)}</td>
+                      <td className="h-9 whitespace-nowrap px-4 text-fg-mute">{PAYMENT_METHOD_LABELS[p.payment_method] ?? p.payment_method}</td>
                       <td className={`h-9 px-4 text-right font-mono font-semibold ${
                         p.reversed ? 'text-fg-mute line-through' : 'text-success'
                       }`}>
                         {formatCurrency(p.amount)}
                       </td>
-                      <td className="h-9 max-w-[200px] truncate px-4 text-fg-mute">{p.notes ?? '—'}</td>
+                      {/* Sem `truncate`: o que o operador digitou ao receber é a única
+                          explicação de "por que este valor, deste jeito" — cortar em 200px
+                          escondia justamente a observação que valia a pena escrever. Texto
+                          longo quebra linha e cresce a altura da linha; curto, que é o caso
+                          comum, continua em `h-9`. */}
+                      <td className="h-9 px-4 text-fg-soft">
+                        {p.notes ?? <span className="text-fg-mute">—</span>}
+                      </td>
                       <td className="h-9 px-4 text-right">
                         {p.reversed
                           ? <span className="text-[12px] text-fg-mute">Estornado</span>
@@ -637,6 +913,8 @@ export default async function BillingDetailPage({
               customerName: customer?.name ?? '—',
               dueDate:      balance.due_date,
               openAmount:   balance.open_amount,
+          paidAmount:   balance.paid_amount,
+          lateChargeAmount: balance.late_charge_amount,
               status:       balance.status,
             }}
             latePolicy={policy}

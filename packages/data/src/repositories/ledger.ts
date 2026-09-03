@@ -28,6 +28,9 @@ export type ChargeBalanceRow = {
   open_amount: number
   is_overdue: boolean
   days_overdue: number
+  /** Quanto do total já virou item de encargo. Encargo realizado é parcela do
+   *  encargo corrente, não base para um novo (ADR 0028). */
+  late_charge_amount: number
   /** Política congelada na emissão. Sem ela a tela não tem como saber qual
    *  regra esta cobrança carrega, e acaba aplicando a vigente hoje a todas. */
   late_charge_policy_id: string | null

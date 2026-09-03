@@ -10,7 +10,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   allocatePayment,
-  calculateAccruedCharges,
+  calculateAmountDue,
   formatCurrency as formatBRL,
   type ChargeBalance,
   type LateChargePolicy,
@@ -79,12 +79,13 @@ export async function realizeAccruedBefore(
   for (const chargeId of chargeIds) {
     const { data: balanceRow } = await supabase
       .from('charge_balances')
-      .select('open_amount, due_date, is_overdue, status')
+      .select('open_amount, paid_amount, late_charge_amount, due_date, is_overdue, status')
       .eq('charge_id', chargeId)
       .maybeSingle()
 
     const b = balanceRow as {
-      open_amount: number; due_date: string; is_overdue: boolean; status: string
+      open_amount: number; paid_amount: number; late_charge_amount: number
+      due_date: string; is_overdue: boolean; status: string
     } | null
     if (!b || !b.is_overdue || b.status !== 'open' || b.open_amount <= 0) continue
 
@@ -105,11 +106,16 @@ export async function realizeAccruedBefore(
 
     if (!policyRow) continue
 
-    const accrued = calculateAccruedCharges(
-      policyRow as LateChargePolicy, b.open_amount, b.due_date, paidAt,
+    // Pela fonte única, não por conta própria: é ela que desconta o encargo já
+    // realizado do corrente. Apurar sobre `open_amount` cru era a volta do
+    // defeito que matou o botão "Consolidar encargo" — só que por outra porta,
+    // a cobrança que volta a ficar em aberto depois de já ter encargo dentro
+    // (estorno de pagamento, ou pagamento parcial). Ver ADR 0028.
+    const { accrued_pending } = calculateAmountDue(
+      b, policyRow as LateChargePolicy, paidAt,
     )
-    if (accrued.total > 0) {
-      await realizeLateCharge(supabase, tenantId, chargeId, accrued.total)
+    if (accrued_pending > 0) {
+      await realizeLateCharge(supabase, tenantId, chargeId, accrued_pending)
     }
   }
 }

@@ -54,6 +54,9 @@ export type CobrancaParaPagamento = {
   customerName: string
   dueDate: string
   openAmount: number
+  paidAmount: number
+  /** Quanto do total já é encargo lançado — a apuração desconta (ADR 0028). */
+  lateChargeAmount: number
   status: string
 }
 
@@ -84,7 +87,13 @@ export function RegistrarPagamentoModal({
   /** Cálculo completo na data informada: menos dias de atraso, menos juros. */
   function calculoEm(quando: string) {
     return calculateAmountDue(
-      { open_amount: cobranca!.openAmount, due_date: cobranca!.dueDate, status: cobranca!.status },
+      {
+        open_amount: cobranca!.openAmount,
+        paid_amount: cobranca!.paidAmount,
+        late_charge_amount: cobranca!.lateChargeAmount,
+        due_date: cobranca!.dueDate,
+        status: cobranca!.status,
+      },
       policy,
       new Date(`${quando}T12:00:00`),
     )
@@ -105,6 +114,8 @@ export function RegistrarPagamentoModal({
 
   const naData = calculoEm(data)
   const devido = naData.amount_due
+  /** Parte do encargo já lançado que ainda está em aberto (ADR 0028). */
+  const encargoJaAberto = Math.round((naData.open_amount - naData.principal) * 100) / 100
 
   function confirmar() {
     // Arredondar aqui, não confiar no truncamento do banco: NUMERIC(14,2)
@@ -222,15 +233,26 @@ export function RegistrarPagamentoModal({
             <>
               <div className="flex justify-between">
                 <span className="text-fg-mute">Principal</span>
-                <span className="tabular-nums text-fg">{formatCurrency(naData.open_amount)}</span>
+                <span className="tabular-nums text-fg">{formatCurrency(naData.principal)}</span>
               </div>
-              {naData.accrued.fee > 0 && (
+              {/* Encargo que já virou item da cobrança em recebimento anterior.
+                  Está DENTRO do saldo em aberto, e a apuração de hoje o desconta
+                  em vez de cobrar de novo (ADR 0028). Sem esta linha as parcelas
+                  não fechavam com o total: aparecia "principal 102,73 + multa
+                  2,00 + juros 0,73" somando 102,73. */}
+              {encargoJaAberto > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-fg-mute">Encargo já lançado</span>
+                  <span className="tabular-nums text-fg">{formatCurrency(encargoJaAberto)}</span>
+                </div>
+              )}
+              {naData.accrued.fee > 0 && naData.late_charge_realized === 0 && (
                 <div className="flex justify-between text-warning">
                   <span>Multa</span>
                   <span className="tabular-nums">{formatCurrency(naData.accrued.fee)}</span>
                 </div>
               )}
-              {naData.accrued.interest > 0 && (
+              {naData.accrued.interest > 0 && naData.late_charge_realized === 0 && (
                 <div className="flex justify-between text-warning">
                   {/* Só "N dias": o atraso já está declarado no cabeçalho, ao
                       lado do vencimento. Aqui o número serve de base do
@@ -240,6 +262,18 @@ export function RegistrarPagamentoModal({
                     {naData.accrued.days_overdue === 1 ? 'dia' : 'dias'}
                   </span>
                   <span className="tabular-nums">{formatCurrency(naData.accrued.interest)}</span>
+                </div>
+              )}
+              {/* Com encargo já lançado, multa e juros não se separam: o que se
+                  acrescenta é a diferença entre o encargo corrente e o que já
+                  foi documentado. */}
+              {naData.late_charge_realized > 0 && naData.accrued_pending > 0 && (
+                <div className="flex justify-between text-warning">
+                  <span>
+                    Encargo a acrescentar · {naData.accrued.days_overdue}{' '}
+                    {naData.accrued.days_overdue === 1 ? 'dia' : 'dias'}
+                  </span>
+                  <span className="tabular-nums">{formatCurrency(naData.accrued_pending)}</span>
                 </div>
               )}
               <div className="flex justify-between border-t border-divider pt-1">

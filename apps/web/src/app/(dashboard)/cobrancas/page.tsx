@@ -516,6 +516,8 @@ export default function CobrancasPage() {
           customerName: receiving.customer_name,
           dueDate:      receiving.due_date,
           openAmount:   receiving.open_amount,
+          paidAmount:   receiving.paid_amount,
+          lateChargeAmount: receiving.late_charge_amount,
           status:       receiving.status,
         }}
         policy={receiving?.late_charge_policy ?? null}

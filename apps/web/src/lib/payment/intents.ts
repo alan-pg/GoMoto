@@ -84,7 +84,7 @@ export async function getOrCreateIntent(
   // 2. Valor devido — fonte única
   const { data: balance, error: balanceError } = await supabase
     .from('charge_balances')
-    .select('charge_id, customer_id, due_date, total_amount, paid_amount, open_amount, status')
+    .select('charge_id, customer_id, due_date, total_amount, paid_amount, open_amount, late_charge_amount, status')
     .eq('charge_id', chargeId)
     .eq('tenant_id', tenantId)
     .maybeSingle()
@@ -94,7 +94,8 @@ export async function getOrCreateIntent(
 
   const b = balance as {
     charge_id: string; customer_id: string; due_date: string
-    total_amount: number; paid_amount: number; open_amount: number; status: string
+    total_amount: number; paid_amount: number; open_amount: number
+    late_charge_amount: number; status: string
   }
 
   if (b.status !== 'open' || b.open_amount <= 0) {

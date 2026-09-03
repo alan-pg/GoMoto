@@ -28,7 +28,7 @@ import {
   createTestVehicle, deleteTestVehicle, createTestContract, deleteTestCustomer,
 } from './helpers'
 import { createCharge } from '../src/lib/financial/charges'
-import { receivePayment, reversePayment } from '../src/lib/financial/payments'
+import { receivePayment, reversePayment, realizeAccruedBefore } from '../src/lib/financial/payments'
 import { createPayable } from '../src/lib/financial/payables'
 import { postTransaction, dimensionsOf } from '../src/lib/financial/ledger'
 
@@ -470,5 +470,105 @@ test.describe('Pagamento acima do saldo', () => {
     const s = await saldo(charge.chargeId)
     expect(s.open_amount).toBe(0)
     expect(s.status).toBe('paid')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Portão da ADR 0028: encargo realizado não vira base de encargo novo
+// ---------------------------------------------------------------------------
+
+/**
+ * O estorno reabre a cobrança — e o encargo já realizado FICA, como item.
+ * `fn_reverse_payment` inverte as pernas da transação do PAGAMENTO; a
+ * `late_charge_realized` é outra transação e continua de pé, corretamente: o
+ * atraso aconteceu, e desfazer o recebimento não desfaz os dias.
+ *
+ * O defeito estava na apuração seguinte, que usava `open_amount` cru — agora
+ * inflado pelo próprio encargo. Cobrava multa de novo (o grosso do erro) e
+ * juros sobre juros. Uma cobrança de R$ 100 vencida há 22 dias saía de R$
+ * 102,73 para R$ 105,53 sem que um dia passasse.
+ *
+ * O estorno é só a porta mais visível: pagamento parcial chega ao mesmo estado
+ * sem estorno nenhum, e o segundo teste cobre isso.
+ */
+test.describe('Encargo já realizado (ADR 0028)', () => {
+  test('estornar e receber de novo não cobra a multa duas vezes', async () => {
+    const tenantId = await getTestTenantId()
+    const chargeId = await novaCobranca(100, 22)
+
+    // 1. Realiza o encargo e quita. Alocação explícita para o teste não depender
+    //    das outras cobranças abertas deste cliente.
+    await realizeAccruedBefore(admin(), tenantId, [chargeId], new Date())
+
+    const depoisDoPagamento = await saldo(chargeId)
+    const encargoRealizado = Number((depoisDoPagamento.total_amount - 100).toFixed(2))
+    expect(encargoRealizado, 'o encargo precisa ter sido realizado').toBeGreaterThan(0)
+
+    const primeiro = await receivePayment(admin(), tenantId, {
+      customerId, amount: depoisDoPagamento.open_amount, method: 'pix', paidAt: new Date(),
+      allocations: [{ chargeId, amount: depoisDoPagamento.open_amount }],
+    })
+    expect((await saldo(chargeId)).status, 'o recebimento precisa quitar').toBe('paid')
+
+    // 2. Estorno: a cobrança volta a dever, com o item de encargo dentro.
+    await reversePayment(admin(), tenantId, primeiro.paymentId, 'teste ADR 0028')
+
+    const reaberta = await saldo(chargeId)
+    expect(reaberta.status, 'o estorno reabre a cobrança').toBe('open')
+    expect(reaberta.total_amount, 'o item de encargo não some no estorno')
+      .toBeCloseTo(depoisDoPagamento.total_amount, 2)
+
+    // 3. Recebe de novo, NO MESMO DIA. Nenhum dia novo passou, então nada pode
+    //    ser acrescentado: o total tem de ficar onde estava.
+    await receivePayment(admin(), tenantId, {
+      customerId, amount: reaberta.open_amount, method: 'pix', paidAt: new Date(),
+      allocations: [{ chargeId, amount: reaberta.open_amount }],
+    })
+
+    const final = await saldo(chargeId)
+    expect(
+      final.total_amount,
+      'o segundo recebimento cobrou encargo de novo — multa em duplicidade e juros sobre juros',
+    ).toBeCloseTo(depoisDoPagamento.total_amount, 2)
+
+    // E um só item de encargo, não dois.
+    const { data: itens } = await admin()
+      .from('charge_items').select('id')
+      .eq('charge_id', chargeId).eq('source_module', 'late_charge')
+    expect((itens ?? []).length, 'o encargo virou item duas vezes').toBe(1)
+  })
+
+  test('pagamento parcial chega ao mesmo estado, e também não remultiplica', async () => {
+    const tenantId = await getTestTenantId()
+    const chargeId = await novaCobranca(100, 22)
+
+    // Paga metade: o encargo é realizado sobre os 100 e a cobrança fica aberta
+    // com o item dentro — sem estorno nenhum.
+    await receivePayment(admin(), tenantId, {
+      customerId, amount: 50, method: 'pix', paidAt: new Date(),
+      allocations: [{ chargeId, amount: 50 }],
+    })
+
+    const parcial = await saldo(chargeId)
+    const encargo = Number((parcial.total_amount - 100).toFixed(2))
+    expect(encargo, 'o encargo precisa ter sido realizado').toBeGreaterThan(0)
+    expect(parcial.status).toBe('open')
+
+    // Quita o resto no mesmo dia: o corrente sobre o principal que sobrou é
+    // MENOR que o já lançado, então nada se acrescenta.
+    await receivePayment(admin(), tenantId, {
+      customerId, amount: parcial.open_amount, method: 'pix', paidAt: new Date(),
+      allocations: [{ chargeId, amount: parcial.open_amount }],
+    })
+
+    const final = await saldo(chargeId)
+    expect(final.total_amount, 'a segunda parcela trouxe uma segunda multa')
+      .toBeCloseTo(parcial.total_amount, 2)
+    expect(final.status).toBe('paid')
+
+    const { data: itens } = await admin()
+      .from('charge_items').select('id')
+      .eq('charge_id', chargeId).eq('source_module', 'late_charge')
+    expect((itens ?? []).length, 'o encargo virou item duas vezes').toBe(1)
   })
 })
