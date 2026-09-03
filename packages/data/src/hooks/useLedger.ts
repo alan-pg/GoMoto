@@ -8,7 +8,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query'
-import { useSupabaseContext } from '../context'
+import { useSupabaseContext, useRequiredTenantId, useTenantId } from '../context'
 import {
   calculateAmountDue,
   classifyCustomerDelinquency,
@@ -589,5 +589,38 @@ export function useRentalOpenCharges(rentalId: string | undefined) {
     queryKey: [KEY.charges, 'rental-open', rentalId],
     enabled: !!rentalId,
     queryFn: () => listOpenChargesByRental(supabase, rentalId!),
+  })
+}
+
+/**
+ * O dia de hoje no fuso do TENANT.
+ *
+ * A tela não pode derivar isso de `new Date()`: o navegador roda no fuso do
+ * operador e o servidor Node em UTC na Vercel, enquanto o razão passou a
+ * competir no fuso do tenant. Toda data que a UI sugerir para um lançamento
+ * precisa vir da mesma régua que o banco usa — `fn_business_today`, criada na
+ * migration `fuso_horario_por_tenant`.
+ *
+ * `staleTime` alto de propósito: a resposta só muda uma vez por dia, e não vale
+ * uma ida ao banco por render.
+ */
+export function useBusinessToday() {
+  const supabase = useSupabaseContext()
+  // `useTenantId`, não `useRequiredTenantId`: o tenant chega depois do primeiro
+  // render, e a versão "required" LANÇA nesse intervalo — a query morria em
+  // erro e a tela ficava sem data para sugerir, com o botão travado.
+  const tenantId = useTenantId()
+
+  return useQuery({
+    queryKey: ['business-today', tenantId],
+    enabled: !!tenantId,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<string> => {
+      const { data, error } = await supabase.rpc('fn_business_today', {
+        p_tenant_id: tenantId!,
+      })
+      if (error) throw error
+      return String(data).slice(0, 10)
+    },
   })
 }

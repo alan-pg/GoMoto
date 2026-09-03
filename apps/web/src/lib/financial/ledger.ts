@@ -112,3 +112,28 @@ export function dimensionsOf(params: {
     cost_center_id: params.costCenterId ?? null,
   }
 }
+
+/**
+ * O dia de hoje no fuso do TENANT.
+ *
+ * Toda data que vira `occurred_at` de lançamento decide em que MÊS o fato cai
+ * no DRE, e não pode sair do relógio de quem clicou: o servidor Node roda no
+ * fuso da máquina em dev e em UTC na Vercel, e o navegador roda no fuso do
+ * operador. Quem sabe onde o dia termina para o negócio é o banco — a régua
+ * está em `fn_business_today`, criada com o fuso por tenant (migration
+ * `fuso_horario_por_tenant`).
+ *
+ * O fallback existe para não derrubar uma baixa por causa de leitura: é a data
+ * local do servidor, que erra no máximo por algumas horas na virada do dia,
+ * contra perder a operação inteira.
+ */
+export async function businessToday(
+  supabase: SupabaseClient,
+  tenantId: string,
+): Promise<string> {
+  const { data } = await supabase.rpc('fn_business_today', { p_tenant_id: tenantId })
+  if (typeof data === 'string' && data.length >= 10) return data.slice(0, 10)
+
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}

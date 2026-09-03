@@ -55,12 +55,23 @@ async function lancar(
   eventType = 'charge_issued',
 ): Promise<string> {
   const tenantId = await getTestTenantId()
+
+  // Meio-dia no fuso do NEGÓCIO, não a data pura.
+  //
+  // `'2026-07-01'` vira `2026-07-01 00:00 UTC`, que em São Paulo é 30/06 às
+  // 21h — e desde que o DRE passou a competir no fuso do tenant, o lançamento
+  // caía no mês anterior. O teste é sobre competência por mês; a hora precisa
+  // ser inequívoca nos dois fusos, e meio-dia é.
+  const instante = /^\d{4}-\d{2}-\d{2}$/.test(occurredAt)
+    ? `${occurredAt}T12:00:00-03:00`
+    : occurredAt
+
   const { data, error } = await admin().rpc('post_financial_transaction', {
     p_tenant_id: tenantId,
     p_transaction: {
       event_type: eventType,
       description: `${TEST_TAG} DRE`,
-      occurred_at: occurredAt,
+      occurred_at: instante,
       source_module: 'manual',
     },
     p_entries: entries.map((e) => ({ ...e, customer_id: customerId })),
@@ -245,5 +256,60 @@ test.describe('DRE em valores', () => {
     ).toBeUndefined()
 
     await admin().from('tenant_account_mappings').delete().eq('id', (politica as { id: string }).id)
+  })
+})
+
+test.describe('O mês é o do tenant, não o do servidor', () => {
+  /**
+   * O DRE agrupava por `date_trunc('month', occurred_at)` em UTC. Às 22h de
+   * 31/08 em São Paulo já é 01/09 em UTC: a receita emitida naquele dia saía do
+   * exercício de agosto e aparecia em setembro — e, como a tela pedia o
+   * intervalo no relógio do servidor Node, os dois discordavam e o DRE ficava
+   * EM BRANCO em dev. Na Vercel, onde o servidor roda em UTC, os dois
+   * concordariam e o número errado apareceria sem aviso.
+   *
+   * A régua agora é `fn_business_date(occurred_at, fuso do tenant)`.
+   */
+  test('lançamento na virada do dia cai no mês do negócio, não no de UTC', async () => {
+    const tenantId = await getTestTenantId()
+
+    // 01/09 01:30 UTC = 31/08 22:30 em São Paulo. Para o negócio é AGOSTO.
+    const naVirada = '2026-09-01T01:30:00+00:00'
+    const agosto   = '2026-08-01'
+    const setembro = '2026-09-01'
+
+    const agostoAntes   = await porLinha(agosto)
+    const setembroAntes = await porLinha(setembro)
+
+    await lancar(naVirada, [
+      { account_code: 'contas_a_receber', direction: 'debit',  amount: 700 },
+      { account_code: 'receita_locacao',  direction: 'credit', amount: 700 },
+    ])
+
+    const emAgosto   = (await porLinha(agosto)).get('gross_revenue')   ?? 0
+    const emSetembro = (await porLinha(setembro)).get('gross_revenue') ?? 0
+
+    expect(
+      Number((emAgosto - (agostoAntes.get('gross_revenue') ?? 0)).toFixed(2)),
+      'a receita das 22h30 de 31/08 não entrou no exercício de agosto',
+    ).toBe(700)
+
+    expect(
+      Number((emSetembro - (setembroAntes.get('gross_revenue') ?? 0)).toFixed(2)),
+      'a receita vazou para setembro — o DRE voltou a competir em UTC',
+    ).toBe(0)
+
+    // E o fuso é do TENANT: em Manaus (−04) o mesmo instante ainda é 31/08 22h30.
+    const { data: emSaoPaulo } = await admin().rpc('fn_business_date', {
+      p_at: naVirada, p_timezone: 'America/Sao_Paulo',
+    })
+    const { data: emUtc } = await admin().rpc('fn_business_date', {
+      p_at: naVirada, p_timezone: 'UTC',
+    })
+    expect(emSaoPaulo, 'a data do negócio em São Paulo mudou').toBe('2026-08-31')
+    expect(emUtc, 'o controle em UTC deveria ser o dia seguinte').toBe('2026-09-01')
+
+    const { data: hoje } = await admin().rpc('fn_business_today', { p_tenant_id: tenantId })
+    expect(hoje, 'fn_business_today precisa responder pelo tenant').toBeTruthy()
   })
 })

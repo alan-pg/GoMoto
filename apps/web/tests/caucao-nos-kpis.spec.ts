@@ -141,6 +141,15 @@ test.describe('Caução declarada nos indicadores', () => {
     await page.goto('/financeiro/dre')
     await waitForPageLoad(page)
     await expect(page.getByText('Demonstrativo de resultado')).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByText(/[Cc]auç/), 'caução não pode ter linha no DRE').toHaveCount(0)
+
+    // A asserção é sobre a TABELA, não sobre a página.
+    //
+    // Buscar /[Cc]auç/ na página inteira passou a falhar quando o bloco "Como
+    // ler este demonstrativo" ganhou a frase que explica por que a caução NÃO
+    // entra no resultado. O texto certo derrubava o teste certo — o que se quer
+    // provar é que nenhuma LINHA do demonstrativo é caução.
+    const linhas = page.locator('table').getByRole('cell')
+    await expect(linhas.filter({ hasText: /[Cc]auç/ }), 'caução não pode ter linha no DRE')
+      .toHaveCount(0)
   })
 })
