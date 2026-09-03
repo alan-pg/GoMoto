@@ -113,6 +113,29 @@ export async function updateMaintenance(id: string, rawData: unknown) {
 }
 
 /**
+ * Responde se a manutenção pode ser excluída, ANTES de alguém tentar.
+ *
+ * A verificação já existia dentro de `deleteMaintenance`, mas só falava depois
+ * do clique em "Excluir" — o operador confirmava uma exclusão e recebia uma
+ * recusa. A mesma pergunta, feita ao abrir o modal, vira instrução em vez de
+ * erro: o botão nasce desabilitado e o texto diz o que fazer antes.
+ *
+ * A recusa continua no caminho de escrita: esta consulta é conselho, não
+ * guarda. Entre abrir o modal e confirmar, alguém pode lançar o custo.
+ */
+export async function checkMaintenanceDeletableAction(
+  id: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { supabase, user } = await getAuthenticatedUser()
+  if (!user) return { ok: false, message: 'Não autorizado' }
+
+  const tenantId = await getCurrentTenantId(supabase)
+  if (!tenantId) return { ok: false, message: 'Tenant não encontrado' }
+
+  return checkMaintenanceDeletable(supabase, tenantId, id)
+}
+
+/**
  * Exclui a manutenção — desde que ela ainda não tenha virado dinheiro.
  *
  * Antes isto era um `delete` seco. Manutenção com custo registrado gera conta a

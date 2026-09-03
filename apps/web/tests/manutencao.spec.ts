@@ -19,7 +19,9 @@
 import { test, expect } from '@playwright/test'
 import {
   TEST_TAG, createTestVehicle, deleteTestVehicle, waitForPageLoad, getSupabaseAdmin,
+  getTestTenantId, createTestContract, deleteTestCustomer,
 } from './helpers'
+import { registerCost } from '../src/lib/financial/maintenance-cost'
 
 const admin = () => getSupabaseAdmin()
 
@@ -157,5 +159,108 @@ test.describe('Manutenção — CRUD', () => {
       Number((posicao as { maintenance_cost: number }).maintenance_cost),
       'custo não chegou ao resultado do veículo',
     ).toBe(450)
+  })
+})
+
+/**
+ * Exclusão recusada: a tela diz ANTES, não depois de confirmar.
+ *
+ * `deleteMaintenance` já recusava manutenção com custo lançado — mas só depois
+ * do clique em "Excluir", e a recusa saía num `alert()` do navegador. O
+ * operador confirmava uma exclusão e recebia um erro, com a mensagem longe da
+ * decisão que ele tinha acabado de tomar.
+ *
+ * Agora o modal pergunta ao abrir: com impedimento, o texto explica o caminho
+ * (cancelar a despesa, que estorna o razão e a cobrança de repasse) e o botão
+ * nasce desabilitado. A recusa do servidor continua de pé — entre abrir e
+ * confirmar, alguém pode lançar o custo.
+ */
+test.describe('Exclusão de manutenção — o impedimento aparece no modal', () => {
+  let moto = ''
+  let cliente = ''
+  let locacao = ''
+  const COM_CUSTO = `${TEST_TAG} Custo lancado ${SUFIXO}`
+  const SEM_CUSTO = `${TEST_TAG} Sem custo ${SUFIXO}`
+
+  test.beforeAll(async () => {
+    const v = await createTestVehicle()
+    moto = v.id
+    const contrato = await createTestContract(moto)
+    cliente = contrato.customerId
+    locacao = contrato.contractId
+
+    const tenantId = await getTestTenantId()
+    const hoje = new Date().toISOString().slice(0, 10)
+
+    for (const descricao of [COM_CUSTO, SEM_CUSTO]) {
+      const { data, error } = await admin()
+        .from('maintenances')
+        .insert({
+          tenant_id: tenantId, vehicle_id: moto, type: 'corrective',
+          description: descricao, scheduled_date: hoje,
+        })
+        .select('id')
+        .single()
+      if (error) throw new Error(`Setup falhou: ${error.message}`)
+
+      // Só a primeira vira dinheiro — a segunda é a contraprova.
+      if (descricao === COM_CUSTO) {
+        const r = await registerCost(admin(), tenantId, null, {
+          maintenance_id: (data as { id: string }).id,
+          amount: 200, customer_amount: 0,
+          executor: 'company', due_date: hoje,
+        })
+        expect(r.ok, 'setup: o custo precisa ser lançado').toBe(true)
+      }
+    }
+  })
+
+  test.afterAll(async () => {
+    const { data } = await admin().from('maintenances').select('id').eq('vehicle_id', moto)
+    for (const m of (data ?? []) as { id: string }[]) {
+      await admin().from('payables').delete().eq('source_module', 'maintenance').eq('source_id', m.id)
+    }
+    await admin().from('maintenances').delete().eq('vehicle_id', moto)
+    await admin().from('rentals').delete().eq('id', locacao)
+    await deleteTestCustomer(cliente).catch(() => {})
+    await deleteTestVehicle(moto).catch(() => {})
+  })
+
+  /** A lista abre em "Vencidas"; "Limpar" traz tudo. */
+  async function abrirExclusao(page: import('@playwright/test').Page, descricao: string) {
+    await page.goto('/manutencao')
+    await waitForPageLoad(page)
+    await page.getByRole('button', { name: /limpar/i }).click()
+    const linha = page.locator('tr', { hasText: descricao }).first()
+    await expect(linha).toBeVisible({ timeout: 15_000 })
+    await linha.getByTitle('Excluir').click()
+    const modal = modalAberto(page)
+    await expect(modal).toBeVisible({ timeout: 10_000 })
+    return modal
+  }
+
+  test('com custo lançado: a mensagem está no modal e o botão fica desabilitado', async ({ page }) => {
+    const modal = await abrirExclusao(page, COM_CUSTO)
+
+    await expect(
+      modal.getByText(/já tem custo lançado/i),
+      'a recusa tem de estar no modal, não num alert do navegador',
+    ).toBeVisible({ timeout: 10_000 })
+
+    // O caminho de saída precisa estar dito, não só a negativa.
+    await expect(modal.getByText(/Despesas/)).toBeVisible()
+
+    await expect(
+      modal.getByRole('button', { name: /^excluir$/i }),
+      'o botão não pode aceitar um clique que o servidor vai recusar',
+    ).toBeDisabled()
+  })
+
+  test('sem custo: confirma normalmente e o botão está habilitado', async ({ page }) => {
+    // Contraprova: o bloqueio é do impedimento, não da tela inteira.
+    const modal = await abrirExclusao(page, SEM_CUSTO)
+
+    await expect(modal.getByText(/tem certeza que deseja excluir/i)).toBeVisible({ timeout: 10_000 })
+    await expect(modal.getByRole('button', { name: /^excluir$/i })).toBeEnabled()
   })
 })

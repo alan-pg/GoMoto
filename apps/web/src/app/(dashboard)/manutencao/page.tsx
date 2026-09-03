@@ -22,6 +22,7 @@ import {
   createMaintenance,
   updateMaintenance,
   deleteMaintenance,
+  checkMaintenanceDeletableAction,
   updateVehicleKm,
   registerMaintenanceCost,
 } from './actions'
@@ -397,6 +398,12 @@ export default function MaintenancePage() {
   
   // [deletingId, setDeletingId]: Armazena temporariamente o ID do item focado para exclusão antes do aceite de confirmação.
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  /**
+   * Impedimento à exclusão, perguntado ao ABRIR o modal.
+   * `null` enquanto a resposta não chegou — o botão fica desabilitado até lá,
+   * para ninguém confirmar uma exclusão que o servidor vai recusar.
+   */
+  const [deleteBlock, setDeleteBlock] = useState<{ ok: boolean; message?: string } | null>(null)
   
   // [kmForm, setKmForm]: Representa o mini-estado para o modal embutido de atualização ágil da KM atual de uma moto.
   const [kmForm, setKmForm] = useState({ vehicle_id: '', km_current: '' })
@@ -619,6 +626,7 @@ export default function MaintenancePage() {
   const closeDeleteModal = useCallback(() => {
     setIsDeleteModalOpen(false)
     setDeletingId(null)
+    setDeleteBlock(null)
   }, [])
 
   /**
@@ -782,7 +790,10 @@ export default function MaintenancePage() {
   const handleDelete = useCallback(async () => {
     if (!deletingId) return
     const res = await deleteMaintenance(deletingId)
-    if (res.error) { alert(`Erro ao excluir: ${res.error}`); return }
+    // A recusa do servidor cai no MESMO lugar da verificação de abertura: entre
+    // abrir o modal e confirmar, alguém pode ter lançado o custo. Antes isto era
+    // um `alert()` do navegador, que tirava a mensagem de perto da decisão.
+    if (res.error) { setDeleteBlock({ ok: false, message: res.error }); return }
     closeDeleteModal()
     invalidateMaintenances()
   }, [deletingId, closeDeleteModal, invalidateMaintenances])
@@ -988,9 +999,13 @@ export default function MaintenancePage() {
    * @description Armazena Id e mostra janela modal de advertência.
    * @param {string} id - Id alocada pro banco excluir depois.
    */
-  const handleOpenDelete = useCallback((id: string) => {
+  const handleOpenDelete = useCallback(async (id: string) => {
     setDeletingId(id)
+    setDeleteBlock(null)
     setIsDeleteModalOpen(true)
+    // O modal abre já: a espera é do TEXTO, não da janela. Abrir depois da
+    // resposta faria o clique parecer perdido.
+    setDeleteBlock(await checkMaintenanceDeletableAction(id))
   }, [])
 
   /**
@@ -2132,13 +2147,34 @@ export default function MaintenancePage() {
         </div>
       </Modal>
 
-      {/* MODAL 4: CONFIRMAÇÃO DE DELEÇÃO — Impede cliques acidentais de destruirem histórico da base. */}
+      {/* MODAL 4: CONFIRMAÇÃO DE DELEÇÃO — Impede cliques acidentais de destruirem
+          histórico da base, e diz de saída quando a exclusão nem é possível. */}
       <Modal open={isDeleteModalOpen} onClose={closeDeleteModal} title="Confirmar Exclusão" size="sm">
         <div className="space-y-4">
-          <p className="text-[13px] text-fg">Tem certeza que deseja excluir esta manutenção? Esta ação não pode ser desfeita.</p>
+          {deleteBlock === null ? (
+            <p className="text-[13px] text-fg-mute">Verificando se esta manutenção pode ser excluída…</p>
+          ) : deleteBlock.ok ? (
+            <p className="text-[13px] text-fg">Tem certeza que deseja excluir esta manutenção? Esta ação não pode ser desfeita.</p>
+          ) : (
+            <div className="flex items-start gap-2 rounded-xl border border-danger bg-danger-bg p-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+              <p className="text-[13px] leading-relaxed text-danger">{deleteBlock.message}</p>
+            </div>
+          )}
           <div className="flex justify-end gap-3 border-t border-divider pt-4">
-            <Button variant="secondary" onClick={closeDeleteModal}>Cancelar</Button>
-            <Button variant="danger" onClick={handleDelete}>Excluir</Button>
+            <Button variant="secondary" onClick={closeDeleteModal}>
+              {deleteBlock?.ok === false ? 'Fechar' : 'Cancelar'}
+            </Button>
+            {/* Desabilitado, não escondido: sumir com o botão faria parecer que a
+                tela não oferece a exclusão. Ele fica visível e inerte, e o texto
+                acima diz o que precisa acontecer antes. */}
+            <Button
+              variant="danger"
+              onClick={handleDelete}
+              disabled={deleteBlock === null || deleteBlock.ok === false}
+            >
+              Excluir
+            </Button>
           </div>
         </div>
       </Modal>
