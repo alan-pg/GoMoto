@@ -167,11 +167,12 @@ export async function registerCost(
 // ---------------------------------------------------------------------------
 
 export type DeleteCheck =
-  | { ok: true }
+  | { ok: true; /** O que a exclusão vai desfazer, para o modal avisar antes. */
+      undoes: { amount: number; chargeId: string | null; creditAmount: number } | null }
   | { ok: false; message: string }
 
 /**
- * Diz se a manutenção pode ser apagada.
+ * Diz o que a exclusão da manutenção vai desfazer — e o que a impede.
  *
  * `deleteMaintenance` era um `delete` seco. Manutenção com custo registrado
  * gera conta a pagar, lançamento no razão e — quando o cliente executou —
@@ -179,10 +180,17 @@ export type DeleteCheck =
  * o cliente seguia com R$ 100 de crédito por um serviço que já não existia, e a
  * despesa continuava no DRE.
  *
- * O razão é append-only de propósito (Princípio 3): o certo não é apagar
- * lançamento, é estornar — e estorno de despesa já tem dono, `cancelPayable`,
- * que desfaz o custo E cancela a cobrança de repasse na mesma operação. Então
- * aqui não se inventa uma cascata paralela: recusa-se, apontando o caminho.
+ * A primeira correção foi RECUSAR, apontando o caminho. Só que para o caso do
+ * cliente executor não havia caminho: o payable nasce `paid`, `cancelPayable`
+ * recusava payable pago, e esta função só liberava com ele `cancelled` — a
+ * manutenção ficava presa para sempre, sob uma mensagem que dizia "antes de
+ * excluir" e prometia um destravamento que nunca chegava.
+ *
+ * Desde a ADR 0029 a exclusão CASCATEIA: `fn_cancel_payable` desfaz despesa,
+ * cobrança de repasse e crédito numa transação só. Esta função deixou de ser
+ * porteira e virou aviso — diz o que vai ser desfeito, para o operador
+ * confirmar sabendo, e só barra nos dois casos em que dinheiro de TERCEIRO se
+ * moveu e desfazer é decisão dele.
  *
  * A pergunta usa o mesmo par `(source_module, source_id)` de `registerCost`.
  * Conta cancelada não bloqueia: aí o dinheiro já foi desfeito.
@@ -194,7 +202,7 @@ export async function checkMaintenanceDeletable(
 ): Promise<DeleteCheck> {
   const { data, error } = await supabase
     .from('payables')
-    .select('id, reimbursement')
+    .select('id, amount, customer_id, source_module, source_id')
     .eq('tenant_id', tenantId)
     .eq('source_module', 'maintenance')
     .eq('source_id', maintenanceId)
@@ -204,17 +212,90 @@ export async function checkMaintenanceDeletable(
   if (error) {
     return { ok: false, message: `Não foi possível verificar o custo da manutenção: ${error.message}` }
   }
-  if (!data) return { ok: true }
+  if (!data) return { ok: true, undoes: null }
 
-  const p = data as { reimbursement: string }
-  return {
-    ok: false,
-    message: p.reimbursement === 'credit'
-      ? 'Esta manutenção foi paga pelo cliente e gerou crédito a favor dele. '
-        + 'Excluí-la deixaria o crédito sem origem. Acerte o valor em Cobranças '
-        + '(estorno do crédito ou cobrança avulsa) antes de excluir.'
-      : 'Esta manutenção já tem custo lançado. Cancele a despesa correspondente '
-        + 'em Despesas — o que estorna o razão e a cobrança de repasse — e só '
-        + 'então exclua a manutenção.',
+  const p = data as {
+    id: string; amount: number; customer_id: string | null
+    source_module: string; source_id: string | null
   }
+
+  // Cobrança de repasse: o cliente pagou por algo que não aconteceu, e tem
+  // direito de volta. Estorno é fato próprio, com motivo e trilha próprios —
+  // escondê-lo dentro de uma exclusão seria pior que barrar.
+  const { data: cobranca } = await supabase
+    .from('charge_balances')
+    .select('charge_id, charge_number, paid_amount')
+    .eq('tenant_id', tenantId)
+    .eq('charge_id', await chargeIdOf(supabase, tenantId, p))
+    .maybeSingle()
+
+  const c = cobranca as { charge_id: string; charge_number: number; paid_amount: number } | null
+
+  if (c && c.paid_amount > 0) {
+    return {
+      ok: false,
+      message: `A cobrança de repasse #${c.charge_number} já recebeu pagamento. `
+        + 'Estorne o pagamento nela antes de excluir a manutenção — o cliente pagou por '
+        + 'isto e tem direito de volta.',
+    }
+  }
+
+  // Crédito: intacto, é desfeito junto. Já gasto ou devolvido, o cliente se
+  // beneficiou e a exclusão não pode simplesmente apagar isso.
+  const { data: credito } = await supabase
+    .from('customer_credits')
+    .select('id, amount, customer_id')
+    .eq('tenant_id', tenantId)
+    .eq('payable_id', p.id)
+    .is('cancelled_at', null)
+    .maybeSingle()
+
+  const cr = credito as { id: string; amount: number; customer_id: string } | null
+  let creditAmount = 0
+
+  if (cr) {
+    const { data: saldoRow } = await supabase
+      .from('customer_credit_balances')
+      .select('balance')
+      .eq('tenant_id', tenantId)
+      .eq('customer_id', cr.customer_id)
+      .maybeSingle()
+
+    const saldo = Number((saldoRow as { balance: number } | null)?.balance ?? 0)
+
+    if (saldo < cr.amount) {
+      return {
+        ok: false,
+        message: 'O crédito gerado para o cliente já foi usado ou devolvido. Estorne o '
+          + 'abatimento na cobrança em que ele foi aplicado — isso devolve o saldo e '
+          + 'libera a exclusão.',
+      }
+    }
+    creditAmount = cr.amount
+  }
+
+  return {
+    ok: true,
+    undoes: { amount: p.amount, chargeId: c?.charge_id ?? null, creditAmount },
+  }
+}
+
+/** A cobrança de repasse nasce com a origem do payable — ou com o próprio id. */
+async function chargeIdOf(
+  supabase: SupabaseClient,
+  tenantId: string,
+  p: { id: string; source_module: string; source_id: string | null },
+): Promise<string> {
+  const { data } = await supabase
+    .from('charges')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('source_module', p.source_module)
+    .eq('source_id', p.source_id ?? p.id)
+    .neq('status', 'cancelled')
+    .maybeSingle()
+
+  // Sem cobrança, devolve um id impossível para a consulta seguinte não casar
+  // com linha alguma — mais simples que ramificar o chamador.
+  return (data as { id: string } | null)?.id ?? '00000000-0000-0000-0000-000000000000'
 }

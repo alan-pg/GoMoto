@@ -167,7 +167,7 @@ export async function payPayable(
 }
 
 /**
- * Cancela a conta a pagar, estornando o razão e a cobrança de repasse.
+ * Cancela a conta a pagar e desfaz tudo que o lançamento criou (ADR 0029).
  *
  * Cancelar marcava só `payables.status` e ia embora. O lançamento de
  * `payable_created` continuava lá: o custo permanecia no DRE para sempre e
@@ -175,116 +175,70 @@ export async function payPayable(
  * cobrança do cliente sobrevivia, cobrando por um custo que a empresa acabara
  * de dizer que não teve.
  *
+ * Depois disso passou a estornar, mas em passos soltos daqui: ler o payable,
+ * cancelar a cobrança, marcar o status, estornar a transação. Falha no meio
+ * deixava metade desfeita — e a guarda do crédito depende de SALDO DERIVADO
+ * (`customer_credit_balances`), então ler-decidir-escrever solto deixa dois
+ * operadores desfazerem o mesmo crédito.
+ *
+ * Agora é uma transação só, no banco, sob trava do payable e do cliente. Aqui
+ * ficou o que é de tela: traduzir código de erro em frase que o operador
+ * entende, com o próximo passo dentro dela.
+ *
  * A simetria é a regra: cancelar estorna exatamente o que a criação lançou.
  * Nem mais, nem menos.
  */
+export type CancelPayableResult = {
+  cancelledChargeId: string | null
+  cancelledCreditId: string | null
+  reversedTransactions: number
+}
+
 export async function cancelPayable(
   supabase: SupabaseClient,
   tenantId: string,
   payableId: string,
+  reason: string,
   createdBy?: string | null,
-): Promise<void> {
-  const { data, error } = await supabase
-    .from('payables')
-    .select('id, description, amount, status, expense_account_code, customer_id, vehicle_id, rental_id, source_module, source_id')
-    .eq('id', payableId)
-    .eq('tenant_id', tenantId)
-    .maybeSingle()
+): Promise<CancelPayableResult> {
+  const { data, error } = await supabase.rpc('fn_cancel_payable', {
+    p_tenant_id: tenantId,
+    p_payable_id: payableId,
+    p_reason: reason,
+    p_created_by: createdBy ?? null,
+  })
 
-  if (error) throw new Error(`Falha ao ler conta a pagar: ${error.message}`)
-  if (!data) throw new Error('Conta a pagar não encontrada')
-
-  const p = data as {
-    id: string; description: string; amount: number; status: string
-    expense_account_code: AccountCode
-    customer_id: string | null; vehicle_id: string | null; rental_id: string | null
-    source_module: string; source_id: string | null
+  if (error) {
+    // As duas primeiras são as recusas do ADR 0029: dinheiro de terceiro se
+    // moveu, e desfazer isso é decisão dele, não efeito colateral. A mensagem
+    // aponta o botão que já existe.
+    if (error.message.includes('CHARGE_HAS_PAYMENT')) {
+      throw new Error(
+        'A cobrança de repasse já recebeu pagamento. Estorne o pagamento na cobrança '
+        + 'e depois cancele — o cliente pagou por isto e tem direito de volta.',
+      )
+    }
+    if (error.message.includes('CREDIT_ALREADY_USED')) {
+      throw new Error(
+        'O crédito gerado já foi usado ou devolvido ao cliente. Estorne o abatimento na '
+        + 'cobrança em que ele foi aplicado — isso devolve o saldo e libera o cancelamento.',
+      )
+    }
+    if (error.message.includes('PAYABLE_ALREADY_CANCELLED')) throw new Error('Conta já está cancelada.')
+    if (error.message.includes('PAYABLE_NOT_FOUND')) throw new Error('Conta a pagar não encontrada')
+    if (error.message.includes('CANCEL_REASON_REQUIRED')) throw new Error('Informe o motivo do cancelamento.')
+    throw new Error(`Falha ao cancelar conta: ${error.message}`)
   }
 
-  // Quitada não se cancela: o estorno correto depende do que a criação lançou,
-  // e aqui só sabemos inverter o par despesa/contas_a_pagar. Despesa paga pelo
-  // CLIENTE nasce quitada, então cai neste mesmo bloqueio — e nesse caso o
-  // operador precisa saber que o caminho é outro, não que o sistema travou.
-  if (p.status === 'paid') {
-    throw new Error(
-      p.customer_id
-        ? 'Despesa quitada não pode ser cancelada por aqui. Se ela foi paga pelo cliente e está errada, '
-          + 'registre o acerto como crédito ou cobrança avulsa — o razão não aceita apagar lançamento.'
-        : 'Conta já paga não pode ser cancelada.',
-    )
-  }
-  if (p.status === 'cancelled') throw new Error('Conta já está cancelada.')
-
-  // A cobrança de repasse primeiro: se ela já recebeu pagamento, `cancelCharge`
-  // recusa, e nada deve ser desfeito — cancelar a despesa deixando o cliente
-  // cobrado seria pior que não cancelar.
-  //
-  // A origem da cobrança é `COALESCE(source_id, id)` do payable: despesa
-  // avulsa, lançada pela tela, não tem registro de origem e usa o próprio id.
-  // Enquanto isto exigia `source_id` preenchido, o cancelamento pulava a busca
-  // justamente no caso mais comum — e a cobrança do cliente sobrevivia.
-  const origem = p.source_id ?? payableId
-
-  const { data: repasse } = await supabase
-    .from('charges')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .eq('source_module', p.source_module)
-    .eq('source_id', origem)
-    .neq('status', 'cancelled')
-    .maybeSingle()
-
-  const r = repasse as { id: string } | null
-  if (r) {
-    await cancelCharge(supabase, tenantId, r.id, `Despesa cancelada — ${p.description}`, createdBy)
+  const r = (data ?? {}) as {
+    cancelled_charge_id?: string | null
+    cancelled_credit_id?: string | null
+    reversed_transactions?: number
   }
 
-  const { error: updateError } = await supabase
-    .from('payables')
-    .update({ status: 'cancelled' })
-    .eq('id', payableId)
-    .eq('tenant_id', tenantId)
-
-  if (updateError) throw new Error(`Falha ao cancelar conta: ${updateError.message}`)
-
-  // Qual transação este cancelamento desfaz. A contrapartida sozinha zera os
-  // saldos, mas não diz o que ela estorna: sem o vínculo, quem lê o razão vê
-  // dois lançamentos independentes e não consegue reconstruir a correção.
-  // `reverseTransaction` já existia para isso e só o estorno de pagamento a
-  // usava.
-  const { data: original } = await supabase
-    .from('financial_transactions')
-    .select('id, financial_entries!inner(payable_id)')
-    .eq('tenant_id', tenantId)
-    .eq('event_type', 'payable_created')
-    .eq('financial_entries.payable_id', payableId)
-    .maybeSingle()
-
-  const originalId = (original as { id: string } | null)?.id
-
-  const lancamento = {
-    event: {
-      type: 'payable_cancelled' as const,
-      amount: p.amount,
-      expense_account: p.expense_account_code,
-      dimensions: dimensionsOf({
-        customerId: p.customer_id,
-        vehicleId: p.vehicle_id,
-        rentalId: p.rental_id,
-        payableId,
-      }),
-    },
-    description: `Cancelamento — ${p.description}`,
-    sourceModule: 'payable',
-    sourceId: payableId,
-    createdBy,
-  }
-
-  // Sem a original localizada, o estorno ainda precisa acontecer — perder o
-  // vínculo é ruim, deixar saldo errado é pior.
-  if (originalId) {
-    await reverseTransaction(supabase, tenantId, originalId, lancamento)
-  } else {
-    await postTransaction(supabase, tenantId, lancamento)
+  return {
+    cancelledChargeId: r.cancelled_charge_id ?? null,
+    cancelledCreditId: r.cancelled_credit_id ?? null,
+    reversedTransactions: r.reversed_transactions ?? 0,
   }
 }

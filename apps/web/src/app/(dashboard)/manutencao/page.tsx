@@ -403,7 +403,11 @@ export default function MaintenancePage() {
    * `null` enquanto a resposta não chegou — o botão fica desabilitado até lá,
    * para ninguém confirmar uma exclusão que o servidor vai recusar.
    */
-  const [deleteBlock, setDeleteBlock] = useState<{ ok: boolean; message?: string } | null>(null)
+  const [deleteBlock, setDeleteBlock] = useState<
+    | { ok: true; undoes: { amount: number; chargeId: string | null; creditAmount: number } | null }
+    | { ok: false; message: string }
+    | null
+  >(null)
   
   // [kmForm, setKmForm]: Representa o mini-estado para o modal embutido de atualização ágil da KM atual de uma moto.
   const [kmForm, setKmForm] = useState({ vehicle_id: '', km_current: '' })
@@ -2154,7 +2158,27 @@ export default function MaintenancePage() {
           {deleteBlock === null ? (
             <p className="text-[13px] text-fg-mute">Verificando se esta manutenção pode ser excluída…</p>
           ) : deleteBlock.ok ? (
-            <p className="text-[13px] text-fg">Tem certeza que deseja excluir esta manutenção? Esta ação não pode ser desfeita.</p>
+            <>
+              <p className="text-[13px] text-fg">Tem certeza que deseja excluir esta manutenção? Esta ação não pode ser desfeita.</p>
+              {/* O que a cascata desfaz junto (ADR 0029). Excluir uma manutenção
+                  que virou dinheiro estorna despesa, cobrança e crédito — o
+                  operador precisa saber disso ANTES de confirmar, não descobrir
+                  no DRE depois. */}
+              {deleteBlock.undoes && (
+                <div className="rounded-xl bg-surface px-4 py-3">
+                  <p className="text-[13px] text-fg-mute">Também será desfeito:</p>
+                  <ul className="mt-2 space-y-1 text-[13px] text-fg">
+                    <li>· Despesa de {formatCurrency(deleteBlock.undoes.amount)} — sai do resultado e do caixa</li>
+                    {deleteBlock.undoes.chargeId && (
+                      <li>· A cobrança de repasse ao cliente, cancelada</li>
+                    )}
+                    {deleteBlock.undoes.creditAmount > 0 && (
+                      <li>· O crédito de {formatCurrency(deleteBlock.undoes.creditAmount)} a favor do cliente</li>
+                    )}
+                  </ul>
+                </div>
+              )}
+            </>
           ) : (
             <div className="flex items-start gap-2 rounded-xl border border-danger bg-danger-bg p-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />

@@ -1034,6 +1034,52 @@ o gateway. O guard achou um terceiro `select` incompleto que ninguém tinha vist
 
 ---
 
+## 10.14 Manutenção lançada por engano não saía (2026-09-03)
+
+Pergunta da passada de QA: como cancelar uma manutenção executada pelo cliente
+que gerou crédito? Resposta encontrada no código: **não dava**.
+
+`fn_create_payable` cria o payable já `paid` quando quem pagou foi o cliente —
+a empresa nunca teve o que pagar. `cancelPayable` recusava qualquer payable
+`paid`, e `checkMaintenanceDeletable` só liberava com ele `cancelled`. Sem
+estado alcançável, a manutenção ficava presa para sempre, sob uma mensagem que
+prometia "antes de excluir".
+
+Pior: o contorno que a própria mensagem sugeria — cobrança avulsa em Cobranças —
+credita `receita_locacao`, cravado no código sem seletor de conta, e essa conta
+tem `default_in_tax_base = true`. **O estorno viraria receita tributável.** A
+conta correta seria `repasse_manutencao` (`expense_recovery`, fora da base), que
+existe no plano e a tela não oferece. E "estorno de crédito" nem existe como
+operação: só `fn_apply_customer_credit` e `fn_settle_customer_credit`.
+
+A [[decisions/0029-cancelar-manutencao-desfaz-o-que-ela-criou|ADR 0029]] trocou
+a recusa por cascata. `fn_cancel_payable` desfaz tudo numa transação, e
+`cancelPayable` virou casca fina — deixou de ser orquestração solta, que era o
+mesmo padrão de ler-decidir-escrever já corrigido três vezes neste projeto.
+
+### O crédito é um pool, não uma linha
+
+"Não permitir excluir se o crédito já foi usado" não é implementável como dito:
+o saldo é um pool por cliente (o seletor de crédito foi removido justamente
+porque escolher entre linhas era decisão sem efeito). O critério que preserva a
+intenção é **o saldo cobrir a concessão** — a empresa retira o que concedeu sem
+deixar o cliente a descoberto. Cliente com R$ 500 de crédito e uma concessão
+errada de R$ 50 pode ter a manutenção excluída mesmo tendo gasto crédito;
+cliente cujo saldo caiu abaixo de R$ 50, não.
+
+### Dois portões que não enxergavam
+
+O CHECK `payables_paid_has_date` recusou o primeiro `UPDATE ... SET status =
+'cancelled'`: cancelar payable pago exige limpar `paid_at`. O banco pegou o que
+nenhum teste teria pego, porque o caminho nunca existira.
+
+E `apps/web/tsconfig.json` traz `exclude: ["node_modules", "tests"]` — mudar a
+assinatura de `cancelPayable` (que ganhou `reason`) **não** quebrou o
+`typecheck`. Dois specs só falharam ao rodar. Vale considerar typechecar
+`tests/`.
+
+---
+
 ## 11. Aprovação
 
 Aprovada em 2026-08-12 por Alan. Modalidade de execução: substituição total (big-bang), decisão registrada com o risco aceito na ADR 0024.

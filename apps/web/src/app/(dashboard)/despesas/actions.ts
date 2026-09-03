@@ -196,15 +196,21 @@ export async function cancelExpenseAction(
 
   if (readError) return fail('INTERNAL', readError.message)
   if (!payable) return fail('NOT_FOUND', 'Despesa não encontrada')
-  if ((payable as { status: string }).status === 'paid') {
-    return fail('CONFLICT', 'Despesa já paga não pode ser cancelada.')
-  }
 
+  // Despesa PAGA já foi recusada aqui. Deixou de ser: desde a ADR 0029 o
+  // cancelamento estorna a baixa junto — o caixa é próprio, e o estorno só
+  // reconhece que a saída não devia ter sido lançada. Manter a recusa criaria
+  // incoerência: cancelar pela manutenção desfazia a mesma despesa que esta
+  // tela dizia ser intocável.
+  //
   // Delega a `cancelPayable`: marcar o status aqui deixava o lançamento de
   // `payable_created` no razão — custo eterno no DRE e passivo fantasma — e a
   // cobrança de repasse viva, cobrando o cliente por um custo negado.
   try {
-    await cancelPayable(ctx.supabase, ctx.tenantId, payableId, ctx.userId)
+    await cancelPayable(
+      ctx.supabase, ctx.tenantId, payableId,
+      'Despesa cancelada pelo operador', ctx.userId,
+    )
   } catch (err) {
     return fail('INTERNAL', err instanceof Error ? err.message : String(err))
   }

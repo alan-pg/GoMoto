@@ -158,7 +158,7 @@ test.describe('Baixa de despesa', () => {
 
   test('conta cancelada não pode ser paga', async () => {
     const payableId = await despesaAberta(150, 'cancelada')
-    await cancelPayable(admin(), tenantId, payableId)
+    await cancelPayable(admin(), tenantId, payableId, 'teste de cancelamento')
 
     await expect(payPayable(admin(), tenantId, payableId, hoje())).rejects.toThrow(/cancelada/i)
 

@@ -8,6 +8,7 @@ import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { z } from 'zod'
 import type { ActionResult } from '@gomoto/core'
 import { registerCost, checkMaintenanceDeletable } from '@/lib/financial/maintenance-cost'
+import { cancelPayable } from '@/lib/financial/payables'
 
 export async function uploadMaintenancePhoto(formData: FormData, prefix: string): Promise<string | null> {
   const file = formData.get('file') as File | null
@@ -125,7 +126,7 @@ export async function updateMaintenance(id: string, rawData: unknown) {
  */
 export async function checkMaintenanceDeletableAction(
   id: string,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<import('@/lib/financial/maintenance-cost').DeleteCheck> {
   const { supabase, user } = await getAuthenticatedUser()
   if (!user) return { ok: false, message: 'Não autorizado' }
 
@@ -164,6 +165,33 @@ export async function deleteMaintenance(id: string) {
   if (!permitido.ok) return { error: permitido.message }
 
   const { data: before } = await supabase.from('maintenances').select().eq('id', id).single()
+
+  // Cascata antes de apagar (ADR 0029): despesa, cobrança de repasse e crédito
+  // caem numa transação só. A checagem acima é aviso, não guarda — entre ela e
+  // aqui alguém pode receber a cobrança, e é `fn_cancel_payable`, sob trava,
+  // que decide de verdade.
+  const { data: payable } = await supabase
+    .from('payables')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('source_module', 'maintenance')
+    .eq('source_id', id)
+    .neq('status', 'cancelled')
+    .maybeSingle()
+
+  const p = payable as { id: string } | null
+  if (p) {
+    try {
+      await cancelPayable(
+        supabase, tenantId, p.id,
+        `Manutenção excluída — ${(before as { description?: string } | null)?.description ?? id}`,
+        user.id,
+      )
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
   const { error } = await supabase.from('maintenances').delete().eq('id', id)
 
   if (error) {

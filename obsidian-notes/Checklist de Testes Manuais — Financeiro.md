@@ -958,13 +958,16 @@ Casos que já falharam em produção ou em teste. Vale reconferir a cada release
 - [x] Tente excluir a manutenção do caso 3.4 (com custo lançado).
 
 **Verificar:**
-- [x] O sistema **recusa** e diz para cancelar a despesa antes — a mensagem
-      aparece **dentro do modal de confirmação**, ao abri-lo, e o botão
-      **Excluir** já vem desabilitado. Nada de confirmar para só então ouvir não.
-- [x] Se a manutenção foi paga pelo cliente, a mensagem é outra: fala do
-      **crédito** que ficaria sem origem, e aponta Cobranças.
-- [x] Manutenção **sem** custo abre o modal normal, com o botão habilitado.
-- [ ] Depois de cancelar a despesa, a exclusão passa.
+- [x] O modal de confirmação **avisa o que sai junto** — despesa, cobrança de
+      repasse e crédito —, e a exclusão os desfaz numa transação só (ADR 0029).
+- [x] Depois de excluir, **nada sobra nas contas**: o custo some do DRE, o caixa
+      volta e o saldo de crédito do cliente cai pelo valor concedido.
+- [x] Se a **cobrança de repasse já foi paga**, recusa e manda estornar o
+      pagamento antes; o botão **Excluir** vem desabilitado.
+- [x] Se o **crédito não é mais coberto pelo saldo** do cliente, recusa e manda
+      estornar o abatimento na cobrança onde ele foi usado.
+- [x] Manutenção **sem** custo abre o modal normal, sem aviso e com o botão
+      habilitado.
 
 ### 13.3 Rateio no atalho "Já executada"
 

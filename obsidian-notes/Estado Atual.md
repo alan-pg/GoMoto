@@ -91,6 +91,29 @@ verificado nos dois sentidos.
 `late_charge_amount` faltarem no `select` — coluna ausente virava `NaN`, que
 atravessava a conta inteira sem reclamar.
 
+## 🧹 Cancelar desfaz o que o lançamento criou
+
+[[decisions/0029-cancelar-manutencao-desfaz-o-que-ela-criou|ADR 0029]]
+(2026-09-03). Manutenção lançada por engano ficava presa: o payable do cliente
+executor nasce `paid`, `cancelPayable` recusava payable pago, e a checagem de
+exclusão só liberava com ele `cancelled`. A recusa mandava "acerte em Cobranças
+antes de excluir" — e "antes" nunca chegava.
+
+Hoje `fn_cancel_payable` desfaz despesa, cobrança de repasse e crédito **numa
+transação**, sob trava do payable e do cliente. Toda conta tocada volta a zero:
+custo e recuperação saem do DRE, o caixa volta, o saldo de crédito cai pelo
+valor concedido e o payable sai de contas a pagar.
+
+Duas recusas, ambas quando dinheiro de **terceiro** se moveu: cobrança de
+repasse já paga (estorne o pagamento antes) e crédito que o saldo do cliente já
+não cobre. Baixa de despesa é estornada junto — caixa próprio, e o estorno só
+reconhece que a saída não devia ter sido lançada; era o único lançamento de
+dinheiro sem reversão no sistema.
+
+**O crédito é um POOL**, não uma linha rastreável: não há como saber se *aquele*
+crédito foi gasto. O critério é o saldo cobrir a concessão — assim a empresa
+retira o que concedeu sem deixar o cliente a descoberto.
+
 ## 💸 Crédito do cliente: as duas formas de quitar
 
 Crédito é passivo — dívida da empresa com o cliente, nascida quando ele

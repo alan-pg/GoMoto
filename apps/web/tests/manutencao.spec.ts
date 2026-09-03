@@ -163,22 +163,24 @@ test.describe('Manutenção — CRUD', () => {
 })
 
 /**
- * Exclusão recusada: a tela diz ANTES, não depois de confirmar.
+ * Exclusão com custo: a tela diz ANTES o que vai desfazer.
  *
  * `deleteMaintenance` já recusava manutenção com custo lançado — mas só depois
  * do clique em "Excluir", e a recusa saía num `alert()` do navegador. O
  * operador confirmava uma exclusão e recebia um erro, com a mensagem longe da
  * decisão que ele tinha acabado de tomar.
  *
- * Agora o modal pergunta ao abrir: com impedimento, o texto explica o caminho
- * (cancelar a despesa, que estorna o razão e a cobrança de repasse) e o botão
- * nasce desabilitado. A recusa do servidor continua de pé — entre abrir e
- * confirmar, alguém pode lançar o custo.
+ * Agora o modal pergunta ao abrir. Desde a ADR 0029 a exclusão CASCATEIA —
+ * despesa, cobrança de repasse e crédito são desfeitos numa transação — então
+ * o modal deixou de recusar no caso comum e passou a AVISAR o que sai junto.
+ * Só barra quando dinheiro de terceiro se moveu, e aí o botão nasce
+ * desabilitado com o próximo passo escrito.
  */
-test.describe('Exclusão de manutenção — o impedimento aparece no modal', () => {
+test.describe('Exclusão de manutenção — o modal avisa o que sai junto', () => {
   let moto = ''
   let cliente = ''
   let locacao = ''
+  let comCustoId = ''
   const COM_CUSTO = `${TEST_TAG} Custo lancado ${SUFIXO}`
   const SEM_CUSTO = `${TEST_TAG} Sem custo ${SUFIXO}`
 
@@ -205,6 +207,7 @@ test.describe('Exclusão de manutenção — o impedimento aparece no modal', ()
 
       // Só a primeira vira dinheiro — a segunda é a contraprova.
       if (descricao === COM_CUSTO) {
+        comCustoId = (data as { id: string }).id
         const r = await registerCost(admin(), tenantId, null, {
           maintenance_id: (data as { id: string }).id,
           amount: 200, customer_amount: 0,
@@ -239,21 +242,36 @@ test.describe('Exclusão de manutenção — o impedimento aparece no modal', ()
     return modal
   }
 
-  test('com custo lançado: a mensagem está no modal e o botão fica desabilitado', async ({ page }) => {
+  test('com custo lançado: o modal avisa o que será desfeito e deixa excluir', async ({ page }) => {
     const modal = await abrirExclusao(page, COM_CUSTO)
 
     await expect(
-      modal.getByText(/já tem custo lançado/i),
-      'a recusa tem de estar no modal, não num alert do navegador',
+      modal.getByText(/também será desfeito/i),
+      'o operador precisa saber que a despesa cai junto antes de confirmar',
     ).toBeVisible({ timeout: 10_000 })
-
-    // O caminho de saída precisa estar dito, não só a negativa.
-    await expect(modal.getByText(/Despesas/)).toBeVisible()
+    await expect(modal.getByText(/R\$\s*200,00/)).toBeVisible()
 
     await expect(
       modal.getByRole('button', { name: /^excluir$/i }),
-      'o botão não pode aceitar um clique que o servidor vai recusar',
-    ).toBeDisabled()
+      'com o dinheiro desfeito junto, não há o que barrar',
+    ).toBeEnabled()
+  })
+
+  test('a exclusão desfaz a despesa: nada sobra no razão', async ({ page }) => {
+    const modal = await abrirExclusao(page, COM_CUSTO)
+    await modal.getByRole('button', { name: /^excluir$/i }).click()
+    await expect(page.locator('tr', { hasText: COM_CUSTO })).toHaveCount(0, { timeout: 15_000 })
+
+    const { data: pay } = await admin()
+      .from('payables').select('id, status')
+      .eq('source_module', 'maintenance').eq('source_id', comCustoId).maybeSingle()
+    expect((pay as { status: string } | null)?.status, 'a despesa tinha de sair junto').toBe('cancelled')
+
+    const { data: entradas } = await admin()
+      .from('financial_entries').select('amount_signed').eq('payable_id', (pay as { id: string }).id)
+    const soma = ((entradas ?? []) as { amount_signed: number }[])
+      .reduce((t, e) => t + Number(e.amount_signed), 0)
+    expect(Math.round(soma * 100) / 100, 'o custo não pode continuar no resultado').toBe(0)
   })
 
   test('sem custo: confirma normalmente e o botão está habilitado', async ({ page }) => {
