@@ -18,6 +18,8 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
+import { CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea } from '@/components/ui/Input'
 import { formatCurrency, formatDate } from '@/lib/utils'
@@ -44,6 +46,22 @@ export function AdjustRentalForm({
   const [justification, setJustification] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  /**
+   * Resultado do reajuste.
+   *
+   * A tela aplicava e não dizia nada: `onDone?.()` é a única coisa que
+   * acontecia no sucesso, e a página que monta este formulário NÃO passa
+   * `onDone` — então não acontecia nada mesmo. Sem mensagem, sem navegação, e
+   * a prévia (cache do TanStack) seguia mostrando os valores antigos. O
+   * operador clicava, a tela ficava idêntica, e o reajuste tinha sido gravado.
+   *
+   * `updated_lines` vem da action e é exatamente o que ele precisa conferir:
+   * quantas parcelas mudaram de fato.
+   */
+  const [applied, setApplied] = useState<{ lines: number; amount: number; from: string } | null>(null)
+
+  const router = useRouter()
 
   const scheduleQuery = useRentalSchedule(rental.id)
   const lines = useMemo(() => scheduleQuery.data?.lines ?? [], [scheduleQuery.data])
@@ -86,9 +104,17 @@ export function AdjustRentalForm({
     }
   }, [hasValidAmount, affected, parsedAmount])
 
+  /** Volta para a locação. O botão Cancelar chamava `onDone?.()` — inerte pela
+   *  mesma razão do sucesso, então não fazia nada. */
+  function voltar() {
+    if (onDone) { onDone(); return }
+    router.push(`/locacoes/${rental.id}`)
+  }
+
   async function handleSubmit() {
     setSaving(true)
     setError('')
+    setApplied(null)
 
     const result = await adjustRentalSchedule({
       rental_id: rental.id,
@@ -103,6 +129,14 @@ export function AdjustRentalForm({
       setError(result.error.message)
       return
     }
+
+    setApplied({ lines: result.data.updated_lines, amount: parsedAmount, from: effectiveFrom })
+
+    // A prévia vem de `useRentalSchedule`, um cache do TanStack: o
+    // `revalidatePath` da action não o alcança. Sem este refetch a tela
+    // anunciaria o sucesso ao lado de uma prévia dizendo que as mesmas parcelas
+    // ainda vão mudar.
+    void scheduleQuery.refetch()
 
     onDone?.()
   }
@@ -184,13 +218,37 @@ export function AdjustRentalForm({
         <p className="text-[13px] text-[var(--danger)]">{error}</p>
       )}
 
+      {applied && (
+        <div className="flex items-start gap-3 rounded-xl border border-[var(--success)] bg-[var(--success-bg)] p-4 text-[13px] text-[var(--success)]">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="leading-relaxed">
+            <p>
+              <strong>
+                {applied.lines} parcela{applied.lines !== 1 ? 's' : ''} reajustada
+                {applied.lines !== 1 ? 's' : ''}
+              </strong>{' '}
+              para {formatCurrency(applied.amount)}, a partir de {formatDate(applied.from)}.
+            </p>
+            {issuedCount > 0 && (
+              <p className="mt-1 opacity-80">
+                {issuedCount} parcela{issuedCount !== 1 ? 's' : ''} já emitida
+                {issuedCount !== 1 ? 's' : ''} não mud{issuedCount !== 1 ? 'aram' : 'ou'} —
+                documento emitido não é reescrito.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-end gap-2">
-        <Button variant="secondary" onClick={() => onDone?.()}>Cancelar</Button>
+        <Button variant="secondary" onClick={voltar}>
+          {applied ? 'Voltar para a locação' : 'Cancelar'}
+        </Button>
         <Button
           onClick={handleSubmit}
           disabled={saving || !hasValidAmount || affected.length === 0 || justification.trim().length < 3}
         >
-          {saving ? 'Aplicando…' : 'Aplicar reajuste'}
+          {saving ? 'Aplicando…' : applied ? 'Aplicar outro reajuste' : 'Aplicar reajuste'}
         </Button>
       </div>
     </div>
