@@ -208,7 +208,9 @@ export async function realizeLateCharge(
   const { error } = await supabase.from('charge_items').insert({
     tenant_id: tenantId,
     charge_id: chargeId,
-    description: `Encargo por atraso (${balance.days_overdue} dias)`,
+    // A descrição vai para o ITEM da cobrança, que é imutável depois de gravado
+    // (Princípio 5): "1 dias" fica no documento para sempre.
+    description: `Encargo por atraso (${balance.days_overdue} ${balance.days_overdue === 1 ? 'dia' : 'dias'})`,
     credit_account_code: ACCOUNTS.LATE_CHARGE_REVENUE,
     quantity: 1,
     unit_amount: amount,
