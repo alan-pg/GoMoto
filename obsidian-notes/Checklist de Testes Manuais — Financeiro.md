@@ -971,24 +971,24 @@ Casos que já falharam em produção ou em teste. Vale reconferir a cada release
 
 ### 13.3 Rateio no atalho "Já executada"
 
-- [ ] Registre manutenção pelo atalho com rateio (custo 120, cliente 40,
+- [x] Registre manutenção pelo atalho com rateio (custo 120, cliente 40,
       executor Cliente).
 
 **Verificar:**
-- [ ] O crédito gerado é de **R$ 80** (a parte da empresa), não de R$ 120.
+- [x] O crédito gerado é de **R$ 80** (a parte da empresa), não de R$ 120.
 
 ### 13.4 Coluna de custo na lista de manutenção
 
 **Verificar:**
-- [ ] Manutenções com custo lançado mostram o valor na coluna **Custo** — nunca
+- [x] Manutenções com custo lançado mostram o valor na coluna **Custo** — nunca
       "—" para todas.
 
 ### 13.5 Saldo de crédito na ficha
 
-- [ ] Conceda R$ 100 de crédito e aplique R$ 60 em uma cobrança.
+- [x] Conceda R$ 100 de crédito e aplique R$ 60 em uma cobrança.
 
 **Verificar:**
-- [ ] A ficha mostra **R$ 40,00** em Créditos disponíveis, não R$ 100,00.
+- [x] A ficha mostra **R$ 40,00** em Créditos disponíveis, não R$ 100,00.
 
 ### 13.6 Emissão relatando o que emitiu
 
@@ -1011,9 +1011,9 @@ docker exec -i supabase_db_GoMoto psql -U postgres -d postgres \
 
 Ao final, com tudo verde:
 
-- [ ] O **razão fecha**: no DRE, receitas menos custos menos perdas resulta no
+- [x] O **razão fecha**: no DRE, receitas menos custos menos perdas resulta no
       número que o Painel mostra como resultado.
-- [ ] **Nenhum saldo ficou órfão**: nenhum cliente com crédito de contrato
+- [x] **Nenhum saldo ficou órfão**: nenhum cliente com crédito de contrato
       encerrado, nenhuma caução de contrato encerrado.
-- [ ] **Nenhuma cobrança sem origem**: toda cobrança em aberto tem locação,
+- [x] **Nenhuma cobrança sem origem**: toda cobrança em aberto tem locação,
       manutenção, multa ou lançamento avulso identificável.
