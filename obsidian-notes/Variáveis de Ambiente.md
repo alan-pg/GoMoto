@@ -9,7 +9,7 @@ Arquivo: `.env.local` (nunca commitado)
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://hcnxbqunescfanqzmsha.supabase.co` | URL do projeto Supabase |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJhbGc...` | Chave pública (anon) do Supabase |
 | `SUPABASE_SERVICE_ROLE_KEY` | `eyJhbGc...` | Escrita server-side que contorna RLS: Route Handler do mobile, webhook e job de emissão |
-| `CRON_SECRET` | string aleatória | Autentica o Vercel Cron em `/api/cron/issue-charges`. **Sem ele o job recusa executar** — melhor não emitir do que deixar aberto um endpoint que cria documentos financeiros (Spec 0014) |
+| `CRON_SECRET` | string aleatória | Autentica o **disparo manual** da emissão em `/api/cron/issue-charges`. O agendamento é do pg_cron, dentro do banco; esta rota existe para rodar fora de hora. **Sem ele a rota recusa executar** — melhor não emitir do que deixar aberto um endpoint que cria documentos financeiros (Spec 0014) |
 | `MERCADOPAGO_WEBHOOK_SECRET` | string do painel MP | Valida a assinatura HMAC do webhook |
 
 > ⚠️ `NEXT_PUBLIC_` expõe a variável no navegador. Seguro apenas para a `anon key` — nunca usar a `service_role key` com esse prefixo.
