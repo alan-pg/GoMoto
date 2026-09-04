@@ -2,11 +2,5 @@
   "framework": "nextjs",
   "buildCommand": "pnpm build --filter=web",
   "outputDirectory": "apps/web/.next",
-  "installCommand": "pnpm install",
-  "crons": [
-    {
-      "path": "/api/cron/issue-charges",
-      "schedule": "0 6 * * *"
-    }
-  ]
+  "installCommand": "pnpm install"
 }
