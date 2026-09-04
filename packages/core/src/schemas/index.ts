@@ -241,7 +241,6 @@ export const CreateTenantWithOwnerSchema = z.object({
 })
 
 export * from './rentals'
-export * from './payments'
 export * from './vehicles'
 export * from './contractTemplates'
 export * from './financial'

@@ -1,12 +1,21 @@
 'use server'
 
 import { SignJWT } from 'jose'
-import { LateChargePolicyInputSchema, toPolicyRow, ThemePreferenceSchema } from '@gomoto/core'
+import { LateChargePolicyInputSchema, toPolicyRow, ThemePreferenceSchema, ProviderIdSchema } from '@gomoto/core'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId, requireTenantOwner } from '@/lib/auth/tenant'
-import { buildOAuthUrl } from '@/lib/payment/mercadopago'
+import { getOAuthProvider } from '@/lib/payment/registry'
+import { oauthStateSecret } from '@/lib/payment/oauth-state'
 import { logAction } from '@/lib/audit'
 import { revalidatePath } from 'next/cache'
+
+type ActionError = { code: string; message: string }
+type ActionFail = { ok: false; error: ActionError }
+/** Ação sem retorno. */
+type ActionResult = { ok: true } | ActionFail
+/** Ação com retorno: `data` é obrigatório no sucesso, não opcional — foi por ser
+ *  opcional que a tela precisava checar `!result.data` e perdia o narrowing. */
+type ActionData<T> = { ok: true; data: T } | ActionFail
 
 async function getAuthenticatedTenant() {
   const supabase = await createClient()
@@ -18,11 +27,12 @@ async function getAuthenticatedTenant() {
 }
 
 /**
- * Integração de Pagamento é restrita a Tenant Owner — conectar/desconectar
- * a conta Mercado Pago afeta o recebimento de toda a empresa, não é uma
- * configuração operacional comum. Guard server-side; a tela também esconde
- * a seção pra quem não é Owner (mesmo padrão de "esconder, não só bloquear"
- * já usado na Spec 0011 pra Usuários/RNF-003).
+ * Gateway de pagamento é restrito a Tenant Owner: conectar, trocar o gateway
+ * ativo ou desconectar decide para onde vai o dinheiro de toda a empresa.
+ *
+ * O guard aqui esconde a seção de quem não pode; a checagem que VALE é a do
+ * banco, dentro de `fn_assert_gateway_owner`. Guard de dinheiro que mora só na
+ * aplicação é guard que some no primeiro caminho novo.
  */
 async function getOwnerTenant() {
   try {
@@ -33,65 +43,121 @@ async function getOwnerTenant() {
   }
 }
 
-export async function connectMercadoPagoAction() {
-  const ctx = await getOwnerTenant()
-  if ('error' in ctx) {
-    const message = ctx.error === 'FORBIDDEN' ? 'Apenas o Owner da empresa pode conectar a integração de pagamento' : 'Não autorizado'
-    return { ok: false, error: { code: ctx.error, message } }
+function ownerError(code: 'FORBIDDEN' | 'UNAUTHORIZED', acao: string): ActionError {
+  return {
+    code,
+    message: code === 'FORBIDDEN'
+      ? `Apenas o Owner da empresa pode ${acao}`
+      : 'Não autorizado',
   }
-
-  const secret = process.env.MERCADOPAGO_CLIENT_SECRET
-  if (!secret) return { ok: false, error: { code: 'INTERNAL', message: 'Integração não configurada' } }
-
-  const stateJwt = await new SignJWT({ tenant_id: ctx.tenantId, nonce: crypto.randomUUID() })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setExpirationTime('5m')
-    .sign(new TextEncoder().encode(secret))
-
-  const authUrl = buildOAuthUrl(stateJwt)
-  return { ok: true, data: { authUrl } }
 }
 
-export async function disconnectPaymentAction() {
+/**
+ * Traduz o erro que veio do banco.
+ *
+ * As RPCs de gateway levantam nomes estáveis (`GATEWAY_OWNER_ONLY`,
+ * `GATEWAY_ACCOUNT_INACTIVE`) justamente para a tela poder dizer o que houve.
+ * Cair no genérico é o último recurso, não o primeiro.
+ */
+function gatewayError(message: string): ActionError {
+  if (message.includes('GATEWAY_OWNER_ONLY') || message.includes('GATEWAY_WRONG_TENANT')) {
+    return { code: 'FORBIDDEN', message: 'Apenas o Owner da empresa pode alterar o gateway de pagamento' }
+  }
+  if (message.includes('GATEWAY_ACCOUNT_NOT_FOUND')) {
+    return { code: 'NOT_FOUND', message: 'Conta de gateway não encontrada' }
+  }
+  if (message.includes('GATEWAY_ACCOUNT_INACTIVE')) {
+    return { code: 'CONFLICT', message: 'Reconecte esta conta antes de ativá-la' }
+  }
+  console.error('[gateway] erro não mapeado:', message)
+  return { code: 'INTERNAL', message: 'Não foi possível concluir a operação' }
+}
+
+/**
+ * Inicia a conexão OAuth de um gateway.
+ *
+ * O `state` amarra tenant + provedor e é assinado com chave da aplicação
+ * (ver `oauth-state.ts`), não com o segredo do provedor.
+ */
+export async function connectGatewayAction(providerId: unknown): Promise<ActionData<{ authUrl: string }>> {
   const ctx = await getOwnerTenant()
-  if ('error' in ctx) {
-    const message = ctx.error === 'FORBIDDEN' ? 'Apenas o Owner da empresa pode desconectar a integração de pagamento' : 'Não autorizado'
-    return { ok: false, error: { code: ctx.error, message } }
+  if ('error' in ctx) return { ok: false, error: ownerError(ctx.error, 'conectar um gateway de pagamento') }
+
+  const parsed = ProviderIdSchema.safeParse(providerId)
+  if (!parsed.success) return { ok: false, error: { code: 'VALIDATION', message: 'Provedor inválido' } }
+
+  let oauth
+  try {
+    oauth = getOAuthProvider(parsed.data).oauth
+  } catch (err) {
+    return { ok: false, error: { code: 'CONFLICT', message: (err as Error).message } }
   }
 
-  const { data: conn } = await ctx.supabase
-    .from('payment_provider_accounts')
-    .select('id, external_account_id')
-    .eq('tenant_id', ctx.tenantId)
-    .eq('provider', 'mercadopago')
-    .maybeSingle()
+  let stateJwt: string
+  try {
+    stateJwt = await new SignJWT({ tenant_id: ctx.tenantId, provider: parsed.data, nonce: crypto.randomUUID() })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('5m')
+      .sign(oauthStateSecret())
+  } catch {
+    return { ok: false, error: { code: 'INTERNAL', message: 'Integração não configurada' } }
+  }
 
-  if (!conn) return { ok: false, error: { code: 'NOT_FOUND', message: 'Nenhuma integração ativa' } }
+  try {
+    return { ok: true, data: { authUrl: oauth.buildAuthUrl(stateJwt) } }
+  } catch (err) {
+    // `buildAuthUrl` lê env do provedor. Faltando, a mensagem tem que dizer que
+    // é configuração do servidor — não "tente novamente".
+    console.error('[gateway] buildAuthUrl falhou:', err)
+    return { ok: false, error: { code: 'INTERNAL', message: 'Integração não configurada. Contate o suporte.' } }
+  }
+}
 
-  const account = conn as { id: string; external_account_id: string }
+/**
+ * Elege qual gateway gera as cobranças.
+ *
+ * O tenant pode ter vários conectados; exatamente um cobra. A troca é ato
+ * explícito — conectar um gateway novo nunca redireciona o dinheiro sozinho.
+ */
+export async function setDefaultGatewayAction(accountId: unknown): Promise<ActionResult> {
+  const ctx = await getOwnerTenant()
+  if ('error' in ctx) return { ok: false, error: ownerError(ctx.error, 'trocar o gateway de pagamento') }
 
-  // Desativa em vez de apagar: `payment_intents` referencia a conta, e o
-  // histórico de tentativas precisa continuar rastreável (Princípio 3).
-  const { error } = await ctx.supabase
-    .from('payment_provider_accounts')
-    .update({ active: false, is_default: false })
-    .eq('id', account.id)
-    .eq('tenant_id', ctx.tenantId)
+  if (typeof accountId !== 'string' || !accountId) {
+    return { ok: false, error: { code: 'VALIDATION', message: 'Conta inválida' } }
+  }
 
-  if (error) return { ok: false, error: { code: 'INTERNAL', message: 'Erro ao desconectar' } }
+  const { error } = await ctx.supabase.rpc('fn_set_default_provider_account', { p_account_id: accountId })
+  if (error) return { ok: false, error: gatewayError(error.message) }
 
-  // Tentativas pendentes não podem mais ser confirmadas pelo webhook.
-  await ctx.supabase
-    .from('payment_intents')
-    .update({ status: 'expired' })
-    .eq('tenant_id', ctx.tenantId)
-    .eq('provider_account_id', account.id)
-    .eq('status', 'pending')
+  await logAction({
+    action: 'connect_payment',
+    table: 'payment_provider_accounts',
+    recordId: accountId,
+    newData: { tenant_id: ctx.tenantId, is_default: true },
+  })
+
+  revalidatePath('/configuracoes')
+  return { ok: true }
+}
+
+/** Desconecta uma conta de gateway. Desativa, nunca apaga (ADR 0024, Princípio 3). */
+export async function disconnectGatewayAction(accountId: unknown): Promise<ActionResult> {
+  const ctx = await getOwnerTenant()
+  if ('error' in ctx) return { ok: false, error: ownerError(ctx.error, 'desconectar um gateway de pagamento') }
+
+  if (typeof accountId !== 'string' || !accountId) {
+    return { ok: false, error: { code: 'VALIDATION', message: 'Conta inválida' } }
+  }
+
+  const { error } = await ctx.supabase.rpc('fn_disconnect_provider_account', { p_account_id: accountId })
+  if (error) return { ok: false, error: gatewayError(error.message) }
 
   await logAction({
     action: 'disconnect_payment',
     table: 'payment_provider_accounts',
-    oldData: { tenant_id: ctx.tenantId, external_account_id: account.external_account_id },
+    recordId: accountId,
+    oldData: { tenant_id: ctx.tenantId },
   })
 
   revalidatePath('/configuracoes')

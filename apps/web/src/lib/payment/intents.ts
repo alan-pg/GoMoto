@@ -1,21 +1,25 @@
 /**
- * Criação de tentativa de pagamento no gateway (Spec 0014 / ADR 0024).
+ * Criação de tentativa de pagamento no gateway (ADR 0030, sobre ADR 0024).
  *
- * Substitui `lib/payment/pix.ts`, que era específico do Mercado Pago e
- * calculava o valor como `original_amount − discount_amount`, ignorando crédito
- * aplicado e encargo de atraso (F-05). O cliente com crédito pagava a mais; a
- * cobrança vencida quitava a menos e ainda era marcada como paga.
+ * O valor vem de `calculateAmountDue` — a MESMA função do cockpit e do app do
+ * cliente. Foi por não ser assim que o cliente com crédito pagava a mais e a
+ * cobrança vencida quitava a menos (F-05 da Spec 0014).
  *
- * Aqui o valor vem de `calculateAmountDue` — a MESMA função do cockpit e do app
- * do cliente.
+ * O provedor vem da conta que o TENANT elegeu, nunca de um `import`. Antes,
+ * quem chamava esta função escolhia o gateway e ela ia procurar a conta
+ * correspondente; `is_default` existia e não era lido por ninguém. Cadastrar um
+ * segundo provedor não mudava o comportamento de cobrança.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { calculateAmountDue, type LateChargePolicy } from '@gomoto/core'
+import { assertMethodSupported, getProvider, PROVIDER_REGISTRY, type ProviderRegistry } from './registry'
+import { codedError, ProviderAuthError, type ProviderCredentials } from './types'
 
 export type PaymentIntentResult = {
   intent_id: string
   provider: string
+  provider_label: string
   method: string
   amount: number
   expires_at: string | null
@@ -23,25 +27,16 @@ export type PaymentIntentResult = {
   is_reused: boolean
 }
 
-/**
- * Interface que um provedor precisa implementar.
- *
- * Mercado Pago passa a ser a primeira implementação, não o formato do schema.
- */
-export type PaymentProvider = {
-  name: string
-  createIntent(params: {
-    amount: number
-    chargeId: string
-    method: string
-    credentials: Record<string, unknown>
-    customer: { name: string | null; email: string | null; document: string | null }
-  }): Promise<{
-    providerIntentId: string
-    expiresAt: string | null
-    payload: Record<string, unknown>
-  }>
+type PendingIntentRow = {
+  id: string
+  provider: string
+  method: string
+  amount: number
+  expires_at: string | null
+  payload: Record<string, unknown> | null
 }
+
+const PENDING_COLUMNS = 'id, provider, method, amount, expires_at, payload'
 
 /**
  * Devolve a tentativa pendente ainda válida ou cria uma nova.
@@ -51,37 +46,36 @@ export type PaymentProvider = {
  */
 export async function getOrCreateIntent(
   supabase: SupabaseClient,
-  tenantId: string,
-  chargeId: string,
-  method: string,
-  provider: PaymentProvider,
+  params: { tenantId: string; chargeId: string; method: string },
+  registry: ProviderRegistry = PROVIDER_REGISTRY,
 ): Promise<PaymentIntentResult> {
-  // 1. Tentativa pendente e não expirada
+  const { tenantId, chargeId } = params
+
+  // ── 1. Tentativa pendente e ainda válida ──────────────────────────
   const { data: existing } = await supabase
     .from('payment_intents')
-    .select('id, provider, method, amount, expires_at, payload')
+    .select(PENDING_COLUMNS)
     .eq('charge_id', chargeId)
     .eq('status', 'pending')
     .maybeSingle()
 
   if (existing) {
-    const e = existing as {
-      id: string; provider: string; method: string; amount: number
-      expires_at: string | null; payload: Record<string, unknown> | null
-    }
-
+    const e = existing as PendingIntentRow
     const stillValid = !e.expires_at || new Date(e.expires_at) > new Date()
-    if (stillValid) {
-      return {
-        intent_id: e.id, provider: e.provider, method: e.method, amount: e.amount,
-        expires_at: e.expires_at, payload: e.payload, is_reused: true,
-      }
-    }
+    if (stillValid) return reuse(e, registry)
 
     await supabase.from('payment_intents').update({ status: 'expired' }).eq('id', e.id)
   }
 
-  // 2. Valor devido — fonte única
+  // ── 2. Qual gateway o tenant elegeu ───────────────────────────────
+  // Resolvido ANTES de calcular valor e de ler o cliente: sem gateway eleito
+  // nada do resto importa, e a falha sai barata e nomeada. A ordem inversa
+  // fazia três consultas antes de descobrir que não havia com o que cobrar.
+  const account = await resolveActiveAccount(supabase, tenantId)
+  const provider = getProvider(account.provider, registry)
+  const method = assertMethodSupported(provider, params.method)
+
+  // ── 3. Valor devido — fonte única ─────────────────────────────────
   const { data: balance, error: balanceError } = await supabase
     .from('charge_balances')
     .select('charge_id, customer_id, due_date, total_amount, paid_amount, open_amount, late_charge_amount, status')
@@ -89,8 +83,8 @@ export async function getOrCreateIntent(
     .eq('tenant_id', tenantId)
     .maybeSingle()
 
-  if (balanceError) throw Object.assign(new Error(balanceError.message), { code: 'INTERNAL' })
-  if (!balance) throw Object.assign(new Error('Cobrança não encontrada'), { code: 'NOT_FOUND' })
+  if (balanceError) throw codedError('INTERNAL', balanceError.message)
+  if (!balance) throw codedError('NOT_FOUND', 'Cobrança não encontrada')
 
   const b = balance as {
     charge_id: string; customer_id: string; due_date: string
@@ -99,43 +93,25 @@ export async function getOrCreateIntent(
   }
 
   if (b.status !== 'open' || b.open_amount <= 0) {
-    throw Object.assign(new Error('Esta cobrança não está em aberto'), { code: 'CONFLICT' })
+    throw codedError('CONFLICT', 'Esta cobrança não está em aberto')
   }
 
   const policy = await resolvePolicy(supabase, tenantId, chargeId)
   const { accrued, amount_due } = calculateAmountDue(b, policy)
 
-  if (amount_due <= 0) {
-    throw Object.assign(new Error('Nada a cobrar nesta cobrança'), { code: 'CONFLICT' })
-  }
+  if (amount_due <= 0) throw codedError('CONFLICT', 'Nada a cobrar nesta cobrança')
 
-  // 3. Conta do provedor
-  const { data: account } = await supabase
-    .from('payment_provider_accounts')
-    .select('id, provider')
-    .eq('tenant_id', tenantId)
-    .eq('provider', provider.name)
-    .eq('active', true)
-    .order('is_default', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (!account) {
-    throw Object.assign(new Error('Integração de pagamento não configurada'), { code: 'FORBIDDEN' })
-  }
-
-  const acc = account as { id: string; provider: string }
-
-  // A credencial não vem na linha: é resolvida por função, que checa o tenant
+  // ── 4. Credencial ─────────────────────────────────────────────────
+  // Não vem na linha da conta: é resolvida por função que checa o tenant,
   // porque SECURITY DEFINER ignora RLS. Ponto único de leitura do segredo.
   const { data: credentials, error: credError } = await supabase.rpc('fn_provider_credentials', {
-    p_account_id: acc.id,
+    p_account_id: account.id,
   })
 
   if (credError || !credentials) {
-    throw Object.assign(
-      new Error('Credenciais do gateway não configuradas. Reconecte a conta em Configurações.'),
-      { code: 'FORBIDDEN' },
+    throw codedError(
+      'GATEWAY_UNAUTHORIZED',
+      `Credenciais de ${provider.descriptor.label} não configuradas. Reconecte a conta em Configurações.`,
     )
   }
 
@@ -147,23 +123,35 @@ export async function getOrCreateIntent(
 
   const c = (customer ?? null) as { name: string | null; email: string | null; cpf: string | null } | null
 
-  // 4. Cria no provedor
-  const created = await provider.createIntent({
-    amount: amount_due,
-    chargeId,
-    method,
-    credentials: credentials as Record<string, unknown>,
-    customer: { name: c?.name ?? null, email: c?.email ?? null, document: c?.cpf ?? null },
-  })
+  // ── 5. Cria no provedor ───────────────────────────────────────────
+  let created
+  try {
+    created = await provider.createIntent({
+      amount: amount_due,
+      chargeId,
+      method,
+      credentials: credentials as ProviderCredentials,
+      customer: { name: c?.name ?? null, email: c?.email ?? null, document: c?.cpf ?? null },
+    })
+  } catch (err) {
+    // Credencial recusada não é "tente novamente": alguém precisa reconectar.
+    if (err instanceof ProviderAuthError) {
+      throw codedError(
+        'GATEWAY_UNAUTHORIZED',
+        `A conexão com ${provider.descriptor.label} expirou. Reconecte a conta em Configurações.`,
+      )
+    }
+    throw err
+  }
 
-  // 5. Persiste
+  // ── 6. Persiste ───────────────────────────────────────────────────
   const { data: intent, error } = await supabase
     .from('payment_intents')
     .insert({
       tenant_id: tenantId,
       charge_id: chargeId,
-      provider: provider.name,
-      provider_account_id: acc.id,
+      provider: account.provider,
+      provider_account_id: account.id,
       method,
       provider_intent_id: created.providerIntentId,
       amount: amount_due,
@@ -193,33 +181,77 @@ export async function getOrCreateIntent(
   if (error?.code === '23505') {
     const { data: vencedora } = await supabase
       .from('payment_intents')
-      .select('id, provider, method, amount, expires_at, payload')
+      .select(PENDING_COLUMNS)
       .eq('charge_id', chargeId)
       .eq('status', 'pending')
       .maybeSingle()
 
-    if (vencedora) {
-      const w = vencedora as {
-        id: string; provider: string; method: string; amount: number
-        expires_at: string | null; payload: Record<string, unknown> | null
-      }
-      return {
-        intent_id: w.id, provider: w.provider, method: w.method, amount: w.amount,
-        expires_at: w.expires_at, payload: w.payload, is_reused: true,
-      }
-    }
+    if (vencedora) return reuse(vencedora as PendingIntentRow, registry)
   }
 
-  if (error) throw Object.assign(new Error(error.message), { code: 'INTERNAL' })
+  if (error) throw codedError('INTERNAL', error.message)
 
   return {
     intent_id: (intent as { id: string }).id,
-    provider: provider.name,
+    provider: account.provider,
+    provider_label: provider.descriptor.label,
     method,
     amount: amount_due,
     expires_at: created.expiresAt,
     payload: created.payload,
     is_reused: false,
+  }
+}
+
+/**
+ * A conta que o tenant elegeu para cobrar.
+ *
+ * `is_default AND active` é o par que define "o gateway que cobra" (ADR 0030).
+ * O banco garante no máximo um por tenant, e que o eleito esteja ativo — aqui
+ * as duas condições são repetidas porque a consulta não deve depender de o
+ * invariante nunca ter sido violado por um caminho antigo.
+ */
+async function resolveActiveAccount(
+  supabase: SupabaseClient,
+  tenantId: string,
+): Promise<{ id: string; provider: string }> {
+  const { data, error } = await supabase
+    .from('payment_provider_accounts')
+    .select('id, provider')
+    .eq('tenant_id', tenantId)
+    .eq('is_default', true)
+    .eq('active', true)
+    .maybeSingle()
+
+  if (error) throw codedError('INTERNAL', error.message)
+  if (!data) {
+    // Distinta de "credencial expirada": aqui não há gateway escolhido, e o
+    // caminho de correção é a tela de Configurações, não uma retentativa.
+    throw codedError(
+      'FORBIDDEN',
+      'Nenhum gateway de pagamento ativo. Configure a integração em Configurações.',
+    )
+  }
+
+  return data as { id: string; provider: string }
+}
+
+/** Tentativa pendente reaproveitada — o QR que o cliente já tem na mão. */
+function reuse(row: PendingIntentRow, registry: ProviderRegistry): PaymentIntentResult {
+  // O provedor pode ter sido removido do registry entre a criação e o reuso.
+  // O QR continua válido no gateway, então devolvê-lo é o certo; só o rótulo
+  // bonito se perde.
+  const label = registry[row.provider]?.descriptor.label ?? row.provider
+
+  return {
+    intent_id: row.id,
+    provider: row.provider,
+    provider_label: label,
+    method: row.method,
+    amount: row.amount,
+    expires_at: row.expires_at,
+    payload: row.payload,
+    is_reused: true,
   }
 }
 

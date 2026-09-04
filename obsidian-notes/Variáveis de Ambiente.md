@@ -10,7 +10,13 @@ Arquivo: `.env.local` (nunca commitado)
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJhbGc...` | Chave pública (anon) do Supabase |
 | `SUPABASE_SERVICE_ROLE_KEY` | `eyJhbGc...` | Escrita server-side que contorna RLS: Route Handler do mobile, webhook e job de emissão |
 | `CRON_SECRET` | string aleatória | Autentica o **disparo manual** da emissão em `/api/cron/issue-charges`. O agendamento é do pg_cron, dentro do banco; esta rota existe para rodar fora de hora. **Sem ele a rota recusa executar** — melhor não emitir do que deixar aberto um endpoint que cria documentos financeiros (Spec 0014) |
+| `NEXT_PUBLIC_APP_URL` | `https://app.gomoto.com.br` | Base da URL de retorno do OAuth de gateway. A rota é `/api/auth/gateway/<provedor>/callback` — **é essa URL que precisa estar registrada no painel do provedor** |
+| `GATEWAY_OAUTH_SECRET` | string aleatória | Assina o `state` do OAuth de gateway (ADR 0030). Opcional: sem ela, cai em `SUPABASE_SERVICE_ROLE_KEY`. Antes o `state` era assinado com `MERCADOPAGO_CLIENT_SECRET` — o segredo que nos autentica PERANTE o provedor virava também a chave que prova que o retorno é nosso |
+| `MERCADOPAGO_CLIENT_ID` | string do painel MP | OAuth da conta do tenant |
+| `MERCADOPAGO_CLIENT_SECRET` | string do painel MP | OAuth da conta do tenant |
 | `MERCADOPAGO_WEBHOOK_SECRET` | string do painel MP | Valida a assinatura HMAC do webhook |
+
+> `MERCADOPAGO_REDIRECT_URI` **saiu** (ADR 0030): a URL de retorno é derivada de `NEXT_PUBLIC_APP_URL` + o slug do provedor, para que somar um gateway não exija variável nova e a URL não possa divergir da rota que realmente atende.
 
 > ⚠️ `NEXT_PUBLIC_` expõe a variável no navegador. Seguro apenas para a `anon key` — nunca usar a `service_role key` com esse prefixo.
 

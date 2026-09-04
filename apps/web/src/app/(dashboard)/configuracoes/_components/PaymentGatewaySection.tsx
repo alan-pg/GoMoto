@@ -1,0 +1,296 @@
+'use client'
+
+/**
+ * Gateways de pagamento — configurar vários, cobrar por um (ADR 0030).
+ *
+ * O que havia aqui era um botão fixo "Conectar Mercado Pago" e o texto
+ * "Mercado Pago conectado", escritos à mão. O provedor não vinha do banco: a
+ * tela dizia o nome porque só existia um, e o `is_default` da conta — a coluna
+ * que decide quem recebe o dinheiro — não era lido por ninguém.
+ *
+ * Agora a lista sai do catálogo de `@gomoto/core` cruzado com as contas do
+ * tenant, e "quem cobra" é uma escolha visível e reversível.
+ */
+
+import { useState, useTransition } from 'react'
+import { AlertTriangle, CheckCircle2, CreditCard, Link2, Link2Off, Loader2 } from 'lucide-react'
+import { Card } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
+import { cn } from '@/lib/utils'
+import { PAYMENT_PROVIDERS, type PaymentProviderDescriptor } from '@gomoto/core'
+import type { ProviderAccountRow } from '@gomoto/data'
+import { connectGatewayAction, disconnectGatewayAction, setDefaultGatewayAction } from '../actions'
+
+export type GatewayFeedback = { type: 'success' | 'error'; message: string }
+
+type Props = {
+  accounts: ProviderAccountRow[]
+  isLoading: boolean
+  feedback: GatewayFeedback | null
+  onFeedback: (f: GatewayFeedback | null) => void
+  onChanged: () => void
+}
+
+/**
+ * Estado de um provedor para esta tela.
+ *
+ * `connected` e `billing` são coisas diferentes, e a distinção é o ponto da
+ * feature: uma conta pode estar conectada e não ser a que cobra.
+ */
+type Row = {
+  descriptor: PaymentProviderDescriptor
+  account: ProviderAccountRow | null
+  connected: boolean
+  billing: boolean
+}
+
+function buildRows(accounts: ProviderAccountRow[]): Row[] {
+  return PAYMENT_PROVIDERS.map((descriptor) => {
+    const account = accounts.find((a) => a.provider === descriptor.id) ?? null
+    return {
+      descriptor,
+      account,
+      connected: !!account?.active,
+      billing: !!account?.is_default && !!account?.active,
+    }
+  })
+}
+
+export function PaymentGatewaySection({ accounts, isLoading, feedback, onFeedback, onChanged }: Props) {
+  const [pending, startTransition] = useTransition()
+  /** Qual linha está em ação — para o spinner não acender em todas. */
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [toDisconnect, setToDisconnect] = useState<Row | null>(null)
+
+  const rows = buildRows(accounts)
+  const billingRow = rows.find((r) => r.billing) ?? null
+  const hasConnected = rows.some((r) => r.connected)
+
+  function run(id: string, fn: () => Promise<{ ok: boolean; error?: { message: string } }>, sucesso: string) {
+    setBusyId(id)
+    onFeedback(null)
+    startTransition(async () => {
+      const result = await fn()
+      setBusyId(null)
+      if (!result.ok) {
+        onFeedback({ type: 'error', message: result.error?.message ?? 'Não foi possível concluir a operação.' })
+        return
+      }
+      onFeedback({ type: 'success', message: sucesso })
+      onChanged()
+    })
+  }
+
+  async function handleConnect(row: Row) {
+    setBusyId(row.descriptor.id)
+    onFeedback(null)
+    const result = await connectGatewayAction(row.descriptor.id)
+    if (!result.ok) {
+      setBusyId(null)
+      onFeedback({ type: 'error', message: result.error.message })
+      return
+    }
+    // Sai da aplicação: o spinner fica até o navegador trocar de página.
+    window.location.href = result.data.authUrl
+  }
+
+  return (
+    <section>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="p-2.5 rounded-full bg-info-bg border border-info">
+          <CreditCard className="w-5 h-5 text-info" />
+        </div>
+        <div>
+          <h2 className="text-[28px] font-semibold text-fg">Gateway de Pagamento</h2>
+          <p className="text-[13px] text-fg-mute">
+            Conecte quantos quiser. Um único gateway gera as cobranças — você escolhe qual.
+          </p>
+        </div>
+      </div>
+
+      <Card>
+        {isLoading ? (
+          <div className="flex items-center gap-3 py-2">
+            <Loader2 className="animate-spin text-fg-mute" size={20} />
+            <p className="text-[13px] text-fg-mute">Verificando integrações...</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Conectado mas sem eleito é o estado silencioso que este aviso
+                existe para quebrar: as cobranças online simplesmente param de
+                ser geradas e nada na tela dizia por quê. */}
+            {hasConnected && !billingRow && (
+              <div className="flex items-start gap-3 p-4 rounded-xl bg-critical-bg border border-critical">
+                <AlertTriangle className="w-5 h-5 text-critical shrink-0 mt-0.5" />
+                <div className="text-[13px]">
+                  <p className="font-medium text-critical">Nenhum gateway ativo</p>
+                  <p className="text-fg-mute mt-0.5">
+                    Enquanto nenhum gateway estiver ativo, o app do cliente não consegue gerar
+                    cobranças. Escolha um abaixo.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {rows.map((row) => (
+              <GatewayRow
+                key={row.descriptor.id}
+                row={row}
+                busy={pending && busyId === row.descriptor.id}
+                disabled={pending}
+                onConnect={() => handleConnect(row)}
+                onActivate={() =>
+                  run(
+                    row.descriptor.id,
+                    () => setDefaultGatewayAction(row.account!.id),
+                    `${row.descriptor.label} agora gera as cobranças.`,
+                  )
+                }
+                onDisconnect={() => setToDisconnect(row)}
+              />
+            ))}
+
+            {feedback && (
+              <p
+                className={cn(
+                  'text-[13px]',
+                  feedback.type === 'success' ? 'text-success' : 'text-critical',
+                )}
+              >
+                {feedback.message}
+              </p>
+            )}
+          </div>
+        )}
+      </Card>
+
+      <Modal
+        open={!!toDisconnect}
+        onClose={() => setToDisconnect(null)}
+        title={`Desconectar ${toDisconnect?.descriptor.label ?? ''}`}
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-[13px] text-fg-mute">
+            {toDisconnect?.billing
+              ? 'Este é o gateway que gera as cobranças. Ao desconectar, o app do cliente deixa de gerar Pix até você ativar outro.'
+              : 'Esta conta deixa de ficar disponível. Você pode reconectá-la depois.'}
+          </p>
+          <p className="text-[13px] text-fg-mute">
+            Cobranças já pagas e o histórico de tentativas continuam no sistema.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setToDisconnect(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              loading={pending}
+              onClick={() => {
+                const row = toDisconnect!
+                setToDisconnect(null)
+                run(
+                  row.descriptor.id,
+                  () => disconnectGatewayAction(row.account!.id),
+                  `${row.descriptor.label} desconectado.`,
+                )
+              }}
+            >
+              Desconectar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </section>
+  )
+}
+
+function GatewayRow({
+  row, busy, disabled, onConnect, onActivate, onDisconnect,
+}: {
+  row: Row
+  busy: boolean
+  disabled: boolean
+  onConnect: () => void
+  onActivate: () => void
+  onDisconnect: () => void
+}) {
+  const { descriptor, account, connected, billing } = row
+  const identidade = account?.account_email ?? account?.external_account_id ?? null
+
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-3 p-4 rounded-xl border',
+        billing ? 'bg-success-bg border-success' : 'bg-surface border-border',
+      )}
+    >
+      {billing ? (
+        <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
+      ) : (
+        <Link2 className="w-5 h-5 text-fg-mute shrink-0" />
+      )}
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-[13px] font-medium text-fg">{descriptor.label}</p>
+          <StatusBadge descriptor={descriptor} connected={connected} billing={billing} />
+        </div>
+        <p className="text-[12px] text-fg-mute mt-0.5 truncate">
+          {identidade ?? descriptor.description}
+        </p>
+      </div>
+
+      {busy ? (
+        <Loader2 className="animate-spin text-fg-mute shrink-0" size={18} />
+      ) : (
+        <div className="flex items-center gap-2 shrink-0">
+          {connected && !billing && (
+            <Button size="sm" disabled={disabled} onClick={onActivate}>
+              Ativar
+            </Button>
+          )}
+          {connected ? (
+            <Button variant="danger" size="sm" disabled={disabled} onClick={onDisconnect}>
+              <Link2Off className="w-4 h-4" />
+              Desconectar
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant={account ? 'outline' : 'primary'}
+              disabled={disabled || !descriptor.available}
+              onClick={onConnect}
+            >
+              <Link2 className="w-4 h-4" />
+              {account ? 'Reconectar' : 'Conectar'}
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StatusBadge({
+  descriptor, connected, billing,
+}: {
+  descriptor: PaymentProviderDescriptor
+  connected: boolean
+  billing: boolean
+}) {
+  const base = 'text-[11px] px-2 py-0.5 rounded-full border'
+
+  if (billing) {
+    return <span className={cn(base, 'bg-success-bg border-success text-success')}>Gerando cobranças</span>
+  }
+  if (connected) {
+    return <span className={cn(base, 'bg-surface-2 border-border text-fg-mute')}>Conectado</span>
+  }
+  if (!descriptor.available) {
+    return <span className={cn(base, 'bg-surface-2 border-border text-fg-mute')}>Em breve</span>
+  }
+  return null
+}

@@ -6,7 +6,9 @@
  * - o valor vem de `calculateAmountDue`, não de `original_amount − desconto`.
  *   O endpoint antigo ignorava crédito aplicado e encargo de atraso (F-05):
  *   cliente com crédito pagava a mais, cobrança vencida quitava a menos.
- * - o provedor é parâmetro, não premissa. A rota não sabe o que é Mercado Pago.
+ * - o provedor é a conta que o TENANT elegeu (ADR 0030). A rota não nomeia
+ *   gateway nenhum: pede o meio de pagamento e recebe o que o gateway ativo
+ *   souber gerar.
  *
  * Escrita do cliente mobile via Route Handler com service role, conforme
  * ADR 0016 — o padrão de autenticação não muda, só o que trafega nele.
@@ -16,7 +18,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { getOrCreateIntent } from '@/lib/payment/intents'
-import { mercadoPagoProvider } from '@/lib/payment/mercadopago-provider'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -78,9 +79,12 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   const method = body.method ?? 'pix'
 
   try {
-    const result = await getOrCreateIntent(admin, c.tenant_id, chargeId, method, mercadoPagoProvider)
+    const result = await getOrCreateIntent(admin, {
+      tenantId: c.tenant_id, chargeId, method,
+    })
     log('info', 'intent.created', {
-      charge_id: chargeId, tenant_id: c.tenant_id, amount: result.amount, reused: result.is_reused,
+      charge_id: chargeId, tenant_id: c.tenant_id, provider: result.provider,
+      amount: result.amount, reused: result.is_reused,
     })
     return json({ ok: true, data: result })
   } catch (err: unknown) {
@@ -88,6 +92,17 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
     if (e.code === 'FORBIDDEN') {
       return json({ ok: false, error: { code: 'FORBIDDEN', message: 'Pagamento online não configurado' } }, 403)
+    }
+    // Credencial expirada é diferente de gateway ausente: o cliente não deve
+    // ficar tentando de novo, e o log tem que apontar para a locadora. Antes,
+    // o 401 do provedor virava 500 "Tente novamente" — conselho errado para um
+    // token que expirou há dois meses.
+    if (e.code === 'GATEWAY_UNAUTHORIZED') {
+      log('error', 'intent.gateway_unauthorized', { charge_id: chargeId, tenant_id: c.tenant_id })
+      return json({ ok: false, error: {
+        code: 'GATEWAY_UNAUTHORIZED',
+        message: 'Pagamento online indisponível no momento. Fale com a locadora.',
+      } }, 503)
     }
     if (e.code === 'NOT_FOUND') {
       return json({ ok: false, error: { code: 'NOT_FOUND', message: e.message } }, 404)

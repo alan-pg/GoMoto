@@ -12,18 +12,18 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Lock, User, Save, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, CreditCard, Link2, Link2Off, Palette, UsersRound, ChevronRight } from 'lucide-react'
+import { Lock, User, Save, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Palette, UsersRound, ChevronRight } from 'lucide-react'
 import { PageTitle } from '@/components/layout/PageTitle'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
-import { Modal } from '@/components/ui/Modal'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { useProviderAccounts, useThemePreference, useLateChargePolicies } from '@gomoto/data'
 import type { ThemeBrand, ColorMode } from '@gomoto/core'
-import { connectMercadoPagoAction, disconnectPaymentAction, updateThemePreferenceAction } from './actions'
+import { updateThemePreferenceAction } from './actions'
 import { LateChargePolicySection, type PolicyVersion } from './_components/LateChargePolicySection'
+import { PaymentGatewaySection, type GatewayFeedback } from './_components/PaymentGatewaySection'
 
 const THEME_BRANDS: { value: ThemeBrand; label: string; description: string; swatch: string[] }[] = [
   { value: 'frota-confiavel', label: 'Frota Confiável', description: 'Azul, neutros frios — recomendado', swatch: ['#F8FAFC', '#2563EB', '#0F172A'] },
@@ -112,10 +112,7 @@ export default function SettingsPage() {
 
   const paymentConnectionQuery = useProviderAccounts()
   const policiesQuery = useLateChargePolicies()
-  const [paymentFeedback, setPaymentFeedback] = useState<FeedbackState | null>(null)
-  const [isConnecting, setIsConnecting] = useState(false)
-  const [isDisconnecting, setIsDisconnecting] = useState(false)
-  const [disconnectModalOpen, setDisconnectModalOpen] = useState(false)
+  const [paymentFeedback, setPaymentFeedback] = useState<GatewayFeedback | null>(null)
 
   // --- ESTADOS: Aparência (ADR 0019) ---
 
@@ -240,49 +237,38 @@ export default function SettingsPage() {
     const params = new URLSearchParams(window.location.search)
     const payment = params.get('payment')
     const reason  = params.get('reason')
+
     if (payment === 'connected') {
-      setPaymentFeedback({ type: 'success', message: 'Conta Mercado Pago conectada com sucesso!' })
-      paymentConnectionQuery.refetch()
+      // `elected=false` significa que o tenant já tinha outro gateway cobrando.
+      // Conectar não troca quem recebe o dinheiro — a tela tem que dizer isso,
+      // senão o usuário assume que a conta nova passou a valer.
+      const elected = params.get('elected') === 'true'
+      setPaymentFeedback({
+        type: 'success',
+        message: elected
+          ? 'Conta conectada. Ela já é o gateway que gera as cobranças.'
+          : 'Conta conectada. Para que ela gere as cobranças, clique em "Ativar".',
+      })
+      void paymentConnectionQuery.refetch()
     } else if (payment === 'cancelled') {
       setPaymentFeedback({ type: 'error', message: 'Conexão cancelada. Nenhuma conta foi vinculada.' })
     } else if (payment === 'error') {
       const messages: Record<string, string> = {
         state_mismatch:   'Falha de segurança (CSRF). Tente novamente.',
-        token_exchange:   'Não foi possível conectar ao Mercado Pago. Tente novamente.',
-        misconfiguration: 'Integração não configurada. Contate o suporte.',
+        token_exchange:   'O provedor recusou a autorização. Tente novamente.',
+        misconfiguration: 'Integração não configurada no servidor. Contate o suporte.',
+        unknown_provider: 'Gateway desconhecido.',
+        forbidden:        'Apenas o Owner da empresa pode conectar um gateway.',
+        missing_params:   'Retorno incompleto do provedor. Tente novamente.',
       }
-      setPaymentFeedback({ type: 'error', message: messages[reason ?? ''] ?? 'Erro desconhecido ao conectar.' })
+      setPaymentFeedback({ type: 'error', message: messages[reason ?? ''] ?? 'Erro ao conectar.' })
     }
+
     if (payment) {
       window.history.replaceState({}, '', '/configuracoes')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  async function handleConnect() {
-    setIsConnecting(true)
-    setPaymentFeedback(null)
-    const result = await connectMercadoPagoAction()
-    if (!result.ok || !result.data) {
-      setPaymentFeedback({ type: 'error', message: result.error?.message ?? 'Erro ao iniciar conexão.' })
-      setIsConnecting(false)
-      return
-    }
-    window.location.href = result.data.authUrl
-  }
-
-  async function handleDisconnect() {
-    setIsDisconnecting(true)
-    const result = await disconnectPaymentAction()
-    setDisconnectModalOpen(false)
-    if (!result.ok) {
-      setPaymentFeedback({ type: 'error', message: result.error?.message ?? 'Erro ao desconectar.' })
-    } else {
-      setPaymentFeedback({ type: 'success', message: 'Conta Mercado Pago desconectada.' })
-      paymentConnectionQuery.refetch()
-    }
-    setIsDisconnecting(false)
-  }
 
   /**
    * @function handleSavePassword
@@ -505,68 +491,18 @@ export default function SettingsPage() {
           </Card>
         </section>
 
-        {/* SEÇÃO 3: Integração de Pagamento — só Owner vê/manipula (conectar/
-            desconectar afeta o recebimento de toda a empresa). Mesmo padrão de
-            "esconder, não só bloquear" já usado pra Usuários (RNF-003). */}
+        {/* SEÇÃO 3: Gateway de Pagamento (ADR 0030) — só Owner vê/manipula:
+            escolher por onde a empresa recebe não é preferência operacional.
+            Mesmo padrão de "esconder, não só bloquear" já usado pra Usuários
+            (RNF-003). A checagem que vale é a do banco, em fn_assert_gateway_owner. */}
         {isOwner ? (
-          <section>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2.5 rounded-full bg-info-bg border border-info">
-                <CreditCard className="w-5 h-5 text-info" />
-              </div>
-              <div>
-                <h2 className="text-[28px] font-semibold text-fg">Integração de Pagamento</h2>
-                <p className="text-[13px] text-fg-mute">
-                  Conecte a conta Mercado Pago para gerar cobranças Pix automaticamente.
-                </p>
-              </div>
-            </div>
-
-            <Card>
-              {paymentConnectionQuery.isLoading ? (
-                <div className="flex items-center gap-3 py-2">
-                  <Loader2 className="animate-spin text-fg-mute" size={20} />
-                  <p className="text-[13px] text-fg-mute">Verificando integração...</p>
-                </div>
-              ) : paymentConnectionQuery.data?.is_connected ? (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3 p-4 rounded-xl bg-success-bg border border-success">
-                    <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-medium text-success">Mercado Pago conectado</p>
-                      {paymentConnectionQuery.data.accounts.find((a) => a.is_default)?.external_account_id && (
-                        <p className="text-[12px] text-fg-mute mt-0.5 truncate">
-                          {paymentConnectionQuery.data.accounts.find((a) => a.is_default)?.external_account_id}
-                        </p>
-                      )}
-                    </div>
-                    <Button variant="danger" size="sm" onClick={() => setDisconnectModalOpen(true)}>
-                      <Link2Off className="w-4 h-4" />
-                      Desconectar
-                    </Button>
-                  </div>
-                  {paymentFeedback && <FeedbackMessage feedback={paymentFeedback} />}
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3 p-4 rounded-xl bg-surface border border-border">
-                    <Link2 className="w-5 h-5 text-fg-mute shrink-0" />
-                    <div className="flex-1">
-                      <p className="text-[13px] font-medium text-fg">Nenhuma conta conectada</p>
-                      <p className="text-[12px] text-fg-mute mt-0.5">
-                        Conecte a conta Mercado Pago da locadora para gerar cobranças Pix.
-                      </p>
-                    </div>
-                    <Button onClick={handleConnect} loading={isConnecting} size="sm">
-                      <Link2 className="w-4 h-4" />
-                      Conectar Mercado Pago
-                    </Button>
-                  </div>
-                  {paymentFeedback && <FeedbackMessage feedback={paymentFeedback} />}
-                </div>
-              )}
-            </Card>
-          </section>
+          <PaymentGatewaySection
+            accounts={paymentConnectionQuery.data?.accounts ?? []}
+            isLoading={paymentConnectionQuery.isLoading}
+            feedback={paymentFeedback}
+            onFeedback={setPaymentFeedback}
+            onChanged={() => { void paymentConnectionQuery.refetch() }}
+          />
         ) : null}
 
         {/* SEÇÃO 3-b: Encargo por atraso — Owner só, mesmo racional da integração
@@ -654,20 +590,6 @@ export default function SettingsPage() {
         </section>
       </div>
 
-      <Modal open={disconnectModalOpen} onClose={() => setDisconnectModalOpen(false)} title="Desconectar Mercado Pago" size="sm">
-        <div className="space-y-4">
-          <p className="text-[13px] text-fg-mute">
-            Ao desconectar, o sistema não poderá gerar novos Pix de cobrança. Pix já gerados continuam válidos até o vencimento.
-          </p>
-          <div className="flex gap-3 justify-end">
-            <Button variant="ghost" onClick={() => setDisconnectModalOpen(false)}>Cancelar</Button>
-            <Button variant="danger" onClick={handleDisconnect} loading={isDisconnecting}>
-              <Link2Off className="w-4 h-4" />
-              Confirmar Desconexão
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   )
 }

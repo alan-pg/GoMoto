@@ -1,0 +1,85 @@
+/**
+ * Contrato de gateway de pagamento — a metade com I/O (ADR 0030).
+ *
+ * A metade pura (catálogo, métodos suportados, modo de conexão) vive em
+ * `@gomoto/core/payments`. Aqui fica o que fala com a rede.
+ *
+ * O contrato anterior tinha só `createIntent`. Onboarding, refresh de
+ * credencial e consulta de status estavam espalhados como funções soltas do
+ * Mercado Pago, chamadas por `import` direto — o que fazia "somar um gateway"
+ * significar "mexer em toda rota que toca pagamento".
+ */
+
+import type { GatewayMethod, PaymentProviderDescriptor } from '@gomoto/core'
+
+/**
+ * Formato livre por provedor. Vai inteiro para o Vault e volta inteiro de lá;
+ * nem o banco nem esta camada olham dentro. É o que permite `{access_token}` do
+ * Mercado Pago e `{client_id, certificate, private_key}` do Cora conviverem sem
+ * uma coluna para cada.
+ */
+export type ProviderCredentials = Record<string, unknown>
+
+/** O que um provedor devolve quando o tenant termina de conectar. */
+export type ProviderConnection = {
+  /** Identidade da conta no provedor. É por aqui que o webhook acha o tenant. */
+  externalAccountId: string
+  /** Como o usuário reconhece a conta na tela. Nem todo provedor informa. */
+  accountEmail: string | null
+  credentials: ProviderCredentials
+}
+
+export type CreateIntentParams = {
+  amount: number
+  chargeId: string
+  method: GatewayMethod
+  credentials: ProviderCredentials
+  customer: { name: string | null; email: string | null; document: string | null }
+}
+
+export type CreatedIntent = {
+  providerIntentId: string
+  expiresAt: string | null
+  /** QR code, linha digitável, URL — o que o provedor devolver. */
+  payload: Record<string, unknown>
+}
+
+export type PaymentProvider = {
+  descriptor: PaymentProviderDescriptor
+
+  /**
+   * Presente apenas quando `descriptor.connectionMode === 'oauth'`.
+   * O registry garante a coerência entre os dois.
+   */
+  oauth?: {
+    buildAuthUrl(state: string): string
+    exchangeCode(code: string): Promise<ProviderConnection>
+    refresh(credentials: ProviderCredentials): Promise<ProviderCredentials>
+  }
+
+  createIntent(params: CreateIntentParams): Promise<CreatedIntent>
+}
+
+/**
+ * A credencial do gateway não vale mais.
+ *
+ * Existe como tipo próprio porque o tratamento é diferente de qualquer outra
+ * falha: não adianta tentar de novo, alguém precisa reconectar a conta. Antes,
+ * o 401 do Mercado Pago virava `Error('MP_UNAUTHORIZED')`, ninguém o
+ * distinguia, e o cliente lia "Falha ao gerar cobrança. Tente novamente." —
+ * conselho errado para um token que expirou há dois meses.
+ */
+export class ProviderAuthError extends Error {
+  readonly code = 'GATEWAY_UNAUTHORIZED' as const
+  constructor(readonly provider: string, message?: string) {
+    super(message ?? `Credencial do gateway ${provider} inválida ou expirada`)
+    this.name = 'ProviderAuthError'
+  }
+}
+
+/** Erro de fluxo com código que as rotas mapeiam para HTTP. */
+export type CodedError = Error & { code?: string }
+
+export function codedError(code: string, message: string): CodedError {
+  return Object.assign(new Error(message), { code })
+}

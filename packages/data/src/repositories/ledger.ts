@@ -581,23 +581,31 @@ export type ProviderAccountRow = {
   id: string
   provider: string
   external_account_id: string
+  account_email: string | null
   is_default: boolean
   active: boolean
 }
 
 /**
- * Contas de provedor do tenant.
+ * Contas de gateway do tenant (ADR 0030).
  *
- * `credentials` fica FORA do select: a coluna não tem GRANT para
- * `authenticated`, só service_role a lê.
+ * Inclui as INATIVAS: a tela precisa mostrar "Mercado Pago — desconectado" com
+ * botão de reconectar, e não fingir que a integração nunca existiu. Quem filtra
+ * por `is_default AND active` é quem vai cobrar, não quem vai desenhar.
+ *
+ * `secret_id` fica fora do select e fora do GRANT: a credencial mora no Vault e
+ * só sai por `fn_provider_credentials`, server-side. `account_email` entrou —
+ * era gravado pelo callback e ninguém podia ler, então a tela exibia o número
+ * da conta no lugar do e-mail.
  */
 export async function listProviderAccounts(
   client: SupabaseClient,
 ): Promise<ProviderAccountRow[]> {
   const { data, error } = await client
     .from('payment_provider_accounts')
-    .select('id, provider, external_account_id, is_default, active')
-    .eq('active', true)
+    .select('id, provider, external_account_id, account_email, is_default, active')
+    .order('is_default', { ascending: false })
+    .order('provider', { ascending: true })
 
   if (error) throw error
   return (data ?? []) as ProviderAccountRow[]

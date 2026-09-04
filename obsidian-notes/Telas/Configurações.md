@@ -6,6 +6,26 @@ Rota: `/configuracoes` | Tipo: Client Component
 
 > Seção "Dados da Empresa" removida (2026-08-07) — os campos `empresa_*` na tabela `settings` não eram consumidos por nenhuma outra tela (contratos, relatórios, etc.).
 
+### Gateway de Pagamento (Owner apenas) — [[decisions/0030-multiplos-gateways-de-pagamento|ADR 0030]]
+
+O tenant conecta **quantos gateways quiser**; exatamente **um** gera as cobranças.
+
+A lista sai do catálogo `PAYMENT_PROVIDERS` (`@gomoto/core/payments`) cruzado com as contas do tenant — nenhum nome de provedor está escrito na tela. Provedor com `available: false` aparece como **"Em breve"**, com o botão desabilitado: o tenant vê para onde a integração vai sem clicar em algo que não faz nada.
+
+| Estado da linha | Badge | Ações |
+|---|---|---|
+| `is_default AND active` | **Gerando cobranças** | Desconectar |
+| `active`, sem `is_default` | Conectado | **Ativar**, Desconectar |
+| conta existente, `active = false` | (do catálogo) | Reconectar |
+| nunca conectado, `available` | — | Conectar |
+| nunca conectado, `available = false` | Em breve | Conectar (desabilitado) |
+
+**Conectar não elege.** Só o primeiro gateway do tenant nasce eleito; um segundo entra como "Conectado" e a troca é um clique explícito em *Ativar*. Conectar nunca redireciona o dinheiro da empresa em silêncio.
+
+**Aviso de "Nenhum gateway ativo".** Existe conta conectada e nenhuma eleita — normalmente depois de desconectar a que cobrava. O app do cliente para de gerar Pix; sem o aviso, isso acontecia sem nada na tela dizer por quê.
+
+Escrita: as três operações passam por RPC `SECURITY DEFINER` (`fn_connect_provider_account`, `fn_set_default_provider_account`, `fn_disconnect_provider_account`), que checam Owner **e** tenant dentro do banco. `authenticated` não tem `INSERT`/`UPDATE` em `payment_provider_accounts` — a linha aponta para uma credencial no Vault, e o guard de dinheiro não pode viver só na aplicação.
+
 ### Encargo por atraso (Owner apenas) — ADR 0024
 
 A única forma de configurar multa e juros. Antes desta seção, `late_charge_policies` só recebia escrita por migration: mudar a política exigia SQL direto no banco.

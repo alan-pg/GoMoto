@@ -476,6 +476,19 @@ export function useLateChargePolicies() {
  * Substitui `usePaymentConnection`, que assumia um único provedor por tenant —
  * o `UNIQUE(tenant_id)` de `payment_connections` impedia um segundo (F-13).
  */
+/**
+ * Gateways do tenant (ADR 0030).
+ *
+ * `active_account` é a única coisa que responde "quem cobra". A versão anterior
+ * devolvia `is_connected: accounts.length > 0` e um `default_provider` que
+ * nenhuma tela lia — a UI dizia "Mercado Pago conectado" por texto fixo,
+ * independentemente do que estivesse no banco.
+ *
+ * Uma conta ativa sem `is_default` é estado real e possível: o tenant conectou
+ * um segundo gateway e ainda não o elegeu, ou desconectou o que cobrava. A tela
+ * precisa distinguir isso de "nada configurado", porque no primeiro caso as
+ * cobranças online param e ninguém é avisado.
+ */
 export function useProviderAccounts() {
   const supabase = useSupabaseContext()
 
@@ -483,10 +496,13 @@ export function useProviderAccounts() {
     queryKey: ['payment-provider-accounts'],
     queryFn: async () => {
       const accounts = await listProviderAccounts(supabase)
+      const active = accounts.find((a) => a.is_default && a.active) ?? null
       return {
         accounts,
-        is_connected: accounts.length > 0,
-        default_provider: accounts.find((a) => a.is_default)?.provider ?? null,
+        connected: accounts.filter((a) => a.active),
+        active_account: active,
+        /** Há gateway gerando cobrança agora? */
+        is_billing_enabled: active !== null,
       }
     },
   })

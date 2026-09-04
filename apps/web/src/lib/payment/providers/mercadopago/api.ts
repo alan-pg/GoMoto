@@ -1,6 +1,25 @@
+/**
+ * Cliente HTTP do Mercado Pago (ADR 0030).
+ *
+ * Só fala com a API do MP. Não conhece `payment_intents`, `tenant_id` nem o
+ * contrato `PaymentProvider` — quem faz a ponte é `./index.ts`.
+ */
+
+/** Credencial recusada pelo provedor. Retentar não resolve; reconectar sim. */
+export class MercadoPagoAuthError extends Error {
+  constructor(message = 'Credencial do Mercado Pago recusada (401)') {
+    super(message)
+    this.name = 'MercadoPagoAuthError'
+  }
+}
+
 const MP_BASE  = 'https://api.mercadopago.com'
 const MP_AUTH  = 'https://auth.mercadopago.com.br'
 const MP_TOKEN = 'https://api.mercadopago.com'
+
+import { oauthRedirectUri } from '../../oauth-state'
+
+const REDIRECT_URI = () => oauthRedirectUri('mercadopago')
 
 function envVar(name: string): string {
   const v = process.env[name]
@@ -10,7 +29,7 @@ function envVar(name: string): string {
 
 export function buildOAuthUrl(stateJwt: string): string {
   const clientId = envVar('MERCADOPAGO_CLIENT_ID')
-  const redirectUri = envVar('MERCADOPAGO_REDIRECT_URI')
+  const redirectUri = REDIRECT_URI()
   const params = new URLSearchParams({
     client_id:     clientId,
     response_type: 'code',
@@ -35,9 +54,10 @@ export async function exchangeCodeForTokens(code: string): Promise<{
       client_secret: envVar('MERCADOPAGO_CLIENT_SECRET'),
       code,
       grant_type:    'authorization_code',
-      redirect_uri:  envVar('MERCADOPAGO_REDIRECT_URI'),
+      redirect_uri:  REDIRECT_URI(),
     }),
   })
+  if (res.status === 401) throw new MercadoPagoAuthError('Mercado Pago recusou a troca do código de autorização')
   if (!res.ok) throw new Error(`MP token exchange failed: ${res.status}`)
   const json = await res.json()
   return {
@@ -62,6 +82,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
       refresh_token: refreshToken,
     }),
   })
+  if (res.status === 401) throw new MercadoPagoAuthError('Refresh token do Mercado Pago não vale mais')
   if (!res.ok) throw new Error(`MP token refresh failed: ${res.status}`)
   const json = await res.json()
   return { access_token: json.access_token, refresh_token: json.refresh_token }
@@ -110,11 +131,7 @@ export async function createPixCharge(params: PixChargeParams): Promise<PixCharg
     }),
   })
 
-  if (res.status === 401) {
-    const err = new Error('MP_UNAUTHORIZED')
-    ;(err as Error & { status: number }).status = 401
-    throw err
-  }
+  if (res.status === 401) throw new MercadoPagoAuthError()
   if (!res.ok) {
     const body = await res.text()
     console.error(`[MP] createPixCharge failed status=${res.status} body=${body}`)
@@ -129,16 +146,4 @@ export async function createPixCharge(params: PixChargeParams): Promise<PixCharg
     qr_code_base64: txInfo?.qr_code_base64 ?? '',
     expires_at:     json.date_of_expiration,
   }
-}
-
-export async function getPayment(
-  mpPaymentId: string,
-  accessToken: string,
-): Promise<{ status: string; external_reference: string }> {
-  const res = await fetch(`${MP_BASE}/v1/payments/${mpPaymentId}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  if (!res.ok) throw new Error(`MP get payment failed: ${res.status}`)
-  const json = await res.json()
-  return { status: json.status, external_reference: json.external_reference }
 }
