@@ -1,171 +1,227 @@
 'use server'
 
-import { z } from 'zod'
-import { createClient } from '@/lib/supabase/server'
+/**
+ * Server Actions de despesas (Spec 0014 / ADR 0024).
+ *
+ * Reescrita sobre `payables`. Duas mudanças de fundo:
+ *
+ * 1. RESPONSABILIDADE EXISTE. A tabela `expenses` não tinha coluna de
+ *    responsabilidade, nem `customer_id`, nem `rental_id` — despesa
+ *    compartilhada era inmodelável (F-07). A ADR 0013 afirmava que
+ *    `is_company_expense` existia; a coluna nunca existiu.
+ *
+ * 2. O REPASSE É UM PASSO SÓ. Antes, criar a despesa e gerar a cobrança eram
+ *    operações separadas, com o INSERT em `billings` escrito à mão aqui — uma
+ *    das três cópias divergentes dessa lógica. Agora `createPayable` cria a
+ *    conta a pagar, lança no ledger e gera cobrança ou crédito conforme o
+ *    rateio, tudo coerente por construção.
+ */
+
 import { revalidatePath } from 'next/cache'
-import { ExpenseSchema } from '@gomoto/core'
+import { createClient } from '@/lib/supabase/server'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
-import type { ActionResult, LateChargeConfig } from '@gomoto/core'
+import {
+  CreatePayableSchema,
+  type ActionResult,
+  type ErrorCode,
+  type AccountCode,
+} from '@gomoto/core'
+import { businessToday, cancelPayable, createPayable, payPayable } from '@/lib/financial'
 
-const UUID_LOOSE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const uuid = () => z.string().regex(UUID_LOOSE, 'ID inválido')
-const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (YYYY-MM-DD)')
+type Failure = { ok: false; error: { code: ErrorCode; message: string } }
 
-async function getAuthenticatedUser() {
+function fail(code: ErrorCode, message: string): Failure {
+  return { ok: false, error: { code, message } }
+}
+
+type Context =
+  | { ok: true; supabase: Awaited<ReturnType<typeof createClient>>; userId: string; tenantId: string }
+  | { ok: false; failure: Failure }
+
+async function getContext(): Promise<Context> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  return { supabase, user }
-}
-
-export async function createExpense(rawData: unknown) {
-  const { supabase, user } = await getAuthenticatedUser()
-  if (!user) return { error: 'Não autorizado' }
+  if (!user) return { ok: false, failure: fail('UNAUTHORIZED', 'Não autorizado') }
 
   const tenantId = await getCurrentTenantId(supabase)
-  if (!tenantId) return { error: 'Tenant não resolvido para o usuário' }
+  if (!tenantId) return { ok: false, failure: fail('FORBIDDEN', 'Empresa não resolvida') }
 
-  const parsed = ExpenseSchema.safeParse(rawData)
-  if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
-
-  const { data, error } = await supabase
-    .from('expenses')
-    .insert({ ...parsed.data, tenant_id: tenantId })
-    .select()
-    .single()
-
-  if (error) return { error: 'Erro ao registrar despesa' }
-
-  await logAction({ action: 'create', table: 'expenses', recordId: data.id, newData: data })
-  revalidatePath('/despesas')
-  return { data }
+  return { ok: true, supabase, userId: user.id, tenantId }
 }
 
-export async function updateExpense(id: string, rawData: unknown) {
-  const { supabase, user } = await getAuthenticatedUser()
-  if (!user) return { error: 'Não autorizado' }
-
-  const parsed = ExpenseSchema.partial().safeParse(rawData)
-  if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
-
-  const { data: before } = await supabase.from('expenses').select().eq('id', id).single()
-
-  const { data, error } = await supabase
-    .from('expenses')
-    .update(parsed.data)
-    .eq('id', id)
-    .select()
-    .single()
-
-  if (error) return { error: 'Erro ao atualizar despesa' }
-
-  await logAction({ action: 'update', table: 'expenses', recordId: id, oldData: before, newData: data })
-  revalidatePath('/despesas')
-  return { data }
+function toMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'Erro inesperado'
 }
 
-export async function deleteExpense(id: string) {
-  const { supabase, user } = await getAuthenticatedUser()
-  if (!user) return { error: 'Não autorizado' }
+/**
+ * Cria a despesa e, havendo parte do cliente, o retorno correspondente.
+ *
+ * O rateio é validado em `splitResponsibility` antes de tocar o banco, então
+ * um rateio incoerente dá erro legível em vez de violação de CHECK.
+ */
+export async function createExpenseAction(
+  raw: unknown,
+): Promise<ActionResult<{ payable_id: string; charge_id?: string; credit_id?: string }>> {
+  const ctx = await getContext()
+  if (!ctx.ok) return ctx.failure
 
-  const { data: before } = await supabase.from('expenses').select().eq('id', id).single()
-  const { error } = await supabase.from('expenses').delete().eq('id', id)
-
-  if (error) return { error: 'Erro ao excluir despesa' }
-
-  await logAction({ action: 'delete', table: 'expenses', recordId: id, oldData: before })
-  revalidatePath('/despesas')
-  return { success: true }
-}
-
-// ============================================================
-// confirmExpenseBilling — gera cobrança a partir de despesa (RF-017)
-// ============================================================
-
-const LateChargeConfigSchema = z.object({
-  late_fee_type:       z.enum(['fixed', 'percentage']),
-  late_fee_value:      z.number().min(0),
-  daily_interest_rate: z.number().min(0).max(1),
-  grace_period_days:   z.number().int().min(0),
-})
-
-const ConfirmExpenseSchema = z.discriminatedUnion('action', [
-  z.object({
-    action:             z.literal('confirm'),
-    expense_id:         uuid(),
-    amount:             z.number().positive(),
-    due_date:           dateString,
-    rental_id:          uuid().optional(),
-    late_charge_config: LateChargeConfigSchema,
-  }),
-  z.object({
-    action:     z.literal('refuse'),
-    expense_id: uuid(),
-  }),
-])
-
-export async function confirmExpenseBilling(
-  input: unknown,
-): Promise<ActionResult<{ confirmed: true; billing_id: string } | { confirmed: false } | { no_active_rental: true }>> {
-  const { supabase, user } = await getAuthenticatedUser()
-  if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
-
-  const tenantId = await getCurrentTenantId(supabase)
-  if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não encontrado' } }
-
-  const parsed = ConfirmExpenseSchema.safeParse(input)
+  const parsed = CreatePayableSchema.safeParse(raw)
   if (!parsed.success) {
     const first = parsed.error.issues[0]
-    return { ok: false, error: { code: 'VALIDATION_ERROR', message: first?.message ?? 'Dados inválidos', field: first?.path?.map(String).join('.') } }
-  }
-
-  if (parsed.data.action === 'refuse') {
-    await logAction({ action: 'update', table: 'expenses', recordId: parsed.data.expense_id, newData: { billing_refused: true } })
-    return { ok: true, data: { confirmed: false } }
-  }
-
-  let rentalId = parsed.data.rental_id
-  let customerId: string | null = null
-
-  if (!rentalId) {
-    const { data: expense } = await supabase
-      .from('expenses').select('vehicle_id').eq('id', parsed.data.expense_id).eq('tenant_id', tenantId).single()
-
-    if (expense?.vehicle_id) {
-      const { data: rental } = await supabase
-        .from('rentals').select('id, customer_id').eq('vehicle_id', expense.vehicle_id).eq('tenant_id', tenantId).eq('status', 'active').maybeSingle()
-      if (!rental) return { ok: true, data: { no_active_rental: true } }
-      rentalId = rental.id
-      customerId = rental.customer_id
-    } else {
-      return { ok: true, data: { no_active_rental: true } }
+    return {
+      ok: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: first?.message ?? 'Dados inválidos',
+        field: first?.path?.map(String).join('.'),
+      },
     }
-  } else {
-    const { data: rental } = await supabase.from('rentals').select('customer_id').eq('id', rentalId).eq('tenant_id', tenantId).single()
-    customerId = rental?.customer_id ?? null
   }
 
-  const { data: billing, error } = await supabase
-    .from('billings')
-    .insert({
-      tenant_id:          tenantId,
-      lease_id:           rentalId,
-      customer_id:        customerId,
-      description:        'Cobrança de despesa',
-      original_amount:    parsed.data.amount,
-      due_date:           parsed.data.due_date,
-      billing_type:       'one_time',
-      source:             'expense',
-      late_charge_config: parsed.data.late_charge_config as LateChargeConfig,
-      status:             'pending',
+  try {
+    const result = await createPayable(ctx.supabase, ctx.tenantId, {
+      description: parsed.data.description,
+      expenseAccountCode: parsed.data.expense_account_code as AccountCode,
+      competenceDate: parsed.data.competence_date,
+      dueDate: parsed.data.due_date,
+      amount: parsed.data.amount,
+      responsibility: parsed.data.responsibility,
+      customerId: parsed.data.customer_id ?? null,
+      customerAmount: parsed.data.customer_amount,
+      reimbursement: parsed.data.reimbursement,
+      vehicleId: parsed.data.vehicle_id ?? null,
+      rentalId: parsed.data.rental_id ?? null,
+      vendorName: parsed.data.vendor_name ?? null,
+      attachmentUrl: parsed.data.attachment_url ?? null,
+      sourceModule: 'expense',
+      createdBy: ctx.userId,
     })
-    .select('id')
-    .single()
 
-  if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
+    await logAction({
+      action: 'create',
+      table: 'payables',
+      recordId: result.payableId,
+      newData: {
+        amount: parsed.data.amount,
+        responsibility: parsed.data.responsibility,
+        customer_amount: parsed.data.customer_amount,
+        charge_id: result.chargeId ?? null,
+        credit_id: result.creditId ?? null,
+      },
+    })
 
-  await logAction({ action: 'create', table: 'billings', recordId: billing.id, newData: { source: 'expense', expense_id: parsed.data.expense_id } })
-  revalidatePath('/cobrancas')
+    revalidatePath('/despesas')
+    revalidatePath('/cobrancas')
+    revalidatePath('/financeiro')
+    // O serviço usa camelCase; o contrato das actions é snake_case.
+    return {
+      ok: true,
+      data: {
+        payable_id: result.payableId,
+        charge_id: result.chargeId,
+        credit_id: result.creditId,
+      },
+    }
+  } catch (err) {
+    return fail('INTERNAL', toMessage(err))
+  }
+}
+
+/** Baixa da despesa: dinheiro sai do caixa. */
+export async function payExpenseAction(
+  payableId: string,
+  paidAt?: string,
+): Promise<ActionResult<void>> {
+  const ctx = await getContext()
+  if (!ctx.ok) return ctx.failure
+
+  try {
+    // A data do pagamento vira `occurred_at` do lançamento, e `occurred_at`
+    // decide em que MÊS a saída de caixa cai no DRE. Ela não pode sair do
+    // relógio de quem clicou: a tela mandava `new Date()` do NAVEGADOR, então
+    // um operador em outro fuso — ou viajando — gravava um dia que o negócio
+    // ainda não começou.
+    //
+    // Sem data explícita, quem responde é o banco, no fuso do tenant (migration
+    // `fuso_horario_por_tenant`). O parâmetro continua existindo para quando a
+    // tela oferecer escolher a data — pagar a oficina na sexta e lançar na
+    // segunda é caso real, o mesmo que o recebimento já trata.
+    const hoje = await businessToday(ctx.supabase, ctx.tenantId)
+    const quando = paidAt ?? hoje
+
+    // O `max` do input fecha o seletor, não o teclado — mesma lição do
+    // encerramento de locação e da vigência da política de encargo. Dinheiro
+    // que ainda não saiu não pode virar lançamento.
+    if (quando > hoje) {
+      return fail('VALIDATION_ERROR', 'A data do pagamento não pode ser futura.')
+    }
+
+    await payPayable(ctx.supabase, ctx.tenantId, payableId, quando, ctx.userId)
+
+    await logAction({
+      action: 'update',
+      table: 'payables',
+      recordId: payableId,
+      newData: { status: 'paid', paid_at: quando },
+    })
+
+    revalidatePath('/despesas')
+    revalidatePath('/financeiro')
+    return { ok: true, data: undefined }
+  } catch (err) {
+    return fail('INTERNAL', toMessage(err))
+  }
+}
+
+/**
+ * Cancela a despesa.
+ *
+ * Não existe excluir: apagar registro financeiro viola o Princípio 3. O
+ * cancelamento preserva o histórico e o lançamento original permanece,
+ * compensado por estorno.
+ */
+export async function cancelExpenseAction(
+  payableId: string,
+): Promise<ActionResult<void>> {
+  const ctx = await getContext()
+  if (!ctx.ok) return ctx.failure
+
+  const { data: payable, error: readError } = await ctx.supabase
+    .from('payables')
+    .select('id, status')
+    .eq('id', payableId)
+    .eq('tenant_id', ctx.tenantId)
+    .maybeSingle()
+
+  if (readError) return fail('INTERNAL', readError.message)
+  if (!payable) return fail('NOT_FOUND', 'Despesa não encontrada')
+
+  // Despesa PAGA já foi recusada aqui. Deixou de ser: desde a ADR 0029 o
+  // cancelamento estorna a baixa junto — o caixa é próprio, e o estorno só
+  // reconhece que a saída não devia ter sido lançada. Manter a recusa criaria
+  // incoerência: cancelar pela manutenção desfazia a mesma despesa que esta
+  // tela dizia ser intocável.
+  //
+  // Delega a `cancelPayable`: marcar o status aqui deixava o lançamento de
+  // `payable_created` no razão — custo eterno no DRE e passivo fantasma — e a
+  // cobrança de repasse viva, cobrando o cliente por um custo negado.
+  try {
+    await cancelPayable(
+      ctx.supabase, ctx.tenantId, payableId,
+      'Despesa cancelada pelo operador', ctx.userId,
+    )
+  } catch (err) {
+    return fail('INTERNAL', err instanceof Error ? err.message : String(err))
+  }
+
+  await logAction({
+    action: 'update',
+    table: 'payables',
+    recordId: payableId,
+    newData: { status: 'cancelled' },
+  })
+
   revalidatePath('/despesas')
-  return { ok: true, data: { confirmed: true, billing_id: billing.id } }
+  return { ok: true, data: undefined }
 }

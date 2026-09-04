@@ -13,6 +13,8 @@ import {
   useMaintenances,
   useVehicles,
   useMaintenancePlans,
+  usePayables,
+  useActiveRentals,
   useSupabaseContext,
 } from '@gomoto/data'
 import {
@@ -20,7 +22,9 @@ import {
   createMaintenance,
   updateMaintenance,
   deleteMaintenance,
+  checkMaintenanceDeletableAction,
   updateVehicleKm,
+  registerMaintenanceCost,
 } from './actions'
 import type { Maintenance, MaintenanceStatus } from '@gomoto/core'
 import {
@@ -51,7 +55,8 @@ type ItemFinancial = {
   /** PRD 0003 D4 — snapshot binário de quem leva à oficina. */
   executor: 'company' | 'customer'
   /** PRD 0003 D4 — % do custo arcado pelo cliente (0–100); empresa = 100 − cliente. */
-  customer_payer_pct: number
+  /** Quanto DESTE custo o cliente paga, em reais. 0 = tudo da empresa. */
+  customer_amount: string
   has_odometer_photo: boolean
   has_invoice_photo: boolean
   odometer_photo_file: File | null
@@ -67,7 +72,6 @@ type ItemFinancial = {
 type ContractInfo = {
   type: 'rental' | 'promise'
   client_name: string
-  next_billing_date: string | null
 }
 
 /**
@@ -125,7 +129,7 @@ type MaintenanceFormData = {
   workshop: string
   observations: string
   effective_executor: 'company' | 'customer'
-  customer_payer_pct: number
+  customer_amount: string
   odometer_photo_file: File | null
   invoice_photo_file: File | null
 }
@@ -156,7 +160,7 @@ const INITIAL_FORM: MaintenanceFormData = {
   workshop: 'Oficina do Careca',
   observations: '',
   effective_executor: 'company',
-  customer_payer_pct: 0,
+  customer_amount: '',
   odometer_photo_file: null,
   invoice_photo_file: null,
 }
@@ -294,11 +298,11 @@ function SituacaoCell({ m }: { m: MaintenanceWithMoto }) {
 
   // Senão, analisa datas (temporal)
   if (dias !== null) {
-    if (dias < 0) return <span className="text-[13px] font-medium text-danger">Vencida há {Math.abs(dias)} dias</span>
+    if (dias < 0) return <span className="text-[13px] font-medium text-danger">Vencida há {Math.abs(dias)} dia{Math.abs(dias) === 1 ? '' : 's'}</span>
     if (dias === 0) return <span className="text-[13px] font-medium text-warning">Vence hoje</span>
     return (
       <span className={`text-[13px] font-medium ${dias <= 18 ? 'text-warning' : 'text-fg-mute'}`}>
-        Em {dias} dias
+        Em {dias} dia{dias === 1 ? '' : 's'}
       </span>
     )
   }
@@ -322,10 +326,25 @@ export default function MaintenancePage() {
   const maintenancesQuery = useMaintenances()
   const vehiclesQuery = useVehicles()
   const plansQuery = useMaintenancePlans()
+  // Custo da manutenção vive no payable desde a ADR 0024 — a coluna
+  // `maintenances.cost` não existe mais.
+  const payablesQuery = usePayables()
+  // Quem responde pelo repasse é o cliente da locação ATIVA do veículo — o
+  // formulário não tinha essa informação e por isso deixava escolher rateio
+  // para moto sem contrato, descobrindo o problema só depois de salvar.
+  const activeRentalsQuery = useActiveRentals()
   const maintenances = (maintenancesQuery.data ?? []) as MaintenanceWithMoto[]
   const vehicles = (vehiclesQuery.data ?? []) as VehicleOption[]
   const plans = plansQuery.data ?? []
   const loading = maintenancesQuery.isLoading || vehiclesQuery.isLoading
+
+  /** Locação ativa do veículo escolhido, ou null — mesma regra do servidor. */
+  const locacaoDoVeiculo = useCallback((vehicleId: string) => {
+    type LinhaLocacao = { vehicle_id: string; customer?: { name?: string } | null }
+    const lista = (activeRentalsQuery.data ?? []) as unknown as LinhaLocacao[]
+    const r = lista.find((l) => l.vehicle_id === vehicleId)
+    return r ? { clienteNome: r.customer?.name ?? 'cliente sem nome' } : null
+  }, [activeRentalsQuery.data])
 
   const invalidateMaintenances = useCallback(
     () => queryClient.invalidateQueries({ queryKey: ['maintenances'] }),
@@ -379,6 +398,16 @@ export default function MaintenancePage() {
   
   // [deletingId, setDeletingId]: Armazena temporariamente o ID do item focado para exclusão antes do aceite de confirmação.
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  /**
+   * Impedimento à exclusão, perguntado ao ABRIR o modal.
+   * `null` enquanto a resposta não chegou — o botão fica desabilitado até lá,
+   * para ninguém confirmar uma exclusão que o servidor vai recusar.
+   */
+  const [deleteBlock, setDeleteBlock] = useState<
+    | { ok: true; undoes: { amount: number; chargeId: string | null; creditAmount: number } | null }
+    | { ok: false; message: string }
+    | null
+  >(null)
   
   // [kmForm, setKmForm]: Representa o mini-estado para o modal embutido de atualização ágil da KM atual de uma moto.
   const [kmForm, setKmForm] = useState({ vehicle_id: '', km_current: '' })
@@ -429,9 +458,35 @@ export default function MaintenancePage() {
    * Computação: Injeta a label interna `_status` via processamento lógico de forma preventiva
    * para não chamar essa rotina pesada a cada render dentro dos laços.
    */
+  /**
+   * Custo por manutenção, vindo do payable.
+   *
+   * A coluna "Custo" da lista renderizava `item.cost`, e `maintenances` não tem
+   * essa coluna — o custo mudou para o payable na ADR 0024 (a tabela guarda
+   * `payable_id`). O resultado era um traço em TODA linha, para sempre. O KPI
+   * do topo já havia sido corrigido para ler do payable; a célula da tabela
+   * ficou para trás.
+   *
+   * A chave é `(source_module='maintenance', source_id)`, o mesmo par que
+   * `registerCost` usa para perguntar "esta manutenção já tem custo?".
+   */
+  const custoPorManutencao = useMemo(() => {
+    const mapa = new Map<string, number>()
+    for (const p of (payablesQuery.data ?? [])) {
+      if (p.source_module === 'maintenance' && p.source_id && p.status !== 'cancelled') {
+        mapa.set(p.source_id, Number(p.amount))
+      }
+    }
+    return mapa
+  }, [payablesQuery.data])
+
   const withStatus = useMemo(() =>
-    maintenances.map((m) => ({ ...m, _status: calcularStatus(m) })),
-    [maintenances]
+    maintenances.map((m) => ({
+      ...m,
+      _status: calcularStatus(m),
+      cost: custoPorManutencao.get(m.id) ?? null,
+    })),
+    [maintenances, custoPorManutencao]
   )
 
   /**
@@ -527,11 +582,18 @@ export default function MaintenancePage() {
       upcoming:  withStatus.filter((m) => m._status === 'upcoming').length,
       scheduled: withStatus.filter((m) => m._status === 'scheduled').length,
       completed: withStatus.filter((m) => m._status === 'completed').length,
-      costThisMonth: withStatus
-        .filter((m) => m._status === 'completed' && m.completed_date?.startsWith(currentMonth))
-        .reduce((acc, m) => acc + (m.cost ?? 0), 0),
+      // Somava `m.cost`, coluna removida na ADR 0024: o KPI ficava
+      // permanentemente em R$ 0,00 mesmo com manutenção concluída e custo
+      // lançado. O custo vive no payable de origem `maintenance`, e o mês é o
+      // da COMPETÊNCIA — quando o serviço foi feito, não quando a conta vence.
+      costThisMonth: (payablesQuery.data ?? [])
+        .filter((p) =>
+          p.source_module === 'maintenance' &&
+          p.status !== 'cancelled' &&
+          p.competence_date?.startsWith(currentMonth))
+        .reduce((acc, p) => acc + Number(p.amount), 0),
     }
-  }, [withStatus])
+  }, [withStatus, payablesQuery.data])
 
   const vehicleSelectOptions = useMemo(() => [
     { value: '', label: 'Selecione a moto...' },
@@ -568,6 +630,7 @@ export default function MaintenancePage() {
   const closeDeleteModal = useCallback(() => {
     setIsDeleteModalOpen(false)
     setDeletingId(null)
+    setDeleteBlock(null)
   }, [])
 
   /**
@@ -601,9 +664,26 @@ export default function MaintenancePage() {
       alert('Por favor, preencha a moto e a descrição.')
       return
     }
-    setSaving(true)
-
     const isExecuted = formData.mode === 'executed'
+
+    // Antes de gravar qualquer coisa: o repasse exige locação ativa, e isso é
+    // sabido aqui. Sem esta checagem a manutenção era criada, o custo falhava
+    // logo depois, e sobrava um registro sem custo com um alerta dizendo
+    // "salva, mas o custo falhou" — estado que o operador não pediu e não
+    // consegue desfazer pela tela.
+    const parteClientePrevia = Math.min(
+      parseFloat(formData.customer_amount) || 0,
+      parseFloat(formData.cost) || 0,
+    )
+    if (isExecuted && parteClientePrevia > 0 && !locacaoDoVeiculo(formData.vehicle_id)) {
+      alert(
+        'Esta moto não tem locação ativa, então não há a quem repassar o custo. '
+        + 'Deixe "Quanto o cliente paga" em zero, ou registre a locação antes.',
+      )
+      return
+    }
+
+    setSaving(true)
 
     // Upload das fotos só faz sentido no modo executado; quando o usuário
     // está apenas agendando, nem enviamos os campos no payload.
@@ -629,11 +709,9 @@ export default function MaintenancePage() {
           completed: true,
           completed_date: formData.completed_date || new Date().toISOString().split('T')[0],
           actual_km: formData.actual_km ? parseInt(formData.actual_km, 10) : null,
-          cost: formData.cost ? parseFloat(formData.cost) : null,
           workshop: formData.workshop || null,
           observations: formData.observations || null,
           effective_executor: formData.effective_executor,
-          effective_customer_payer_pct: formData.customer_payer_pct,
           odometer_photo_url: odometerUrl,
           invoice_photo_url: invoiceUrl,
         }
@@ -648,13 +726,57 @@ export default function MaintenancePage() {
           completed: false,
           completed_date: null,
           actual_km: null,
-          cost: null,
+          // `cost` saiu de `maintenances` na ADR 0024: custo é fato financeiro
+          // e vive no payable. Enquanto continuou no payload, AGENDAR
+          // manutenção falhava — e o erro ia para um `alert()`.
         }
     try {
       const res = editingMaintenance
         ? await updateMaintenance(editingMaintenance.id, payload)
         : await createMaintenance(payload)
       if (res.error) { alert(`Erro ao salvar: ${res.error}`); return }
+
+      // Custo do modo "Já executada".
+      //
+      // `registerMaintenanceCost` só era chamado no fluxo "Registrar conclusão"
+      // de uma manutenção AGENDADA. Quem lançava a manutenção já executada
+      // digitava o custo aqui e ele morria na tela: `maintenances.cost` saiu na
+      // ADR 0024, o payload não o carrega, e nada mais o recebia. A conta
+      // `despesa_manutencao` ficava sem o lançamento e o custo sumia do
+      // resultado do veículo.
+      const custoExecutado = parseFloat(formData.cost) || 0
+      // O rateio ia fixo em zero: este atalho assumia que todo custo era da
+      // empresa. Com executor CLIENTE isso vira crédito do valor CHEIO — a
+      // empresa devolvia R$ 100 numa troca de óleo dividida meio a meio.
+      // O campo já existia no formulário e só não chegava aqui.
+      const parteDoCliente = Math.min(parseFloat(formData.customer_amount) || 0, custoExecutado)
+      const criada = (res as { data?: { id: string } }).data
+      if (isExecuted && custoExecutado > 0 && criada?.id) {
+        const custoRes = await registerMaintenanceCost({
+          maintenance_id: criada.id,
+          amount: custoExecutado,
+          customer_amount: parteDoCliente,
+          executor: formData.effective_executor,
+          due_date: payload.completed_date as string,
+        })
+        if (!custoRes.ok) {
+          // Ou salva tudo, ou não salva nada. São duas chamadas separadas —
+          // PostgREST não abre transação entre elas —, então a atomicidade sai
+          // por compensação: a manutenção acabou de nascer nesta função, não
+          // tem nada pendurado nela, e desfazê-la é seguro.
+          const desfeita = await deleteMaintenance(criada.id)
+          alert(
+            desfeita.error
+              ? `Não foi possível registrar o custo: ${custoRes.error.message}\n\n`
+                + `A manutenção ${criada.id} ficou salva SEM custo e precisa ser `
+                + 'removida à mão — avise o suporte.'
+              : `Não foi possível registrar o custo: ${custoRes.error.message}\n\n`
+                + 'Nada foi salvo.',
+          )
+          return
+        }
+      }
+
       closeFormModal()
       await invalidateMaintenances()
     } catch (err) {
@@ -662,7 +784,7 @@ export default function MaintenancePage() {
     } finally {
       setSaving(false)
     }
-  }, [formData, editingMaintenance, closeFormModal, invalidateMaintenances])
+  }, [formData, editingMaintenance, closeFormModal, invalidateMaintenances, locacaoDoVeiculo])
 
   /**
    * @function handleDelete
@@ -672,7 +794,10 @@ export default function MaintenancePage() {
   const handleDelete = useCallback(async () => {
     if (!deletingId) return
     const res = await deleteMaintenance(deletingId)
-    if (res.error) { alert(`Erro ao excluir: ${res.error}`); return }
+    // A recusa do servidor cai no MESMO lugar da verificação de abertura: entre
+    // abrir o modal e confirmar, alguém pode ter lançado o custo. Antes isto era
+    // um `alert()` do navegador, que tirava a mensagem de perto da decisão.
+    if (res.error) { setDeleteBlock({ ok: false, message: res.error }); return }
     closeDeleteModal()
     invalidateMaintenances()
   }, [deletingId, closeDeleteModal, invalidateMaintenances])
@@ -697,7 +822,10 @@ export default function MaintenancePage() {
     // Busca se existe contrato formal para a mesma moto
     const { data: contractData } = await supabase
       .from('rentals')
-      .select('contract_type, next_billing_date, customers(name)')
+      // `next_billing_date` nunca existiu em `rentals`: o próximo vencimento
+      // vem do cronograma (`rental_billing_schedules`), não de uma coluna na
+      // locação. A query falhava e nenhum contrato ativo era encontrado.
+      .select('contract_type, customers(name)')
       .eq('vehicle_id', maintenance.vehicle_id)
       .eq('status', 'active')
       .maybeSingle()
@@ -708,7 +836,6 @@ export default function MaintenancePage() {
       setActiveContract({
         type: (contractData.contract_type as 'rental' | 'promise') || 'rental',
         client_name: customers?.name || 'Cliente',
-        next_billing_date: contractData.next_billing_date,
       })
     } else {
       setActiveContract(null)
@@ -760,15 +887,31 @@ export default function MaintenancePage() {
           completed: true,
           completed_date: completionDate,
           actual_km: actualKm,
-          cost: fin.cost ? parseFloat(fin.cost) : null,
           workshop: completionWorkshop || null,
           observations: completionObservations || null,
           effective_executor: fin.executor,
-          effective_customer_payer_pct: fin.customer_payer_pct,
           odometer_photo_url: odometerUrl,
           invoice_photo_url: invoiceUrl,
         })
         if (res.error) { alert(`Erro ao concluir item: ${res.error}`); return }
+
+        // O custo vira conta a pagar da empresa, com o rateio em valores — e a
+        // cobrança de repasse sai junto quando o cliente paga parte. Antes o
+        // valor era digitado aqui e descartado: `maintenances.cost` saiu na ADR
+        // 0024 e nada tomou o lugar, então `despesa_manutencao` só recebia
+        // lançamento vindo de /despesas.
+        const custo = parseFloat(fin.cost) || 0
+        if (custo > 0) {
+          const custoRes = await registerMaintenanceCost({
+            maintenance_id: itemId,
+            amount: custo,
+            customer_amount: Math.min(parseFloat(fin.customer_amount) || 0, custo),
+            // Quem executou decide cobrança vs. crédito.
+            executor: fin.executor,
+            due_date: completionDate,
+          })
+          if (!custoRes.ok) { alert(`Erro ao registrar o custo: ${custoRes.error.message}`); return }
+        }
       }
 
       // Fallback pra salvar manutenção em si caso não tenha havido etapa com grid preenchida
@@ -844,7 +987,11 @@ export default function MaintenancePage() {
       workshop: m.workshop || '',
       observations: m.observations || '',
       effective_executor: m.effective_executor ?? 'company',
-      customer_payer_pct: m.effective_customer_payer_pct ?? 0,
+      // Campo de formulário sem origem no banco: a coluna saiu na ADR 0024 e o
+      // payload de gravação já não o envia. A UI de rateio em percentual desta
+      // tela é resíduo do modelo antigo e precisa sair inteira — em valores,
+      // como no payable —, não em pedaços.
+      customer_amount: '',
       odometer_photo_file: null,
       invoice_photo_file: null,
     })
@@ -856,9 +1003,13 @@ export default function MaintenancePage() {
    * @description Armazena Id e mostra janela modal de advertência.
    * @param {string} id - Id alocada pro banco excluir depois.
    */
-  const handleOpenDelete = useCallback((id: string) => {
+  const handleOpenDelete = useCallback(async (id: string) => {
     setDeletingId(id)
+    setDeleteBlock(null)
     setIsDeleteModalOpen(true)
+    // O modal abre já: a espera é do TEXTO, não da janela. Abrir depois da
+    // resposta faria o clique parecer perdido.
+    setDeleteBlock(await checkMaintenanceDeletableAction(id))
   }, [])
 
   /**
@@ -1210,7 +1361,18 @@ export default function MaintenancePage() {
             <Select
               label="Motocicleta *"
               value={formData.vehicle_id}
-              onChange={(e) => setFormData({ ...formData, vehicle_id: e.target.value })}
+              onChange={(e) => {
+                // Trocar para uma moto sem locação ativa zera o repasse: o
+                // campo fica desabilitado e vazio, e o estado precisa
+                // acompanhar — senão o valor antigo seguia escondido e o save
+                // era recusado por um número que a tela não mostrava mais.
+                const id = e.target.value
+                setFormData({
+                  ...formData,
+                  vehicle_id: id,
+                  customer_amount: locacaoDoVeiculo(id) ? formData.customer_amount : '',
+                })
+              }}
               options={vehicleSelectOptions}
             />
             <div>
@@ -1259,6 +1421,34 @@ export default function MaintenancePage() {
                 <Input label="KM no Serviço *" type="number" value={formData.actual_km} onChange={(e) => setFormData({ ...formData, actual_km: e.target.value })} placeholder="Ex: 15500" />
                 <Input label="Oficina / Mecânico" value={formData.workshop} onChange={(e) => setFormData({ ...formData, workshop: e.target.value })} />
                 <Input label="Custo (R$)" type="number" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} placeholder="0.00" />
+                {/* Quem responde pelo repasse é o cliente da locação ATIVA do
+                    veículo — o servidor resolve assim, e a tela precisa dizer o
+                    mesmo ANTES de salvar. Sem isto o operador digitava um valor,
+                    salvava, e só então descobria que não havia a quem cobrar. */}
+                {(() => {
+                  const locacao = formData.vehicle_id ? locacaoDoVeiculo(formData.vehicle_id) : null
+                  return (
+                    <div>
+                      <Input
+                        label="Quanto o cliente paga (R$)"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={locacao ? formData.customer_amount : ''}
+                        disabled={!locacao}
+                        onChange={(e) => setFormData({ ...formData, customer_amount: e.target.value })}
+                        placeholder={locacao ? '0,00' : '—'}
+                      />
+                      <p className="mt-1 text-[12px] text-fg-mute">
+                        {!formData.vehicle_id
+                          ? 'Escolha a moto para ver a quem o custo pode ser repassado.'
+                          : locacao
+                            ? `Será cobrado de ${locacao.clienteNome}.`
+                            : 'Moto sem locação ativa — não há a quem repassar. O custo fica todo da empresa.'}
+                      </p>
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Responsabilidade — snapshot D4 do PRD 0003. */}
@@ -1282,17 +1472,40 @@ export default function MaintenancePage() {
                     ))}
                   </div>
                 </div>
-                <Input
-                  label="% pago pelo cliente"
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={formData.customer_payer_pct.toString()}
-                  onChange={(e) => {
-                    const v = Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0))
-                    setFormData({ ...formData, customer_payer_pct: v })
-                  }}
-                />
+                {/* No AGENDAMENTO não se pede rateio: seria um palpite sobre um
+                    custo que ainda não existe. Aqui, porém, o custo já foi
+                    digitado — e o efeito precisa aparecer ANTES de salvar. Com
+                    executor Cliente, a parte da empresa vira crédito a favor
+                    dele, dinheiro que a locadora devolve; sem este resumo o
+                    operador só descobria o valor depois, na tela de cobranças. */}
+                {(parseFloat(formData.cost) || 0) > 0 && (() => {
+                  const custo = parseFloat(formData.cost) || 0
+                  const cliente = Math.min(parseFloat(formData.customer_amount) || 0, custo)
+                  const empresa = Math.round((custo - cliente) * 100) / 100
+                  const executouCliente = formData.effective_executor === 'customer'
+                  return (
+                    <div className="space-y-1 border-t border-divider pt-3 text-[13px]">
+                      <div className="flex justify-between">
+                        <span className="text-fg-mute">Despesa da empresa</span>
+                        <span className="text-fg">{formatCurrency(empresa)}</span>
+                      </div>
+                      {cliente > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-fg-mute">
+                            {executouCliente ? 'Pago pelo cliente' : 'Repassado ao cliente'}
+                          </span>
+                          <span className="text-fg">{formatCurrency(cliente)}</span>
+                        </div>
+                      )}
+                      {executouCliente && empresa > 0 && (
+                        <p className="pt-1 text-warning">
+                          Gera crédito de {formatCurrency(empresa)} a favor do cliente,
+                          abatido na próxima cobrança.
+                        </p>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Fotos — não obrigatórias, só sinalizadas como importantes. */}
@@ -1691,7 +1904,7 @@ export default function MaintenancePage() {
                         description: item.description,
                         cost: '',
                         executor: 'company',
-                        customer_payer_pct: 0,
+                        customer_amount: '',
                         has_odometer_photo: false,
                         has_invoice_photo: false,
                         odometer_photo_file: null,
@@ -1728,18 +1941,13 @@ export default function MaintenancePage() {
                           ]}
                         />
                         <Input
-                          label="% pago pelo cliente"
+                          label="Quanto o cliente paga (R$)"
                           type="number"
                           min="0"
-                          max="100"
-                          step="1"
-                          value={String(fin.customer_payer_pct)}
-                          onChange={(e) => {
-                            const raw = parseInt(e.target.value, 10)
-                            const pct = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0
-                            setCompletionFinancials((prev) => prev.map((f, i) => i === idx ? { ...f, customer_payer_pct: pct } : f))
-                          }}
-                          placeholder="0"
+                          step="0.01"
+                          value={fin.customer_amount}
+                          onChange={(e) => setCompletionFinancials((prev) => prev.map((f, i) => i === idx ? { ...f, customer_amount: e.target.value } : f))}
+                          placeholder="0,00"
                         />
                       </div>
 
@@ -1797,8 +2005,11 @@ export default function MaintenancePage() {
 
                       {fin.cost && parseFloat(fin.cost) > 0 && (() => {
                         const c = parseFloat(fin.cost)
-                        const cliente = (c * fin.customer_payer_pct) / 100
-                        const empresa = c - cliente
+                        // Rateio em VALOR, não em percentual: 1/3 de R$100 não
+                        // se representa em percentual inteiro e deixa centavo
+                        // sem dono (Princípio 7).
+                        const cliente = Math.min(parseFloat(fin.customer_amount) || 0, c)
+                        const empresa = Math.round((c - cliente) * 100) / 100
                         return (
                           <p className="text-[13px] text-fg-mute border-t border-divider pt-2">
                             → Empresa: {formatCurrency(empresa)} / Cliente: {formatCurrency(cliente)}
@@ -1811,16 +2022,13 @@ export default function MaintenancePage() {
 
                 {/* Resumo financeiro consolidado gerando o DRE micro da operação do dia para a interface */}
                 {(() => {
-                  const totalCliente = completionFinancials.reduce((acc, f) => {
-                    const c = parseFloat(f.cost) || 0
-                    return acc + (c * f.customer_payer_pct) / 100
-                  }, 0)
-                  const totalEmpresa = completionFinancials.reduce((acc, f) => {
-                    const c = parseFloat(f.cost) || 0
-                    return acc + c - (c * f.customer_payer_pct) / 100
-                  }, 0)
-                  // Há rateio quando algum item tem custo > 0 e o cliente paga parte (>0%).
-                  const hasSplit = completionFinancials.some((f) => (parseFloat(f.cost) || 0) > 0 && f.customer_payer_pct > 0)
+                  const parteCliente = (f: ItemFinancial) =>
+                    Math.min(parseFloat(f.customer_amount) || 0, parseFloat(f.cost) || 0)
+
+                  const totalCliente = completionFinancials.reduce((acc, f) => acc + parteCliente(f), 0)
+                  const totalEmpresa = completionFinancials.reduce(
+                    (acc, f) => acc + (parseFloat(f.cost) || 0) - parteCliente(f), 0)
+                  const hasSplit = completionFinancials.some((f) => parteCliente(f) > 0)
 
                   return (
                     <div className="rounded-xl bg-surface p-4 space-y-2">
@@ -1845,8 +2053,10 @@ export default function MaintenancePage() {
                             className="h-4 w-4 mt-0.5 rounded border-border bg-bg accent-primary"
                           />
                           <span className="text-[13px] text-fg-mute">
+                            {/* A data do próximo vencimento saía de uma coluna
+                                inexistente e nunca era exibida. O vencimento é
+                                do cronograma, não da locação. */}
                             Confirmo que será cobrado desconto de {formatCurrency(totalCliente)} para {activeContract.client_name}
-                            {activeContract.next_billing_date ? ` na cobrança de ${formatDate(activeContract.next_billing_date + 'T12:00:00')}` : ''}
                           </span>
                         </label>
                       )}
@@ -1859,7 +2069,7 @@ export default function MaintenancePage() {
                   return (
                     <div className="space-y-2">
                       {missingPhotos && (
-                        <div className="flex items-start gap-2 rounded-xl border border-warning bg-warning p-3">
+                        <div className="flex items-start gap-2 rounded-xl border border-warning bg-warning-bg p-3 text-[13px] text-warning">
                           <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
                           <p className="text-[13px] text-warning">
                             Há itens sem fotos. As fotos não são obrigatórias, mas servem como comprovação — anexe sempre que possível.
@@ -1941,13 +2151,54 @@ export default function MaintenancePage() {
         </div>
       </Modal>
 
-      {/* MODAL 4: CONFIRMAÇÃO DE DELEÇÃO — Impede cliques acidentais de destruirem histórico da base. */}
+      {/* MODAL 4: CONFIRMAÇÃO DE DELEÇÃO — Impede cliques acidentais de destruirem
+          histórico da base, e diz de saída quando a exclusão nem é possível. */}
       <Modal open={isDeleteModalOpen} onClose={closeDeleteModal} title="Confirmar Exclusão" size="sm">
         <div className="space-y-4">
-          <p className="text-[13px] text-fg">Tem certeza que deseja excluir esta manutenção? Esta ação não pode ser desfeita.</p>
+          {deleteBlock === null ? (
+            <p className="text-[13px] text-fg-mute">Verificando se esta manutenção pode ser excluída…</p>
+          ) : deleteBlock.ok ? (
+            <>
+              <p className="text-[13px] text-fg">Tem certeza que deseja excluir esta manutenção? Esta ação não pode ser desfeita.</p>
+              {/* O que a cascata desfaz junto (ADR 0029). Excluir uma manutenção
+                  que virou dinheiro estorna despesa, cobrança e crédito — o
+                  operador precisa saber disso ANTES de confirmar, não descobrir
+                  no DRE depois. */}
+              {deleteBlock.undoes && (
+                <div className="rounded-xl bg-surface px-4 py-3">
+                  <p className="text-[13px] text-fg-mute">Também será desfeito:</p>
+                  <ul className="mt-2 space-y-1 text-[13px] text-fg">
+                    <li>· Despesa de {formatCurrency(deleteBlock.undoes.amount)} — sai do resultado e do caixa</li>
+                    {deleteBlock.undoes.chargeId && (
+                      <li>· A cobrança de repasse ao cliente, cancelada</li>
+                    )}
+                    {deleteBlock.undoes.creditAmount > 0 && (
+                      <li>· O crédito de {formatCurrency(deleteBlock.undoes.creditAmount)} a favor do cliente</li>
+                    )}
+                  </ul>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="flex items-start gap-2 rounded-xl border border-danger bg-danger-bg p-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+              <p className="text-[13px] leading-relaxed text-danger">{deleteBlock.message}</p>
+            </div>
+          )}
           <div className="flex justify-end gap-3 border-t border-divider pt-4">
-            <Button variant="secondary" onClick={closeDeleteModal}>Cancelar</Button>
-            <Button variant="danger" onClick={handleDelete}>Excluir</Button>
+            <Button variant="secondary" onClick={closeDeleteModal}>
+              {deleteBlock?.ok === false ? 'Fechar' : 'Cancelar'}
+            </Button>
+            {/* Desabilitado, não escondido: sumir com o botão faria parecer que a
+                tela não oferece a exclusão. Ele fica visível e inerte, e o texto
+                acima diz o que precisa acontecer antes. */}
+            <Button
+              variant="danger"
+              onClick={handleDelete}
+              disabled={deleteBlock === null || deleteBlock.ok === false}
+            >
+              Excluir
+            </Button>
           </div>
         </div>
       </Modal>

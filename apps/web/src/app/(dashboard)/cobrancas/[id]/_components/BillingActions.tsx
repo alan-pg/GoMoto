@@ -2,9 +2,12 @@
 
 import { useState, useTransition } from 'react'
 import { Modal } from '@/components/ui/Modal'
-import { Input, Select, Textarea } from '@/components/ui/Input'
+import { Input } from '@/components/ui/Input'
 import { formatCurrency } from '@/lib/utils'
-import { registerPayment, waiveCharges, applyCredit, cancelBilling } from '../actions'
+import { type LateChargePolicy } from '@gomoto/core'
+import { RegistrarPagamentoModal, type CobrancaParaPagamento } from '@/components/financial/RegistrarPagamentoModal'
+import { cancelChargeAction } from '../../actions'
+import { applyCustomerCredits } from '../actions'
 
 interface AvailableCredit {
   id: string
@@ -16,87 +19,90 @@ interface AvailableCredit {
 
 interface BillingActionsProps {
   billingId: string
+  customerId: string
   status: string
   amountDue: number
-  chargesWaived: boolean
+  /** Tudo que o modal compartilhado precisa para identificar a cobrança e
+   *  recalcular o devido na data do recebimento. */
+  cobranca: CobrancaParaPagamento
+  latePolicy: LateChargePolicy | null
   availableCredits: AvailableCredit[]
+  /** Saldo de crédito do cliente — um POOL, vindo do razão.
+   *
+   *  Cada linha de `availableCredits` carrega este MESMO número em
+   *  `available_balance`: somá-las multiplicaria o saldo pela quantidade de
+   *  créditos concedidos. Por isso ele vem separado, uma vez só. */
+  creditBalance: number
 }
 
-const PAYMENT_METHOD_OPTIONS = [
-  { label: 'PIX', value: 'pix' },
-  { label: 'Dinheiro', value: 'cash' },
-  { label: 'Cartão de crédito', value: 'credit_card' },
-  { label: 'Cartão de débito', value: 'debit_card' },
-  { label: 'Transferência bancária', value: 'bank_transfer' },
-  { label: 'Outro', value: 'other' },
-]
 
+// A origem gravada em `customer_credits.origin` é o `source_module` de quem
+// gerou o crédito. Faltavam justamente os que o produto cria hoje —
+// 'maintenance', 'expense', 'manual' —, então o seletor exibia a chave crua em
+// inglês: "maintenance — saldo R$ 300,00".
 const CREDIT_ORIGIN_LABELS: Record<string, string> = {
+  maintenance:        'Manutenção',
   maintenance_refund: 'Estorno manutenção',
-  reversal:          'Estorno',
-  manual_adjustment: 'Ajuste manual',
+  expense:            'Despesa',
+  fine:               'Multa',
+  manual:             'Lançamento manual',
+  manual_adjustment:  'Ajuste manual',
+  reversal:           'Estorno',
+  customer_credit:    'Crédito ao cliente',
 }
 
-export function BillingActions({ billingId, status, amountDue, chargesWaived, availableCredits }: BillingActionsProps) {
+export function BillingActions({ billingId, customerId, status, amountDue, cobranca, latePolicy, availableCredits, creditBalance }: BillingActionsProps) {
   const [isPending, startTransition] = useTransition()
   const [flashError, setFlashError] = useState<string | null>(null)
 
   const [payOpen, setPayOpen]     = useState(false)
-  const [waiveOpen, setWaiveOpen] = useState(false)
   const [creditOpen, setCreditOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
 
   // Register Payment form
-  const [payAmount, setPayAmount]   = useState(amountDue > 0 ? amountDue.toFixed(2) : '')
-  const [payMethod, setPayMethod]   = useState('pix')
-  const [payNotes, setPayNotes]     = useState('')
 
-  // Waive Charges form
-  const [waiveReason, setWaiveReason] = useState('')
+  // O SELETOR de crédito saiu. O saldo é um POOL por cliente, derivado de
+  // `creditos_de_clientes` no razão; as linhas de `customer_credits` guardam o
+  // que foi concedido, não o que resta. Escolher entre elas era decisão sem
+  // efeito — e a action nem recebia a escolha.
+  const saldoDeCredito = creditBalance
 
-  // Apply Credit form
-  const [selectedCredit, setSelectedCredit] = useState(availableCredits[0]?.id ?? '')
-  const [creditAmount, setCreditAmount]     = useState('')
+  /** Nunca mais que o saldo, nunca mais que a dívida. */
+  const tetoDoCredito = Math.round(Math.min(saldoDeCredito, amountDue) * 100) / 100
 
-  const isActionable = status !== 'paid' && status !== 'cancelled'
+  // Nasce preenchido com o teto: é o abatimento que o operador quer em quase
+  // todo caso, e um campo vazio com placeholder cinza já foi confundido com
+  // campo preenchido — clicava em Aplicar e recebia "Valor inválido".
+  const [creditAmount, setCreditAmount] = useState(() =>
+    tetoDoCredito > 0 ? tetoDoCredito.toFixed(2) : '')
+
+  // Vencida é estado DERIVADO de uma cobrança aberta, não um status terminal:
+  // a página envia 'overdue' no lugar de 'open' quando há atraso. Comparar com
+  // 'open' escondia a barra inteira — pagar, cancelar, dar baixa, consolidar —
+  // exatamente na cobrança que mais precisa de ação.
+  const isActionable = status === 'open' || status === 'overdue'
   const hasCredits = availableCredits.length > 0 && isActionable
 
-  function handlePay() {
-    const amount = parseFloat(payAmount)
-    if (isNaN(amount) || amount <= 0) { setFlashError('Valor inválido'); return }
-    setFlashError(null)
-    startTransition(async () => {
-      const result = await registerPayment({
-        billing_id:     billingId,
-        amount,
-        payment_method: payMethod,
-        paid_at:        new Date().toISOString(),
-        notes:          payNotes || undefined,
-      })
-      if (!result.ok) { setFlashError(result.error.message); return }
-      setPayOpen(false)
-      setPayNotes('')
-    })
-  }
-
-  function handleWaive() {
-    if (waiveReason.trim().length < 5) { setFlashError('Motivo deve ter ao menos 5 caracteres'); return }
-    setFlashError(null)
-    startTransition(async () => {
-      const result = await waiveCharges({ billing_id: billingId, reason: waiveReason.trim() })
-      if (!result.ok) { setFlashError(result.error.message); return }
-      setWaiveOpen(false)
-      setWaiveReason('')
-    })
-  }
-
   function handleCredit() {
-    const amount = parseFloat(creditAmount)
-    if (!selectedCredit) { setFlashError('Selecione um crédito'); return }
-    if (isNaN(amount) || amount <= 0) { setFlashError('Valor inválido'); return }
+    const amount = Math.round((parseFloat(creditAmount) || 0) * 100) / 100
+    if (amount <= 0) { setFlashError('Informe um valor maior que zero.'); return }
+    if (amount > tetoDoCredito) {
+      setFlashError(
+        `O máximo aqui é ${formatCurrency(tetoDoCredito)} — o menor entre o saldo `
+        + 'de crédito do cliente e o que esta cobrança ainda deve.',
+      )
+      return
+    }
     setFlashError(null)
     startTransition(async () => {
-      const result = await applyCredit({ billing_id: billingId, credit_id: selectedCredit, amount })
+      // Dirigido: este valor, NESTA cobrança. A versão anterior mandava só o
+      // cliente e a action varria o saldo para as cobranças mais antigas —
+      // podia abater numa que o operador nem tinha aberto.
+      const result = await applyCustomerCredits({
+        customer_id: customerId,
+        charge_id: billingId,
+        amount,
+      })
       if (!result.ok) { setFlashError(result.error.message); return }
       setCreditOpen(false)
       setCreditAmount('')
@@ -106,7 +112,7 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
   function handleCancel() {
     setFlashError(null)
     startTransition(async () => {
-      const result = await cancelBilling({ billing_id: billingId })
+      const result = await cancelChargeAction({ charge_id: billingId, reason: 'Cancelada pelo operador' })
       if (!result.ok) { setFlashError(result.error.message); return }
       setCancelOpen(false)
     })
@@ -123,20 +129,11 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
       <div className="flex flex-wrap gap-2">
         {isActionable && (
           <button
-            onClick={() => { setFlashError(null); setPayAmount(amountDue > 0 ? amountDue.toFixed(2) : ''); setPayOpen(true) }}
+            onClick={() => { setFlashError(null); setPayOpen(true) }}
             disabled={isPending}
             className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-[13px] font-semibold text-bg transition-colors hover:bg-primary-hover disabled:opacity-50"
           >
             Registrar pagamento
-          </button>
-        )}
-        {isActionable && !chargesWaived && (
-          <button
-            onClick={() => { setFlashError(null); setWaiveOpen(true) }}
-            disabled={isPending}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg disabled:opacity-50"
-          >
-            Dispensar encargos
           </button>
         )}
         {hasCredits && (
@@ -159,105 +156,62 @@ export function BillingActions({ billingId, status, amountDue, chargesWaived, av
         )}
       </div>
 
-      {/* ── Registrar pagamento ────────────────────────────────────────────── */}
-      <Modal open={payOpen} onClose={() => setPayOpen(false)} title="Registrar pagamento">
-        <div className="space-y-4">
-          <Input
-            label="Valor pago (R$)"
-            type="number"
-            step="0.01"
-            min="0.01"
-            value={payAmount}
-            onChange={e => setPayAmount(e.target.value)}
-          />
-          <Select
-            label="Forma de pagamento"
-            value={payMethod}
-            onChange={e => setPayMethod(e.target.value)}
-            options={PAYMENT_METHOD_OPTIONS}
-          />
-          <Textarea
-            label="Observações (opcional)"
-            value={payNotes}
-            onChange={e => setPayNotes(e.target.value)}
-            rows={2}
-          />
-          {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              onClick={() => setPayOpen(false)}
-              className="inline-flex h-9 items-center px-4 rounded-full border border-border text-[13px] text-fg-mute hover:text-fg"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handlePay}
-              disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-primary-hover disabled:opacity-50"
-            >
-              {isPending ? 'Salvando…' : 'Confirmar pagamento'}
-            </button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* ── Dispensar encargos ─────────────────────────────────────────────── */}
-      <Modal open={waiveOpen} onClose={() => setWaiveOpen(false)} title="Dispensar encargos">
-        <div className="space-y-4">
-          <p className="text-[13px] text-fg-mute">
-            Os encargos (multa e juros) desta cobrança serão zerados. Essa ação é irreversível.
-          </p>
-          <Textarea
-            label="Motivo"
-            value={waiveReason}
-            onChange={e => setWaiveReason(e.target.value)}
-            rows={3}
-            placeholder="Explique o motivo da dispensa…"
-          />
-          {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              onClick={() => setWaiveOpen(false)}
-              className="inline-flex h-9 items-center px-4 rounded-full border border-border text-[13px] text-fg-mute hover:text-fg"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleWaive}
-              disabled={isPending}
-              className="inline-flex h-9 items-center px-4 rounded-full bg-primary text-[13px] font-semibold text-bg hover:bg-primary-hover disabled:opacity-50"
-            >
-              {isPending ? 'Salvando…' : 'Confirmar dispensa'}
-            </button>
-          </div>
-        </div>
-      </Modal>
+      {/* Implementação única, a mesma da lista de cobranças. */}
+      <RegistrarPagamentoModal
+        open={payOpen}
+        onClose={() => setPayOpen(false)}
+        cobranca={cobranca}
+        policy={latePolicy}
+      />
 
       {/* ── Aplicar crédito ────────────────────────────────────────────────── */}
       <Modal open={creditOpen} onClose={() => setCreditOpen(false)} title="Aplicar crédito">
         <div className="space-y-4">
-          <div>
-            <label className="mb-1 block text-[13px] text-fg-mute">Crédito disponível</label>
-            <select
-              value={selectedCredit}
-              onChange={e => setSelectedCredit(e.target.value)}
-              className="w-full rounded-lg border border-divider bg-surface px-3 py-2 text-[13px] text-fg focus:border-primary focus:outline-none"
-            >
-              {availableCredits.map(c => (
-                <option key={c.id} value={c.id}>
-                  {CREDIT_ORIGIN_LABELS[c.origin] ?? c.origin} — saldo {formatCurrency(c.available_balance)}
-                </option>
-              ))}
-            </select>
+          {/* De onde vem e para onde vai, antes de confirmar. O modal antigo
+              pedia "qual crédito" — escolha sem efeito, porque o saldo é um
+              pool — e mandava só o cliente para a action, que abatia nas
+              cobranças mais antigas. Podia nem ser esta. */}
+          <div className="rounded-lg border border-divider bg-surface-2 px-3 py-2 text-[13px]">
+            <div className="flex justify-between">
+              <span className="text-fg-mute">Saldo de crédito</span>
+              <span className="tabular-nums text-fg">{formatCurrency(saldoDeCredito)}</span>
+            </div>
+            <div className="mt-1 flex justify-between">
+              <span className="text-fg-mute">Esta cobrança deve</span>
+              <span className="tabular-nums text-fg">{formatCurrency(amountDue)}</span>
+            </div>
+            <div className="mt-1 flex justify-between border-t border-divider pt-1">
+              <span className="text-fg-mute">Pode abater até</span>
+              <span className="tabular-nums font-semibold text-fg">{formatCurrency(tetoDoCredito)}</span>
+            </div>
+            {availableCredits.length > 0 && (
+              <p className="mt-2 text-[12px] text-fg-mute">
+                Origem: {[...new Set(availableCredits.map(c => CREDIT_ORIGIN_LABELS[c.origin] ?? c.origin))].join(', ')}.
+              </p>
+            )}
           </div>
+
           <Input
             label="Valor a aplicar (R$)"
             type="number"
             step="0.01"
             min="0.01"
+            max={tetoDoCredito.toFixed(2)}
             value={creditAmount}
-            onChange={e => setCreditAmount(e.target.value)}
-            placeholder={selectedCredit ? formatCurrency(availableCredits.find(c => c.id === selectedCredit)?.available_balance ?? 0) : ''}
+            onChange={e => {
+              // Duas casas e teto na digitação, como no modal de recebimento:
+              // o campo aceitava qualquer valor e o excesso só era descoberto
+              // depois — quando era descoberto.
+              const v = e.target.value.replace(/^(\d*[.,]?\d{0,2}).*$/, '$1')
+              const n = parseFloat(v)
+              if (!isNaN(n) && n > tetoDoCredito) {
+                setCreditAmount(tetoDoCredito.toFixed(2))
+                setFlashError(`O máximo aqui é ${formatCurrency(tetoDoCredito)}.`)
+                return
+              }
+              setCreditAmount(v)
+              setFlashError(null)
+            }}
           />
           {flashError && <p className="text-[13px] text-danger">{flashError}</p>}
           <div className="flex justify-end gap-2 pt-2">

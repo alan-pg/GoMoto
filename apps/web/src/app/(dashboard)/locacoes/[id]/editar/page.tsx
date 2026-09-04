@@ -25,14 +25,18 @@ export default async function EditRentalPage({
       .select('amount')
       .eq('rental_id', id)
       .eq('tenant_id', tenantId)
-      .in('status', ['pending', 'received'])
+      // Caução viva é a que ainda não foi encerrada. `status` não é coluna de
+      // `deposits` — o encerramento é registrado em `closed_at`.
+      .is('closed_at', null)
       .maybeSingle(),
     supabase
-      .from('billings')
-      .select('original_amount, status, due_date')
-      .eq('lease_id', id)
+      // Origem por (source_module, source_id) — uniforme. A coluna dedicada
+      // `billing_type` exigia DDL a cada tipo novo (F-11).
+      .from('charge_items')
+      .select('amount, charge:charges(id, status, due_date)')
       .eq('tenant_id', tenantId)
-      .eq('billing_type', 'down_payment')
+      .eq('source_module', 'down_payment')
+      .eq('source_id', id)
       .maybeSingle(),
   ])
 

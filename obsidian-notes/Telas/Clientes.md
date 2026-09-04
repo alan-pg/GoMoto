@@ -76,7 +76,7 @@ Todos os campos são opcionais (sem `required` no HTML), exceto os que o Zod sch
 
 Ao selecionar a **Foto da CNH** (PF, ambos os modos), o form dispara em paralelo a Server Action `extractCnhFields` (`clientes/actions.ts`) — Gemini via Vercel AI Gateway, `apps/web/src/lib/document-extraction/extract.ts`, schema `CnhFieldsSchema` (`@gomoto/core`). Campos extraídos (Nome, CPF, RG, Nascimento, Nº/Categoria/Validade da CNH) pré-preenchem o form automaticamente; campos com confiança baixa ganham um badge **"Confira"** ao lado do label. Contagem "X de Y campos identificados" some abaixo do upload. Falha/timeout (15s) mostra "Tentar novamente" / "Preencher manualmente", sem perder o que já foi digitado.
 
-A extração em si não persiste nada — o arquivo só sobe pro Storage no save do formulário (mesmo fluxo acima). `DOCUMENT_EXTRACTION_MOCK=1` no servidor troca a chamada real por um resultado fixo, usado pela suíte E2E (`document-extraction-cliente.spec.ts`).
+A extração em si não persiste nada — o arquivo só sobe pro Storage no save do formulário (mesmo fluxo acima). Fora de produção a extração é SIMULADA por padrão — a suíte E2E (`document-extraction-cliente.spec.ts`) roda sem configurar nada, e `DOCUMENT_EXTRACTION_REAL=1` exercita a IA de verdade. Produção nunca simula, mesmo que a variável apareça no deploy.
 
 ## Página de Detalhe (`/clientes/[id]`, Server Component)
 

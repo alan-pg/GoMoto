@@ -20,6 +20,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 
 import { useFines, useVehicles } from '@gomoto/data'
+import { calcFineUrgency, type FineStatus } from '@gomoto/core'
 import { markFineAsPaid, deleteFine } from './actions'
 
 import { PageTitle } from '@/components/layout/PageTitle'
@@ -45,9 +46,13 @@ type FineWithRelations = {
   created_at: string
   customers: { name: string; phone: string } | null
   vehicles: { license_plate: string; model: string; make: string } | null
+  // PRD 0013 — prazos oficiais da NA/NP, usados por calcFineUrgency (RF-008)
+  prior_defense_deadline?: string | null
+  driver_identification_deadline?: string | null
+  appeal_deadline?: string | null
+  discounted_payment_deadline?: string | null
 }
 
-type FineStatus = 'overdue' | 'due_soon' | 'pending' | 'paid'
 type FineWithStatus = FineWithRelations & { _status: FineStatus }
 
 // ─── Mapas de estilo ──────────────────────────────────────────────────────────
@@ -63,27 +68,6 @@ const STATUS_DOT: Record<'overdue' | 'due_soon' | 'ok', string> = {
   overdue:  'bg-danger',
   due_soon: 'bg-warning',
   ok:       'bg-success',
-}
-
-// ─── Auxiliar de status dinâmico ──────────────────────────────────────────────
-
-function calcFineStatus(fine: FineWithRelations): FineStatus {
-  if (fine.status === 'paid') return 'paid'
-
-  if (fine.due_date) {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    const [year, month, day] = fine.due_date.split('-').map(Number)
-    const dueDate = new Date(year, month - 1, day)
-
-    if (dueDate < today) return 'overdue'
-
-    const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / 86_400_000)
-    if (diffDays <= 7) return 'due_soon'
-  }
-
-  return 'pending'
 }
 
 // ─── KpiCard ──────────────────────────────────────────────────────────────────
@@ -217,7 +201,7 @@ export default function MultasPage() {
 
     fines.forEach((fine) => {
       total++
-      const s = calcFineStatus(fine)
+      const s = calcFineUrgency(fine)
 
       if (s === 'overdue') {
         overdueCount++;  overdueValue  += Number(fine.amount)
@@ -250,7 +234,7 @@ export default function MultasPage() {
 
   // ── Agrupamento com filtros
   const groupedFines = useMemo(() => {
-    let filtered: FineWithStatus[] = fines.map((f) => ({ ...f, _status: calcFineStatus(f) }))
+    let filtered: FineWithStatus[] = fines.map((f) => ({ ...f, _status: calcFineUrgency(f) }))
 
     if (search) {
       const q = search.toLowerCase()

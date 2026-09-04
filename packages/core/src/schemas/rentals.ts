@@ -5,7 +5,6 @@
  */
 
 import { z } from 'zod'
-import { LateChargeConfigSchema } from './financial'
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de data inválido (YYYY-MM-DD)')
 
@@ -37,7 +36,6 @@ export const RentalSchema = z.object({
   down_payment_paid:         z.boolean().default(true),
   down_payment_payment_date: dateString.optional(),
   down_payment_due_date:     dateString.optional(),
-  late_charge_config: LateChargeConfigSchema.optional(),
   // Modelo de contrato usado para gerar o PDF na criação (opcional).
   contract_template_id: z.string().uuid().nullable().optional(),
   observations:       z.string().max(2000).nullable().optional(),
@@ -83,6 +81,12 @@ export const TerminateRentalSchema = z.object({
   lease_id:         z.string().uuid(),
   termination_date: dateString,
   new_status:       z.enum(['closed', 'transferred']).default('closed'),
+  /**
+   * Spec 0014 / F-08: sem `force`, a RPC recusa encerrar locação com cobrança
+   * em aberto. A apuração financeira passa a ser pré-requisito do
+   * encerramento, não consequência.
+   */
+  force:            z.boolean().optional().default(false),
 })
 
 export type TerminateRental = z.infer<typeof TerminateRentalSchema>

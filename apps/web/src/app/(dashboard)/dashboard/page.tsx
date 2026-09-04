@@ -26,10 +26,11 @@ interface ActiveRental {
 }
 
 interface OverdueBilling {
-  id: string
-  original_amount: number
+  charge_id: string
+  open_amount: number
   due_date: string
-  customers: { name: string } | null
+  customer_id: string
+  customer_name: string | null
 }
 
 interface UpcomingMaintenance {
@@ -103,6 +104,7 @@ async function getDashboardData() {
     overdueListRes,
     paidThisMonthRes,
     activeRentalsRes,
+    forecastRentalsRes,
     pendingApprovalsRes,
     expiringRentalsRes,
     dueTodayRes,
@@ -110,8 +112,7 @@ async function getDashboardData() {
     idleVehiclesRes,
     upcomingMaintenancesRes,
     queueEntriesRes,
-    sixMonthPaymentsRes,
-    sixMonthExpensesRes,
+    cashFlowRes,
     billingsByStatusRes,
   ] = await Promise.all([
     supabase.from('vehicles').select('*', { count: 'exact', head: true }),
@@ -121,21 +122,40 @@ async function getDashboardData() {
     supabase.from('customers').select('*', { count: 'exact', head: true }).eq('active', true),
     // Caução fica fora destas agregações: é garantia/depósito, não receita
     // operacional, e um caução vencida não deve marcar o cliente como inadimplente.
-    supabase.from('billings').select('customer_id').neq('billing_type', 'deposit').or(`status.eq.overdue,and(status.eq.pending,due_date.lt.${today})`),
-    supabase.from('billings').select('original_amount, discount_amount, status, due_date').neq('billing_type', 'deposit').in('status', ['pending', 'overdue']),
-    supabase.from('billings').select('id, original_amount, due_date, customers(name)').neq('billing_type', 'deposit').or(`status.eq.overdue,and(status.eq.pending,due_date.lt.${today})`).order('due_date', { ascending: true }).limit(5),
-    supabase.from('billings').select('original_amount').eq('status', 'paid').neq('billing_type', 'deposit').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
+    // Atraso derivado: `is_overdue` compara due_date com hoje. Antes a query
+    // fazia esse OR porque nada gravava status='overdue' (F-04/F-12).
+    // Só a lista de clientes com 2+ vencidas usa as LINHAS; contagem e valor
+    // saem de `receivables_summary`. Fica com `.limit()` explícito: acima disso
+    // o PostgREST cortaria em 1000 em silêncio, e o alerta de inadimplência
+    // deixaria clientes de fora sem dizer nada.
+    supabase.from('charge_balances').select('customer_id').eq('is_overdue', true).limit(2000),
+    // Agregado no BANCO. Antes trazia as linhas e somava aqui — e PostgREST
+    // corta em 1000 sem erro: passando disso, "Total a Receber" e "Em Atraso"
+    // exibiriam a soma de um pedaço da carteira, com cara de número certo.
+    supabase.from('receivables_summary').select('open_total, overdue_total, overdue_count, overdue_customers').maybeSingle(),
+    supabase.from('charge_balances').select('charge_id, open_amount, due_date, customer_id').eq('is_overdue', true).order('days_overdue', { ascending: false }).limit(5),
+    supabase.from('receivables_by_month').select('paid_total').eq('month', firstDayOfMonth).maybeSingle(),
     supabase.from('rentals').select('id, cycle_amount, end_date, customers(name), vehicles(model, make, license_plate)').eq('status', 'active').order('created_at', { ascending: false }).limit(5),
+    // A previsão precisa de TODAS as ativas, não das 5 da lista acima. A
+    // consulta é separada de propósito: `monthlyForecast` somava a lista, e a
+    // `.limit(5)` dela — que existe para a tabela "locações recentes" — fazia o
+    // KPI "soma das locações ativas" mostrar R$ 2.650 onde a frota rendia
+    // R$ 27.750. Reaproveitar uma query paginada para agregar é o tipo de erro
+    // que nenhum portão pega: o número existe, é plausível, e está errado.
+    supabase.from('rentals').select('cycle_amount').eq('status', 'active'),
     supabase.from('maintenance_records').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
     supabase.from('rentals').select('*', { count: 'exact', head: true }).eq('status', 'active').gte('end_date', today).lte('end_date', in15Days),
-    supabase.from('billings').select('*', { count: 'exact', head: true }).eq('status', 'pending').neq('billing_type', 'deposit').eq('due_date', today),
-    supabase.from('billings').select('*', { count: 'exact', head: true }).eq('status', 'pending').neq('billing_type', 'deposit').eq('due_date', tomorrow),
+    supabase.from('charge_balances').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('due_date', today),
+    supabase.from('charge_balances').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('due_date', tomorrow),
     supabase.from('vehicles').select('model, make, license_plate').eq('status', 'available').lte('updated_at', sevenDaysAgo).limit(3),
     supabase.from('maintenances').select('id, scheduled_date, type, vehicles(model, make, license_plate)').eq('completed', false).gte('scheduled_date', today).lte('scheduled_date', in7Days).order('scheduled_date', { ascending: true }).limit(5),
     supabase.from('queue_entries').select('id, created_at, position, customers(name)').order('position', { ascending: true }).limit(5),
-    supabase.from('payments').select('amount, paid_at').gte('paid_at', sixMonthsAgo).lte('paid_at', lastDayOfMonth),
-    supabase.from('expenses').select('amount, date').gte('date', sixMonthsAgo).lte('date', lastDayOfMonth),
-    supabase.from('billings').select('status, original_amount, due_date').neq('billing_type', 'deposit').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
+    // Receita × despesa por mês, agregada no banco. Trazia as linhas e agrupava
+    // aqui — e além da truncagem em 1.000 linhas, a consulta não filtrava
+    // `reversed_at` nem `status`: pagamento estornado entrava como receita
+    // (R$ 17.970 neste banco) e conta cancelada entrava como custo (R$ 4.200).
+    supabase.from('cash_flow_by_month').select('month, revenue, expense').gte('month', sixMonthsAgo),
+    supabase.from('charge_balances').select('status, total_amount, due_date, is_overdue').gte('due_date', firstDayOfMonth).lte('due_date', lastDayOfMonth),
   ])
 
   // Fleet
@@ -145,31 +165,29 @@ async function getDashboardData() {
   const maintenanceVehicles = vehicleMaintenanceRes.count ?? 0
   const utilizationPct = totalVehicles > 0 ? Math.round((rentedVehicles / totalVehicles) * 100) : 0
 
-  // Financial — total receivable covers ALL months, not just current
-  const allReceivable = allReceivableRes.data ?? []
-  const totalReceivable = allReceivable.reduce((sum, row) => {
-    const final = Number(row.original_amount) - Number(row.discount_amount ?? 0)
-    return sum + Math.max(0, final)
-  }, 0)
-  const overdueTotal = allReceivable
-    .filter((row) => row.status === 'overdue' || (row.status === 'pending' && (row as { due_date: string }).due_date < today))
-    .reduce((sum, row) => {
-      const final = Number(row.original_amount) - Number(row.discount_amount ?? 0)
-      return sum + Math.max(0, final)
-    }, 0)
-  const paidThisMonth = (paidThisMonthRes.data ?? []).reduce(
-    (sum, row) => sum + (Number(row.original_amount) || 0),
-    0,
+  // Financial — a carteira inteira, agregada no banco (todos os meses).
+  // Saldo em aberto vem derivado; nada aqui recompõe valor a partir de
+  // desconto ou crédito, e o atraso não é recalculado na tela (Princípio 4).
+  const receivables = allReceivableRes.data as {
+    open_total: number; overdue_total: number
+    overdue_count: number; overdue_customers: number
+  } | null
+
+  const totalReceivable = Number(receivables?.open_total ?? 0)
+  const overdueTotal    = Number(receivables?.overdue_total ?? 0)
+  const paidThisMonth   = Number(
+    (paidThisMonthRes.data as { paid_total: number } | null)?.paid_total ?? 0,
   )
-  const monthlyForecast = (activeRentalsRes.data ?? []).reduce(
+  const monthlyForecast = (forecastRentalsRes.data ?? []).reduce(
     (sum, rental) => sum + (Number(rental.cycle_amount) || 0),
     0,
   )
 
   // Inadimplência
   const overdueCustomersData = overdueCustomersRes.data ?? []
-  const overduePaymentsCount = overdueCustomersData.length
-  const uniqueOverdueCustomers = new Set(overdueCustomersData.map((row) => row.customer_id)).size
+  const overduePaymentsCount   = Number(receivables?.overdue_count ?? overdueCustomersData.length)
+  const uniqueOverdueCustomers = Number(receivables?.overdue_customers
+    ?? new Set(overdueCustomersData.map((row) => row.customer_id)).size)
   const activeClientsCount = activeClientsRes.count ?? 0
   const defaultRate =
     activeClientsCount > 0
@@ -177,9 +195,8 @@ async function getDashboardData() {
       : 0
 
   // Multiple overdue customers alert (conditional second query)
-  const multipleOverdueCustomerIds = identifyCustomersWithMultipleOverdueCharges(
-    overdueCustomersData.map((row) => ({ customer_id: row.customer_id, status: 'overdue' })),
-  )
+  // A query já filtra `is_overdue`; as linhas vão direto, sem inventar status.
+  const multipleOverdueCustomerIds = identifyCustomersWithMultipleOverdueCharges(overdueCustomersData)
   let multipleOverdueCustomers: { name: string }[] = []
   if (multipleOverdueCustomerIds.length > 0) {
     const { data } = await supabase
@@ -203,6 +220,32 @@ async function getDashboardData() {
     return days >= 30
   }).length
 
+  // O card lia `payment.original_amount` e `payment.customers.name`, nenhum dos
+  // dois selecionado pela consulta — o `as unknown as` silenciava o
+  // TypeScript, e a tela exibia "R$ NaN" sob o rótulo "Cliente". `charge_balances`
+  // é view e não embute relacionamento, então o nome vem em consulta própria,
+  // limitada aos ids que já estão na mão.
+  const overdueRows = (overdueListRes.data ?? []) as {
+    charge_id: string; open_amount: number; due_date: string; customer_id: string
+  }[]
+
+  const { data: overdueNames } = overdueRows.length
+    ? await supabase.from('customers').select('id, name')
+        .in('id', [...new Set(overdueRows.map((r) => r.customer_id))])
+    : { data: [] }
+
+  const overdueNameById = new Map(
+    ((overdueNames ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]),
+  )
+
+  const overduePaymentsList: OverdueBilling[] = overdueRows.map((r) => ({
+    charge_id: r.charge_id,
+    open_amount: Number(r.open_amount),
+    due_date: r.due_date,
+    customer_id: r.customer_id,
+    customer_name: overdueNameById.get(r.customer_id) ?? null,
+  }))
+
   // Charts
   const monthLabels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
   const revenueByMonth: Record<string, number> = {}
@@ -213,14 +256,16 @@ async function getDashboardData() {
     revenueByMonth[key] = 0
     expensesByMonth[key] = 0
   }
-  ;(sixMonthPaymentsRes.data ?? []).forEach((row) => {
-    const key = (row.paid_at as string).substring(0, 7)
-    if (key in revenueByMonth) revenueByMonth[key] += Number(row.amount) || 0
-  })
-  ;(sixMonthExpensesRes.data ?? []).forEach((row) => {
-    const key = row.date.substring(0, 7)
-    if (key in expensesByMonth) expensesByMonth[key] += Number(row.amount) || 0
-  })
+  // A view já entrega uma linha por mês, com estorno e cancelamento fora e a
+  // parte do cliente descontada do custo (R-03).
+  ;((cashFlowRes.data ?? []) as { month: string; revenue: number; expense: number }[])
+    .forEach((row) => {
+      const key = row.month.substring(0, 7)
+      if (key in revenueByMonth) {
+        revenueByMonth[key]  = Number(row.revenue) || 0
+        expensesByMonth[key] = Number(row.expense) || 0
+      }
+    })
   const monthlyChartData = Object.keys(revenueByMonth).map((key) => {
     const [, month] = key.split('-')
     return {
@@ -236,11 +281,11 @@ async function getDashboardData() {
     overdue: { count: 0, total: 0 },
   }
   ;(billingsByStatusRes.data ?? []).forEach((row) => {
-    const effectiveStatus =
-      row.status === 'pending' && (row as { due_date: string }).due_date < today ? 'overdue' : row.status
+    // 'open' + is_overdue → vencida; 'open' sem atraso → pendente.
+    const effectiveStatus = row.is_overdue ? 'overdue' : row.status === 'open' ? 'pending' : row.status
     if (effectiveStatus in billingStatusMap) {
       billingStatusMap[effectiveStatus].count++
-      billingStatusMap[effectiveStatus].total += Number(row.original_amount) || 0
+      billingStatusMap[effectiveStatus].total += Number(row.total_amount) || 0
     }
   })
   const billingChartData = [
@@ -274,7 +319,7 @@ async function getDashboardData() {
     multipleOverdueCustomers,
     // Widgets
     activeRentals: (activeRentalsRes.data ?? []) as unknown as ActiveRental[],
-    overduePaymentsList: (overdueListRes.data ?? []) as unknown as OverdueBilling[],
+    overduePaymentsList,
     upcomingMaintenances: (upcomingMaintenancesRes.data ?? []) as unknown as UpcomingMaintenance[],
     queueEntries,
     // Charts
@@ -542,15 +587,15 @@ export default async function DashboardPage() {
                 const ageColor = overdueAgeColor(days)
                 return (
                   <div
-                    key={payment.id}
+                    key={payment.charge_id}
                     className={`px-4 py-2.5 hover:bg-surface-2 transition-colors${index < items.length - 1 ? ' border-b border-divider' : ''}`}
                   >
                     <p className="text-[12px] font-medium text-fg truncate">
-                      {payment.customers?.name ?? 'Cliente'}
+                      {payment.customer_name ?? 'Cliente'}
                     </p>
                     <div className="mt-1 flex items-center justify-between gap-2">
                       <p className={`text-[12px] font-medium ${ageColor}`}>
-                        {formatCurrency(payment.original_amount)}
+                        {formatCurrency(payment.open_amount)}
                       </p>
                       <p className={`text-[11px] ${ageColor}`}>{days}d atraso</p>
                     </div>

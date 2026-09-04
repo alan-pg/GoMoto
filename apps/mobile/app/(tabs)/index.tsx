@@ -12,15 +12,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useFocusEffect, useRouter } from 'expo-router'
 import {
-  useBillingsForCustomer,
+  useMyCharges,
   useMaintenances,
   useRentals,
   useVehicles,
 } from '@gomoto/data'
+import type { MyChargeRow } from '@gomoto/data'
 import {
-  calculateFinalAmount,
   calculateMaintenanceStatus,
-  type Billing,
   type Maintenance,
   type Rental,
   type Vehicle,
@@ -111,11 +110,11 @@ function OverdueBillingAlert({
   onPress,
   styles,
 }: {
-  billing: Billing
+  billing: MyChargeRow
   onPress: () => void
   styles: Styles
 }) {
-  const amount = calculateFinalAmount(billing.original_amount ?? 0, billing.discount_amount ?? 0)
+  const amount = billing.amount_due
   return (
     <Pressable style={styles.alertCard} onPress={onPress}>
       <View style={styles.alertLeft}>
@@ -138,11 +137,11 @@ function NextBillingCard({
   onPress,
   styles,
 }: {
-  billing: Billing
+  billing: MyChargeRow
   onPress: () => void
   styles: Styles
 }) {
-  const amount = calculateFinalAmount(billing.original_amount ?? 0, billing.discount_amount ?? 0)
+  const amount = billing.amount_due
   return (
     <Pressable style={styles.infoCard} onPress={onPress}>
       <View style={styles.infoCardRow}>
@@ -271,7 +270,7 @@ export default function HomeTab() {
   const statusTone = useMemo(() => getMaintenanceStatusTone(theme), [theme])
 
   const rentalsQuery    = useRentals({ status: 'active' })
-  const billingsQuery   = useBillingsForCustomer()
+  const billingsQuery   = useMyCharges(true)
   const maintenancesQuery = useMaintenances()
   const vehiclesQuery   = useVehicles()
 
@@ -318,15 +317,15 @@ export default function HomeTab() {
   const overdueBillings = useMemo(() => {
     return (billingsQuery.data ?? []).filter(
       (b) =>
-        b.status === 'overdue' ||
-        (b.status === 'pending' && b.due_date < today),
+        b.is_overdue ||
+        (b.status === 'open' && b.due_date < today),
     )
   }, [billingsQuery.data, today])
 
   // Próxima cobrança pendente (não vencida) — mais próxima por due_date
-  const nextBilling: Billing | undefined = useMemo(() => {
+  const nextBilling: MyChargeRow | undefined = useMemo(() => {
     return (billingsQuery.data ?? [])
-      .filter((b) => b.status === 'pending' && b.due_date >= today)
+      .filter((b) => b.status === 'open' && b.due_date >= today)
       .sort((a, b) => a.due_date.localeCompare(b.due_date))[0]
   }, [billingsQuery.data, today])
 

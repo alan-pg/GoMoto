@@ -1,10 +1,12 @@
 # ADR 0009 — Geração de cobranças: upfront (síncrono) vs. cron (assíncrono)
 
-- **Status:** Aceita
+- **Status:** ⛔ Substituída
 - **Data:** 2026-06-24
 - **Autores:** Alan + agente IA
 - **Substitui:** —
-- **Substituída por:** —
+- **Substituída por:** [[decisions/0024-ledger-financeiro-com-contrapartida|ADR 0024]] (2026-08-12)
+
+> ⛔ **Esta decisão não vale mais.** A geração upfront faz "Total a receber" somar o contrato inteiro (o dashboard soma todas as pendentes sem recorte de data), e o reajuste — que a ADR classificou como fora de escopo mas já existe via `adjust_rental`/`regenerate_rental_schedule` — reescreve documentos financeiros retroativamente. Substituída por cronograma (`rental_billing_schedules`, mutável) separado de documento emitido (`charges`, imutável). Mantida como registro histórico.
 - **Relacionada:** [[decisions/0002-padrao-canonico-pagina-server-actions|ADR 0002]] (padrão de mutação via Server Action), [[PRDs/0004-locacao-e-cobrancas|PRD 0004]]
 
 ## Contexto

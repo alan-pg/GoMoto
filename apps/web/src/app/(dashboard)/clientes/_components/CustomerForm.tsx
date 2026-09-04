@@ -83,7 +83,6 @@ interface FormState {
   drivers_license_category: string
   drivers_license_validity: string
   // Gestão
-  payment_status: string
   observations: string
   active: boolean
   departure_date: string
@@ -243,7 +242,6 @@ export function CustomerForm({ customerId, initialData }: CustomerFormProps) {
     drivers_license:          initialData?.drivers_license ?? '',
     drivers_license_category: initialData?.drivers_license_category ?? 'A',
     drivers_license_validity: initialData?.drivers_license_validity ?? '',
-    payment_status:           initialData?.payment_status ?? '',
     observations:             initialData?.observations ?? '',
     active:                   initialData?.active ?? true,
     departure_date:           initialData?.departure_date ?? '',
@@ -381,7 +379,6 @@ export function CustomerForm({ customerId, initialData }: CustomerFormProps) {
         city:                     form.city.trim() || null,
         state:                    form.state || null,
         // Gestão
-        payment_status:           form.payment_status.trim() || null,
         observations:             form.observations.trim() || null,
         active:                   form.active,
         departure_date:           !form.active ? (form.departure_date || null) : null,

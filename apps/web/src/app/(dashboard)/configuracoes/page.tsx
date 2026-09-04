@@ -20,9 +20,10 @@ import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { usePaymentConnection, useThemePreference } from '@gomoto/data'
+import { useProviderAccounts, useThemePreference, useLateChargePolicies } from '@gomoto/data'
 import type { ThemeBrand, ColorMode } from '@gomoto/core'
 import { connectMercadoPagoAction, disconnectPaymentAction, updateThemePreferenceAction } from './actions'
+import { LateChargePolicySection, type PolicyVersion } from './_components/LateChargePolicySection'
 
 const THEME_BRANDS: { value: ThemeBrand; label: string; description: string; swatch: string[] }[] = [
   { value: 'frota-confiavel', label: 'Frota Confiável', description: 'Azul, neutros frios — recomendado', swatch: ['#F8FAFC', '#2563EB', '#0F172A'] },
@@ -109,7 +110,8 @@ export default function SettingsPage() {
 
   // --- ESTADOS: Integração de Pagamento ---
 
-  const paymentConnectionQuery = usePaymentConnection()
+  const paymentConnectionQuery = useProviderAccounts()
+  const policiesQuery = useLateChargePolicies()
   const [paymentFeedback, setPaymentFeedback] = useState<FeedbackState | null>(null)
   const [isConnecting, setIsConnecting] = useState(false)
   const [isDisconnecting, setIsDisconnecting] = useState(false)
@@ -532,9 +534,9 @@ export default function SettingsPage() {
                     <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
                     <div className="flex-1 min-w-0">
                       <p className="text-[13px] font-medium text-success">Mercado Pago conectado</p>
-                      {paymentConnectionQuery.data.mp_account_email && (
+                      {paymentConnectionQuery.data.accounts.find((a) => a.is_default)?.external_account_id && (
                         <p className="text-[12px] text-fg-mute mt-0.5 truncate">
-                          {paymentConnectionQuery.data.mp_account_email}
+                          {paymentConnectionQuery.data.accounts.find((a) => a.is_default)?.external_account_id}
                         </p>
                       )}
                     </div>
@@ -565,6 +567,16 @@ export default function SettingsPage() {
               )}
             </Card>
           </section>
+        ) : null}
+
+        {/* SEÇÃO 3-b: Encargo por atraso — Owner só, mesmo racional da integração
+            de pagamento: define quanto TODO cliente paga de multa e juros, não é
+            preferência operacional. Até aqui só dava pra mudar por SQL. */}
+        {isOwner ? (
+          <LateChargePolicySection
+            versions={(policiesQuery.data ?? []) as PolicyVersion[]}
+            onSaved={() => { void policiesQuery.refetch() }}
+          />
         ) : null}
 
         {/* SEÇÃO 4: Usuários (Spec 0011) — só visível pra Owner/Admin do tenant;

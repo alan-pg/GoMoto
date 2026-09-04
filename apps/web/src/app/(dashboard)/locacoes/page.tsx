@@ -7,7 +7,7 @@ import {
   CalendarClock, ChevronRight, Users,
 } from 'lucide-react'
 
-import { useRentals, useBillings } from '@gomoto/data'
+import { useRentals, useOverdueCharges, useScheduledForMonth } from '@gomoto/data'
 import { PageTitle } from '@/components/layout/PageTitle'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import type { Rental } from '@gomoto/core'
@@ -75,10 +75,13 @@ type TabId = 'active' | 'closed'
 
 export default function LocacoesPage() {
   const rentalsQuery  = useRentals()
-  const billingsQuery = useBillings({ overdue: true })
+  const overdueQuery = useOverdueCharges()
+  // Previsão do mês vem da view: somar o cronograma no cliente estouraria o
+  // teto de 1.000 linhas do PostgREST em qualquer carteira real (ADR 0025).
+  const scheduledQuery = useScheduledForMonth()
 
   const rentals  = useMemo(() => (rentalsQuery.data  ?? []) as Rental[], [rentalsQuery.data])
-  const billings = useMemo(() => billingsQuery.data ?? [], [billingsQuery.data])
+  const overdueCharges = useMemo(() => overdueQuery.data ?? [], [overdueQuery.data])
 
   const [tab,    setTab]    = useState<TabId>('active')
   const [search, setSearch] = useState('')
@@ -88,7 +91,6 @@ export default function LocacoesPage() {
   // ── KPIs
   const kpis = useMemo(() => {
     const active    = rentals.filter(r => r.status === 'active')
-    const monthlyRevenue = active.reduce((sum, r) => sum + (r.cycle_amount ?? r.monthly_amount ?? 0), 0)
 
     const today = new Date(); today.setHours(0,0,0,0)
     const in30  = new Date(today); in30.setDate(in30.getDate() + 30)
@@ -100,11 +102,12 @@ export default function LocacoesPage() {
       return end >= today && end <= in30
     }).length
 
-    const overdueIds  = new Set(billings.map(b => b.lease_id))
+    // Atraso é derivado em charge_balances; nada aqui recalcula data.
+    const overdueIds  = new Set(overdueCharges.map(c => c.rental_id).filter(Boolean))
     const withOverdue = active.filter(r => overdueIds.has(r.id)).length
 
-    return { total: active.length, monthlyRevenue, endingSoon, withOverdue }
-  }, [rentals, billings])
+    return { total: active.length, endingSoon, withOverdue }
+  }, [rentals, overdueCharges])
 
   // ── Filtro
   const filtered = useMemo(() => {
@@ -153,13 +156,22 @@ export default function LocacoesPage() {
             label="Locações ativas"
             value={kpis.total}
           />
+          {/* Somava `cycle_amount` dos ativos — valores de PERÍODOS diferentes na
+              mesma conta: um mensal de R$ 1.500 com um semanal de R$ 350 dava
+              R$ 1.850, número que não significa nada. A variável chamava-se
+              `monthlyRevenue` enquanto somava valor semanal.
+
+              O cronograma resolve sem convenção: cada linha tem seu vencimento
+              e seu valor, com pro rata de início e fim já embutido. E é
+              PREVISÃO — não receita (que só existe quando emite) nem contas a
+              receber (que só existe quando o cliente deve). */}
           <KpiCard
             icon={DollarSign}
             iconBg="bg-success-bg"
             iconColor="text-success"
-            label="Receita/ciclo esperada"
-            value={formatCurrency(kpis.monthlyRevenue)}
-            sub="soma dos contratos ativos"
+            label="Previsto para o mês"
+            value={formatCurrency(scheduledQuery.data?.amount ?? 0)}
+            sub={`${scheduledQuery.data?.lines ?? 0} parcela${(scheduledQuery.data?.lines ?? 0) === 1 ? '' : 's'} vencendo`}
           />
           <KpiCard
             icon={CalendarClock}
@@ -278,9 +290,7 @@ export default function LocacoesPage() {
                 {filtered.map(r => {
                   const badge = STATUS_BADGE[r.status] ?? STATUS_BADGE.closed
                   const days  = daysUntil(r.end_date)
-                  const hasOverdue = billings.some(
-                    b => b.lease_id === r.id && (b.status === 'overdue' || b.status === 'pending')
-                  )
+                  const hasOverdue = overdueCharges.some(c => c.rental_id === r.id)
                   const endingSoon = days !== null && days >= 0 && days <= 30 && r.status === 'active'
 
                   return (

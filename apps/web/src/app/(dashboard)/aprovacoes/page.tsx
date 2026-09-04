@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { registerApprovedRecordCost } from './actions'
 
 const TYPE_LABEL: Record<string, string> = {
   preventive: 'Preventiva',
@@ -90,7 +91,6 @@ export default function AprovacoesPage() {
   async function handleApprove(input: {
     record: MaintenanceRecord
     effective_executor: 'company' | 'customer'
-    effective_customer_payer_pct: number
   }): Promise<void> {
     const { record } = input
     const { data: userRes } = await supabase.auth.getUser()
@@ -104,13 +104,15 @@ export default function AprovacoesPage() {
           completed: true,
           completed_date: new Date().toISOString().slice(0, 10),
           actual_km: record.actual_km,
-          cost: record.cost,
           workshop: record.workshop,
           observations: record.notes,
           odometer_photo_url: record.odometer_photo_url,
           invoice_photo_url: record.invoice_photo_url,
           effective_executor: input.effective_executor,
-          effective_customer_payer_pct: input.effective_customer_payer_pct,
+          // `cost` e `effective_customer_payer_pct` saíram de `maintenances` na
+          // ADR 0024 — custo e rateio viraram payable, em valores, porque
+          // percentual inteiro não representa 1/3 e deixa centavo sem dono.
+          // Enquanto continuaram no payload, aprovar manutenção falhava.
         },
       })
     }
@@ -123,6 +125,20 @@ export default function AprovacoesPage() {
         reviewed_at: new Date().toISOString(),
       },
     })
+
+    // O custo que o cliente informou precisa VIRAR lançamento. Aprovar só
+    // mudava o status: a despesa não existia, o crédito de quem pagou a oficina
+    // não nascia, e o resultado do veículo não via nada. Depois do review para
+    // que uma falha aqui não deixe o registro pendente com custo já lançado —
+    // a action é idempotente por (source_module, source_id) e pode ser
+    // reexecutada.
+    const custo = await registerApprovedRecordCost({
+      record_id: record.id,
+      effective_executor: input.effective_executor,
+      customer_amount: 0,
+    })
+
+    if (!custo.ok) throw new Error(custo.error.message)
   }
 
   async function handleReject(input: {
@@ -311,11 +327,9 @@ function ApproveModal({
   onConfirm: (input: {
     record: MaintenanceRecord
     effective_executor: 'company' | 'customer'
-    effective_customer_payer_pct: number
   }) => Promise<void>
 }) {
   const [executor, setExecutor] = useState<'company' | 'customer'>('company')
-  const [pct, setPct] = useState<string>('0')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -323,28 +337,20 @@ function ApproveModal({
     if (submitting) return
     setError(null)
     setExecutor('company')
-    setPct('0')
     onClose()
   }
 
   async function handleSubmit() {
     if (!record) return
-    const pctNum = Number(pct.replace(',', '.'))
-    if (!Number.isFinite(pctNum) || pctNum < 0 || pctNum > 100) {
-      setError('Informe % do cliente entre 0 e 100.')
-      return
-    }
     setSubmitting(true)
     setError(null)
     try {
       await onConfirm({
         record,
         effective_executor: executor,
-        effective_customer_payer_pct: Math.round(pctNum),
       })
       setExecutor('company')
-      setPct('0')
-      onClose()
+        onClose()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao aprovar.')
     } finally {
@@ -356,8 +362,14 @@ function ApproveModal({
     <Modal open={record !== null} onClose={handleClose} title="Aprovar registro" size="md">
       <div className="flex flex-col gap-4">
         <p className="text-[13px] text-fg-soft">
-          Aprovar marca a manutenção como concluída no sistema, com o KM e custo informados pelo
-          cliente. Defina o snapshot de responsabilidade (D4 do PRD).
+          {/* "Defina o snapshot de responsabilidade (D4 do PRD)" — referência
+              interna de especificação, sem sentido para quem opera. O texto
+              agora diz o que a escolha DECIDE, que é o que o operador precisa
+              saber para escolher. */}
+          Aprovar marca a manutenção como concluída, com o KM e o custo informados pelo cliente,
+          e lança a despesa. Quem levou a moto à oficina decide o destino do dinheiro: pela
+          empresa, a parte do cliente vira cobrança; pelo cliente, o que cabia à empresa vira
+          crédito para ele.
         </p>
         <Select
           label="Quem levou à oficina"
@@ -368,15 +380,10 @@ function ApproveModal({
             { value: 'customer', label: 'Cliente' },
           ]}
         />
-        <Input
-          label="% do custo pago pelo cliente (empresa = 100 − %)"
-          type="number"
-          inputMode="numeric"
-          min={0}
-          max={100}
-          value={pct}
-          onChange={(e) => setPct(e.target.value)}
-        />
+        {/* O campo de % do cliente saiu: rateio virou valor no payable, não
+            percentual na manutenção. O input continuava pedindo o número ao
+            operador e descartando a resposta em silêncio. O rateio é informado
+            ao lançar a despesa, em Despesas. */}
         {error ? <p className="text-[12px] text-danger">{error}</p> : null}
         <div className="flex items-center justify-end gap-2">
           <Button variant="secondary" onClick={handleClose} disabled={submitting}>

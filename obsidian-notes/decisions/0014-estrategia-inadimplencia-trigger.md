@@ -1,10 +1,19 @@
 # ADR 0014 — Estratégia de classificação de inadimplência: trigger vs. view vs. pg_cron
 
-- **Status:** Aceita
+- **Status:** ⛔ Substituída — o mecanismo nunca funcionou
 - **Data:** 2026-07-19
 - **Autores:** Alan + agente IA
 - **Substitui:** —
-- **Substituída por:** —
+- **Substituída por:** [[decisions/0024-ledger-financeiro-com-contrapartida|ADR 0024]] (2026-08-12)
+
+> ⛔ **Esta decisão não vale mais, e o mecanismo escolhido é inerte em produção.** Duas falhas independentes:
+>
+> 1. O trigger dispara em `AFTER INSERT OR UPDATE OF status ON billings`. Uma cobrança fica vencida pela **passagem do tempo**, que não é um `UPDATE` — o trigger nunca dispara para o caso que importa.
+> 2. Ainda que disparasse, `fn_recalculate_delinquency` conta `WHERE status = 'overdue'` e **nada no repositório jamais grava esse valor**. As únicas ocorrências são normalização em memória na leitura (`packages/data/src/repositories/billings.ts:33` e `:81`) e fixtures de teste.
+>
+> Consequência: `customers.delinquency_status` permanece `current` para sempre, justamente para quem está inadimplente. `delinquency_level`, `delinquency_blocks`, os limiares em `settings` e `classifyDelinquency` estão todos inertes.
+>
+> A justificativa que descartou a Opção A (view) — "200 subqueries de agregação" — é um diagnóstico incorreto: um `GROUP BY` sobre índice é *um* scan agregado. Substituída pelas views `charge_balances` e `customer_delinquency`.
 - **Relacionada:** [[decisions/0013-revisao-modelo-dados-financeiro|ADR 0013]], [[PRDs/0008-modulo-financeiro|PRD 0008]], [[Specs/0008-modulo-financeiro|Spec 0008]]
 
 ## Contexto

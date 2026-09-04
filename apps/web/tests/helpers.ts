@@ -27,7 +27,12 @@ let _tenantId: string | null = null
 let _uniqueSeq = 0
 function uniqueSuffix(digits: number): string {
   _uniqueSeq += 1
-  return `${Date.now()}${_uniqueSeq}`.slice(-digits)
+  // O contador é por PROCESSO. Com workers paralelos, dois processos no mesmo
+  // milissegundo e na mesma posição da sequência geravam o mesmo sufixo — e o
+  // RENAVAM, que é único por tenant, estourava. O ruído aleatório resolve a
+  // colisão entre processos; o contador segue resolvendo dentro de um.
+  const noise = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
+  return `${Date.now()}${_uniqueSeq}${noise}`.slice(-digits)
 }
 
 /**
@@ -80,11 +85,32 @@ export async function getTestTenantId(): Promise<string> {
  * Cria um cliente de teste diretamente no banco (in_queue=false → aparece em /clientes).
  * Retorna o ID gerado.
  */
+/**
+ * Completa 9 dígitos com os dois verificadores, gerando um CPF que passa na
+ * mesma validação que a tela usa.
+ */
+function withCpfCheckDigits(base9: string): string {
+  const digits = base9.slice(0, 9).split('').map(Number)
+  const digit = (weightStart: number) => {
+    const sum = digits.reduce((acc, d, i) => acc + d * (weightStart - i), 0)
+    const rest = (sum * 10) % 11
+    return rest === 10 ? 0 : rest
+  }
+  const d1 = digit(10)
+  digits.push(d1)
+  const d2 = digit(11)
+  return `${base9.slice(0, 9)}${d1}${d2}`
+}
+
 export async function createTestCustomer(): Promise<{ id: string; name: string }> {
   const sb = await getSupabase()
   const tenantId = await getTestTenantId()
   const ts = uniqueSuffix(9)
-  const cpf = `${ts}00`
+  // CPF com dígito verificador correto. O fixture gravava `${ts}00`, que entra
+  // pelo service_role mas NÃO passa no schema: qualquer edição do cliente pela
+  // tela era rejeitada com "CPF inválido", e o teste de edição morria num erro
+  // do próprio fixture.
+  const cpf = withCpfCheckDigits(ts)
   const name = `${TEST_TAG} Cliente ${ts}`
   const { data, error } = await sb
     .from('customers')
@@ -105,13 +131,28 @@ export async function createTestCustomer(): Promise<{ id: string; name: string }
 }
 
 /**
- * Remove um cliente de teste pelo ID, limpando cobranças vinculadas antes.
+ * Remove um cliente de teste pelo ID.
+ *
+ * Limpava `billings`, tabela que a ADR 0024 substituiu por `charges` — como
+ * supabase-js não lança em `.delete()`, o erro sumia e o `customers.delete()`
+ * seguinte batia no RESTRICT sem ninguém ver. Resultado: todo cliente de teste
+ * com movimento financeiro ficava no banco para sempre, e a suíte foi ficando
+ * mais lenta a cada execução.
+ *
+ * Cliente com lançamento no razão é INDELÉVEL de propósito: `financial_entries`
+ * tem `trg_entries_immutable` (Princípio 3 — corrige-se com estorno, nunca com
+ * DELETE), e `charges.customer_id` é RESTRICT. Então a limpeza remove o que é
+ * removível e devolve `false` quando o cliente ficou — quem reclama o espaço é
+ * `pnpm db:reset`, não este helper.
  */
-export async function deleteTestCustomer(id: string): Promise<void> {
-  if (!id) return
+export async function deleteTestCustomer(id: string): Promise<boolean> {
+  if (!id) return true
   const sb = await getSupabase()
-  await sb.from('billings').delete().eq('customer_id', id)
-  await sb.from('customers').delete().eq('id', id)
+
+  // Sem trilha financeira: cascata de rentals/queue_entries dá conta.
+  await sb.from('deposits').delete().eq('customer_id', id)
+  const { error } = await sb.from('customers').delete().eq('id', id)
+  return !error
 }
 
 /**
@@ -139,7 +180,11 @@ export async function createTestVehicle(): Promise<{ id: string; license_plate: 
       // para não depender do default quebrado.
       acquisition_type: 'used',
       color: 'PRETO',
-      renavam: `0000000${suffix}`.slice(0, 11),
+      // RENAVAM é único por tenant e tem 11 dígitos — use os 11, não 4.
+      // `\`0000000${suffix}\`.slice(0, 11)` prefixava sete zeros a um sufixo de
+      // cinco e cortava em onze, sobrando ~4 dígitos de entropia: com dezenas de
+      // veículos por execução, a colisão era questão de tempo.
+      renavam: uniqueSuffix(11),
       chassis: `TEST${suffix}E2E000`.slice(0, 17).toUpperCase(),
       fuel: 'GASOLINA',
       status: 'available',
@@ -230,8 +275,7 @@ export async function cleanupTestCustomersByName(namePattern: string): Promise<v
   if (!customers || customers.length === 0) return
   for (const c of customers) {
     await sb.from('queue_entries').delete().eq('customer_id', c.id)
-    await sb.from('billings').delete().eq('customer_id', c.id)
-    await sb.from('customers').delete().eq('id', c.id)
+    await deleteTestCustomer(c.id as string)
   }
 }
 
@@ -239,21 +283,17 @@ export async function cleanupTestCustomersByName(namePattern: string): Promise<v
  * Remove entradas (incomes) cujo lessee bate com o padrão (SQL ILIKE).
  * Usado para limpar entradas órfãs quando o teste falha antes do step DELETE.
  */
-export async function cleanupTestIncomesByLessee(lesseePattern: string): Promise<void> {
-  const sb = await getSupabase()
-  await sb.from('incomes').delete().ilike('lessee', lesseePattern)
-}
 
 /**
  * Remove um contrato de teste e o cliente associado.
  */
 export async function deleteTestContract(contractId: string, customerId: string): Promise<void> {
   const sb = await getSupabase()
-  if (contractId) await sb.from('rentals').delete().eq('id', contractId)
-  if (customerId) {
-    await sb.from('billings').delete().eq('customer_id', customerId)
-    await sb.from('customers').delete().eq('id', customerId)
+  if (contractId) {
+    await sb.from('deposits').delete().eq('rental_id', contractId)
+    await sb.from('rentals').delete().eq('id', contractId)
   }
+  if (customerId) await deleteTestCustomer(customerId)
 }
 
 // ---------------------------------------------------------------------------

@@ -1,78 +1,131 @@
 # 🗄️ Banco de Dados — [[GoMoto]]
 
-Backend [[Supabase]] (PostgreSQL). Projeto: `hcnxbqunescfanqzmsha`.
+Backend [[Supabase]] (PostgreSQL). Local: `http://127.0.0.1:54321` (Docker). Cloud: produção, só recebe mudança via `supabase db push` controlado por humano.
 
-## Tabelas (15 no total)
+> ✅ **Redesenho financeiro concluído.** O domínio financeiro roda sobre um ledger de movimentos com contrapartida — ver [[decisions/0024-ledger-financeiro-com-contrapartida|ADR 0024]] e [[Specs/0014-redesenho-financeiro|Spec 0014]].
 
-### Core do negócio
+## Panorama
 
-| Tabela | Função | Campos-chave |
-|---|---|---|
-| `motorcycles` | Frota | id, license_plate (UNIQUE), model, make, year, status (available/rented/maintenance/inactive), km_current, photo_url |
-| `customers` | Clientes | id, name, cpf (UNIQUE), phone, email, drivers_license, active, in_queue, payment_status |
-| `contracts` | Locações | id, customer_id, motorcycle_id, start_date, end_date, monthly_amount, status (active/closed/cancelled/broken), pdf_url |
-| `billings` | Cobranças | id, contract_id, customer_id, amount, due_date, status (pending/paid/overdue/loss), payment_date |
+64 objetos em `public` (57 tabelas + 7 views), 113 migrations versionadas em `supabase/migrations/`.
 
-### Financeiro
+## Multi-tenancy
 
-| Tabela | Função |
-|---|---|
-| `incomes` | Entradas avulsas (placa, data, valor, ref: Semanal/Mensal/Caucao/Multa) |
-| `expenses` | Gastos (description, amount, category, motorcycle_id opcional) |
-| `fines` | Multas (customer_id, motorcycle_id, amount, responsible: customer/company) |
+Implementado (fase 5). Toda tabela de domínio tem `tenant_id NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`, RLS habilitada e política `tenant_isolation_*` via a função `get_user_tenants()`.
 
-### Operações
+Exceções deliberadas — catálogos globais sem `tenant_id`: `permission_modules`, `permissions`, `role_permissions`.
 
 | Tabela | Função |
 |---|---|
-| `maintenance_items` | 13 itens padrão de manutenção preventiva (km_interval/day_interval) |
-| `maintenances` | Histórico de revisões por moto |
-| `checklists` | Entrega/devolução (items JSONB + signature_url) |
-| `queue_entries` | Fila de espera de clientes |
+| `tenants` | Empresas (locadoras) |
+| `tenant_members` | Vínculo usuário ↔ tenant, com papel e ciclo de vida |
+| `platform_admins` | Administradores da plataforma (control plane) |
+| `platform_audit_logs` | Auditoria de ações do control plane |
+
+## Core do negócio
+
+| Tabela | Função |
+|---|---|
+| `vehicles` | Frota (renomeada de `motorcycles` na ADR 0012) |
+| `vehicle_photos` | Galeria por slot (ADR 0010) |
+| `vehicle_documents` | Documentação do veículo |
+| `vehicle_status_history` | Histórico append-only de status (ADR 0011) |
+| `customers` | Clientes PF e PJ, com vínculo opcional a `auth.users` |
+| `clients_documents` | Documentos do cliente |
+| `rentals` | Locações |
+| `queue_entries` | Fila de espera |
+| `contract_templates` | Modelos `.docx` de contrato |
+| `settings` | Config por tenant, key/value |
 | `processes` | Base de conhecimento Q&A interna |
-| `contract_templates` | Modelos docx de contrato |
-| `settings` | Config da empresa (key/value) |
+| `audit_logs` | Log de ações (`logAction`) |
 
-### Auditoria
+## Financeiro — ledger
+
+O núcleo é imutável e balanceado. **Saldo nunca é coluna**: todo saldo é agregação de lançamentos, e atraso é derivado de `due_date`, não armazenado.
+
+### Núcleo
 
 | Tabela | Função |
 |---|---|
-| `audit_logs` | Log de ações (user_id, action, table, record_id, old_data, new_data) |
+| `financial_accounts` | Plano de contas — **catálogo global**, sem `tenant_id` (precedente: `permissions`) |
+| `financial_transactions` | Fato financeiro. Append-only; correção é estorno via `reverses_transaction_id` |
+| `financial_entries` | Pernas de débito/crédito. `amount_signed` gerada; `SUM = 0` por transação, garantido por `CONSTRAINT TRIGGER DEFERRABLE` |
 
-## Relacionamentos principais
+### Documentos
 
-```
-motorcycles ─┬─< contracts >─── customers
-             ├─< maintenances
-             ├─< fines >──────── customers
-             └─< expenses (opcional)
+| Tabela | Função |
+|---|---|
+| `rental_billing_schedules` | **Plano** de cobrança da locação — mutável, é onde o reajuste atua |
+| `charges` / `charge_items` | **Documento** emitido, imutável. Uma cobrança cobra **uma coisa só**: a origem é do documento, e o item a herda — trigger recusa item de outra origem, e índice único impede a mesma origem gerar duas cobranças vivas |
+| `payments` / `payment_allocations` | Recebimento N:N — habilita pagamento parcial e um pagamento cobrindo várias cobranças |
+| `payables` | Contas a pagar com responsabilidade e rateio **em valores**, nunca percentual |
+| `deposits` / `customer_credits` | Documentos sem coluna de saldo — o saldo vem das views |
 
-contracts ──< billings
-contracts ──< checklists
-customers ──< queue_entries
-maintenance_items ──< maintenances
-```
+### Política e classificação
 
-## RLS (Row Level Security)
+| Tabela | Função |
+|---|---|
+| `late_charge_policies`, `delinquency_policies`, `credit_policies` | Política **tipada e versionada**; o documento fixa a versão por ponteiro |
+| `report_lines` + `tenant_account_mappings` | Linha de DRE e base fiscal **por tenant** — o ledger registra o fato, o tenant escolhe a classificação |
+| `branches`, `cost_centers` | Dimensões organizacionais |
 
-- ✅ **Habilitado em todas as tabelas** (exceto `contract_templates` só-leitura autenticado)
-- Política atual: `FOR ALL TO authenticated USING (true) WITH CHECK (true)`
-- ⚠️ **Sem segregação por tenant** — adequado pra operador único, precisaria mudança pra SaaS multi-tenant
+### Gateway
 
-## Triggers
-- `update_updated_at_column()` — BEFORE UPDATE em 9 tabelas (mantém `updated_at` automático)
+`payment_provider_accounts` (multi-provedor por tenant), `payment_intents`, `gateway_events` (inbox com `UNIQUE(provider, provider_event_id)` — idempotência é propriedade do banco).
 
-## Seed data
-- 5 motos fictícias (Honda CG 160, Yamaha Factor, Honda Biz, Honda Pop)
-- 3 clientes de teste
-- 2 contratos ativos
-- 13 itens padrão de manutenção preventiva
+### Views — tudo derivado
 
-## Integração com código
-- `src/lib/supabase/client.ts` — browser client
-- `src/lib/supabase/server.ts` — server client (cookies)
-- `src/lib/schemas.ts` — validações Zod espelhando tabelas
-- `src/types/index.ts` — types TypeScript dos registros
+| View | Entrega |
+|---|---|
+| `charge_balances` | total, pago, em aberto, `is_overdue`, `days_overdue` |
+| `customer_delinquency` | fatos de inadimplência por cliente |
+| `deposit_balances`, `customer_credit_balances` | saldos agregados do ledger |
+| `vehicle_financial_position` | receita, custo bruto, repassado, `net_result` por veículo |
+| `rental_financial_result` | resultado da locação |
+| `income_statement` | DRE resolvido pela política vigente na **data do fato** |
+
+Todas usam `LEFT JOIN LATERAL` com subconsulta agregada — nunca `JOIN` irmão seguido de `SUM`. É essa forma que torna inexpressável o fan-out que inflava `vehicle_cost_summary` em 5×.
+
+### RPCs
+
+`post_financial_transaction` (escrita atômica no ledger), `create_rental_with_schedule`, `issue_due_charges` (job diário), `adjust_rental_schedule`, `terminate_rental` (com apuração).
+
+## Operações
+
+| Tabela | Função |
+|---|---|
+| `maintenances` | Manutenções (preventiva e corretiva) |
+| `maintenance_items` | Itens padrão de manutenção |
+| `maintenance_plans` / `maintenance_plan_items` | Planos preventivos (ADR 0006) |
+| `maintenance_records` | Registro enviado pelo cliente, com aprovação |
+| `fines` | Multas, com campos de NA/NP (PRD 0013) |
+| `fine_attachments` | Anexos da multa |
+| `inspections` | Vistorias |
+| `inspection_profiles` + `inspection_profile_*_items` | Perfis de vistoria (ADR 0015) |
+| `inspection_schedules` | Agendamento de vistoria periódica |
+
+## Controle de acesso
+
+`permission_modules`, `permissions`, `role_permissions` — catálogo global semeado (ADR 0022). Nesta versão é seed sem consumidor em runtime; a autorização efetiva usa `tenant_members.role` e `platform_admins.role`.
+
+## Convenções obrigatórias
+
+Toda tabela nova de domínio precisa de:
+
+- `tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`
+- RLS habilitada + política `tenant_isolation_<tabela>` via `get_user_tenants()`
+- Trigger `update_updated_at_column` em `BEFORE UPDATE`
+- Identificadores em inglês
+
+Views devem usar `WITH (security_invoker = true)` para herdar o isolamento das tabelas base.
+
+## Workflow
+
+- `pnpm db:reset` — zera e roda o seed (`supabase/seed.sql`)
+- `pnpm db:diff <nome>` — gera migration a partir de mudanças no Studio local
+- `supabase migration new <nome>` — cria migration vazia
+
+Detalhes em [[Desenvolvimento Local]].
 
 ## Tags
+
 `#projeto/banco` `#stack/supabase`

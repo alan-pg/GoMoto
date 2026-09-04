@@ -119,12 +119,16 @@ function Field({
   children: React.ReactNode
   className?: string
 }) {
+  // O `<label>` ENVOLVE o controle. Antes ele era irmão, sem `htmlFor`: nada
+  // associava rótulo e campo, então leitor de tela anunciava um input sem nome
+  // e `getByLabel` não encontrava nada — foi por isso que os testes deste form
+  // acabaram presos a placeholder e posição.
   return (
-    <div className={className}>
-      <label className={labelCls}>{label}</label>
+    <label className={`block ${className ?? ''}`}>
+      <span className={labelCls}>{label}</span>
       {children}
       {error && <p className="text-[12px] text-danger mt-1">{error}</p>}
-    </div>
+    </label>
   )
 }
 
@@ -239,6 +243,16 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
 
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<string, string>>>({})
   const [globalError, setGlobalError] = useState<string | null>(null)
+
+  /**
+   * O aviso de erro fica no RODAPÉ de um formulário longo, e o botão Salvar
+   * vive no cabeçalho fixo. Sem rolar até ele, o operador clica em Salvar no
+   * topo e não vê absolutamente nada acontecer.
+   */
+  const errorRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (globalError) errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [globalError])
   const [postWarnings, setPostWarnings] = useState<string[] | null>(null)
 
   // ── Fotos
@@ -481,8 +495,16 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
       if (isEditMode) {
         const result = await updateVehicle(vehicleId!, payload)
         if (!result.ok) {
+          // O erro global sai SEMPRE, não só quando falta `field`. Erro
+          // apontando para um campo sem slot de exibição — ou para uma seção
+          // fora da tela, neste formulário longo — desaparecia por inteiro:
+          // clicar em Salvar não produzia nada, nem mensagem nem navegação.
           if (result.error.field) setFieldErrors({ [result.error.field]: result.error.message })
-          else setGlobalError(result.error.message)
+          setGlobalError(
+            result.error.field
+              ? `${result.error.message} (campo: ${result.error.field})`
+              : result.error.message,
+          )
           return
         }
 
@@ -510,7 +532,12 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
             return { type, amount, due_date: dueDate, status: e.status, reference_year: refYear }
           })
         if (oblRows.length > 0) {
-          await saveVehicleObligations(vehicleId!, oblRows)
+          // O resultado era descartado: obrigação que falhava sumia sem aviso.
+          const oblResult = await saveVehicleObligations(vehicleId!, oblRows)
+          if (!oblResult.ok) {
+            setGlobalError(`Obrigações anuais não salvas: ${oblResult.error.message}`)
+            return
+          }
         }
 
         router.push(`/veiculos/${vehicleId}`)
@@ -570,24 +597,26 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
         if (error) warnings.push(`Registro do CRV não criado: ${error.message}`)
       }
 
-      // Obrigações anuais
+      // Obrigações anuais — via Server Action, o mesmo caminho da edição. O
+      // INSERT direto daqui ainda gravava `amount`/`status`/`paid_at`, colunas
+      // removidas na ADR 0024: falhava sempre, e o erro morria no warning.
       const today = new Date().toISOString().split('T')[0]
-      const obligationRows: Record<string, unknown>[] = []
+      const obligationRows = []
       for (const [key, entry] of Object.entries(obligations) as ['ipva' | 'licensing' | 'dpvat', ObligationEntry][]) {
         if (!entry.amount && !entry.dueDate && entry.status !== 'exempt') continue
         const dueDate = entry.dueDate || today
-        const refYear = parseInt(dueDate.slice(0, 4), 10) || new Date().getFullYear()
         const amount = parseFloat(entry.amount.replace(/\./g, '').replace(',', '.')) || 0
         obligationRows.push({
-          tenant_id: tenantId, vehicle_id: newId, type: key,
-          reference_year: refYear, amount: isNaN(amount) ? 0 : amount,
-          due_date: dueDate, status: entry.status,
-          paid_at: entry.status === 'paid' ? dueDate : null,
+          type: key,
+          reference_year: parseInt(dueDate.slice(0, 4), 10) || new Date().getFullYear(),
+          due_date: dueDate,
+          amount: isNaN(amount) ? 0 : amount,
+          status: entry.status,
         })
       }
       if (obligationRows.length > 0) {
-        const { error } = await supabase.from('vehicle_obligations').insert(obligationRows)
-        if (error) warnings.push(`Obrigações anuais não salvas: ${error.message}`)
+        const result = await saveVehicleObligations(newId, obligationRows)
+        if (!result.ok) warnings.push(`Obrigações anuais não salvas: ${result.error.message}`)
       }
 
       // Plano de manutenção
@@ -1316,7 +1345,7 @@ export function VehicleForm({ vehicleId, initialData, initialPhotoUrls = {}, ini
 
           {/* ── Erro global ────────────────────────────────────────────── */}
           {globalError && (
-            <div className="flex items-start gap-3 px-4 py-3 bg-danger-bg border border-danger rounded-xl">
+            <div ref={errorRef} className="flex items-start gap-3 px-4 py-3 bg-danger-bg border border-danger rounded-xl">
               <AlertCircle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
               <p className="text-[13px] text-danger">{globalError}</p>
             </div>

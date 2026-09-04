@@ -39,7 +39,7 @@ export function VehicleFinancialActions({ vehicleId, hasAcquisitionValue, alread
     if (isNaN(amount) || amount <= 0) { setFlashError('Valor inválido'); return }
     setFlashError(null)
     startTransition(async () => {
-      const result = await updateAcquisitionValue({ vehicle_id: vehicleId, acquisition_value: amount })
+      const result = await updateAcquisitionValue({ vehicle_id: vehicleId, acquisition_amount: amount })
       if (!result.ok) { setFlashError(result.error.message); return }
       setAcquisitionOpen(false)
     })

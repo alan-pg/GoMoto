@@ -2,6 +2,13 @@
 
 Rota: `/cobrancas` | Tipo: Client Component
 
+> [!warning] Nota parcialmente defasada
+> As seções de **tabela**, **abas de filtro** e **KPIs** ainda descrevem o mundo
+> pré-[[ADR 0024]]: `status='paid'`, `payment_date`, `observations`, status
+> `loss`, ações "Editar" e "Excluir". Nada disso existe — documento emitido é
+> imutável (Princípio 5) e saldo nunca é coluna (Princípio 2). Só a seção
+> **Ações Especiais → Registrar pagamento** está em dia com o código.
+
 ## Layout
 
 - 6 KPI cards financeiros
@@ -31,9 +38,29 @@ Em `customers.name` e `description` (case-insensitive).
 
 ## Ações Especiais
 
-**Marcar como Pago** (aparece se `pending` ou `overdue`):
-- Modal com select de método: PIX / Dinheiro / Cartão de Crédito / Cartão de Débito / Transferência
-- Salva: `status='paid'`, `payment_date=hoje`, concatena método nas `observations`
+**Registrar pagamento** (aparece se a cobrança está aberta ou vencida):
+
+Uma implementação só — `components/financial/RegistrarPagamentoModal.tsx` —
+usada tanto pela lista quanto pela tela de detalhe. Eram dois modais separados
+que divergiram: um recusava valor acima do saldo, o outro deixava passar, e a
+conta do devido estava duplicada (a cópia do detalhe perdeu o `round2` e exibia
+250,00000000000003 onde a lista dava 250,00). Quem for mexer, mexe nos dois de
+uma vez porque só existe um.
+
+O modal mostra:
+
+| Bloco | Conteúdo |
+|---|---|
+| Cabeçalho | Nº da cobrança, cliente, **vencimento** e dias de atraso |
+| Data do recebimento | Default hoje; futura é recusada. Muda a data → refaz o encargo |
+| Valor recebido | Trava no devido: acima disso volta ao máximo e explica dentro do modal |
+| Detalhamento | Principal / Multa / Juros · N dias / Total a receber |
+| Forma de pagamento | PIX / Dinheiro / Cartão / Transferência / Outro |
+
+O encargo é **projetado** até o recebimento e realizado com a data escolhida
+(R-06 / ADR 0024) — não existe "consolidar encargo" à parte. Excedente não vira
+pagamento: para receber a mais, registre o devido e conceda o resto como crédito
+na ficha do cliente.
 
 **Contabilizar como Prejuízo** (aparece se `pending` ou `overdue`):
 - Modal de confirmação com aviso em vermelho

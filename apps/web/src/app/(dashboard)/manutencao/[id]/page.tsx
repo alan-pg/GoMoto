@@ -50,17 +50,28 @@ export default async function MaintenanceDetailPage({
 
   // Check if a billing already exists for this maintenance
   const { data: existingBilling } = await supabase
-    .from('billings')
-    .select('id, status, original_amount')
-    .eq('maintenance_id', id)
+    .from('charge_items')
+    .select('amount, charge:charges(id, status)')
+    .eq('source_module', 'maintenance')
+    .eq('source_id', id)
     .eq('tenant_id', tenantId)
     .maybeSingle()
 
-  const hasBilling = !!existingBilling
-  const isCustomerExpense = maintenance.effective_executor === 'customer' || (maintenance.effective_customer_payer_pct ?? 0) > 0
-  const customerShare = maintenance.cost != null && maintenance.effective_customer_payer_pct != null
-    ? Math.round(maintenance.cost * (maintenance.effective_customer_payer_pct / 100) * 100) / 100
+  // O join vem como array na inferência do supabase-js; normalizamos.
+  type ItemWithCharge = { amount: number; charge: { id: string; status: string } | { id: string; status: string }[] | null }
+  const rawItem = existingBilling as unknown as ItemWithCharge | null
+  const rawCharge = rawItem ? (Array.isArray(rawItem.charge) ? rawItem.charge[0] : rawItem.charge) : null
+  const billingInfo = rawItem && rawCharge
+    ? { id: rawCharge.id, status: rawCharge.status, original_amount: rawItem.amount }
     : null
+
+  const hasBilling = !!billingInfo
+  // `cost` e `effective_customer_payer_pct` saíram de `maintenances` na ADR
+  // 0024: custo e rateio vivem no payable, em valores. Estas duas expressões
+  // liam colunas inexistentes e resultavam sempre em `null`/`false`.
+  // Quem responde "o cliente paga parte disto?" é a cobrança emitida.
+  const isCustomerExpense = maintenance.effective_executor === 'customer' || hasBilling
+  const customerShare = billingInfo?.original_amount ?? null
 
   return (
     <div className="min-h-screen bg-bg">
@@ -168,21 +179,21 @@ export default async function MaintenanceDetailPage({
                   <div>
                     <p className="text-[13px] text-fg-mute">Cobrança gerada</p>
                     <p className="mt-1 text-[15px] font-bold text-fg">
-                      {formatCurrency(existingBilling!.original_amount)}
+                      {formatCurrency(billingInfo!.original_amount)}
                     </p>
                   </div>
                   <span className={`rounded-full px-3 py-1 text-[12px] font-semibold ${
-                    existingBilling!.status === 'paid'
+                    billingInfo!.status === 'paid'
                       ? 'bg-success-bg text-success'
-                      : existingBilling!.status === 'cancelled'
+                      : billingInfo!.status === 'cancelled'
                         ? 'bg-surface-2 text-fg-mute'
                         : 'bg-info-bg text-info'
                   }`}>
-                    {existingBilling!.status === 'paid' ? 'Paga' : existingBilling!.status === 'cancelled' ? 'Cancelada' : 'Pendente'}
+                    {billingInfo!.status === 'paid' ? 'Paga' : billingInfo!.status === 'cancelled' ? 'Cancelada' : 'Pendente'}
                   </span>
                 </div>
                 <Link
-                  href={`/cobrancas/${existingBilling!.id}`}
+                  href={`/cobrancas/${billingInfo!.id}`}
                   className="mt-3 inline-flex text-[12px] text-fg-mute transition-colors hover:text-primary"
                 >
                   Ver cobrança →

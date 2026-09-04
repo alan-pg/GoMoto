@@ -1,59 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import {
-  LateChargeConfigSchema,
   CloseRentalFinancialSchema,
-  CreateRentalAdjustmentSchema,
-  RegenerateRentalScheduleSchema,
   CreatePaymentSchema,
   WaiveChargesSchema,
   CreateCreditSchema,
   ApplyCreditSchema,
   BlockCustomerSchema,
   UnblockCustomerSchema,
-  CreateRentalWithDepositSchema,
 } from './financial'
-
-describe('LateChargeConfigSchema', () => {
-  it('aceita configuração válida com tipo fixo', () => {
-    const result = LateChargeConfigSchema.safeParse({
-      late_fee_type: 'fixed',
-      late_fee_value: 30,
-      daily_interest_rate: 0.005,
-      grace_period_days: 5,
-    })
-    expect(result.success).toBe(true)
-  })
-
-  it('aceita taxa percentual', () => {
-    const result = LateChargeConfigSchema.safeParse({
-      late_fee_type: 'percentage',
-      late_fee_value: 5,
-      daily_interest_rate: 0,
-      grace_period_days: 0,
-    })
-    expect(result.success).toBe(true)
-  })
-
-  it('rejeita daily_interest_rate > 1', () => {
-    const result = LateChargeConfigSchema.safeParse({
-      late_fee_type: 'fixed',
-      late_fee_value: 30,
-      daily_interest_rate: 1.5,
-      grace_period_days: 0,
-    })
-    expect(result.success).toBe(false)
-  })
-
-  it('rejeita grace_period_days negativo', () => {
-    const result = LateChargeConfigSchema.safeParse({
-      late_fee_type: 'fixed',
-      late_fee_value: 30,
-      daily_interest_rate: 0.005,
-      grace_period_days: -1,
-    })
-    expect(result.success).toBe(false)
-  })
-})
 
 describe('CloseRentalFinancialSchema', () => {
   const rentalId = '00000000-0000-4000-8000-000000000001'
@@ -117,75 +71,6 @@ describe('CloseRentalFinancialSchema', () => {
       retention_reason: 'abc',
     })
     expect(result.success).toBe(false)
-  })
-})
-
-describe('CreateRentalAdjustmentSchema', () => {
-  const rentalId = '00000000-0000-4000-8000-000000000001'
-
-  // CA-035: justificativa obrigatória
-  it('CA-035: sem justificativa → inválido', () => {
-    const result = CreateRentalAdjustmentSchema.safeParse({
-      rental_id: rentalId,
-      new_cycle_amount: 600,
-    })
-    expect(result.success).toBe(false)
-  })
-
-  it('justificativa vazia → inválido', () => {
-    const result = CreateRentalAdjustmentSchema.safeParse({
-      rental_id: rentalId,
-      new_cycle_amount: 600,
-      justification: 'ab',
-    })
-    expect(result.success).toBe(false)
-  })
-
-  it('ajuste válido com justificativa', () => {
-    const result = CreateRentalAdjustmentSchema.safeParse({
-      rental_id: rentalId,
-      new_cycle_amount: 600,
-      justification: 'Reajuste anual contratual',
-    })
-    expect(result.success).toBe(true)
-  })
-
-  it('new_cycle_amount zero → inválido', () => {
-    const result = CreateRentalAdjustmentSchema.safeParse({
-      rental_id: rentalId,
-      new_cycle_amount: 0,
-      justification: 'Justificativa válida aqui',
-    })
-    expect(result.success).toBe(false)
-  })
-})
-
-describe('RegenerateRentalScheduleSchema', () => {
-  const rentalId = '00000000-0000-4000-8000-000000000001'
-  const valid = {
-    rental_id: rentalId,
-    new_cycle: 'weekly' as const,
-    new_due_day: 3,
-    new_cycle_amount: 700,
-    new_use_pro_rata: true,
-    justification: 'Mudança de ciclo solicitada pelo cliente',
-  }
-
-  it('mudança válida de ciclo/dia/pro-rata', () => {
-    expect(RegenerateRentalScheduleSchema.safeParse(valid).success).toBe(true)
-  })
-
-  it('sem justificativa → inválido', () => {
-    const { justification: _justification, ...rest } = valid
-    expect(RegenerateRentalScheduleSchema.safeParse(rest).success).toBe(false)
-  })
-
-  it('new_due_day fora de [1,28] → inválido', () => {
-    expect(RegenerateRentalScheduleSchema.safeParse({ ...valid, new_due_day: 29 }).success).toBe(false)
-  })
-
-  it('new_cycle inválido → inválido', () => {
-    expect(RegenerateRentalScheduleSchema.safeParse({ ...valid, new_cycle: 'daily' }).success).toBe(false)
   })
 })
 
@@ -316,35 +201,3 @@ describe('UnblockCustomerSchema', () => {
   })
 })
 
-describe('CreateRentalWithDepositSchema', () => {
-  const validConfig = {
-    late_fee_type: 'fixed' as const,
-    late_fee_value: 30,
-    daily_interest_rate: 0.005,
-    grace_period_days: 5,
-  }
-
-  it('locação sem caução → válido', () => {
-    const result = CreateRentalWithDepositSchema.safeParse({
-      late_charge_config: validConfig,
-    })
-    expect(result.success).toBe(true)
-  })
-
-  it('locação com caução e data → válido', () => {
-    const result = CreateRentalWithDepositSchema.safeParse({
-      deposit_amount: 500,
-      deposit_received_at: '2026-07-19',
-      late_charge_config: validConfig,
-    })
-    expect(result.success).toBe(true)
-  })
-
-  it('caução sem data → inválido (refine)', () => {
-    const result = CreateRentalWithDepositSchema.safeParse({
-      deposit_amount: 500,
-      late_charge_config: validConfig,
-    })
-    expect(result.success).toBe(false)
-  })
-})

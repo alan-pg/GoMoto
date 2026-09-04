@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import { applyCpfMask, applyCnpjMask, applyPhoneMask, applyZipMask } from '@gomoto/core'
 import { formatCurrency } from '@/lib/utils'
+import { BlockCustomerButton } from './_components/BlockCustomerButton'
+import { SettleCreditButton } from './_components/SettleCreditButton'
 import { MessageCircle } from 'lucide-react'
 import { CustomerAppAccess } from '../_components/CustomerAppAccess'
 import type { Customer, Rental } from '@gomoto/core'
@@ -45,7 +47,10 @@ export default async function CustomerDetailPage({
   const tenantId = await getCurrentTenantId(supabase)
   if (!tenantId) notFound()
 
-  const [customerResult, rentalResult, creditsResult, delinquencyBlocksResult] = await Promise.all([
+  const [
+    customerResult, rentalResult, creditsResult, delinquencyBlocksResult,
+    positionResult, overdueResult, creditBalanceResult,
+  ] = await Promise.all([
     supabase.from('customers').select('*').eq('id', id).single(),
     supabase
       .from('rentals')
@@ -55,17 +60,49 @@ export default async function CustomerDetailPage({
       .maybeSingle(),
     supabase
       .from('customer_credits')
-      .select('id, amount, available_balance, origin, reason, created_at')
+      // Saldo disponível é derivado em `customer_credit_balances`, não coluna.
+      // `cancelled_at` vem junto: concessão desfeita continua no histórico —
+      // ela moveu o razão duas vezes e some do saldo, mas não da história —, e
+      // sem essa coluna a lista mostrava um crédito cancelado com cara de vivo.
+      .select('id, amount, origin, reason, created_at, cancelled_at, cancellation_reason')
       .eq('customer_id', id)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false }),
     supabase
       .from('delinquency_blocks')
-      .select('action, reason, performed_by, created_at')
+      .select('action, reason, actor_id, acted_at')
       .eq('customer_id', id)
       .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false })
+      .order('acted_at', { ascending: false })
       .limit(5),
+    // Resultado do cliente — soma de lançamentos, nunca coluna.
+    supabase
+      .from('customer_financial_position')
+      .select('revenue, attributed_cost, reimbursed, absorbed_cost, net_result, bad_debt')
+      .eq('customer_id', id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle(),
+    // Vencidas de verdade. A seção se chamava "Situação financeira" e mostrava
+    // só a marca manual: um cliente devendo há 31 dias aparecia "Regular", em
+    // verde, porque ninguém o havia bloqueado à mão.
+    supabase
+      .from('charge_balances')
+      .select('open_amount, days_overdue')
+      .eq('customer_id', id)
+      .eq('tenant_id', tenantId)
+      .eq('status', 'open')
+      .eq('is_overdue', true),
+    // Saldo REAL, derivado do razão. A tela somava `customer_credits.amount` —
+    // o total já CONCEDIDO — sob o rótulo "Créditos disponíveis". Crédito
+    // parcialmente usado aparecia inteiro: no banco de teste, um cliente com
+    // R$ 550 de saldo era exibido com R$ 1.100. É a tela que se consulta para
+    // decidir quanto devolver ao cliente, então o erro custava dinheiro.
+    supabase
+      .from('customer_credit_balances')
+      .select('balance')
+      .eq('customer_id', id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle(),
   ])
 
   if (customerResult.error || !customerResult.data) notFound()
@@ -73,19 +110,45 @@ export default async function CustomerDetailPage({
   const customer = customerResult.data as Customer
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rental = rentalResult.data as (Rental & { vehicle?: { license_plate: string; make: string; model: string } | null }) | null
-  const credits = (creditsResult.data ?? []) as { id: string; amount: number; available_balance: number; origin: string; reason: string; created_at: string }[]
-  const delinquencyBlocks = (delinquencyBlocksResult.data ?? []) as { action: string; reason: string; performed_by: string; created_at: string }[]
+  const credits = (creditsResult.data ?? []) as {
+    id: string; amount: number; origin: string; reason: string; created_at: string
+    cancelled_at: string | null; cancellation_reason: string | null
+  }[]
 
+  /** Concessões que ainda valem. Cancelada não conta como "concedido". */
+  const creditsVivos = credits.filter((c) => !c.cancelled_at)
+  const creditBalance = Number((creditBalanceResult.data as { balance: number } | null)?.balance ?? 0)
+  const delinquencyBlocks = (delinquencyBlocksResult.data ?? []) as { action: string; reason: string; actor_id: string; acted_at: string }[]
+  const position = positionResult.data as {
+    revenue: number; attributed_cost: number; reimbursed: number
+    absorbed_cost: number; net_result: number; bad_debt: number
+  } | null
+
+  // Duas gramáticas convivem em `customer_credits.origin`, e a coluna é TEXT:
+  // o crédito lançado à mão usa o enum de `CreateCreditSchema`, e o que nasce
+  // de despesa paga pelo cliente grava o `source_module` de quem originou
+  // (`fn_create_payable`). Sem as duas aqui, a tela mostrava "maintenance" cru.
   const CREDIT_ORIGIN_LABELS: Record<string, string> = {
     maintenance_refund: 'Estorno manutenção',
     reversal:          'Estorno',
     manual_adjustment: 'Ajuste manual',
+    maintenance:       'Manutenção',
+    fine:              'Multa',
+    expense:           'Despesa',
   }
   const DELINQUENCY_ACTION_LABELS: Record<string, string> = {
     block:   'Bloqueado',
     unblock: 'Desbloqueado',
   }
-  const isBlocked = customer.delinquency_status === 'blocked'
+  // Bloqueado = última ação do log é 'block'. `customers.delinquency_status`
+  // saiu na ADR 0024 — era mantida por trigger inerte (F-04).
+  const isBlocked = delinquencyBlocks[0]?.action === 'block'
+
+  // Inadimplência é FATO derivado do relógio, nunca coluna (Princípio 4): sai
+  // de `charge_balances`, que já calcula atraso e saldo.
+  const overdue = (overdueResult.data ?? []) as { open_amount: number; days_overdue: number }[]
+  const overdueTotal = overdue.reduce((s, c) => s + c.open_amount, 0)
+  const worstDelay = overdue.reduce((max, c) => Math.max(max, c.days_overdue), 0)
 
   const [cnhSignedUrl, residencySignedUrl] = await Promise.all([
     getSignedUrl(supabase, customer.drivers_license_photo_url),
@@ -166,9 +229,6 @@ export default async function CustomerDetailPage({
           }`}>
             {isCompany ? 'Pessoa Jurídica' : 'Pessoa Física'}
           </span>
-          {customer.payment_status && (
-            <span className="text-[13px] text-fg-mute">{customer.payment_status}</span>
-          )}
         </div>
 
         {/* ── Contrato Ativo ───────────────────────────────────────────────── */}
@@ -232,6 +292,41 @@ export default async function CustomerDetailPage({
                   <Row label="Data de Nascimento" value={fmt(customer.birth_date)} />
                 </tbody>
               </table>
+            </div>
+          </section>
+        )}
+
+        {/* ── Resultado ────────────────────────────────────────────────────── */}
+        {position && (
+          <section>
+            <h2 className="text-[14px] font-bold text-primary mb-3">Resultado</h2>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="rounded-xl bg-surface p-4">
+                <p className="text-[12px] text-fg-mute">Receita</p>
+                <p className="mt-1 text-xl font-bold text-success">{formatCurrency(Number(position.revenue))}</p>
+                <p className="mt-0.5 text-[12px] text-fg-mute">Aluguel e encargos</p>
+              </div>
+              <div className="rounded-xl bg-surface p-4">
+                <p className="text-[12px] text-fg-mute">Custo absorvido</p>
+                <p className="mt-1 text-xl font-bold text-danger">{formatCurrency(Number(position.absorbed_cost))}</p>
+                {/* Bruto menos repasse: é o que a empresa comeu de fato. O custo
+                    cheio aparece no cliente mesmo quando rateado, então mostrar
+                    o bruto aqui responderia a pergunta errada. */}
+                <p className="mt-0.5 text-[12px] text-fg-mute">
+                  {formatCurrency(Number(position.attributed_cost))} bruto, {formatCurrency(Number(position.reimbursed))} repassado
+                </p>
+              </div>
+              <div className="rounded-xl bg-surface p-4">
+                <p className="text-[12px] text-fg-mute">Resultado</p>
+                <p className={`mt-1 text-xl font-bold ${Number(position.net_result) < 0 ? 'text-danger' : 'text-fg'}`}>
+                  {formatCurrency(Number(position.net_result))}
+                </p>
+                <p className="mt-0.5 text-[12px] text-fg-mute">
+                  {Number(position.bad_debt) < 0
+                    ? `${formatCurrency(Math.abs(Number(position.bad_debt)))} em perdas`
+                    : 'Sem perdas reconhecidas'}
+                </p>
+              </div>
             </div>
           </section>
         )}
@@ -384,23 +479,53 @@ export default async function CustomerDetailPage({
                 <span className="ml-2 rounded-full bg-danger-bg px-2 py-0.5 text-[11px] font-semibold text-danger">Bloqueado</span>
               )}
             </h2>
+            {/* P-8: as actions existiam corretas e sem chamador desde a Spec
+                0014. O bloqueio é registro administrativo — não impede locação,
+                marca a decisão da empresa com autor, data e motivo. */}
+            <div className="flex items-center gap-2">
+              {/* Só aparece com saldo: sem crédito não há o que devolver. */}
+              <SettleCreditButton customerId={id} balance={creditBalance} />
+              <BlockCustomerButton customerId={id} isBlocked={isBlocked} />
+            </div>
           </div>
           <div className="rounded-xl bg-surface overflow-hidden">
             <table className="w-full text-[13px]">
               <tbody>
                 <tr className="border-b border-divider last:border-0">
-                  <td className="h-9 w-48 px-4 text-fg-mute">Status</td>
+                  <td className="h-9 w-48 px-4 text-fg-mute">Pagamentos</td>
                   <td className="h-9 px-4 text-fg">
+                    {overdue.length > 0
+                      ? (
+                        <span className="text-danger font-medium">
+                          {overdue.length} cobrança{overdue.length !== 1 ? 's' : ''} vencida
+                          {overdue.length !== 1 ? 's' : ''} · {formatCurrency(overdueTotal)}
+                          <span className="ml-2 font-normal text-fg-mute">
+                            maior atraso: {worstDelay} dia{worstDelay !== 1 ? 's' : ''}
+                          </span>
+                        </span>
+                      )
+                      : <span className="text-success">Em dia</span>}
+                  </td>
+                </tr>
+                <tr className="border-b border-divider last:border-0">
+                  <td className="h-9 w-48 px-4 text-fg-mute">Cadastro</td>
+                  <td className="h-9 px-4 text-fg">
+                    {/* "Bloqueado para novas locações" era falso desde que a
+                        trava saiu de `createRental`: o bloqueio informa, não
+                        impede. Prometer impedimento que não existe é pior que
+                        não ter o rótulo. */}
                     {isBlocked
-                      ? <span className="text-danger font-medium">Bloqueado para novas locações</span>
-                      : <span className="text-success">Regular</span>}
+                      ? <span className="text-danger font-medium">Bloqueado — a locação exibe aviso, mas não é impedida</span>
+                      : <span className="text-fg-mute">Sem bloqueio</span>}
                   </td>
                 </tr>
                 <tr className="border-b border-divider last:border-0">
                   <td className="h-9 w-48 px-4 text-fg-mute">Créditos disponíveis</td>
                   <td className="h-9 px-4 font-mono text-fg">
-                    {formatCurrency(credits.reduce((s, c) => s + c.available_balance, 0))}
-                    <span className="ml-2 text-[12px] text-fg-mute">({credits.filter(c => c.available_balance > 0).length} ativos)</span>
+                    {formatCurrency(creditBalance)}
+                    <span className="ml-2 text-[12px] text-fg-mute">
+                      ({creditsVivos.length} concedido{creditsVivos.length === 1 ? '' : 's'})
+                    </span>
                   </td>
                 </tr>
               </tbody>
@@ -423,7 +548,7 @@ export default async function CustomerDetailPage({
                         {DELINQUENCY_ACTION_LABELS[b.action] ?? b.action}
                       </td>
                       <td className="h-9 px-4 text-fg-mute">
-                        {new Date(b.created_at).toLocaleDateString('pt-BR')}
+                        {new Date(b.acted_at).toLocaleDateString('pt-BR')}
                       </td>
                       <td className="h-9 max-w-[240px] truncate px-4 text-fg-mute">{b.reason}</td>
                     </tr>
@@ -447,8 +572,8 @@ export default async function CustomerDetailPage({
                   <tr className="border-b border-divider bg-surface">
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Origem</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Situação</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Total</th>
-                    <th className="h-9 px-4 text-right font-medium text-fg-mute">Saldo</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -456,9 +581,25 @@ export default async function CustomerDetailPage({
                     <tr key={c.id} className="border-b border-border last:border-0 hover:bg-surface-2">
                       <td className="h-9 px-4 text-fg-soft">{CREDIT_ORIGIN_LABELS[c.origin] ?? c.origin}</td>
                       <td className="h-9 px-4 text-fg-mute">{new Date(c.created_at).toLocaleDateString('pt-BR')}</td>
-                      <td className="h-9 px-4 text-right font-mono text-fg">{formatCurrency(c.amount)}</td>
-                      <td className={`h-9 px-4 text-right font-mono font-semibold ${c.available_balance > 0 ? 'text-primary' : 'text-fg-mute'}`}>
-                        {formatCurrency(c.available_balance)}
+                      {/* Concessão desfeita fica na lista, e diz POR QUÊ. Sumir
+                          com ela esconderia dois lançamentos que existem no
+                          razão; deixá-la sem marca era pior — o cliente
+                          aparecia com R$ 0,00 disponível e "1 concedido", e
+                          nada na tela explicava o descompasso. */}
+                      <td className="h-9 max-w-[280px] truncate px-4 text-[12px]">
+                        {c.cancelled_at
+                          ? <span className="text-danger">
+                              Cancelado em {new Date(c.cancelled_at).toLocaleDateString('pt-BR')}
+                              {c.cancellation_reason && ` — ${c.cancellation_reason}`}
+                            </span>
+                          : <span className="text-fg-mute">Concedido</span>}
+                      </td>
+                      {/* A coluna de saldo disponível saiu: ele é derivado em
+                          `customer_credit_balances`, a partir do quanto do
+                          crédito já foi aplicado. Exibir o valor lançado é
+                          honesto; exibir uma coluna inexistente não era. */}
+                      <td className={`h-9 px-4 text-right font-mono ${c.cancelled_at ? 'text-fg-mute line-through' : 'text-fg'}`}>
+                        {formatCurrency(c.amount)}
                       </td>
                     </tr>
                   ))}

@@ -136,11 +136,11 @@ export function parseCRLVText(rawText: string): CRLVFields {
 
   // PLACA: padrão Mercosul (AAA1A23) ou antigo (AAA1234).
   const placaMatch = dataBlock.match(/\b([A-Z]{3}\d[A-Z0-9]\d{2})\b/)
-  if (placaMatch) fields.placa = placaMatch[1]
+  if (placaMatch) fields.placa = placaMatch[1] ?? null
 
   // CHASSI (VIN): 17 caracteres alfanuméricos sem I, O, Q.
   const chassiMatch = dataBlock.match(/\b([A-HJ-NPR-Z0-9]{17})\b/)
-  if (chassiMatch) fields.chassi = chassiMatch[1]
+  if (chassiMatch) fields.chassi = chassiMatch[1] ?? null
 
   // POTÊNCIA / CILINDRADA aparecem grudados como "111CV/1499".
   const potMatch = dataBlock.match(/(\d+)\s*CV\s*\/\s*(\d+)/i)
@@ -153,10 +153,10 @@ export function parseCRLVText(rawText: string): CRLVFields {
   // proprietário aparece formatado, enquanto o CPF de operação fica mascarado.
   const cpfFormatted = dataBlock.match(/(\d{3}\.\d{3}\.\d{3}-\d{2})/)
   if (cpfFormatted) {
-    fields.cpfCnpj = cpfFormatted[1]
+    fields.cpfCnpj = cpfFormatted[1] ?? null
   } else {
     const cnpjFormatted = dataBlock.match(/(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/)
-    if (cnpjFormatted) fields.cpfCnpj = cnpjFormatted[1]
+    if (cnpjFormatted) fields.cpfCnpj = cnpjFormatted[1] ?? null
   }
 
   // Número do CRV: 12 dígitos contíguos diferentes do RENAVAM.
@@ -168,20 +168,20 @@ export function parseCRLVText(rawText: string): CRLVFields {
 
   // Data de emissão: DD/MM/AAAA.
   const dateMatch = dataBlock.match(/(\d{2}\/\d{2}\/\d{4})/)
-  if (dateMatch) fields.dataEmissao = dateMatch[1]
+  if (dateMatch) fields.dataEmissao = dateMatch[1] ?? null
 
   // Linha exclusiva com dois anos: "2013 2014" → fabricação + modelo.
   const anosLine = lines.find((l) => /^(20\d{2}|19\d{2})\s+(20\d{2}|19\d{2})$/.test(l))
   if (anosLine) {
-    const [fab, mod] = anosLine.split(/\s+/)
-    fields.anoFabricacao = fab
-    fields.anoModelo = mod
+    const anos = anosLine.split(/\s+/)
+    fields.anoFabricacao = anos[0] ?? null
+    fields.anoModelo = anos[1] ?? null
   }
 
   // Exercício do licenciamento: ano logo após a placa.
   if (fields.placa) {
     const exercicio = dataBlock.match(new RegExp(`${fields.placa}\\s+(\\d{4})`))
-    if (exercicio) fields.exercicio = exercicio[1]
+    if (exercicio) fields.exercicio = exercicio[1] ?? null
   }
 
   // MARCA/MODELO/VERSÃO: linha com "/", maiúsculas, não é placa.
@@ -212,8 +212,8 @@ export function parseCRLVText(rawText: string): CRLVFields {
   if (!fields.cor) {
     const m = dataBlock.match(COR_OR_COMB)
     if (m) {
-      fields.cor = m[1]
-      fields.combustivel = m[2]
+      fields.cor = m[1] ?? null
+      fields.combustivel = m[2] ?? null
     }
   }
 
@@ -221,7 +221,7 @@ export function parseCRLVText(rawText: string): CRLVFields {
     const combLine = lines.find((l) => COMBUSTIVEL_TOKENS.test(l))
     if (combLine) {
       const m = combLine.match(COMBUSTIVEL_TOKENS)
-      fields.combustivel = m ? m[1] : combLine
+      fields.combustivel = m ? (m[1] ?? null) : combLine
     }
   }
 
@@ -249,8 +249,8 @@ export function parseCRLVText(rawText: string): CRLVFields {
   // "MUNICÍPIO UF DD/MM/AAAA" — captura simultânea de cidade, UF e data.
   const localMatch = dataBlock.match(/([A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ\s]{3,})\s+([A-Z]{2})\s+\d{2}\/\d{2}\/\d{4}/)
   if (localMatch) {
-    fields.municipio = localMatch[1].trim()
-    fields.uf = localMatch[2]
+    fields.municipio = localMatch[1]?.trim() ?? null
+    fields.uf = localMatch[2] ?? null
   }
 
   // Observações livres.
@@ -260,8 +260,8 @@ export function parseCRLVText(rawText: string): CRLVFields {
   // Placa anterior/UF (ex: "ABC1234/SP <chassi>").
   const placaAnt = dataBlock.match(/([A-Z]{3}\d[A-Z0-9]\d{2})\/([A-Z]{2})\s+[A-HJ-NPR-Z0-9]{17}/)
   if (placaAnt) {
-    fields.placaAnterior = placaAnt[1]
-    if (!fields.uf) fields.uf = placaAnt[2]
+    fields.placaAnterior = placaAnt[1] ?? null
+    if (!fields.uf) fields.uf = placaAnt[2] ?? null
   }
 
   return fields

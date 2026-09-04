@@ -1,0 +1,45 @@
+-- ---------------------------------------------------------------------------
+-- `maintenances.payable_id` e `fines.payable_id` — o lado que ninguém lê
+-- ---------------------------------------------------------------------------
+-- As duas colunas apontavam para o payable que já apontava de volta para elas.
+-- A ADR 0024 resolveu isso mantendo UM lado só: a origem vive em
+-- `payables (source_module, source_id)`, com índice único que garante
+-- unicidade mesmo sob corrida.
+--
+-- O código já documenta a decisão nos dois módulos:
+--
+--   `lib/financial/maintenance-cost.ts:81`
+--     "'Já tem custo?' pergunta-se ao payable pela origem, não a uma coluna de
+--      volta na manutenção. [...] dois lados que podiam divergir."
+--
+--   `multas/actions.ts:167`
+--     "Sem vínculo de volta: `payables.source_module/source_id` já aponta para
+--      a multa [...] A coluna `fines.payable_id` era só escrita, nunca lida."
+--
+-- Hoje nem escrita é: as duas ficam sempre NULL.
+--
+-- Por que remover em vez de deixar quieta: coluna morta com nome plausível é
+-- armadilha. Quem chegar depois vê `payable_id` em `maintenances`, assume que é
+-- a fonte, lê NULL — e reintroduz o defeito que a tela de manutenção já teve
+-- com a coluna `cost`, descrito em `manutencao/page.tsx:453`: "o resultado era
+-- um traço em TODA linha, para sempre".
+--
+-- Verificado antes de remover, e nada usa:
+--   • funções do banco  — as 4 que citam `payable_id` não tocam estas tabelas;
+--   • triggers          — só `update_updated_at_column`;
+--   • views             — só `vehicle_obligation_status`, que lê
+--                         `vehicle_obligations.payable_id` (coluna DIFERENTE,
+--                         essa em uso: escrita e lida por
+--                         `lib/financial/vehicle-obligation.ts`);
+--   • web, mobile, packages, testes e seed — nenhuma leitura. Os
+--     `.eq('payable_id', …)` dos testes filtram `financial_entries`,
+--     `customer_credits` e `payables`, homônimas de outras tabelas;
+--   • telas com `select('*')` (`manutencao/[id]`, `multas/[id]`) não mencionam
+--     a coluna; as actions a trazem só no `before` da auditoria, sempre NULL.
+--
+-- Nada se perde: o vínculo continua existindo pelo lado do payable.
+-- A FK (ON DELETE SET NULL) e o índice parcial de cada uma caem junto — os dois
+-- índices hoje cobrem zero linhas, porque a condição é `payable_id IS NOT NULL`.
+
+ALTER TABLE maintenances DROP COLUMN payable_id;
+ALTER TABLE fines        DROP COLUMN payable_id;

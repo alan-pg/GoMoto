@@ -22,12 +22,11 @@ export function ConfirmBillingButton({ maintenanceId, defaultAmount, vehicleId: 
     new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
   )
 
-  const lateChargeConfig = {
-    late_fee_type:       'percentage' as const,
-    late_fee_value:      0.02,
-    daily_interest_rate: 0.001,
-    grace_period_days:   3,
-  }
+  // Não existe encargo por manutenção. O que havia aqui era um objeto
+  // hardcoded — 2%, 0,1% ao dia, 3 dias de carência — que o servidor validava
+  // e DESCARTAVA: a cobrança sempre saiu com a política do tenant. Pior, o
+  // `0.02` estava na convenção de `LateChargeConfig`, onde 2% se escrevia `2`:
+  // se um dia alguém ligasse o campo, a multa cobrada seria de 0,02%.
 
   function handleConfirm() {
     const parsed = parseFloat(amount)
@@ -40,7 +39,6 @@ export function ConfirmBillingButton({ maintenanceId, defaultAmount, vehicleId: 
         maintenance_id: maintenanceId,
         amount:         parsed,
         due_date:       dueDate,
-        late_charge_config: lateChargeConfig,
       })
       if (!result.ok) { setFlashError(result.error.message); return }
       if (result.data && 'no_active_rental' in result.data && result.data.no_active_rental) {

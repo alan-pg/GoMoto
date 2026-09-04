@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import type { ActionResult } from '@gomoto/core'
+import { registerSale, setAcquisitionValue } from '@/lib/vehicles/asset'
 
 const UUID_LOOSE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const uuid = () => z.string().regex(UUID_LOOSE, 'ID inválido')
@@ -42,23 +43,19 @@ export async function registerVehicleSale(input: unknown): Promise<ActionResult<
 
   const { supabase, tenantId } = ctx
 
-  const { data: vehicle } = await supabase
-    .from('vehicles').select('id, sale_value').eq('id', parsed.data.vehicle_id).eq('tenant_id', tenantId).single()
+  const r = await registerSale(supabase, tenantId, {
+    vehicleId: parsed.data.vehicle_id,
+    saleValue: parsed.data.sale_value,
+    soldAt:    parsed.data.sold_at,
+  })
+  if (!r.ok) return { ok: false, error: { code: r.code, message: r.message } }
 
-  if (!vehicle) return { ok: false, error: { code: 'NOT_FOUND', message: 'Veículo não encontrado' } }
-  if (vehicle.sale_value) return { ok: false, error: { code: 'CONFLICT', message: 'Veículo já alienado' } }
-
-  const { error } = await supabase
-    .from('vehicles')
-    .update({ sale_value: parsed.data.sale_value, sold_at: parsed.data.sold_at })
-    .eq('id', parsed.data.vehicle_id)
-    .eq('tenant_id', tenantId)
-
-  if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
-
-  await logAction({ action: 'update', table: 'vehicles', recordId: parsed.data.vehicle_id, newData: { sale_value: parsed.data.sale_value, sold_at: parsed.data.sold_at } })
+  await logAction({ action: 'update', table: 'vehicles', recordId: parsed.data.vehicle_id, newData: { sale_value: parsed.data.sale_value, sold_at: parsed.data.sold_at, status: 'sold' } })
   revalidatePath(`/financeiro/veiculos/${parsed.data.vehicle_id}`)
   revalidatePath('/veiculos')
+  // A frota disponível mudou: sem isto o seletor de nova locação segue
+  // oferecendo a moto até o cache expirar.
+  revalidatePath('/locacoes/nova')
   return { ok: true, data: undefined }
 }
 
@@ -68,7 +65,7 @@ export async function registerVehicleSale(input: unknown): Promise<ActionResult<
 
 const UpdateAcquisitionSchema = z.object({
   vehicle_id:        uuid(),
-  acquisition_value: z.number().positive(),
+  acquisition_amount: z.number().positive(),
 })
 
 export async function updateAcquisitionValue(input: unknown): Promise<ActionResult<void>> {
@@ -83,15 +80,13 @@ export async function updateAcquisitionValue(input: unknown): Promise<ActionResu
 
   const { supabase, tenantId } = ctx
 
-  const { error } = await supabase
-    .from('vehicles')
-    .update({ acquisition_value: parsed.data.acquisition_value })
-    .eq('id', parsed.data.vehicle_id)
-    .eq('tenant_id', tenantId)
+  const r = await setAcquisitionValue(supabase, tenantId, {
+    vehicleId: parsed.data.vehicle_id,
+    amount:    parsed.data.acquisition_amount,
+  })
+  if (!r.ok) return { ok: false, error: { code: r.code, message: r.message } }
 
-  if (error) return { ok: false, error: { code: 'INTERNAL', message: error.message } }
-
-  await logAction({ action: 'update', table: 'vehicles', recordId: parsed.data.vehicle_id, newData: { acquisition_value: parsed.data.acquisition_value } })
+  await logAction({ action: 'update', table: 'vehicles', recordId: parsed.data.vehicle_id, newData: { acquisition_amount: parsed.data.acquisition_amount } })
   revalidatePath(`/financeiro/veiculos/${parsed.data.vehicle_id}`)
   return { ok: true, data: undefined }
 }

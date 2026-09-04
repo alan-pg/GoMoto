@@ -4,30 +4,34 @@ import { identifyCustomersWithMultipleOverdueCharges } from './customers'
 describe('identifyCustomersWithMultipleOverdueCharges', () => {
   it('retorna apenas clientes com 2+ cobranças vencidas', () => {
     const result = identifyCustomersWithMultipleOverdueCharges([
-      { customer_id: 'a', status: 'overdue' },
-      { customer_id: 'a', status: 'overdue' },
-      { customer_id: 'b', status: 'overdue' },
-      { customer_id: 'c', status: 'overdue' },
-      { customer_id: 'c', status: 'overdue' },
-      { customer_id: 'c', status: 'overdue' },
+      { customer_id: 'a' },
+      { customer_id: 'a' },
+      { customer_id: 'b' },
+      { customer_id: 'c' },
+      { customer_id: 'c' },
+      { customer_id: 'c' },
     ])
     expect(result.sort()).toEqual(['a', 'c'])
   })
 
-  it('ignora charges com status diferente de overdue', () => {
+  it('cliente com uma única cobrança vencida não entra no alerta', () => {
     const result = identifyCustomersWithMultipleOverdueCharges([
-      { customer_id: 'a', status: 'paid' },
-      { customer_id: 'a', status: 'pending' },
+      { customer_id: 'a' },
+      { customer_id: 'b' },
     ])
     expect(result).toEqual([])
   })
 
+  it('lista vazia não quebra', () => {
+    expect(identifyCustomersWithMultipleOverdueCharges([])).toEqual([])
+  })
+
   it('threshold customizado', () => {
     const result = identifyCustomersWithMultipleOverdueCharges([
-      { customer_id: 'a', status: 'overdue' },
-      { customer_id: 'b', status: 'overdue' },
-      { customer_id: 'b', status: 'overdue' },
-      { customer_id: 'b', status: 'overdue' },
+      { customer_id: 'a' },
+      { customer_id: 'b' },
+      { customer_id: 'b' },
+      { customer_id: 'b' },
     ], 3)
     expect(result).toEqual(['b'])
   })

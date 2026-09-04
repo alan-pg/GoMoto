@@ -48,6 +48,168 @@ Detalhes e tradeoffs registrados em [[decisions/0002-padrao-canonico-pagina-serv
 
 Nenhum bug crítico aberto.
 
+## 🔒 Invariantes de dinheiro no banco, não no código
+
+Quando dinheiro se move, quem decide é o banco. O padrão ler-decidir-escrever em
+passos soltos apareceu em três caminhos diferentes e produziu o mesmo tipo de
+estrago em todos — o guarda lê um estado que a escrita seguinte ainda não gravou,
+e uma segunda execução passa direto por ele:
+
+| Função | O que era | O que quebrava |
+|---|---|---|
+| `fn_reverse_payment` | marcar, estornar razão, reabrir cobrança | falha no meio: pagamento estornado com o dinheiro de pé no razão |
+| `fn_confirm_gateway_payment` | 4 requisições ao PostgREST | reentrega do provedor criava um SEGUNDO recebimento do mesmo dinheiro |
+| `fn_pay_payable` | ler status, marcar pago, lançar | dois cliques simultâneos tiraram **R$ 600** do caixa para uma despesa de R$ 300 |
+
+As três viraram função com a verificação sob `FOR UPDATE` dentro da mesma
+transação que lança. Regra para caminho novo que mexe em dinheiro: **se o guarda
+e a escrita não estão na mesma transação, o guarda não existe.**
+
+Complemento no schema: `payments_one_per_intent` (índice único parcial) torna
+impossível dois pagamentos para o mesmo intent de gateway, inclusive para quem
+inserir por fora do código.
+
+## ⏱ Encargo por atraso: grandeza corrente, não dívida nova
+
+[[decisions/0028-encargo-e-grandeza-corrente-nao-divida-nova|ADR 0028]]
+(2026-09-01). Encargo realizado vira item da cobrança e passa a compor
+`open_amount`. A apuração seguinte usava esse saldo cru como base — e cobrava
+multa de novo, com juros sobre o encargo anterior.
+
+A regra hoje: apura-se o encargo **corrente** sobre o principal (saldo menos o
+encargo ainda não pago) e **desconta-se o que já foi documentado**. A subtração
+faz a multa ser uma vez só sem guardar estado, e `min_amount` passa a valer para
+o encargo inteiro em vez de por realização.
+
+Três portas levavam ao mesmo estado — estorno de pagamento, pagamento parcial e
+o antigo botão "Consolidar encargo". A correção fica na conta, não no gatilho:
+`charge_balances.late_charge_amount` alimenta `calculateAmountDue`, a fonte única
+do cockpit, do mobile e do gateway. Portão em `estorno-pagamento.spec.ts`,
+verificado nos dois sentidos.
+
+`calculateAmountDue` **lança** se `open_amount`, `paid_amount` ou
+`late_charge_amount` faltarem no `select` — coluna ausente virava `NaN`, que
+atravessava a conta inteira sem reclamar.
+
+## 🧹 Cancelar desfaz o que o lançamento criou
+
+[[decisions/0029-cancelar-manutencao-desfaz-o-que-ela-criou|ADR 0029]]
+(2026-09-03). Manutenção lançada por engano ficava presa: o payable do cliente
+executor nasce `paid`, `cancelPayable` recusava payable pago, e a checagem de
+exclusão só liberava com ele `cancelled`. A recusa mandava "acerte em Cobranças
+antes de excluir" — e "antes" nunca chegava.
+
+Hoje `fn_cancel_payable` desfaz despesa, cobrança de repasse e crédito **numa
+transação**, sob trava do payable e do cliente. Toda conta tocada volta a zero:
+custo e recuperação saem do DRE, o caixa volta, o saldo de crédito cai pelo
+valor concedido e o payable sai de contas a pagar.
+
+Duas recusas, ambas quando dinheiro de **terceiro** se moveu: cobrança de
+repasse já paga (estorne o pagamento antes) e crédito que o saldo do cliente já
+não cobre. Baixa de despesa é estornada junto — caixa próprio, e o estorno só
+reconhece que a saída não devia ter sido lançada; era o único lançamento de
+dinheiro sem reversão no sistema.
+
+**O crédito é um POOL**, não uma linha rastreável: não há como saber se *aquele*
+crédito foi gasto. O critério é o saldo cobrir a concessão — assim a empresa
+retira o que concedeu sem deixar o cliente a descoberto.
+
+## 💸 Crédito do cliente: as duas formas de quitar
+
+Crédito é passivo — dívida da empresa com o cliente, nascida quando ele
+desembolsou por algo que cabia à locadora. Há duas formas de quitá-lo, e elas
+produzem **exatamente o mesmo resultado contábil**:
+
+| | Abater | Devolver |
+|---|---|---|
+| Evento | `credit_applied` | `credit_settled` |
+| Contrapartida | `contas_a_receber` | `caixa_e_bancos` |
+| Quando serve | há cobrança futura | contrato encerrando, ou o cliente pede |
+
+Rastreadas até o fim, receita, custo da empresa e custo do cliente batem nas
+duas. O que muda é só o caminho do dinheiro: abater impede a entrada, devolver
+deixa entrar e sair.
+
+**O que NÃO serve é estorno.** Estorno desfaz o que não deveria ter acontecido;
+o crédito aconteceu e era devido. Inverter `credit_granted` apagaria também a
+despesa do serviço e a recuperação da parte do cliente — a moto passaria a
+constar com custo zero.
+
+Crédito e caução são estruturalmente a mesma coisa (dinheiro de terceiro que a
+empresa devolve), e a caução já tinha as três peças. O crédito só ganhou as
+outras duas agora: `fn_settle_customer_credit` (com o saldo verificado sob trava
+do CLIENTE, porque saldo derivado não tem linha para travar) e a apuração no
+encerramento.
+
+## 🧱 Dívida técnica registrada
+
+**Leitura do cliente sobre o razão — [[decisions/0027-como-o-cliente-le-saldo-derivado-do-razao|ADR 0027]]** (2026-08-31)
+
+**Portão decidido e implementado; uma questão em aberto.** As views de saldo são
+`security_invoker`: se uma tabela que elas agregam não for legível pelo cliente,
+a view não erra — devolve um número menor, plausível e falso. Foi assim que uma
+cobrança de R$ 102,69 com R$ 100,00 abatidos apareceu como R$ 105,45 no app
+contra R$ 2,76 no cockpit.
+
+`leitura-do-cliente.spec.ts` fecha a classe: lê **com token do cliente**, nunca
+com service role, e congela o inventário das views que ainda divergem
+(`customer_credit_balances`, `deposit_balances`, `customer_financial_position` —
+todas sobre `financial_entries`, nenhuma consumida pelo app hoje).
+
+Em aberto: como o cliente passa a ler crédito e caução — policy no razão
+(expõe custo e estrutura do plano) ou view dedicada `security_definer` (abre
+exceção ao invariante de `security_invoker`). Recomendação registrada: a segunda.
+Até decidir, **o app não deve exibir crédito nem caução** — hoje mostraria zero.
+
+**Acerto final no encerramento — [[decisions/0026-acerto-final-caucao-e-credito|ADR 0026]]** (2026-08-29)
+
+**Aceita e implementada** (fases 1–3): como caução e crédito são resolvidos ao
+encerrar a locação.
+
+O razão já trata os dois como a mesma coisa — dois passivos com os mesmos dois
+desfechos, abater a dívida (`→ contas_a_receber`) ou devolver (`→ caixa`). A
+tela não: a caução tem decisão obrigatória, o crédito tem um texto e um link
+para a ficha, onde só existe devolver em dinheiro. Abater crédito em lote não
+existe em lugar nenhum — é uma cobrança por vez.
+
+O sintoma é a apuração pedir *"encerrar mesmo com R$ 1.200,00 em aberto"* de um
+cliente cujo dinheiro a empresa está segurando em R$ 1.000 entre caução e
+crédito. O líquido real, R$ 200, não aparece.
+
+A ADR fixa o princípio (**abater vem antes de devolver**), a decisão por quantia
+e três fases — a primeira só de leitura, sem mudar nenhuma escrita. Duas regras
+já decididas: **retenção de caução existe apenas contra dívida** (sem dívida,
+devolve-se; para reter por avaria, lança-se a despesa com rateio, que emite a
+cobrança), e **qual quantia entra no acerto é escolha do operador**, com caução
+primeiro como sugestão e o efeito visível antes de confirmar. As duas quantias
+têm a mesma forma de controle — *quanto abater* e *o que fazer com a sobra* —, e
+sobra pode ser devolvida em dinheiro.
+
+A primeira regra dissolve um defeito achado por leitura: reter caução de cliente
+**sem dívida** credita `contas_a_receber` sem ter onde alocar, e o `unallocated`
+volta ignorado pelo chamador.
+
+**Leitura em escala — [[decisions/0025-leitura-em-escala-paginacao-agregacao-indice|ADR 0025]]** (2026-08-18)
+
+Precisa de revisão: **performance das buscas, paginação, agregação e índices**.
+
+Três defeitos do mesmo tipo apareceram em sequência ao testar o sistema como
+operador, todos silenciosos e nenhum pego por portão:
+
+- PostgREST corta em **1.000 linhas** sem erro — KPI que soma linhas no cliente
+  passa a mostrar parte da carteira com cara de número certo;
+- Kong recusa URI acima de **~8 KB** com 414 — `.in()` estoura a partir de ~200
+  ids, e o erro era engolido por `?? []`;
+- nenhuma listagem tem paginação de UI, e a busca por texto é feita em memória
+  depois de trazer as linhas.
+
+`financial_entries` já passou de 1.000 linhas no banco de desenvolvimento. As
+views derivadas agregam sobre ela a cada consulta, sem plano medido.
+
+Contenção já aplicada (não substitui a revisão): enriquecimento da lista de
+cobranças em lotes, varreduras de reconciliação paginadas, e KPIs do dashboard
+vindos de `receivables_summary` / `receivables_by_month`.
+
 ## 🧮 Regras de domínio em `@gomoto/core/rules`
 
 Cobertura atual (**163 testes Vitest**, 12 arquivos):

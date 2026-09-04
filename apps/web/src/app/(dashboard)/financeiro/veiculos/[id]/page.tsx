@@ -28,7 +28,7 @@ export default async function VehicleROIPage({
   const [vehicleResult, paidBillingsResult, maintenanceCostResult, fineCostResult] = await Promise.all([
     supabase
       .from('vehicles')
-      .select('id, license_plate, make, model, year_manufacture, color, acquisition_value, sale_value, sold_at, created_at')
+      .select('id, license_plate, make, model, year_manufacture, color, acquisition_amount, sale_value, sold_at, created_at')
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single(),
@@ -36,60 +36,87 @@ export default async function VehicleROIPage({
     // de fora, é garantia/depósito, não receita operacional. `billings` não
     // tem vehicle_id direto (só lease_id) — filtra via join com rentals.
     supabase
-      .from('billings')
-      .select('original_amount, discount_amount, source, due_date, rentals!inner(vehicle_id)')
-      .eq('rentals.vehicle_id', id)
-      .eq('tenant_id', tenantId)
-      .eq('status', 'paid')
-      .neq('source', 'deposit'),
-    // Custo: manutenções finalizadas
-    supabase
-      .from('maintenances')
-      .select('cost, completed_at, description')
+      // Spec 0014: receita do veículo vem da POSIÇÃO no ledger. Somar
+      // billings pagas incluía caução e entrada como faturamento (F-09) e
+      // ignorava repasse. Aqui a caução nem aparece: credita passivo.
+      .from('vehicle_financial_position')
+      .select('operating_revenue, gross_costs, reimbursed, net_result, maintenance_cost, documentation_cost, insurance_cost, fines_cost')
       .eq('vehicle_id', id)
       .eq('tenant_id', tenantId)
-      .not('cost', 'is', null)
-      .order('completed_at', { ascending: false }),
-    // Custo: multas pagas (company responsible)
+      .maybeSingle(),
+    // Custo: manutenções lançadas.
+    // Vem de `payables` pelo mesmo motivo das multas: `maintenances.cost` saiu
+    // na ADR 0024 (custo e rateio passaram a viver no payable, em valores) e a
+    // coluna de data chamava-se `completed_date`, não `completed_at`. A query
+    // falhava por dois motivos ao mesmo tempo, em silêncio.
     supabase
-      .from('fines')
-      .select('amount, payment_date, description')
+      .from('payables')
+      .select('amount, paid_at, description')
       .eq('vehicle_id', id)
       .eq('tenant_id', tenantId)
+      .in('source_module', ['maintenance', 'expense'])
+      .order('due_date', { ascending: false }),
+    // Custo: multas pagas pela empresa.
+    // Vem de `payables`, não de `fines`: as colunas status/payment_date saíram
+    // da multa na ADR 0024 porque pagamento é fato financeiro. Enquanto a
+    // consulta apontava para elas, ela falhava em silêncio e a lista de multas
+    // aparecia vazia — sem erro na tela.
+    supabase
+      .from('payables')
+      .select('amount, paid_at, description')
+      .eq('vehicle_id', id)
+      .eq('tenant_id', tenantId)
+      .eq('source_module', 'fine')
       .eq('status', 'paid')
-      .eq('responsible', 'company')
-      .order('payment_date', { ascending: false }),
+      .order('paid_at', { ascending: false }),
   ])
 
   if (vehicleResult.error || !vehicleResult.data) notFound()
 
   const vehicle = vehicleResult.data
-  const paidBillings = paidBillingsResult.data ?? []
-  const maintenances = (maintenanceCostResult.data ?? []) as { cost: number; completed_at: string | null; description: string | null }[]
-  const fines = (fineCostResult.data ?? []) as { amount: number; payment_date: string | null; description: string | null }[]
+  // Posição do veículo agregada do ledger — uma linha, não uma lista.
+  type Position = {
+    operating_revenue: number; gross_costs: number; reimbursed: number; net_result: number
+    maintenance_cost: number; documentation_cost: number; insurance_cost: number
+    // `acquisition_cost` e `accumulated_depreciation` saíram da view: eram
+    // alimentados por eventos sem chamador e retornavam zero por construção.
+    // ROI usa `vehicles.acquisition_amount`.
+    fines_cost: number
+  }
+  const position = (paidBillingsResult.data ?? null) as unknown as Position | null
+  const maintenances = (maintenanceCostResult.data ?? []) as { amount: number; paid_at: string | null; description: string | null }[]
+  const fines = (fineCostResult.data ?? []) as { amount: number; paid_at: string | null; description: string | null }[]
 
   // ── Cálculos de ROI ───────────────────────────────────────────────────────
-  const totalRevenue = paidBillings.reduce((s, b) => s + (b.original_amount - (b.discount_amount ?? 0)), 0)
-  const totalMaintenanceCost = maintenances.reduce((s, m) => s + (m.cost ?? 0), 0)
+  const totalRevenue = position?.operating_revenue ?? 0
+  const totalMaintenanceCost = maintenances.reduce((s, m) => s + (m.amount ?? 0), 0)
   const totalFineCost = fines.reduce((s, f) => s + (f.amount ?? 0), 0)
   const totalCost = totalMaintenanceCost + totalFineCost
-  const acquisitionCost = vehicle.acquisition_value ?? 0
+  const acquisitionCost = vehicle.acquisition_amount ?? 0
+
+  // Alienação entra no retorno. Compra e venda não geram lançamento no razão
+  // (decisão do Alan, 2026-08-17) — são dados de relatório —, e ROI é
+  // exatamente relatório: ignorar o que a moto trouxe na saída fazia um veículo
+  // vendido com lucro aparecer com retorno negativo.
+  const saleProceeds = vehicle.sale_value ?? 0
 
   const netProfit = totalRevenue - totalCost
   const totalInvestment = acquisitionCost + totalCost
   const roiPercent = acquisitionCost > 0
-    ? ((totalRevenue - totalInvestment) / acquisitionCost) * 100
+    ? ((totalRevenue + saleProceeds - totalInvestment) / acquisitionCost) * 100
     : null
 
   // Receita por fonte
-  const revenueBySource: Record<string, number> = {}
-  for (const b of paidBillings) {
-    const src = b.source ?? 'unknown'
-    revenueBySource[src] = (revenueBySource[src] ?? 0) + (b.original_amount - (b.discount_amount ?? 0))
+  // Composição vem das contas do plano, não de um campo `source` na cobrança.
+  // Repasse aparece separado de receita: reduz custo, não fatura (R-03).
+  const revenueBySource: Record<string, number> = {
+    cycle:      position?.operating_revenue ?? 0,
+    reimbursed: position?.reimbursed ?? 0,
   }
 
   const SOURCE_LABELS: Record<string, string> = {
     cycle:        'Locação (ciclos)',
+    reimbursed:   'Repasses recuperados',
     fine:         'Cobranças de multa',
     maintenance:  'Cobranças de manutenção',
     expense:      'Despesas',
@@ -131,6 +158,11 @@ export default async function VehicleROIPage({
             <p className="mt-1 text-xl font-bold text-fg">
               {acquisitionCost > 0 ? formatCurrency(acquisitionCost) : '—'}
             </p>
+            {saleProceeds > 0 && (
+              <p className="mt-0.5 text-[12px] text-fg-mute">
+                Vendido por {formatCurrency(saleProceeds)}
+              </p>
+            )}
           </div>
           <div className="rounded-xl bg-surface p-4">
             <p className="text-[12px] text-fg-mute">Receita total</p>
@@ -244,8 +276,8 @@ export default async function VehicleROIPage({
                   {maintenances.map((m, i) => (
                     <tr key={i} className="border-b border-border last:border-0 hover:bg-surface-2">
                       <td className="h-9 max-w-[220px] truncate px-4 text-fg-soft">{m.description ?? '—'}</td>
-                      <td className="h-9 px-4 text-fg-mute">{fmt(m.completed_at)}</td>
-                      <td className="h-9 px-4 text-right font-mono text-danger">{formatCurrency(m.cost ?? 0)}</td>
+                      <td className="h-9 px-4 text-fg-mute">{fmt(m.paid_at)}</td>
+                      <td className="h-9 px-4 text-right font-mono text-danger">{formatCurrency(m.amount ?? 0)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -274,7 +306,7 @@ export default async function VehicleROIPage({
                   {fines.map((f, i) => (
                     <tr key={i} className="border-b border-border last:border-0 hover:bg-surface-2">
                       <td className="h-9 max-w-[220px] truncate px-4 text-fg-soft">{f.description ?? '—'}</td>
-                      <td className="h-9 px-4 text-fg-mute">{fmt(f.payment_date)}</td>
+                      <td className="h-9 px-4 text-fg-mute">{fmt(f.paid_at)}</td>
                       <td className="h-9 px-4 text-right font-mono text-danger">{formatCurrency(f.amount ?? 0)}</td>
                     </tr>
                   ))}

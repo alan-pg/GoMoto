@@ -24,14 +24,14 @@ describe('calculateVehicleROI', () => {
   })
 
   // CA-052: sem valor de aquisição → roi=null
-  it('CA-052: acquisition_value null → roi e net_result null', () => {
+  it('CA-052: acquisition_amount null → roi e net_result null', () => {
     const r = calculateVehicleROI(null, 12000, baseCosts)
     expect(r.net_result).toBe(null)
     expect(r.roi).toBe(null)
   })
 
-  // RN-044: ROI só calculado quando acquisition_value está registrado
-  it('RN-044: acquisition_value=null bloqueia cálculo', () => {
+  // RN-044: ROI só calculado quando acquisition_amount está registrado
+  it('RN-044: acquisition_amount=null bloqueia cálculo', () => {
     const r = calculateVehicleROI(null, 5000, { ...baseCosts, maintenance: 1000 })
     expect(r.roi).toBeNull()
     expect(r.net_result).toBeNull()

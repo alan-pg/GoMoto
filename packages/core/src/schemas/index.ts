@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { isCpfDigits, normalizeCpf, validateCpfDigits } from '../identity/index'
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
+const timeString = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, 'Invalid time format (HH:MM)')
 
 /**
  * CPF aceita qualquer formato na entrada (com ou sem máscara) e
@@ -93,7 +94,6 @@ export const CustomerSchema = z.object({
   drivers_license_photo_url: z.string().trim().max(500).optional().nullable(),
   residency_proof_url: z.string().trim().max(500).optional().nullable(),
   // Gestão
-  payment_status: z.string().trim().max(50).optional().nullable(),
   observations: z.string().trim().max(2000).optional().nullable(),
   in_queue: z.boolean().optional(),
   active: z.boolean().optional(),
@@ -101,19 +101,6 @@ export const CustomerSchema = z.object({
   departure_reason: z.string().trim().max(1000).optional().nullable(),
 })
 
-export const BillingSchema = z.object({
-  lease_id:        z.string().uuid().optional().nullable(),
-  customer_id:     z.string().uuid().optional().nullable(),
-  description:     z.string().trim().min(1).max(300).optional().nullable(),
-  original_amount: z.number().positive().max(9999999),
-  discount_amount: z.number().min(0).max(9999999).optional().nullable(),
-  billing_type:    z.enum(['cycle', 'one_time', 'complementary', 'fine']).optional(),
-  due_date:        dateString,
-  status:          z.enum(['pending', 'paid', 'overdue', 'cancelled', 'prejudice']).optional(),
-  paid_at:         dateString.optional().nullable(),
-  payment_method:  z.enum(['pix', 'cash', 'credit_card', 'debit_card', 'bank_transfer']).optional().nullable(),
-  observations:    z.string().trim().max(2000).optional().nullable(),
-})
 
 export const ExpenseSchema = z.object({
   description: z.string().trim().min(1).max(300),
@@ -132,6 +119,12 @@ export const ExpenseSchema = z.object({
 /**
  * FineSchema — PRD 0002 (D3, D6): multa pertence ao veículo. customer_id
  * é opcional (pode ser atribuído depois da identificação do condutor).
+ *
+ * PRD 0013 — campos oficiais dos dois documentos do processo de multa
+ * brasileiro: NA (Notificação de Autuação) e NP (Notificação de Penalidade).
+ * RENAINF é opcional (sem obrigatoriedade condicional por órgão) — multa de
+ * área privada é possível mas rara pra uma locadora; se aparecer um caso real,
+ * revisita a regra então.
  */
 export const FineSchema = z.object({
   customer_id: z.string().uuid().optional().nullable(),
@@ -140,17 +133,46 @@ export const FineSchema = z.object({
   amount: z.number().positive().max(9999999),
   infraction_date: dateString,
   due_date: dateString.optional().nullable(),
-  status: z.enum(['pending', 'paid']).optional(),
-  payment_date: dateString.optional().nullable(),
-  responsible: z.enum(['customer', 'company']).optional(),
+  // `status` e `payment_date` saíram da tabela na ADR 0024: pagamento de multa
+  // é fato financeiro e vive em `payables` (empresa) ou na cobrança (cliente).
+  // Enquanto continuaram no schema, o INSERT mandava colunas inexistentes e
+  // cadastrar multa falhava inteiro — com o erro do banco engolido.
+  // Obrigatório — decide se a multa gera cobrança pro cliente (sem default: operador tem que escolher).
+  responsible: z.enum(['customer', 'company']),
   observations: z.string().trim().max(2000).optional().nullable(),
   // PRD 0002 — campos do AIT (Auto de Infração de Trânsito)
   ait_number: z.string().trim().max(50).optional().nullable(),
-  infraction_code: z.string().trim().max(20).optional().nullable(),
   infraction_location: z.string().trim().max(2000).optional().nullable(),
   points: z.number().int().min(0).max(7).optional().nullable(),
-  source: z.enum(['detran', 'cetran', 'municipal', 'private_area', 'other']).optional().nullable(),
-  ticket_url: z.string().url().optional().nullable(),
+  // PRD 0013 — campos oficiais da NA
+  renainf_number: z.string().trim().max(30).optional().nullable(),
+  notification_date: dateString.optional().nullable(),
+  prior_defense_deadline: dateString.optional().nullable(),
+  driver_identification_deadline: dateString.optional().nullable(),
+  senatran_infraction_code: z.string().trim().max(20).optional().nullable(),
+  senatran_infraction_subcode: z.string().trim().max(10).optional().nullable(),
+  issuing_agency_name: z.string().trim().max(200).optional().nullable(),
+  issuing_agency_code: z.string().trim().max(20).optional().nullable(),
+  competent_agency_code: z.string().trim().max(20).optional().nullable(),
+  competent_agency_name: z.string().trim().max(200).optional().nullable(),
+  driver_name: z.string().trim().max(200).optional().nullable(),
+  driver_cnh: z.string().trim().max(20).optional().nullable(),
+  driver_cpf: z.string().trim().max(20).optional().nullable(),
+  driver_document: z.string().trim().max(30).optional().nullable(),
+  infraction_time: timeString.optional().nullable(),
+  measurement_instrument_id: z.string().trim().max(50).optional().nullable(),
+  traffic_agent_id: z.string().trim().max(50).optional().nullable(),
+  measured_speed: z.number().min(0).max(999).optional().nullable(),
+  considered_speed: z.number().min(0).max(999).optional().nullable(),
+  speed_limit: z.number().min(0).max(999).optional().nullable(),
+  original_renainf_number: z.string().trim().max(30).optional().nullable(),
+  infraction_municipality_code: z.string().trim().max(10).optional().nullable(),
+  infraction_municipality_name: z.string().trim().max(100).optional().nullable(),
+  infraction_state: z.string().trim().max(2).optional().nullable(),
+  senatran_message: z.string().trim().max(2000).optional().nullable(),
+  // PRD 0013 — campos oficiais da NP
+  appeal_deadline: dateString.optional().nullable(),
+  discounted_payment_deadline: dateString.optional().nullable(),
 })
 
 /**
@@ -273,3 +295,4 @@ export const MaintenancePlanItemSchema = z.object({
   { message: 'Informe ao menos um intervalo (km ou dias)', path: ['interval_km'] },
 )
 
+export * from './ledger'

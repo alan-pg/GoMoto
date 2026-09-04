@@ -1,17 +1,17 @@
 'use client'
 
-import { useState, useMemo, useTransition } from 'react'
+import { useState, useMemo, useTransition, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 
 import { useCustomers, useAvailableVehicles, useContractTemplates, useContractTemplate, useInspectionProfiles } from '@gomoto/data'
 import { generateCycleCharges, WEEK_DAY_OPTIONS, formatDueDay, resolveContractVariables, substituteVariables } from '@gomoto/core'
-import type { CycleCharge, Rental, LateChargeConfig } from '@gomoto/core'
+import type { CycleCharge, Rental } from '@gomoto/core'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { renderContractTemplateHtml } from '@/lib/contract-render'
 import { printHtmlDocument, buildContractFileName } from '@/lib/contract-print'
-import { createRental, updateRental, updateContractTemplate } from '../actions'
+import { createRental, updateRental, updateContractTemplate, getCustomerDelinquency } from '../actions'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -200,14 +200,6 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
 
   const [periodQty, setPeriodQty] = useState('3')
 
-  // Encargos por atraso (RF-011) — só na criação; em edição isso é papel do
-  // Reajustar. Fica em branco por padrão (sem pré-preenchimento de padrão do
-  // tenant ainda) — se nada for preenchido, a locação usa o padrão do tenant.
-  const [lateFeeType, setLateFeeType] = useState<LateChargeConfig['late_fee_type']>('fixed')
-  const [lateFeeValue, setLateFeeValue] = useState('')
-  const [dailyInterestPct, setDailyInterestPct] = useState('')
-  const [graceDays, setGraceDays] = useState('')
-
   // Caução gera cobrança própria — paga (default, preserva o comportamento
   // de quem já recebe em dinheiro na assinatura) ou pendente até o cliente pagar.
   const [depositPaid, setDepositPaid] = useState(true)
@@ -320,13 +312,85 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
     } catch { return [] }
   }, [form.start_date, form.end_date, form.cycle, form.due_day, form.cycle_amount, form.use_pro_rata])
 
-  const downPaymentPreviewRows = useMemo<ExtraChargeRow[]>(() => {
-    const amount = parseFloat(form.down_payment)
-    if (!amount || amount <= 0) return []
-    const due_date = downPaymentPaid ? downPaymentPaymentDate : (downPaymentDueDate || form.start_date)
-    if (!due_date) return []
-    return [{ due_date, label: 'Entrada', amount }]
-  }, [form.down_payment, form.start_date, downPaymentPaid, downPaymentPaymentDate, downPaymentDueDate])
+  /**
+   * Garantias que viram documento junto com o cronograma.
+   *
+   * A caução ficava de fora do preview: o resumo dizia "Caução R$ 800" e a
+   * lista abaixo não a incluía, nem no total. Quem confirmava via "R$ 2.100" e
+   * criava R$ 2.900 em documentos. Caução é cobrança como as outras — só
+   * credita passivo em vez de receita.
+   */
+  const guaranteePreviewRows = useMemo<ExtraChargeRow[]>(() => {
+    const rows: ExtraChargeRow[] = []
+
+    const deposit = parseFloat(form.security_deposit)
+    if (deposit > 0) {
+      const due = depositPaid ? depositPaymentDate : (depositDueDate || form.start_date)
+      if (due) rows.push({ due_date: due, label: 'Caução', amount: deposit })
+    }
+
+    const down = parseFloat(form.down_payment)
+    if (down > 0) {
+      const due = downPaymentPaid ? downPaymentPaymentDate : (downPaymentDueDate || form.start_date)
+      if (due) rows.push({ due_date: due, label: 'Entrada', amount: down })
+    }
+
+    return rows
+  }, [
+    form.security_deposit, form.down_payment, form.start_date,
+    depositPaid, depositPaymentDate, depositDueDate,
+    downPaymentPaid, downPaymentPaymentDate, downPaymentDueDate,
+  ])
+
+  const totalPreviewCount = previewCharges.length + guaranteePreviewRows.length
+
+  /**
+   * Inadimplência AVISA, não impede (decisão do Alan, 2026-08-15).
+   *
+   * `createRental` recusava a locação para cliente bloqueado. Quem decide se
+   * vale a pena locar para quem está devendo é a empresa, caso a caso — o
+   * sistema mostra a situação e o operador escolhe.
+   */
+  const [delinquency, setDelinquency] = useState<{
+    status: string; overdue_count: number; max_days_overdue: number
+    overdue_amount: number; manually_blocked: boolean
+  } | null>(null)
+
+  useEffect(() => {
+    if (!form.customer_id) { setDelinquency(null); return }
+    let ativo = true
+    getCustomerDelinquency(form.customer_id).then((r: Awaited<ReturnType<typeof getCustomerDelinquency>>) => {
+      if (ativo) setDelinquency(r.ok ? r.data : null)
+    })
+    return () => { ativo = false }
+  }, [form.customer_id])
+
+
+  /**
+   * Aviso de inadimplência — exibido nos DOIS passos.
+   *
+   * No passo 1 ele aparece ao escolher o cliente, para o operador saber antes
+   * de preencher. No passo 2 aparece de novo, ao lado do botão que cria a
+   * locação: é ali que a decisão acontece, e um aviso que ficou para trás não
+   * decide nada.
+   */
+  const avisoInadimplencia = delinquency && (delinquency.manually_blocked || delinquency.overdue_count > 0) ? (
+    <div className="rounded-lg border border-pending bg-pending-bg px-3 py-2">
+      <p className="text-[13px] font-medium text-pending">
+        {delinquency.manually_blocked
+          ? 'Cliente bloqueado manualmente'
+          : 'Cliente com cobranças vencidas'}
+      </p>
+      <p className="mt-0.5 text-[12px] text-fg-soft">
+        {delinquency.overdue_count > 0
+          ? `${delinquency.overdue_count} vencida${delinquency.overdue_count !== 1 ? 's' : ''} · ${formatCurrency(delinquency.overdue_amount)} · maior atraso de ${delinquency.max_days_overdue} dia${delinquency.max_days_overdue !== 1 ? 's' : ''}`
+          : 'Sem cobranças vencidas no momento.'}
+      </p>
+      <p className="mt-1 text-[12px] text-fg-mute">
+        A locação não fica impedida — a decisão é sua.
+      </p>
+    </div>
+  ) : null
 
   const isFormReady = Boolean(
     form.vehicle_id && form.customer_id && form.start_date && form.end_date &&
@@ -381,16 +445,6 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
         return
       }
 
-      const hasCustomLateCharges = Boolean(lateFeeValue || dailyInterestPct || graceDays)
-      const late_charge_config: LateChargeConfig | undefined = hasCustomLateCharges
-        ? {
-            late_fee_type:       lateFeeType,
-            late_fee_value:      parseFloat(lateFeeValue) || 0,
-            daily_interest_rate: (parseFloat(dailyInterestPct) || 0) / 100,
-            grace_period_days:   parseInt(graceDays, 10) || 0,
-          }
-        : undefined
-
       const result = await createRental({
         vehicle_id:       form.vehicle_id,
         customer_id:      form.customer_id,
@@ -409,7 +463,6 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
         down_payment_paid:         downPaymentPaid,
         down_payment_payment_date: downPaymentPaid ? downPaymentPaymentDate : undefined,
         down_payment_due_date:     !downPaymentPaid ? (downPaymentDueDate || form.start_date || undefined) : undefined,
-        late_charge_config,
         contract_template_id: form.contract_template_id || null,
         observations:     form.observations || null,
         checkin_checkout_inspection_profile_id: form.checkin_checkout_inspection_profile_id || null,
@@ -492,7 +545,11 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
             disabled={isPending}
             className="inline-flex h-8 items-center rounded-full bg-primary px-5 text-[13px] font-bold text-bg transition-colors hover:bg-primary-hover disabled:opacity-60"
           >
-            {isPending ? 'Criando…' : `Confirmar — ${previewCharges.length} cobrança${previewCharges.length !== 1 ? 's' : ''}`}
+            {/* Mesma contagem da lista: o botão somava só os ciclos e dizia "4"
+                enquanto o cabeçalho dizia "5". */}
+            {isPending
+              ? 'Criando…'
+              : `Confirmar — ${totalPreviewCount} cobrança${totalPreviewCount !== 1 ? 's' : ''}`}
           </button>
         )}
       </div>
@@ -535,6 +592,9 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
                         <option key={c.id} value={c.id}>{c.name}</option>
                       ))}
                     </select>
+                    {avisoInadimplencia && (
+                      <div className="mt-2">{avisoInadimplencia}</div>
+                    )}
                     {fieldErrors.customer_id && (
                       <p className="mt-1 text-[12px] text-danger">{fieldErrors.customer_id}</p>
                     )}
@@ -741,49 +801,14 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
               )}
             </section>
 
-            {/* ── Seção: Encargos por atraso (RF-011) ────────────────────── */}
-            {!isEditMode && (
-              <section>
-                <h2 className="mb-5 text-[14px] font-bold text-primary">Encargos por atraso</h2>
-                <div className="grid max-w-md grid-cols-2 gap-4">
-                  <div>
-                    <label className={labelCls}>Tipo de multa</label>
-                    <select
-                      className={selectCls}
-                      value={lateFeeType}
-                      onChange={e => setLateFeeType(e.target.value as LateChargeConfig['late_fee_type'])}
-                    >
-                      <option value="fixed">Fixa (R$)</option>
-                      <option value="percentage">Percentual (%)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className={labelCls}>Valor da multa</label>
-                    <input
-                      type="number" min="0" step="0.01" placeholder="0,00 — opcional"
-                      className={inputCls} value={lateFeeValue} onChange={e => setLateFeeValue(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Juros diário (%)</label>
-                    <input
-                      type="number" min="0" max="100" step="0.01" placeholder="0,00 — opcional"
-                      className={inputCls} value={dailyInterestPct} onChange={e => setDailyInterestPct(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Carência (dias)</label>
-                    <input
-                      type="number" min="0" step="1" placeholder="0 — opcional"
-                      className={inputCls} value={graceDays} onChange={e => setGraceDays(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <p className="mt-2 text-[12px] text-fg-mute">
-                  Deixe em branco para usar o padrão do tenant.
-                </p>
-              </section>
-            )}
+            {/* Encargo por atraso não é mais configuração por locação (R-07/R-08).
+                A seção coletava multa, juros e carência, montava
+                `late_charge_config` — e o valor morria aqui: `createRental` não
+                o inclui no payload da RPC, `rentals` não tem essas colunas, e a
+                emissão sempre resolve a política vigente do tenant em
+                `late_charge_policies`. O operador ajustava juros para um
+                contrato e o sistema cobrava outro, sem avisar. A mesma remoção
+                já havia sido feita na tela de reajuste. */}
 
             {/* ── Seção: Financeiro ─────────────────────────────────────── */}
             <section>
@@ -1016,7 +1041,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
 
             {/* Preview de cobranças (inline) — só na criação */}
             {!isEditMode && previewCharges.length > 0 && (
-              <ChargePreview charges={previewCharges} extraRows={downPaymentPreviewRows} />
+              <ChargePreview charges={previewCharges} extraRows={guaranteePreviewRows} />
             )}
 
             {!isEditMode && previewCharges.length === 0 && isFormReady && (
@@ -1037,6 +1062,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
           /* ── Step 2: Preview ──────────────────────────────────────────── */
           <div className="space-y-6">
             <div className="rounded-xl bg-surface p-5 text-[13px]">
+              {avisoInadimplencia && <div className="mb-4">{avisoInadimplencia}</div>}
               <h2 className="mb-4 text-[14px] font-bold text-primary">Resumo do contrato</h2>
               <div className="grid grid-cols-2 gap-x-8 gap-y-2.5">
                 {([
@@ -1096,7 +1122,7 @@ export function RentalForm({ rentalId, initialData, defaultCustomerId, tenantNam
               )}
             </div>
 
-            <ChargePreview charges={previewCharges} extraRows={downPaymentPreviewRows} />
+            <ChargePreview charges={previewCharges} extraRows={guaranteePreviewRows} />
 
             {globalError && (
               <div className="flex items-start gap-3 rounded-xl border border-danger bg-danger-bg px-4 py-3">
