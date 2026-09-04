@@ -105,10 +105,10 @@ export default function FilaPage() {
     })
   }
 
-  const selectCls = 'w-full h-9 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] outline-none focus:border-[#BAFF1A]'
+  const selectCls = 'w-full h-9 px-3 rounded-lg bg-surface-2 border border-border text-[13px] text-fg outline-none focus:border-primary'
 
   return (
-    <div className="flex min-h-full flex-col bg-[#121212]">
+    <div className="flex min-h-full flex-col bg-bg">
       <PageTitle
         title="Fila de espera"
         subtitle="Clientes aguardando um veículo disponível"
@@ -116,13 +116,13 @@ export default function FilaPage() {
           <div className="flex items-center gap-2">
             <Link
               href="/locacoes"
-              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#474747] px-4 text-[13px] text-[#9e9e9e] transition-colors hover:text-[#f5f5f5]"
+              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:text-fg"
             >
               ← Locações
             </Link>
             <button
               onClick={() => setShowAdd(true)}
-              className="inline-flex h-9 items-center gap-2 rounded-full bg-[#BAFF1A] px-4 text-[13px] font-bold text-[#121212] transition-colors hover:bg-[#a8e818]"
+              className="inline-flex h-9 items-center gap-2 rounded-full bg-primary px-4 text-[13px] font-bold text-bg transition-colors hover:bg-primary-hover"
             >
               <Plus className="h-4 w-4" />
               Adicionar à Fila
@@ -134,38 +134,38 @@ export default function FilaPage() {
       <div className="space-y-5 p-6">
 
         {/* KPI */}
-        <div className="flex items-center gap-4 rounded-xl bg-[#202020] p-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#BAFF1A22] text-[#BAFF1A]">
+        <div className="flex items-center gap-4 rounded-xl bg-surface p-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-tint text-primary">
             <Users className="h-6 w-6" />
           </div>
           <div>
-            <p className="text-[13px] text-[#9e9e9e]">Na fila agora</p>
-            <p className="text-2xl font-bold text-[#f5f5f5]">{queue.length}</p>
+            <p className="text-[13px] text-fg-mute">Na fila agora</p>
+            <p className="text-2xl font-bold text-fg">{queue.length}</p>
           </div>
         </div>
 
         {/* Lista */}
         {queueQuery.isLoading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#BAFF1A] border-t-transparent" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
         ) : queue.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-xl bg-[#202020] p-16 text-center">
-            <Clock className="mb-4 h-12 w-12 text-[#616161]" />
-            <p className="text-lg font-medium text-[#f5f5f5]">Fila vazia.</p>
-            <p className="mt-1 text-[13px] text-[#9e9e9e]">Nenhum cliente aguardando um veículo.</p>
+          <div className="flex flex-col items-center justify-center rounded-xl bg-surface p-16 text-center">
+            <Clock className="mb-4 h-12 w-12 text-fg-mute" />
+            <p className="text-lg font-medium text-fg">Fila vazia.</p>
+            <p className="mt-1 text-[13px] text-fg-mute">Nenhum cliente aguardando um veículo.</p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-[#323232] bg-[#1a1a1a]">
+          <div className="overflow-hidden rounded-xl border border-divider bg-surface">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b border-[#323232]">
-                  <th className="h-9 w-16 px-4 text-left font-medium text-[#9e9e9e]">Pos.</th>
-                  <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Cliente</th>
-                  <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Telefone</th>
-                  <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Na fila desde</th>
-                  <th className="h-9 px-4 text-left font-medium text-[#9e9e9e]">Tempo</th>
-                  <th className="h-9 px-4 text-right font-medium text-[#9e9e9e]">Ações</th>
+                <tr className="border-b border-divider">
+                  <th className="h-9 w-16 px-4 text-left font-medium text-fg-mute">Pos.</th>
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Cliente</th>
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Telefone</th>
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Na fila desde</th>
+                  <th className="h-9 px-4 text-left font-medium text-fg-mute">Tempo</th>
+                  <th className="h-9 px-4 text-right font-medium text-fg-mute">Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -179,23 +179,23 @@ export default function FilaPage() {
                     <tr
                       key={q.id}
                       style={{ transition: 'background-color 300ms ease' }}
-                      className={`h-9 border-b border-[#1e1e1e] last:border-0 ${
-                        isMoving ? 'bg-[#BAFF1A18]' : 'hover:bg-[#222222]'
+                      className={`h-9 border-b border-border last:border-0 ${
+                        isMoving ? 'bg-primary-tint' : 'hover:bg-surface-2'
                       }`}
                     >
                       <td className="px-4">
                         <span
                           style={{ transition: 'color 300ms ease, transform 300ms ease', display: 'inline-block' }}
-                          className={`font-mono font-bold ${isMoving ? 'text-[#BAFF1A] scale-110' : 'text-[#BAFF1A]'}`}
+                          className={`font-mono font-bold ${isMoving ? 'text-primary scale-110' : 'text-primary'}`}
                         >
                           #{q.position}
                         </span>
                       </td>
-                      <td className="px-4 font-medium text-[#f5f5f5]">{q.customers?.name ?? '—'}</td>
-                      <td className="px-4 text-[#9e9e9e]">{q.customers?.phone ?? '—'}</td>
-                      <td className="px-4 text-[#9e9e9e]">{formatDate(q.created_at)}</td>
+                      <td className="px-4 font-medium text-fg">{q.customers?.name ?? '—'}</td>
+                      <td className="px-4 text-fg-mute">{q.customers?.phone ?? '—'}</td>
+                      <td className="px-4 text-fg-mute">{formatDate(q.created_at)}</td>
                       <td className="px-4">
-                        <span className={`text-[12px] font-medium ${days > 30 ? 'text-[#ff9c9a]' : days > 7 ? 'text-[#e65e24]' : 'text-[#9e9e9e]'}`}>
+                        <span className={`text-[12px] font-medium ${days > 30 ? 'text-danger' : days > 7 ? 'text-warning' : 'text-fg-mute'}`}>
                           {days === 0 ? 'Hoje' : `${days}d`}
                         </span>
                       </td>
@@ -205,7 +205,7 @@ export default function FilaPage() {
                             onClick={() => handleMove(q.id, 'up')}
                             disabled={isFirst || isPendingMove}
                             title="Subir na fila"
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[#9e9e9e] transition-colors hover:bg-[#323232] hover:text-[#f5f5f5] disabled:pointer-events-none disabled:opacity-30"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-mute transition-colors hover:bg-surface-2 hover:text-fg disabled:pointer-events-none disabled:opacity-30"
                           >
                             <ChevronUp className="h-3.5 w-3.5" />
                           </button>
@@ -213,7 +213,7 @@ export default function FilaPage() {
                             onClick={() => handleMove(q.id, 'down')}
                             disabled={isLast || isPendingMove}
                             title="Descer na fila"
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[#9e9e9e] transition-colors hover:bg-[#323232] hover:text-[#f5f5f5] disabled:pointer-events-none disabled:opacity-30"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-mute transition-colors hover:bg-surface-2 hover:text-fg disabled:pointer-events-none disabled:opacity-30"
                           >
                             <ChevronDown className="h-3.5 w-3.5" />
                           </button>
@@ -221,7 +221,7 @@ export default function FilaPage() {
                           <Link
                             href={`/locacoes/nova?customer_id=${q.customer_id}`}
                             title="Iniciar locação para este cliente"
-                            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#BAFF1A22] px-2.5 text-[12px] font-medium text-[#BAFF1A] transition-colors hover:bg-[#BAFF1A33]"
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary-tint px-2.5 text-[12px] font-medium text-primary transition-opacity hover:opacity-80"
                           >
                             <ArrowRight className="h-3.5 w-3.5" />
                             Nova locação
@@ -230,7 +230,7 @@ export default function FilaPage() {
                           <button
                             onClick={() => setRemoving(q.id)}
                             title="Remover da fila"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#9e9e9e] transition-colors hover:bg-[#323232] hover:text-[#ff9c9a]"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-fg-mute transition-colors hover:bg-surface-2 hover:text-danger"
                           >
                             <X className="h-4 w-4" />
                           </button>
@@ -244,14 +244,14 @@ export default function FilaPage() {
           </div>
         )}
 
-        {error && <p className="text-[13px] text-[#ff9c9a]">{error}</p>}
+        {error && <p className="text-[13px] text-danger">{error}</p>}
       </div>
 
       {/* Modal: Adicionar à Fila */}
       <Modal open={showAdd} onClose={() => { setShowAdd(false); setCustomerId(''); setError('') }} title="Adicionar à Fila" size="sm">
         <div className="space-y-4">
           <div>
-            <label className="mb-1.5 block text-[13px] text-[#9e9e9e]">Cliente</label>
+            <label className="mb-1.5 block text-[13px] text-fg-mute">Cliente</label>
             <select
               className={selectCls}
               value={customerId}
@@ -263,10 +263,10 @@ export default function FilaPage() {
               ))}
             </select>
             {availableCustomers.length === 0 && (customersQuery.data ?? []).filter(c => c.active).length > 0 && (
-              <p className="mt-1.5 text-[12px] text-[#9e9e9e]">Todos os clientes ativos já estão na fila.</p>
+              <p className="mt-1.5 text-[12px] text-fg-mute">Todos os clientes ativos já estão na fila.</p>
             )}
           </div>
-          {error && <p className="text-[13px] text-[#ff9c9a]">{error}</p>}
+          {error && <p className="text-[13px] text-danger">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => { setShowAdd(false); setCustomerId(''); setError('') }} disabled={isPendingAdd}>
               Cancelar
@@ -281,10 +281,10 @@ export default function FilaPage() {
       {/* Modal: Confirmar Remoção */}
       <Modal open={!!removing} onClose={() => { setRemoving(null); setError('') }} title="Remover da Fila" size="sm">
         <div className="space-y-4">
-          <p className="text-[13px] text-[#9e9e9e]">
+          <p className="text-[13px] text-fg-mute">
             Tem certeza que deseja remover este cliente da fila de espera?
           </p>
-          {error && <p className="text-[13px] text-[#ff9c9a]">{error}</p>}
+          {error && <p className="text-[13px] text-danger">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => { setRemoving(null); setError('') }} disabled={isPendingRemove}>
               Cancelar

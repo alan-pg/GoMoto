@@ -161,3 +161,99 @@ export function calculateNextMaintenance(
   }
   return out
 }
+
+export interface MaintenanceBootstrapItem {
+  id: string
+  name: string
+  interval_km: number | null
+  interval_days: number | null
+}
+
+export interface MaintenanceBootstrapRow {
+  type: 'preventive' | 'inspection'
+  description: string
+  predicted_km?: number
+  scheduled_date?: string
+  completed: false
+  observations: string
+}
+
+/**
+ * Gera as linhas de `maintenances` a criar quando um plano é atribuído a um
+ * veículo pela primeira vez (PRD 0003 §6.7/§8.1). `lastDoneByItem` mapeia
+ * `item.id` → último KM/data informado pelo operador (string); item ausente
+ * ou vazio é tratado como "sem histórico", vencendo imediatamente a partir
+ * de `currentKm`/`today`.
+ */
+export function buildMaintenanceBootstrapRows(
+  items: MaintenanceBootstrapItem[],
+  lastDoneByItem: Record<string, string>,
+  currentKm: number,
+  today: string,
+): MaintenanceBootstrapRow[] {
+  const rows: MaintenanceBootstrapRow[] = []
+  for (const item of items) {
+    if (item.interval_km != null) {
+      const lastDoneKm = lastDoneByItem[item.id]
+      const lastKm = lastDoneKm ? parseInt(lastDoneKm, 10) : 0
+      const nextDueKm = lastKm + item.interval_km
+      rows.push({
+        type: 'preventive',
+        description: item.name,
+        predicted_km: nextDueKm,
+        completed: false,
+        observations: nextDueKm <= currentKm
+          ? `Vencida — aos ${nextDueKm.toLocaleString('pt-BR')} km`
+          : lastKm === 0
+            ? 'Sem histórico anterior'
+            : `Última aos ${lastKm.toLocaleString('pt-BR')} km`,
+      })
+    } else if (item.interval_days != null) {
+      const lastDateStr = lastDoneByItem[item.id] || today
+      const nextDueDate = new Date(lastDateStr + 'T12:00:00')
+      nextDueDate.setDate(nextDueDate.getDate() + item.interval_days)
+      rows.push({
+        type: 'inspection',
+        description: item.name,
+        scheduled_date: nextDueDate.toISOString().split('T')[0],
+        completed: false,
+        observations: `Última em ${lastDateStr === today ? 'data não informada' : lastDateStr}`,
+      })
+    }
+  }
+  return rows
+}
+
+export interface RentalMaintenancePeriod {
+  vehicle_id: string | null
+  start_date: string | null
+  end_date: string | null
+}
+
+export interface MaintenancePeriodInput {
+  vehicle_id: string
+  scheduled_date: string | null
+  completed_date: string | null
+}
+
+/**
+ * Filtra as manutenções que pertencem ao período de uma locação. Não existe FK
+ * `maintenances → rentals` (a tabela só referencia `vehicle_id`) — a associação
+ * é inferida por mesmo veículo + `scheduled_date` ou `completed_date` caindo
+ * dentro de `[start_date, end_date]` da locação (ver obsidian-notes/Telas/Locações.md).
+ * Datas são strings `YYYY-MM-DD`: comparação lexicográfica já é cronológica,
+ * mesmo padrão usado em `generateCycleCharges`/`adjustRental`.
+ */
+export function filterMaintenancesInRentalPeriod<T extends MaintenancePeriodInput>(
+  maintenances: T[],
+  rental: RentalMaintenancePeriod,
+): T[] {
+  if (!rental.vehicle_id || !rental.start_date || !rental.end_date) return []
+  const { vehicle_id, start_date, end_date } = rental
+  return maintenances.filter((m) => {
+    if (m.vehicle_id !== vehicle_id) return false
+    return [m.scheduled_date, m.completed_date].some(
+      d => d != null && d >= start_date && d <= end_date,
+    )
+  })
+}

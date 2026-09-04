@@ -6,6 +6,7 @@
 
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { isMobileUserAgent } from './lib/device';
 
 // In-memory rate limiter for login attempts (per IP, sliding window)
 const loginAttempts = new Map<string, number[]>()
@@ -121,9 +122,18 @@ export async function middleware(request: NextRequest) {
 
   /**
    * @constant isPublicPath
-   * @description Identifica rotas de autenticação (como callback de login) que devem ser públicas.
+   * @description Identifica rotas que devem ser públicas mesmo sem sessão: callback de
+   * autenticação (`/auth/*`) e a landing page institucional (`/home`). `/` continua
+   * gated — segue redirecionando pra `/login`/`/dashboard` conforme o papel do usuário.
+   * `/definir-senha` (Spec 0011 §3.5) também precisa ser pública: o link de
+   * convite entrega a sessão via hash da URL (#access_token=...), que o
+   * browser nunca envia ao servidor — o middleware roda antes do client JS
+   * processar o hash, então `user` ainda é null nesse primeiro request.
    */
-  const isPublicPath = request.nextUrl.pathname.startsWith('/auth');
+  const isPublicPath =
+    request.nextUrl.pathname.startsWith('/auth') ||
+    request.nextUrl.pathname === '/home' ||
+    request.nextUrl.pathname === '/definir-senha';
 
   const pathname = request.nextUrl.pathname;
 
@@ -143,7 +153,9 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url);
     }
     const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
+    // Sessão mobile vai direto pra tela adaptada (ADR 0018) — evita o hop
+    // extra de cair em /dashboard e só depois ser redirecionada pelo layout.
+    url.pathname = isMobileUserAgent(request.headers.get('user-agent')) ? '/mobile/vistorias' : '/dashboard';
     return NextResponse.redirect(url);
   }
 

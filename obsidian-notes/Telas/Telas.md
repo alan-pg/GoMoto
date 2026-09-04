@@ -2,6 +2,9 @@
 
 Documentação detalhada de cada tela: campos, filtros, colunas, ações, queries e lógica de negócio.
 
+## Institucional
+- [[Home]] — Landing pública em `/home`, apresentação do produto, CTA Entrar/WhatsApp (mock)
+
 ## Autenticação
 - [[Login]] — Formulário email/senha, rate-limit, redirecionamentos
 

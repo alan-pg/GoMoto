@@ -8,6 +8,7 @@
 --   - 10 veículos disponíveis por empresa (sem locações)
 --   - 10 clientes por empresa (emails cliente1..20@teste.com)
 --   - 13 itens de manutenção + 1 plano padrão por empresa
+--   - 1 Perfil de Vistoria padrão (checklist + fotos) por empresa
 --   - 1 cliente na fila de espera por empresa
 --
 -- Senha de todos os usuários: 12345678
@@ -166,25 +167,65 @@ INSERT INTO maintenance_items (tenant_id, name, km_interval, day_interval, type,
 --   Empresa 2: 10000000-...-000000000002
 -- ============================================================
 INSERT INTO maintenance_plans (id, tenant_id, name, description, is_default) VALUES
-('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001',
+('10000000-0000-4000-8000-000000000001', '00000000-0000-0000-0000-000000000001',
     'Plano Padrão', 'Plano default da Empresa Teste 1. Cobre óleo, filtro, freio, pneu e vistoria.', true),
-('10000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002',
+('10000000-0000-4000-8000-000000000002', '00000000-0000-0000-0000-000000000002',
     'Plano Padrão', 'Plano default da Empresa Teste 2. Mesma estrutura para facilitar smoke entre tenants.', true);
 
 INSERT INTO maintenance_plan_items
     (tenant_id, plan_id, name, interval_km, interval_days, is_critical, sort_order) VALUES
 -- Empresa Teste 1
-('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Troca de óleo',               1000,  NULL, false, 0),
-('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Filtro de óleo',              4000,  NULL, false, 1),
-('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Pastilha de freio dianteira', 8000,  NULL, true,  2),
-('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Pneu dianteiro',              16000, NULL, true,  3),
-('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Vistoria mensal',             NULL,  30,   true,  4),
+('00000000-0000-0000-0000-000000000001', '10000000-0000-4000-8000-000000000001', 'Troca de óleo',               1000,  NULL, false, 0),
+('00000000-0000-0000-0000-000000000001', '10000000-0000-4000-8000-000000000001', 'Filtro de óleo',              4000,  NULL, false, 1),
+('00000000-0000-0000-0000-000000000001', '10000000-0000-4000-8000-000000000001', 'Pastilha de freio dianteira', 8000,  NULL, true,  2),
+('00000000-0000-0000-0000-000000000001', '10000000-0000-4000-8000-000000000001', 'Pneu dianteiro',              16000, NULL, true,  3),
+('00000000-0000-0000-0000-000000000001', '10000000-0000-4000-8000-000000000001', 'Revisão mensal',              NULL,  30,   true,  4),
 -- Empresa Teste 2
-('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002', 'Troca de óleo',               1000,  NULL, false, 0),
-('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002', 'Filtro de óleo',              4000,  NULL, false, 1),
-('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002', 'Pastilha de freio dianteira', 8000,  NULL, true,  2),
-('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002', 'Pneu dianteiro',              16000, NULL, true,  3),
-('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002', 'Vistoria mensal',             NULL,  30,   true,  4);
+('00000000-0000-0000-0000-000000000002', '10000000-0000-4000-8000-000000000002', 'Troca de óleo',               1000,  NULL, false, 0),
+('00000000-0000-0000-0000-000000000002', '10000000-0000-4000-8000-000000000002', 'Filtro de óleo',              4000,  NULL, false, 1),
+('00000000-0000-0000-0000-000000000002', '10000000-0000-4000-8000-000000000002', 'Pastilha de freio dianteira', 8000,  NULL, true,  2),
+('00000000-0000-0000-0000-000000000002', '10000000-0000-4000-8000-000000000002', 'Pneu dianteiro',              16000, NULL, true,  3),
+('00000000-0000-0000-0000-000000000002', '10000000-0000-4000-8000-000000000002', 'Revisão mensal',              NULL,  30,   true,  4);
+
+-- ============================================================
+-- INSPECTION PROFILES (Spec 0009 — 1 perfil padrão por empresa)
+-- IDs fixos para smoke manual e E2E:
+--   Empresa 1: 20000000-...-000000000001
+--   Empresa 2: 20000000-...-000000000002
+-- ============================================================
+INSERT INTO inspection_profiles (id, tenant_id, name, description) VALUES
+('20000000-0000-4000-8000-000000000001', '00000000-0000-0000-0000-000000000001',
+    'Perfil Padrão Motocicleta', 'Checklist e fotos padrão para check-in/check-out e vistoria periódica.'),
+('20000000-0000-4000-8000-000000000002', '00000000-0000-0000-0000-000000000002',
+    'Perfil Padrão Motocicleta', 'Mesma estrutura para facilitar smoke entre tenants.');
+
+INSERT INTO inspection_profile_checklist_items (tenant_id, profile_id, name, sort_order) VALUES
+-- Empresa Teste 1
+('00000000-0000-0000-0000-000000000001', '20000000-0000-4000-8000-000000000001', 'Faróis funcionando',         0),
+('00000000-0000-0000-0000-000000000001', '20000000-0000-4000-8000-000000000001', 'Pneus em bom estado',        1),
+('00000000-0000-0000-0000-000000000001', '20000000-0000-4000-8000-000000000001', 'Freios funcionando',         2),
+('00000000-0000-0000-0000-000000000001', '20000000-0000-4000-8000-000000000001', 'Espelhos retrovisores',      3),
+('00000000-0000-0000-0000-000000000001', '20000000-0000-4000-8000-000000000001', 'Sem avarias na lataria',     4),
+-- Empresa Teste 2
+('00000000-0000-0000-0000-000000000002', '20000000-0000-4000-8000-000000000002', 'Faróis funcionando',         0),
+('00000000-0000-0000-0000-000000000002', '20000000-0000-4000-8000-000000000002', 'Pneus em bom estado',        1),
+('00000000-0000-0000-0000-000000000002', '20000000-0000-4000-8000-000000000002', 'Freios funcionando',         2),
+('00000000-0000-0000-0000-000000000002', '20000000-0000-4000-8000-000000000002', 'Espelhos retrovisores',      3),
+('00000000-0000-0000-0000-000000000002', '20000000-0000-4000-8000-000000000002', 'Sem avarias na lataria',     4);
+
+INSERT INTO inspection_profile_photo_items (tenant_id, profile_id, label, is_required, sort_order) VALUES
+-- Empresa Teste 1
+('00000000-0000-0000-0000-000000000001', '20000000-0000-4000-8000-000000000001', 'Frente',            true,  0),
+('00000000-0000-0000-0000-000000000001', '20000000-0000-4000-8000-000000000001', 'Lateral Esquerda',  true,  1),
+('00000000-0000-0000-0000-000000000001', '20000000-0000-4000-8000-000000000001', 'Lateral Direita',   true,  2),
+('00000000-0000-0000-0000-000000000001', '20000000-0000-4000-8000-000000000001', 'Traseira',          true,  3),
+('00000000-0000-0000-0000-000000000001', '20000000-0000-4000-8000-000000000001', 'Painel/Odômetro',   false, 4),
+-- Empresa Teste 2
+('00000000-0000-0000-0000-000000000002', '20000000-0000-4000-8000-000000000002', 'Frente',            true,  0),
+('00000000-0000-0000-0000-000000000002', '20000000-0000-4000-8000-000000000002', 'Lateral Esquerda',  true,  1),
+('00000000-0000-0000-0000-000000000002', '20000000-0000-4000-8000-000000000002', 'Lateral Direita',   true,  2),
+('00000000-0000-0000-0000-000000000002', '20000000-0000-4000-8000-000000000002', 'Traseira',          true,  3),
+('00000000-0000-0000-0000-000000000002', '20000000-0000-4000-8000-000000000002', 'Painel/Odômetro',   false, 4);
 
 -- ============================================================
 -- SETTINGS
@@ -203,7 +244,20 @@ INSERT INTO settings (tenant_id, key, value) VALUES
 ('00000000-0000-0000-0000-000000000002', 'company_email',         'contato@empresa2.teste.com'),
 ('00000000-0000-0000-0000-000000000002', 'company_address',       ''),
 ('00000000-0000-0000-0000-000000000002', 'email_notifications',   'true'),
-('00000000-0000-0000-0000-000000000002', 'due_date_warning_days', '3');
+('00000000-0000-0000-0000-000000000002', 'due_date_warning_days', '3'),
+-- Configurações financeiras — encargos padrão (Spec 0008 RF-001)
+('00000000-0000-0000-0000-000000000001', 'late_charge_defaults',
+  '{"late_fee_type":"fixed","late_fee_value":30,"daily_interest_rate":0.005,"grace_period_days":5}'),
+('00000000-0000-0000-0000-000000000002', 'late_charge_defaults',
+  '{"late_fee_type":"fixed","late_fee_value":30,"daily_interest_rate":0.005,"grace_period_days":5}'),
+-- Configurações financeiras — inadimplência (Spec 0008 RF-032)
+('00000000-0000-0000-0000-000000000001', 'delinquency_thresholds',
+  '{"delinquent_count":3,"delinquent_days":30,"blocked_count":5,"blocked_days":60,"auto_block":false}'),
+('00000000-0000-0000-0000-000000000002', 'delinquency_thresholds',
+  '{"delinquent_count":3,"delinquent_days":30,"blocked_count":5,"blocked_days":60,"auto_block":false}'),
+-- Configurações financeiras — crédito automático (Spec 0008 RF-025)
+('00000000-0000-0000-0000-000000000001', 'auto_apply_credit', '{"enabled":false}'),
+('00000000-0000-0000-0000-000000000002', 'auto_apply_credit', '{"enabled":false}');
 
 -- ============================================================
 -- VEHICLES — Empresa Teste 1 (10 veículos)
@@ -258,10 +312,10 @@ INSERT INTO vehicles (
 ('a2000010-0000-4000-8000-000000000000', '00000000-0000-0000-0000-000000000002', 'TE2-0010', 'CB 300',       'Honda',  '2022', '2022', 'Azul',     '22000000010', 'TEST2VEHICLE00010', 'Flex',     '300cc', 'available', 25000, 'Empresa Teste 2 LTDA', '44555666000174', 'cnpj', 'SP', true, 'used',    19500.00);
 
 -- Atribuir plano de manutenção padrão a todos os veículos de cada empresa
-UPDATE vehicles SET maintenance_plan_id = '10000000-0000-0000-0000-000000000001'
+UPDATE vehicles SET maintenance_plan_id = '10000000-0000-4000-8000-000000000001'
  WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
 
-UPDATE vehicles SET maintenance_plan_id = '10000000-0000-0000-0000-000000000002'
+UPDATE vehicles SET maintenance_plan_id = '10000000-0000-4000-8000-000000000002'
  WHERE tenant_id = '00000000-0000-0000-0000-000000000002';
 
 -- ============================================================

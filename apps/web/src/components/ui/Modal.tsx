@@ -106,7 +106,7 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
        */}
       <div
         className={cn(
-          'relative w-full bg-[#202020] border border-[#474747] rounded-2xl',
+          'relative w-full bg-surface border border-border rounded-2xl',
           'max-h-[96vh] overflow-y-auto custom-scrollbar', // Garante que modais altas tenham rolagem interna.
           sizes[size], // Aplica a classe de largura correspondente.
           'animate-in fade-in zoom-in-95 slide-in-from-top-4'
@@ -114,11 +114,11 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
       >
         {/* Cabeçalho da Modal: Renderizado apenas se um `title` for fornecido. */}
         {title && (
-          <div className="flex items-center justify-between p-5 border-b border-[#474747] sticky top-0 bg-[#202020] z-10">
-            <h2 className="text-lg font-medium text-[#f5f5f5]">{title}</h2>
+          <div className="flex items-center justify-between p-5 border-b border-divider sticky top-0 bg-surface z-10">
+            <h2 className="text-lg font-medium text-fg">{title}</h2>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-full text-[#c7c7c7] hover:text-[#f5f5f5] hover:bg-[#323232] transition-colors"
+              className="p-1.5 rounded-full text-fg-soft hover:text-fg hover:bg-surface-2 transition-colors"
               aria-label="Fechar modal"
             >
               <X className="w-5 h-5" />

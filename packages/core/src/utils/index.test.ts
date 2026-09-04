@@ -20,6 +20,12 @@ describe('formatDate', () => {
     expect(formatDate('2026-06-10')).toMatch(/\d{2}\/\d{2}\/\d{4}/)
   })
 
+  it('mantém o dia exato de uma string "YYYY-MM-DD", independente do fuso local', () => {
+    // Regressão: new Date('2026-08-02') é meia-noite UTC — em fusos negativos
+    // (ex: America/Sao_Paulo, UTC-3) isso formatava como 01/08 em vez de 02/08.
+    expect(formatDate('2026-08-02')).toBe('02/08/2026')
+  })
+
   it('formata objeto Date', () => {
     expect(formatDate(new Date('2026-06-10T12:00:00'))).toMatch(/10\/06\/2026/)
   })

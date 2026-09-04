@@ -20,6 +20,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 
 import { useFines, useVehicles } from '@gomoto/data'
+import { calcFineUrgency, type FineStatus } from '@gomoto/core'
 import { markFineAsPaid, deleteFine } from './actions'
 
 import { PageTitle } from '@/components/layout/PageTitle'
@@ -45,45 +46,28 @@ type FineWithRelations = {
   created_at: string
   customers: { name: string; phone: string } | null
   vehicles: { license_plate: string; model: string; make: string } | null
+  // PRD 0013 — prazos oficiais da NA/NP, usados por calcFineUrgency (RF-008)
+  prior_defense_deadline?: string | null
+  driver_identification_deadline?: string | null
+  appeal_deadline?: string | null
+  discounted_payment_deadline?: string | null
 }
 
-type FineStatus = 'overdue' | 'due_soon' | 'pending' | 'paid'
 type FineWithStatus = FineWithRelations & { _status: FineStatus }
 
 // ─── Mapas de estilo ──────────────────────────────────────────────────────────
 
 const STATUS_BADGE: Record<FineStatus, { bg: string; text: string; label: string }> = {
-  overdue:  { bg: 'bg-[#7c1c1c]', text: 'text-[#ff9c9a]', label: 'Vencida'  },
-  due_soon: { bg: 'bg-[#3a180f]', text: 'text-[#e65e24]', label: 'A vencer' },
-  pending:  { bg: 'bg-[#2d0363]', text: 'text-[#a880ff]', label: 'Pendente' },
-  paid:     { bg: 'bg-[#0e2f13]', text: 'text-[#229731]', label: 'Paga'     },
+  overdue:  { bg: 'bg-danger-bg', text: 'text-danger', label: 'Vencida'  },
+  due_soon: { bg: 'bg-warning-bg', text: 'text-warning', label: 'A vencer' },
+  pending:  { bg: 'bg-info-bg', text: 'text-info', label: 'Pendente' },
+  paid:     { bg: 'bg-success-bg', text: 'text-success', label: 'Paga'     },
 }
 
 const STATUS_DOT: Record<'overdue' | 'due_soon' | 'ok', string> = {
-  overdue:  'bg-[#ff3e3c]',
-  due_soon: 'bg-[#e65e24]',
-  ok:       'bg-[#28b438]',
-}
-
-// ─── Auxiliar de status dinâmico ──────────────────────────────────────────────
-
-function calcFineStatus(fine: FineWithRelations): FineStatus {
-  if (fine.status === 'paid') return 'paid'
-
-  if (fine.due_date) {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    const [year, month, day] = fine.due_date.split('-').map(Number)
-    const dueDate = new Date(year, month - 1, day)
-
-    if (dueDate < today) return 'overdue'
-
-    const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / 86_400_000)
-    if (diffDays <= 7) return 'due_soon'
-  }
-
-  return 'pending'
+  overdue:  'bg-danger',
+  due_soon: 'bg-warning',
+  ok:       'bg-success',
 }
 
 // ─── KpiCard ──────────────────────────────────────────────────────────────────
@@ -93,8 +77,8 @@ function KpiCard({
   label,
   value,
   sub,
-  iconBg = 'bg-[#323232]',
-  iconColor = 'text-[#BAFF1A]',
+  iconBg = 'bg-surface-2',
+  iconColor = 'text-primary',
 }: {
   icon: React.ElementType
   label: string
@@ -104,11 +88,11 @@ function KpiCard({
   iconColor?: string
 }) {
   return (
-    <div className="flex items-center justify-between rounded-xl bg-[#202020] p-4">
+    <div className="flex items-center justify-between rounded-xl bg-surface p-4">
       <div>
-        <p className="text-[13px] text-[#9e9e9e]">{label}</p>
-        <p className="text-2xl font-bold text-[#f5f5f5]">{value}</p>
-        {sub && <p className="text-[12px] mt-0.5 text-[#9e9e9e]">{sub}</p>}
+        <p className="text-[13px] text-fg-mute">{label}</p>
+        <p className="text-2xl font-bold text-fg">{value}</p>
+        {sub && <p className="text-[12px] mt-0.5 text-fg-mute">{sub}</p>}
       </div>
       <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${iconBg} ${iconColor}`}>
         <Icon className="h-6 w-6" />
@@ -217,7 +201,7 @@ export default function MultasPage() {
 
     fines.forEach((fine) => {
       total++
-      const s = calcFineStatus(fine)
+      const s = calcFineUrgency(fine)
 
       if (s === 'overdue') {
         overdueCount++;  overdueValue  += Number(fine.amount)
@@ -250,7 +234,7 @@ export default function MultasPage() {
 
   // ── Agrupamento com filtros
   const groupedFines = useMemo(() => {
-    let filtered: FineWithStatus[] = fines.map((f) => ({ ...f, _status: calcFineStatus(f) }))
+    let filtered: FineWithStatus[] = fines.map((f) => ({ ...f, _status: calcFineUrgency(f) }))
 
     if (search) {
       const q = search.toLowerCase()
@@ -297,14 +281,14 @@ export default function MultasPage() {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col min-h-full bg-[#121212]">
+    <div className="flex flex-col min-h-full bg-bg">
       <PageTitle
         title="Multas"
         subtitle="Controle de infrações de trânsito"
         actions={
           <Link
             href="/multas/novo"
-            className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e818] transition-colors"
+            className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors"
           >
             <Plus className="w-4 h-4" />
             Registrar Multa
@@ -315,38 +299,38 @@ export default function MultasPage() {
 
         {/* Erro global */}
         {error && (
-          <div className="p-3 rounded-lg bg-[#7c1c1c] text-[13px] text-[#ff9c9a]">
+          <div className="p-3 rounded-lg bg-danger-bg text-[13px] text-danger">
             {error}
           </div>
         )}
 
         {/* ── KPI cards ─────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-          <KpiCard icon={FileText}    iconBg="bg-[#323232]" iconColor="text-[#9e9e9e]" label="Total"         value={kpis.total} />
-          <KpiCard icon={Clock}       iconBg="bg-[#2d0363]" iconColor="text-[#a880ff]" label="Pendentes"     value={kpis.pendingCount}   sub={formatCurrency(kpis.pendingValue)} />
-          <KpiCard icon={AlertTriangle} iconBg="bg-[#7c1c1c]" iconColor="text-[#ff9c9a]" label="Vencidas"   value={kpis.overdueCount}   sub={formatCurrency(kpis.overdueValue)} />
-          <KpiCard icon={Calendar}    iconBg="bg-[#3a180f]" iconColor="text-[#e65e24]" label="A vencer (7d)" value={kpis.dueSoonCount} />
-          <KpiCard icon={CheckCircle2} iconBg="bg-[#0e2f13]" iconColor="text-[#229731]" label="Pagas (mês)"  value={kpis.paidMonthCount} sub={formatCurrency(kpis.paidMonthValue)} />
+          <KpiCard icon={FileText}    iconBg="bg-surface-2" iconColor="text-fg-mute" label="Total"         value={kpis.total} />
+          <KpiCard icon={Clock}       iconBg="bg-info-bg" iconColor="text-info" label="Pendentes"     value={kpis.pendingCount}   sub={formatCurrency(kpis.pendingValue)} />
+          <KpiCard icon={AlertTriangle} iconBg="bg-danger-bg" iconColor="text-danger" label="Vencidas"   value={kpis.overdueCount}   sub={formatCurrency(kpis.overdueValue)} />
+          <KpiCard icon={Calendar}    iconBg="bg-warning-bg" iconColor="text-warning" label="A vencer (7d)" value={kpis.dueSoonCount} />
+          <KpiCard icon={CheckCircle2} iconBg="bg-success-bg" iconColor="text-success" label="Pagas (mês)"  value={kpis.paidMonthCount} sub={formatCurrency(kpis.paidMonthValue)} />
         </div>
 
         {/* ── Filtros ────────────────────────────────────────────────────── */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
           {/* Abas de status */}
-          <div className="flex flex-wrap border-b border-[#616161]">
+          <div className="flex flex-wrap border-b border-fg-mute">
             {statusTabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setStatusFilter(tab.id)}
                 className={`px-3 py-2 text-[16px] font-medium transition-all border-b-2 ${
                   statusFilter === tab.id
-                    ? 'border-[#BAFF1A] text-[#f5f5f5]'
-                    : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
+                    ? 'border-primary text-fg'
+                    : 'border-transparent text-fg-mute hover:text-fg'
                 }`}
               >
                 {tab.label}
                 {tab.count > 0 && (
-                  <span className="ml-1.5 text-[#616161]">({tab.count})</span>
+                  <span className="ml-1.5 text-fg-mute">({tab.count})</span>
                 )}
               </button>
             ))}
@@ -357,24 +341,24 @@ export default function MultasPage() {
             <select
               value={vehicleFilter}
               onChange={(e) => setVehicleFilter(e.target.value)}
-              className="h-10 rounded-lg border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] focus:border-[#BAFF1A] focus:outline-none"
+              className="h-10 rounded-lg border border-border bg-surface-2 px-3 text-[13px] text-fg focus:border-primary focus:outline-none"
             >
               <option value="">Todas as motos</option>
               {vehicles.map((m) => (
-                <option key={m.id} value={m.id} className="bg-[#202020]">
+                <option key={m.id} value={m.id} className="bg-surface">
                   {m.license_plate} — {m.make} {m.model}
                 </option>
               ))}
             </select>
 
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#616161]" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-fg-mute" />
               <input
                 type="text"
                 placeholder="Buscar..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-10 rounded-lg border border-[#474747] bg-[#323232] pl-9 pr-4 text-[13px] text-[#f5f5f5] placeholder:text-[#616161] focus:border-[#BAFF1A] focus:outline-none w-44"
+                className="h-10 rounded-lg border border-border bg-surface-2 pl-9 pr-4 text-[13px] text-fg placeholder:text-fg-mute focus:border-primary focus:outline-none w-44"
               />
             </div>
           </div>
@@ -383,14 +367,14 @@ export default function MultasPage() {
         {/* ── Accordion por moto ─────────────────────────────────────────── */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#BAFF1A] border-t-transparent" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
 
         ) : groupedFines.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-xl bg-[#202020] p-16 text-center">
-            <FileText className="mb-4 h-12 w-12 text-[#616161]" />
-            <p className="text-lg font-medium text-[#f5f5f5]">Nenhuma multa encontrada.</p>
-            <p className="mt-1 text-[13px] text-[#9e9e9e]">Ajuste os filtros ou registre uma nova multa.</p>
+          <div className="flex flex-col items-center justify-center rounded-xl bg-surface p-16 text-center">
+            <FileText className="mb-4 h-12 w-12 text-fg-mute" />
+            <p className="text-lg font-medium text-fg">Nenhuma multa encontrada.</p>
+            <p className="mt-1 text-[13px] text-fg-mute">Ajuste os filtros ou registre uma nova multa.</p>
           </div>
 
         ) : (
@@ -413,33 +397,33 @@ export default function MultasPage() {
                   : STATUS_DOT.ok
 
               return (
-                <div key={vehicle_id} className="overflow-hidden rounded-xl bg-[#202020]">
+                <div key={vehicle_id} className="overflow-hidden rounded-xl bg-surface">
 
                   {/* Cabeçalho do accordion */}
                   <button
                     onClick={() => toggleGroup(vehicle_id)}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#323232] transition-colors text-left"
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors text-left"
                   >
-                    <ChevronDown className={`w-4 h-4 text-[#9e9e9e] shrink-0 transition-transform duration-150 ${isExpanded ? '' : '-rotate-90'}`} />
+                    <ChevronDown className={`w-4 h-4 text-fg-mute shrink-0 transition-transform duration-150 ${isExpanded ? '' : '-rotate-90'}`} />
                     <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotColor}`} />
-                    <span className="font-mono font-bold text-[#f5f5f5] text-[13px]">
+                    <span className="font-mono font-bold text-fg text-[13px]">
                       {moto?.license_plate ?? '—'}
                     </span>
-                    <span className="text-[13px] text-[#9e9e9e]">{moto?.make} {moto?.model}</span>
+                    <span className="text-[13px] text-fg-mute">{moto?.make} {moto?.model}</span>
 
                     <div className="ml-auto flex items-center gap-1.5">
                       {nOverdue > 0 && (
-                        <span className="px-2 py-0.5 rounded-full text-[12px] font-medium bg-[#7c1c1c] text-[#ff9c9a]">
+                        <span className="px-2 py-0.5 rounded-full text-[12px] font-medium bg-danger-bg text-danger">
                           {nOverdue} vencida{nOverdue > 1 ? 's' : ''}
                         </span>
                       )}
                       {nDueSoon > 0 && (
-                        <span className="px-2 py-0.5 rounded-full text-[12px] font-medium bg-[#3a180f] text-[#e65e24]">
+                        <span className="px-2 py-0.5 rounded-full text-[12px] font-medium bg-warning-bg text-warning">
                           {nDueSoon} a vencer
                         </span>
                       )}
                       {pendingTotal > 0 && (
-                        <span className="text-[13px] font-medium text-[#ff9c9a] ml-1">
+                        <span className="text-[13px] font-medium text-danger ml-1">
                           {formatCurrency(pendingTotal)}
                         </span>
                       )}
@@ -448,49 +432,49 @@ export default function MultasPage() {
 
                   {/* Conteúdo expandido */}
                   {isExpanded && (
-                    <div className="border-t border-[#323232]">
+                    <div className="border-t border-divider">
 
                       {/* Tabela de pendentes */}
                       {pendingItems.length > 0 ? (
                         <div className="overflow-x-auto">
-                          <table className="w-full text-left text-[13px] text-[#f5f5f5]">
+                          <table className="w-full text-left text-[13px] text-fg">
                             <thead>
-                              <tr className="border-b border-[#323232]">
-                                <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Infração</th>
-                                <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Data / Vencimento</th>
-                                <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Valor</th>
-                                <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Responsável</th>
-                                <th className="h-9 px-4 text-[#9e9e9e] text-[13px] font-medium">Status</th>
-                                <th className="h-9 px-4 text-right text-[#9e9e9e] text-[13px] font-medium">Ações</th>
+                              <tr className="border-b border-divider">
+                                <th className="h-9 px-4 text-fg-mute text-[13px] font-medium">Infração</th>
+                                <th className="h-9 px-4 text-fg-mute text-[13px] font-medium">Data / Vencimento</th>
+                                <th className="h-9 px-4 text-fg-mute text-[13px] font-medium">Valor</th>
+                                <th className="h-9 px-4 text-fg-mute text-[13px] font-medium">Responsável</th>
+                                <th className="h-9 px-4 text-fg-mute text-[13px] font-medium">Status</th>
+                                <th className="h-9 px-4 text-right text-fg-mute text-[13px] font-medium">Ações</th>
                               </tr>
                             </thead>
                             <tbody>
                               {pendingItems.map((item) => {
                                 const badge = STATUS_BADGE[item._status]
                                 return (
-                                  <tr key={item.id} className="h-9 text-[13px] border-b border-[#323232] transition-colors hover:bg-[#323232]">
+                                  <tr key={item.id} className="h-9 text-[13px] border-b border-divider transition-colors hover:bg-surface-2">
 
                                     <td className="px-4 max-w-xs">
-                                      <p className="font-medium text-[#f5f5f5]">{item.description}</p>
+                                      <p className="font-medium text-fg">{item.description}</p>
                                       {item.observations && (
-                                        <p className="text-[12px] text-[#9e9e9e] mt-0.5 line-clamp-1">{item.observations}</p>
+                                        <p className="text-[12px] text-fg-mute mt-0.5 line-clamp-1">{item.observations}</p>
                                       )}
                                       {item.customers?.name && (
-                                        <p className="text-[12px] text-[#616161] mt-0.5">{item.customers.name}</p>
+                                        <p className="text-[12px] text-fg-mute mt-0.5">{item.customers.name}</p>
                                       )}
                                     </td>
 
                                     <td className="px-4">
-                                      <p className="text-[#f5f5f5]">{formatDate(item.infraction_date)}</p>
+                                      <p className="text-fg">{formatDate(item.infraction_date)}</p>
                                       {item.due_date && (
-                                        <p className={`text-[12px] mt-0.5 ${item._status === 'overdue' ? 'text-[#ff9c9a]' : 'text-[#9e9e9e]'}`}>
+                                        <p className={`text-[12px] mt-0.5 ${item._status === 'overdue' ? 'text-danger' : 'text-fg-mute'}`}>
                                           Venc: {formatDate(item.due_date)}
                                         </p>
                                       )}
                                     </td>
 
                                     <td className="px-4">
-                                      <span className="font-medium text-[#ff9c9a]">
+                                      <span className="font-medium text-danger">
                                         {formatCurrency(Number(item.amount))}
                                       </span>
                                     </td>
@@ -498,8 +482,8 @@ export default function MultasPage() {
                                     <td className="px-4">
                                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium ${
                                         item.responsible === 'customer'
-                                          ? 'bg-[#2d0363] text-[#a880ff]'
-                                          : 'bg-[#323232] text-[#9e9e9e]'
+                                          ? 'bg-info-bg text-info'
+                                          : 'bg-surface-2 text-fg-mute'
                                       }`}>
                                         {item.responsible === 'customer' ? 'Cliente' : 'Empresa'}
                                       </span>
@@ -515,14 +499,14 @@ export default function MultasPage() {
                                       <div className="flex items-center justify-end gap-1">
                                         <Link
                                           href={`/multas/${item.id}`}
-                                          className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-[#323232] text-[#9e9e9e] hover:bg-[#474747] hover:text-[#f5f5f5] transition-colors"
+                                          className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-surface-2 text-fg-mute hover:bg-divider hover:text-fg transition-colors"
                                           title="Ver detalhes"
                                         >
                                           <Eye className="h-4 w-4" />
                                         </Link>
                                         <Link
                                           href={`/multas/${item.id}/editar`}
-                                          className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-[#323232] text-[#9e9e9e] hover:bg-[#474747] hover:text-[#f5f5f5] transition-colors"
+                                          className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-surface-2 text-fg-mute hover:bg-divider hover:text-fg transition-colors"
                                           title="Editar"
                                         >
                                           <Edit2 className="h-4 w-4" />
@@ -544,17 +528,17 @@ export default function MultasPage() {
                           </table>
                         </div>
                       ) : (
-                        <p className="text-center text-[#616161] py-5 text-[13px]">
+                        <p className="text-center text-fg-mute py-5 text-[13px]">
                           Nenhuma multa pendente.
                         </p>
                       )}
 
                       {/* Histórico de pagas */}
                       {paidItems.length > 0 && (
-                        <div className={pendingItems.length > 0 ? 'border-t border-[#323232]' : ''}>
+                        <div className={pendingItems.length > 0 ? 'border-t border-divider' : ''}>
                           <button
                             onClick={() => toggleHistory(vehicle_id)}
-                            className="w-full flex items-center gap-2 px-4 py-2 text-[12px] text-[#616161] hover:text-[#9e9e9e] transition-colors"
+                            className="w-full flex items-center gap-2 px-4 py-2 text-[12px] text-fg-mute hover:text-fg-mute transition-colors"
                           >
                             <ChevronDown className={`w-3 h-3 transition-transform duration-150 ${showHistory ? '' : '-rotate-90'}`} />
                             {showHistory
@@ -563,35 +547,35 @@ export default function MultasPage() {
                           </button>
 
                           {showHistory && (
-                            <div className="border-t border-[#323232] overflow-x-auto">
+                            <div className="border-t border-divider overflow-x-auto">
                               <table className="w-full text-left text-[13px]">
                                 <tbody>
                                   {paidItems.map((item) => (
-                                    <tr key={item.id} className="h-9 text-[13px] border-b border-[#323232] transition-colors hover:bg-[#323232] opacity-80">
+                                    <tr key={item.id} className="h-9 text-[13px] border-b border-divider transition-colors hover:bg-surface-2 opacity-80">
                                       <td className="px-4 w-1/2">
-                                        <p className="text-[#9e9e9e]">{item.description}</p>
+                                        <p className="text-fg-mute">{item.description}</p>
                                         {item.customers?.name && (
-                                          <p className="text-[12px] text-[#616161]">{item.customers.name}</p>
+                                          <p className="text-[12px] text-fg-mute">{item.customers.name}</p>
                                         )}
                                       </td>
-                                      <td className="px-4 text-[12px] text-[#9e9e9e]">
+                                      <td className="px-4 text-[12px] text-fg-mute">
                                         {item.payment_date ? formatDate(item.payment_date) : '—'}
                                       </td>
-                                      <td className="px-4 text-[13px] font-medium text-[#229731]">
+                                      <td className="px-4 text-[13px] font-medium text-success">
                                         {formatCurrency(Number(item.amount))}
                                       </td>
                                       <td className="px-4 text-right">
                                         <div className="flex items-center justify-end gap-1">
                                           <Link
                                             href={`/multas/${item.id}`}
-                                            className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-[#323232] text-[#9e9e9e] hover:bg-[#474747] hover:text-[#f5f5f5] transition-colors"
+                                            className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-surface-2 text-fg-mute hover:bg-divider hover:text-fg transition-colors"
                                             title="Ver detalhes"
                                           >
                                             <Eye className="h-4 w-4" />
                                           </Link>
                                           <Link
                                             href={`/multas/${item.id}/editar`}
-                                            className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-[#323232] text-[#9e9e9e] hover:bg-[#474747] hover:text-[#f5f5f5] transition-colors"
+                                            className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-surface-2 text-fg-mute hover:bg-divider hover:text-fg transition-colors"
                                             title="Editar"
                                           >
                                             <Edit2 className="h-4 w-4" />
@@ -627,12 +611,12 @@ export default function MultasPage() {
         size="sm"
       >
         <div className="space-y-4">
-          <div className="p-3 bg-[#323232] rounded-lg space-y-1">
-            <p className="text-[13px] text-[#9e9e9e]">
-              Cliente: <span className="text-[#f5f5f5] font-medium">{payingFine?.customers?.name ?? '—'}</span>
+          <div className="p-3 bg-surface-2 rounded-lg space-y-1">
+            <p className="text-[13px] text-fg-mute">
+              Cliente: <span className="text-fg font-medium">{payingFine?.customers?.name ?? '—'}</span>
             </p>
-            <p className="text-[13px] text-[#9e9e9e]">
-              Valor: <span className="text-[#ff9c9a] font-medium">
+            <p className="text-[13px] text-fg-mute">
+              Valor: <span className="text-danger font-medium">
                 {payingFine ? formatCurrency(Number(payingFine.amount)) : ''}
               </span>
             </p>
@@ -661,9 +645,9 @@ export default function MultasPage() {
       {/* ── Modal: Confirmar Exclusão ───────────────────────────────────────── */}
       <Modal open={!!deleting} onClose={() => setDeleting(null)} title="Excluir Multa" size="sm">
         <div className="space-y-4">
-          <p className="text-[#9e9e9e] text-[13px]">
+          <p className="text-fg-mute text-[13px]">
             Tem certeza que deseja excluir a multa{' '}
-            <span className="text-[#f5f5f5] font-medium">{deleting?.description}</span>?
+            <span className="text-fg font-medium">{deleting?.description}</span>?
             Esta ação removerá permanentemente o histórico da infração.
           </p>
           <div className="flex gap-3 justify-end">

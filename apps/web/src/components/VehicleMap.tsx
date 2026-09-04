@@ -85,10 +85,10 @@ const TILE_STYLES = [
  */
 function getMarkerColor(status: string): string {
   switch (status) {
-    case 'available':   return '#28b438' // Verde: disponível para locação
-    case 'rented':      return '#a880ff' // Roxo: em contrato ativo
-    case 'maintenance': return '#e65e24' // Laranja: indisponível por manutenção
-    default:            return '#9e9e9e' // Cinza: inativa ou status desconhecido
+    case 'available':   return 'var(--success)' // disponível para locação
+    case 'rented':      return 'var(--info)' // em contrato ativo
+    case 'maintenance': return 'var(--warning)' // indisponível por manutenção
+    default:            return 'var(--fg-mute)' // inativa ou status desconhecido
   }
 }
 
@@ -389,7 +389,7 @@ export default function VehicleMap({
       <div ref={mapRef} className="w-full h-full" />
 
       {/* Seletor de estilo de tiles — posicionado no canto superior esquerdo do mapa */}
-      <div className="absolute top-3 left-3 z-[1000] flex gap-1 bg-[#121212]/85 backdrop-blur-sm border border-[#474747] rounded-lg p-1">
+      <div className="absolute top-3 left-3 z-[1000] flex gap-1 bg-bg backdrop-blur-sm border border-border rounded-lg p-1">
         {TILE_STYLES.map((style) => (
           <button
             key={style.id}
@@ -397,8 +397,8 @@ export default function VehicleMap({
             className={`px-2.5 py-1 rounded-md text-[12px] font-medium transition-all ${
               // Destaca o tile ativo com a cor primária do sistema (verde-limão)
               activeTile === style.id
-                ? 'bg-[#BAFF1A] text-black'
-                : 'text-[#9e9e9e] hover:text-[#f5f5f5] hover:bg-white/5'
+                ? 'bg-primary text-black'
+                : 'text-fg-mute hover:text-fg hover:bg-white/5'
             }`}
           >
             {style.label}
@@ -407,9 +407,9 @@ export default function VehicleMap({
       </div>
 
       {/* Badge de status do GPS — laranja pulsante indica que integração ainda não foi feita */}
-      <div className="absolute top-3 right-3 z-[1000] bg-[#121212]/85 backdrop-blur-sm border border-[#474747] rounded-lg px-3 py-2 flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full bg-[#e65e24] animate-pulse" />
-        <span className="text-xs text-[#9e9e9e] font-medium">GPS em breve</span>
+      <div className="absolute top-3 right-3 z-[1000] bg-bg backdrop-blur-sm border border-border rounded-lg px-3 py-2 flex items-center gap-2">
+        <div className="w-2 h-2 rounded-full bg-warning animate-pulse" />
+        <span className="text-xs text-fg-mute font-medium">GPS em breve</span>
       </div>
 
     </div>

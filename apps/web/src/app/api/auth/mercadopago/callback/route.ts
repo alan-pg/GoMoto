@@ -58,35 +58,59 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL(`${REDIRECT_BASE}?payment=error&reason=token_exchange`, req.url))
   }
 
-  const { error } = await supabase.from('payment_connections').upsert(
-    {
-      tenant_id:        tenantId,
-      mp_user_id:       tokens.mp_user_id,
-      mp_account_email: tokens.mp_account_email,
-      access_token:     tokens.access_token,
-      refresh_token:    tokens.refresh_token,
-    },
-    { onConflict: 'tenant_id' },
-  )
+  // Spec 0014: credenciais em `payment_provider_accounts`, com o provedor como
+  // dado. `payment_connections` tinha UNIQUE(tenant_id) e impedia um segundo
+  // gateway (F-13); aqui a chave é (tenant, provider, conta externa).
+  // O token NÃO é coluna: vai para o Vault por `fn_store_provider_credentials`,
+  // e a tabela guarda só a referência. Credencial de pagamento em texto puro
+  // vaza junto com qualquer dump ou log de linha (P-1).
+  const { data: account, error } = await supabase
+    .from('payment_provider_accounts')
+    .upsert(
+      {
+        tenant_id:           tenantId,
+        provider:            'mercadopago',
+        external_account_id: tokens.mp_user_id,
+        account_email:       tokens.mp_account_email,
+        is_default: true,
+        active:     true,
+      },
+      { onConflict: 'tenant_id,provider,external_account_id' },
+    )
+    .select('id')
+    .single()
+
+  if (!error && account) {
+    const { error: secretError } = await supabase.rpc('fn_store_provider_credentials', {
+      p_account_id:    (account as { id: string }).id,
+      p_access_token:  tokens.access_token,
+      p_refresh_token: tokens.refresh_token,
+    })
+    if (secretError) {
+      console.error('[mercadopago/callback] store_credentials_failed', { error: secretError.message })
+      return NextResponse.redirect(new URL(`${REDIRECT_BASE}?payment=error&reason=credentials`, req.url))
+    }
+  }
 
   if (error) {
     serverLog('error', 'mp_oauth.error', { reason: 'db_upsert', tenant_id: tenantId, mp_user_id: tokens.mp_user_id, db_code: error.code })
     return NextResponse.redirect(new URL(`${REDIRECT_BASE}?payment=error&reason=db_error`, req.url))
   }
 
-  // Expirar Pixes ativos da conta anterior: ao trocar de conta MP os QR codes antigos
-  // apontam para o mp_user_id anterior e o webhook não conseguiria resolver o tenant.
+  // Tentativas pendentes da conta anterior apontam para outra conta externa e
+  // o webhook não conseguiria resolver o tenant.
   await supabase
-    .from('billing_pix')
+    .from('payment_intents')
     .update({ status: 'expired' })
     .eq('tenant_id', tenantId)
-    .eq('status', 'active')
+    .eq('provider', 'mercadopago')
+    .eq('status', 'pending')
 
   serverLog('info', 'mp_oauth.connected', { tenant_id: tenantId, mp_user_id: tokens.mp_user_id })
 
   await logAction({
     action: 'connect_payment',
-    table: 'payment_connections',
+    table: 'payment_provider_accounts',
     newData: { tenant_id: tenantId, mp_user_id: tokens.mp_user_id, mp_account_email: tokens.mp_account_email },
   })
 

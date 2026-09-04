@@ -36,21 +36,21 @@ export default function NovoModeloPage() {
 
   return (
     // h-full preenche exatamente o <main> do LayoutShell (flex-1 min-h-0)
-    <div className="h-full flex flex-col bg-[#121212] overflow-hidden">
+    <div className="h-full flex flex-col bg-bg overflow-hidden">
 
       {/* Header com metadados integrados */}
-      <div className="shrink-0 bg-[#121212] border-b border-[#323232] px-6 py-3 space-y-3">
+      <div className="shrink-0 bg-bg border-b border-divider px-6 py-3 space-y-3">
         {/* Linha 1: navegação + ações */}
         <div className="flex items-center gap-2 min-w-0">
           <Link
             href="/contratos/modelos"
-            className="flex items-center gap-1.5 text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors shrink-0"
+            className="flex items-center gap-1.5 text-[13px] text-fg-mute hover:text-fg transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
             Modelos
           </Link>
-          <span className="text-[#474747] shrink-0">/</span>
-          <span className="text-[13px] text-[#616161] shrink-0">Novo modelo</span>
+          <span className="text-border shrink-0">/</span>
+          <span className="text-[13px] text-fg-mute shrink-0">Novo modelo</span>
           <div className="flex-1" />
           <Button
             variant="primary"
@@ -70,21 +70,21 @@ export default function NovoModeloPage() {
             value={name}
             onChange={e => { setName(e.target.value); setError(null) }}
             placeholder="Nome do modelo..."
-            className={`h-9 flex-1 bg-[#1a1a1a] border rounded-lg px-3 text-[14px] font-semibold text-[#f5f5f5] placeholder:text-[#474747] focus:ring-1 outline-none transition-colors ${
-              error ? 'border-[#ff9c9a] focus:border-[#ff9c9a] focus:ring-[#ff9c9a]' : 'border-[#323232] focus:border-[#BAFF1A] focus:ring-[#BAFF1A]'
+            className={`h-9 flex-1 bg-surface border rounded-lg px-3 text-[14px] font-semibold text-fg placeholder:text-border focus:ring-1 outline-none transition-colors ${
+              error ? 'border-danger focus:border-danger focus:ring-danger' : 'border-divider focus:border-primary focus:ring-primary'
             }`}
           />
           <input
             value={description}
             onChange={e => setDescription(e.target.value)}
             placeholder="Descrição (opcional)..."
-            className="h-9 flex-1 bg-[#1a1a1a] border border-[#323232] rounded-lg px-3 text-[13px] text-[#c7c7c7] placeholder:text-[#474747] focus:border-[#BAFF1A] focus:ring-1 focus:ring-[#BAFF1A] outline-none transition-colors"
+            className="h-9 flex-1 bg-surface border border-divider rounded-lg px-3 text-[13px] text-fg-soft placeholder:text-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors"
           />
         </div>
 
         {/* Erro inline */}
         {error && (
-          <div className="flex items-center gap-2 text-[12px] text-[#ff9c9a]">
+          <div className="flex items-center gap-2 text-[12px] text-danger">
             <Info className="w-3.5 h-3.5 shrink-0" />
             {error}
           </div>

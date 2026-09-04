@@ -45,9 +45,12 @@ export const SUGGESTED_PLAN_ITEMS: readonly SuggestedPlanItem[] = [
   { name: 'Lona de freio traseira',       interval_km: 8000,  is_critical: true  },
   { name: 'Amortecedor',                  interval_km: 15000, is_critical: false },
   { name: 'Revisão geral',                interval_km: 6000,  is_critical: false },
-  { name: 'Vistoria de entrega',          interval_days: 180, is_critical: true  },
-  { name: 'Vistoria periódica',           interval_days: 180, is_critical: false },
-  { name: 'Vistoria mensal',              interval_days: 30,  is_critical: true  },
+  // Renomeados (Spec 0009 §11.2): colidiam em nome com o módulo de Vistoria
+  // (avaliação do estado físico do veículo) — estes itens são puramente
+  // mecânicos/preventivos, domínio não relacionado.
+  { name: 'Revisão de entrega',           interval_days: 180, is_critical: true  },
+  { name: 'Revisão periódica',            interval_days: 180, is_critical: false },
+  { name: 'Revisão mensal',               interval_days: 30,  is_critical: true  },
 ] as const
 
 function normalizeName(s: string): string {

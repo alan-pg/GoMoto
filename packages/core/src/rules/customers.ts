@@ -3,17 +3,21 @@
  * @description Regras puras sobre comportamento financeiro do cliente.
  */
 
-import type { ChargeStatus } from '../types/index'
-
 interface OverdueChargeRef {
   customer_id: string
-  status: ChargeStatus
 }
 
 /**
- * Identifica clientes com 2+ cobranças vencidas — sinal de alerta no
- * dashboard. Recebe a lista bruta de cobranças vencidas (status='overdue')
- * e devolve o set único de customer_ids que atendem ao threshold.
+ * Identifica clientes com 2+ cobranças vencidas — sinal de alerta no dashboard.
+ *
+ * Recebe cobranças **já vencidas** e devolve os customer_ids que atingem o
+ * threshold. Atraso não é status armazenado (Princípio 4): quem chama filtra
+ * por `charge_balances.is_overdue` antes.
+ *
+ * Antes esta função exigia `status: ChargeStatus` e descartava o que não fosse
+ * 'overdue' — um valor que o enum nem tem mais. O único chamador consultava a
+ * view já filtrada por `is_overdue` e inventava o campo só para satisfazer o
+ * tipo, então o filtro nunca descartou nada.
  */
 export function identifyCustomersWithMultipleOverdueCharges(
   overdueCharges: OverdueChargeRef[],
@@ -21,7 +25,6 @@ export function identifyCustomersWithMultipleOverdueCharges(
 ): string[] {
   const counts: Record<string, number> = {}
   for (const charge of overdueCharges) {
-    if (charge.status !== 'overdue') continue
     counts[charge.customer_id] = (counts[charge.customer_id] ?? 0) + 1
   }
   return Object.entries(counts)

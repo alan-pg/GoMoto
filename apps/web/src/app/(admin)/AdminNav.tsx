@@ -24,8 +24,8 @@ export function AdminNav({ items }: { items: AdminNavItem[] }) {
           className={cn(
             'flex items-center gap-2 px-3 h-10 rounded-lg text-[14px] transition',
             isActive(item.href)
-              ? 'bg-[#BAFF1A] text-[#000000] font-medium'
-              : 'text-[#c7c7c7] hover:bg-[#202020] hover:text-[#f5f5f5]',
+              ? 'bg-primary text-black font-medium'
+              : 'text-fg-soft hover:bg-surface hover:text-fg',
           )}
         >
           {item.icon}

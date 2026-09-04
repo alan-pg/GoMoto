@@ -19,12 +19,27 @@ export const TEST_TAG = '[E2E]'
 
 let _supabase: ReturnType<typeof createClient> | null = null
 let _authenticated = false
+let _tenantId: string | null = null
+
+// Date.now() sozinho colide quando dois helpers rodam no mesmo milissegundo
+// (ex.: duas chamadas a createTestVehicle() em sequência num beforeAll) —
+// um contador monotônico garante unicidade mesmo nesse caso.
+let _uniqueSeq = 0
+function uniqueSuffix(digits: number): string {
+  _uniqueSeq += 1
+  // O contador é por PROCESSO. Com workers paralelos, dois processos no mesmo
+  // milissegundo e na mesma posição da sequência geravam o mesmo sufixo — e o
+  // RENAVAM, que é único por tenant, estourava. O ruído aleatório resolve a
+  // colisão entre processos; o contador segue resolvendo dentro de um.
+  const noise = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
+  return `${Date.now()}${_uniqueSeq}${noise}`.slice(-digits)
+}
 
 /**
  * Retorna uma instância autenticada do cliente Supabase em Node.js.
  * Autentica com email/senha na primeira chamada e reutiliza nas demais.
  */
-async function getSupabase() {
+export async function getSupabase() {
   if (!_supabase) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -45,6 +60,23 @@ async function getSupabase() {
   return _supabase
 }
 
+/**
+ * Resolve e cacheia o tenant_id do usuário de teste via get_user_tenants()
+ * (mesma RPC usada por getCurrentTenantId no app) — os inserts diretos deste
+ * arquivo passam por RLS (get_user_tenants()) e precisam do valor explícito,
+ * já que não há trigger/default que preencha tenant_id automaticamente.
+ */
+export async function getTestTenantId(): Promise<string> {
+  if (_tenantId) return _tenantId
+  const sb = await getSupabase()
+  const { data, error } = await sb.rpc('get_user_tenants')
+  if (error) throw new Error(`Erro ao resolver tenant de teste: ${error.message}`)
+  const tenantId = (data as string[] | null)?.[0]
+  if (!tenantId) throw new Error('Usuário de teste não pertence a nenhum tenant (get_user_tenants() vazio)')
+  _tenantId = tenantId
+  return tenantId
+}
+
 // ---------------------------------------------------------------------------
 // Helpers de dados — sem dependência de browser
 // ---------------------------------------------------------------------------
@@ -53,14 +85,37 @@ async function getSupabase() {
  * Cria um cliente de teste diretamente no banco (in_queue=false → aparece em /clientes).
  * Retorna o ID gerado.
  */
+/**
+ * Completa 9 dígitos com os dois verificadores, gerando um CPF que passa na
+ * mesma validação que a tela usa.
+ */
+function withCpfCheckDigits(base9: string): string {
+  const digits = base9.slice(0, 9).split('').map(Number)
+  const digit = (weightStart: number) => {
+    const sum = digits.reduce((acc, d, i) => acc + d * (weightStart - i), 0)
+    const rest = (sum * 10) % 11
+    return rest === 10 ? 0 : rest
+  }
+  const d1 = digit(10)
+  digits.push(d1)
+  const d2 = digit(11)
+  return `${base9.slice(0, 9)}${d1}${d2}`
+}
+
 export async function createTestCustomer(): Promise<{ id: string; name: string }> {
   const sb = await getSupabase()
-  const ts = Date.now().toString().slice(-9)
-  const cpf = `${ts.slice(0,3)}.${ts.slice(3,6)}.${ts.slice(6,9)}-00`
+  const tenantId = await getTestTenantId()
+  const ts = uniqueSuffix(9)
+  // CPF com dígito verificador correto. O fixture gravava `${ts}00`, que entra
+  // pelo service_role mas NÃO passa no schema: qualquer edição do cliente pela
+  // tela era rejeitada com "CPF inválido", e o teste de edição morria num erro
+  // do próprio fixture.
+  const cpf = withCpfCheckDigits(ts)
   const name = `${TEST_TAG} Cliente ${ts}`
   const { data, error } = await sb
     .from('customers')
     .insert({
+      tenant_id: tenantId,
       name,
       cpf,
       phone: '21999990000',
@@ -76,13 +131,28 @@ export async function createTestCustomer(): Promise<{ id: string; name: string }
 }
 
 /**
- * Remove um cliente de teste pelo ID, limpando cobranças vinculadas antes.
+ * Remove um cliente de teste pelo ID.
+ *
+ * Limpava `billings`, tabela que a ADR 0024 substituiu por `charges` — como
+ * supabase-js não lança em `.delete()`, o erro sumia e o `customers.delete()`
+ * seguinte batia no RESTRICT sem ninguém ver. Resultado: todo cliente de teste
+ * com movimento financeiro ficava no banco para sempre, e a suíte foi ficando
+ * mais lenta a cada execução.
+ *
+ * Cliente com lançamento no razão é INDELÉVEL de propósito: `financial_entries`
+ * tem `trg_entries_immutable` (Princípio 3 — corrige-se com estorno, nunca com
+ * DELETE), e `charges.customer_id` é RESTRICT. Então a limpeza remove o que é
+ * removível e devolve `false` quando o cliente ficou — quem reclama o espaço é
+ * `pnpm db:reset`, não este helper.
  */
-export async function deleteTestCustomer(id: string): Promise<void> {
-  if (!id) return
+export async function deleteTestCustomer(id: string): Promise<boolean> {
+  if (!id) return true
   const sb = await getSupabase()
-  await sb.from('billings').delete().eq('customer_id', id)
-  await sb.from('customers').delete().eq('id', id)
+
+  // Sem trilha financeira: cascata de rentals/queue_entries dá conta.
+  await sb.from('deposits').delete().eq('customer_id', id)
+  const { error } = await sb.from('customers').delete().eq('id', id)
+  return !error
 }
 
 /**
@@ -91,18 +161,30 @@ export async function deleteTestCustomer(id: string): Promise<void> {
  */
 export async function createTestVehicle(): Promise<{ id: string; license_plate: string }> {
   const sb = await getSupabase()
-  const suffix = Date.now().toString().slice(-5)
+  const tenantId = await getTestTenantId()
+  const suffix = uniqueSuffix(5)
   const plate = `T${suffix}`.slice(0, 7).toUpperCase()
 
   const { data, error } = await sb
     .from('vehicles')
     .insert({
+      tenant_id: tenantId,
       license_plate: plate,
       model: 'Model E2E',
       make: 'TEST',
-      year: '2024/2024',
+      year_manufacture: '2024',
+      year_model: '2024',
+      // Default de acquisition_type na coluna ('purchase') não satisfaz o
+      // próprio CHECK da tabela (não está na lista permitida) — bug de
+      // schema pré-existente, fora do escopo deste helper; setamos aqui
+      // para não depender do default quebrado.
+      acquisition_type: 'used',
       color: 'PRETO',
-      renavam: `0000000${suffix}`.slice(0, 11),
+      // RENAVAM é único por tenant e tem 11 dígitos — use os 11, não 4.
+      // `\`0000000${suffix}\`.slice(0, 11)` prefixava sete zeros a um sufixo de
+      // cinco e cortava em onze, sobrando ~4 dígitos de entropia: com dezenas de
+      // veículos por execução, a colisão era questão de tempo.
+      renavam: uniqueSuffix(11),
       chassis: `TEST${suffix}E2E000`.slice(0, 17).toUpperCase(),
       fuel: 'GASOLINA',
       status: 'available',
@@ -124,6 +206,14 @@ export async function deleteTestVehicle(id: string): Promise<void> {
   const sb = await getSupabase()
   await sb.from('maintenances').delete().eq('vehicle_id', id)
   await sb.from('fines').delete().eq('vehicle_id', id)
+  // deposits.rental_id não tem ON DELETE CASCADE (ao contrário de
+  // billings.lease_id) — sem isso, o delete de rentals falha em silêncio
+  // (supabase-js não lança) e deixa vehicle/customer órfãos pra trás.
+  const { data: rentals } = await sb.from('rentals').select('id').eq('vehicle_id', id)
+  const rentalIds = (rentals ?? []).map(r => r.id as string)
+  if (rentalIds.length > 0) {
+    await sb.from('deposits').delete().in('rental_id', rentalIds)
+  }
   await sb.from('rentals').delete().eq('vehicle_id', id)
   await sb.from('vehicles').delete().eq('id', id)
 }
@@ -135,13 +225,15 @@ export async function deleteTestVehicle(id: string): Promise<void> {
  */
 export async function createTestContract(vehicleId: string): Promise<{ customerId: string; contractId: string }> {
   const sb = await getSupabase()
+  const tenantId = await getTestTenantId()
   const today = new Date().toISOString().split('T')[0]
 
   const { data: customer, error: customerError } = await sb
     .from('customers')
     .insert({
+      tenant_id: tenantId,
       name: `${TEST_TAG} Cliente Contrato E2E`,
-      cpf: (() => { const t = Date.now().toString().slice(-9); return `${t.slice(0,3)}.${t.slice(3,6)}.${t.slice(6,9)}-99` })(),
+      cpf: `${uniqueSuffix(9)}99`,
       phone: '21988880099',
       state: 'RJ',
       active: true,
@@ -155,6 +247,7 @@ export async function createTestContract(vehicleId: string): Promise<{ customerI
   const { data: contract, error: contractError } = await sb
     .from('rentals')
     .insert({
+      tenant_id: tenantId,
       customer_id:  customer.id,
       vehicle_id: vehicleId,
       start_date:   today,
@@ -182,8 +275,7 @@ export async function cleanupTestCustomersByName(namePattern: string): Promise<v
   if (!customers || customers.length === 0) return
   for (const c of customers) {
     await sb.from('queue_entries').delete().eq('customer_id', c.id)
-    await sb.from('billings').delete().eq('customer_id', c.id)
-    await sb.from('customers').delete().eq('id', c.id)
+    await deleteTestCustomer(c.id as string)
   }
 }
 
@@ -191,21 +283,17 @@ export async function cleanupTestCustomersByName(namePattern: string): Promise<v
  * Remove entradas (incomes) cujo lessee bate com o padrão (SQL ILIKE).
  * Usado para limpar entradas órfãs quando o teste falha antes do step DELETE.
  */
-export async function cleanupTestIncomesByLessee(lesseePattern: string): Promise<void> {
-  const sb = await getSupabase()
-  await sb.from('incomes').delete().ilike('lessee', lesseePattern)
-}
 
 /**
  * Remove um contrato de teste e o cliente associado.
  */
 export async function deleteTestContract(contractId: string, customerId: string): Promise<void> {
   const sb = await getSupabase()
-  if (contractId) await sb.from('rentals').delete().eq('id', contractId)
-  if (customerId) {
-    await sb.from('billings').delete().eq('customer_id', customerId)
-    await sb.from('customers').delete().eq('id', customerId)
+  if (contractId) {
+    await sb.from('deposits').delete().eq('rental_id', contractId)
+    await sb.from('rentals').delete().eq('id', contractId)
   }
+  if (customerId) await deleteTestCustomer(customerId)
 }
 
 // ---------------------------------------------------------------------------
@@ -230,4 +318,88 @@ export async function waitForPageLoad(page: Page): Promise<void> {
   if (await spinner.isVisible({ timeout: 2_000 }).catch(() => false)) {
     await spinner.waitFor({ state: 'hidden', timeout: 15_000 })
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers — Spec 0011 (Módulo de Usuários e Controle de Acesso)
+// Usam service_role (Admin API) direto — as RPCs/Server Actions da feature
+// já são o alvo dos testes; setup/cleanup não deve passar por elas.
+// ---------------------------------------------------------------------------
+
+let _supabaseAdmin: ReturnType<typeof createClient> | null = null
+
+export function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!url || !key) throw new Error('NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não definidos')
+    _supabaseAdmin = createClient(url, key, { auth: { persistSession: false } })
+  }
+  return _supabaseAdmin
+}
+
+/**
+ * Cria um auth.user + vínculo em tenant_members direto via service_role
+ * (bypassa a UI/RPC de convite — isso é setup, não o alvo do teste).
+ * Retorna id/email/memberId para os specs usarem em asserts e no afterAll.
+ */
+export async function createTestTenantMember(
+  role: 'owner' | 'admin' | 'operator' | 'viewer',
+  status: 'active' | 'revoked' = 'active',
+): Promise<{ userId: string; memberId: string; email: string }> {
+  const admin = getSupabaseAdmin()
+  const tenantId = await getTestTenantId()
+  const email = `e2e-${role}-${uniqueSuffix(9)}@teste.com`
+
+  const { data: created, error: createErr } = await admin.auth.admin.createUser({
+    email,
+    password: '12345678',
+    email_confirm: true,
+    user_metadata: { name: `${TEST_TAG} ${role}` },
+  })
+  if (createErr || !created.user) throw new Error(`Erro ao criar usuário de teste: ${createErr?.message}`)
+
+  const { data: member, error: memberErr } = await admin
+    .from('tenant_members')
+    .insert({ tenant_id: tenantId, user_id: created.user.id, role, status })
+    .select('id')
+    .single()
+  if (memberErr) throw new Error(`Erro ao vincular tenant_member de teste: ${memberErr.message}`)
+
+  return { userId: created.user.id, memberId: member.id as string, email }
+}
+
+/** Remove um usuário de teste criado por createTestTenantMember (e o vínculo, via CASCADE). */
+export async function deleteTestAuthUser(userId: string): Promise<void> {
+  if (!userId) return
+  await getSupabaseAdmin().auth.admin.deleteUser(userId).catch(() => {})
+}
+
+/** Remove um platform_admin de teste (vínculo + auth.user). */
+export async function deleteTestPlatformAdmin(userId: string): Promise<void> {
+  if (!userId) return
+  const admin = getSupabaseAdmin()
+  await admin.from('platform_admins').delete().eq('user_id', userId)
+  await admin.auth.admin.deleteUser(userId).catch(() => {})
+}
+
+/** Cria um auth.user + vínculo em platform_admins direto via service_role. */
+export async function createTestPlatformAdmin(
+  role: 'owner' | 'operator',
+): Promise<{ userId: string; email: string }> {
+  const admin = getSupabaseAdmin()
+  const email = `e2e-platform-${role}-${uniqueSuffix(9)}@teste.com`
+
+  const { data: created, error: createErr } = await admin.auth.admin.createUser({
+    email,
+    password: '12345678',
+    email_confirm: true,
+    user_metadata: { name: `${TEST_TAG} platform ${role}` },
+  })
+  if (createErr || !created.user) throw new Error(`Erro ao criar platform_admin de teste: ${createErr?.message}`)
+
+  const { error: linkErr } = await admin.from('platform_admins').insert({ user_id: created.user.id, role })
+  if (linkErr) throw new Error(`Erro ao vincular platform_admin de teste: ${linkErr.message}`)
+
+  return { userId: created.user.id, email }
 }

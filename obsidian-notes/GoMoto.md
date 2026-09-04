@@ -16,7 +16,7 @@
 
 ### Telas (campos, filtros, queries, lógica)
 - [[Telas]] — Índice com link para cada tela
-- [[Dashboard]] · [[Login]] · [[Motos]] · [[Clientes]] · [[Contratos]] · [[Cobranças]] · [[Fila]] · [[Entradas]] · [[Despesas]] · [[Multas]] · [[Manutenção]] · [[Processos]] · [[Relatórios]] · [[Configurações]]
+- [[Home]] · [[Dashboard]] · [[Login]] · [[Motos]] · [[Clientes]] · [[Contratos]] · [[Cobranças]] · [[Fila]] · [[Entradas]] · [[Despesas]] · [[Multas]] · [[Manutenção]] · [[Processos]] · [[Relatórios]] · [[Configurações]]
 
 ### Operação e negócio
 - [[Fluxos de Negócio]] — Locação, manutenção, financeiro, fila, saída de cliente

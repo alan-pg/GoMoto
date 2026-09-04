@@ -18,8 +18,15 @@ export default async function VehicleEditPage({
     supabase.from('vehicles').select('*').eq('id', id).single(),
     supabase.from('vehicle_photos').select('*').eq('vehicle_id', id),
     supabase
-      .from('vehicle_obligations')
-      .select('*')
+      // A view resolve o que a TABELA não tem: `amount` vive na conta a pagar e
+      // a situação é derivada dela. Ler `select('*')` da tabela e acessar
+      // `obl.amount` / `obl.status` devolvia `undefined` em silêncio — o
+      // formulário reabria com o valor em branco e a situação sempre em
+      // "Pendente", desfazendo a isenção que o operador tinha marcado. Nem o
+      // TypeScript nem o `check:schema` pegam isso: a query pede '*' e o acesso
+      // ao campo inexistente acontece depois, no TSX.
+      .from('vehicle_obligation_status')
+      .select('type, amount, due_date, status, is_exempt')
       .eq('vehicle_id', id)
       .order('due_date', { ascending: false }),
     supabase
@@ -61,7 +68,9 @@ export default async function VehicleEditPage({
       oblByType[key] = {
         amount:  obl.amount != null ? String(obl.amount) : '',
         dueDate: obl.due_date ?? '',
-        status:  obl.status ?? 'pending',
+        // O formulário só conhece três situações. A view tem mais — 'overdue',
+        // 'open', 'unbilled' —, todas variações de "ainda não pago".
+        status:  obl.is_exempt ? 'exempt' : obl.status === 'paid' ? 'paid' : 'pending',
       }
     }
   }

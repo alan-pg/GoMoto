@@ -15,6 +15,13 @@ const csp = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: ['@gomoto/core'],
+  experimental: {
+    // Default de Server Actions é 1MB — extração de documentos (Spec 0012,
+    // RNF-003) precisa aceitar upload de até 10MB.
+    serverActions: {
+      bodySizeLimit: '10mb',
+    },
+  },
   webpack(config) {
     // pdfjs-dist legacy/build inclui canvas (addon nativo Node.js) como fallback server-side.
     // No cliente, canvas não existe — alias para false evita o erro de bundle.

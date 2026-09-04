@@ -7,7 +7,7 @@ import {
   CalendarClock, ChevronRight, Users,
 } from 'lucide-react'
 
-import { useRentals, useBillings } from '@gomoto/data'
+import { useRentals, useOverdueCharges, useScheduledForMonth } from '@gomoto/data'
 import { PageTitle } from '@/components/layout/PageTitle'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import type { Rental } from '@gomoto/core'
@@ -25,9 +25,9 @@ const CYCLE_LABEL: Record<string, string> = {
 }
 
 const STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  active:      { bg: 'bg-[#BAFF1A22]', text: 'text-[#BAFF1A]', label: 'Ativa'       },
-  closed:      { bg: 'bg-[#32323222]', text: 'text-[#9e9e9e]', label: 'Encerrada'   },
-  transferred: { bg: 'bg-[#60a5fa22]', text: 'text-[#60a5fa]', label: 'Transferida' },
+  active:      { bg: 'bg-primary-tint', text: 'text-primary', label: 'Ativa'       },
+  closed:      { bg: 'bg-surface-2',    text: 'text-fg-mute', label: 'Encerrada'   },
+  transferred: { bg: 'bg-info-bg',      text: 'text-info', label: 'Transferida' },
 }
 
 function daysUntil(dateStr: string | null | undefined): number | null {
@@ -45,8 +45,8 @@ function KpiCard({
   label,
   value,
   sub,
-  iconBg = 'bg-[#323232]',
-  iconColor = 'text-[#BAFF1A]',
+  iconBg = 'bg-surface-2',
+  iconColor = 'text-primary',
 }: {
   icon: React.ElementType
   label: string
@@ -56,11 +56,11 @@ function KpiCard({
   iconColor?: string
 }) {
   return (
-    <div className="flex items-center justify-between rounded-xl bg-[#202020] p-4">
+    <div className="flex items-center justify-between rounded-xl bg-surface p-4">
       <div>
-        <p className="text-[13px] text-[#9e9e9e]">{label}</p>
-        <p className="text-2xl font-bold text-[#f5f5f5]">{value}</p>
-        {sub && <p className="mt-0.5 text-[12px] text-[#9e9e9e]">{sub}</p>}
+        <p className="text-[13px] text-fg-mute">{label}</p>
+        <p className="text-2xl font-bold text-fg">{value}</p>
+        {sub && <p className="mt-0.5 text-[12px] text-fg-mute">{sub}</p>}
       </div>
       <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${iconBg} ${iconColor}`}>
         <Icon className="h-6 w-6" />
@@ -75,10 +75,13 @@ type TabId = 'active' | 'closed'
 
 export default function LocacoesPage() {
   const rentalsQuery  = useRentals()
-  const billingsQuery = useBillings({ overdue: true })
+  const overdueQuery = useOverdueCharges()
+  // Previsão do mês vem da view: somar o cronograma no cliente estouraria o
+  // teto de 1.000 linhas do PostgREST em qualquer carteira real (ADR 0025).
+  const scheduledQuery = useScheduledForMonth()
 
   const rentals  = useMemo(() => (rentalsQuery.data  ?? []) as Rental[], [rentalsQuery.data])
-  const billings = useMemo(() => billingsQuery.data ?? [], [billingsQuery.data])
+  const overdueCharges = useMemo(() => overdueQuery.data ?? [], [overdueQuery.data])
 
   const [tab,    setTab]    = useState<TabId>('active')
   const [search, setSearch] = useState('')
@@ -88,7 +91,6 @@ export default function LocacoesPage() {
   // ── KPIs
   const kpis = useMemo(() => {
     const active    = rentals.filter(r => r.status === 'active')
-    const monthlyRevenue = active.reduce((sum, r) => sum + (r.cycle_amount ?? r.monthly_amount ?? 0), 0)
 
     const today = new Date(); today.setHours(0,0,0,0)
     const in30  = new Date(today); in30.setDate(in30.getDate() + 30)
@@ -100,11 +102,12 @@ export default function LocacoesPage() {
       return end >= today && end <= in30
     }).length
 
-    const overdueIds  = new Set(billings.map(b => b.lease_id))
+    // Atraso é derivado em charge_balances; nada aqui recalcula data.
+    const overdueIds  = new Set(overdueCharges.map(c => c.rental_id).filter(Boolean))
     const withOverdue = active.filter(r => overdueIds.has(r.id)).length
 
-    return { total: active.length, monthlyRevenue, endingSoon, withOverdue }
-  }, [rentals, billings])
+    return { total: active.length, endingSoon, withOverdue }
+  }, [rentals, overdueCharges])
 
   // ── Filtro
   const filtered = useMemo(() => {
@@ -127,14 +130,14 @@ export default function LocacoesPage() {
 
   // ── Render
   return (
-    <div className="flex min-h-full flex-col bg-[#121212]">
+    <div className="flex min-h-full flex-col bg-bg">
       <PageTitle
         title="Locações"
         subtitle="Gestão de contratos de locação de veículos"
         actions={
           <Link
             href="/locacoes/nova"
-            className="inline-flex h-9 items-center gap-2 rounded-full bg-[#BAFF1A] px-4 text-[13px] font-bold text-[#121212] transition-colors hover:bg-[#a8e818]"
+            className="inline-flex h-9 items-center gap-2 rounded-full bg-primary px-4 text-[13px] font-bold text-bg transition-colors hover:bg-primary-hover"
           >
             <Plus className="h-4 w-4" />
             Nova Locação
@@ -148,30 +151,39 @@ export default function LocacoesPage() {
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <KpiCard
             icon={Clock}
-            iconBg="bg-[#BAFF1A22]"
-            iconColor="text-[#BAFF1A]"
+            iconBg="bg-primary-tint"
+            iconColor="text-primary"
             label="Locações ativas"
             value={kpis.total}
           />
+          {/* Somava `cycle_amount` dos ativos — valores de PERÍODOS diferentes na
+              mesma conta: um mensal de R$ 1.500 com um semanal de R$ 350 dava
+              R$ 1.850, número que não significa nada. A variável chamava-se
+              `monthlyRevenue` enquanto somava valor semanal.
+
+              O cronograma resolve sem convenção: cada linha tem seu vencimento
+              e seu valor, com pro rata de início e fim já embutido. E é
+              PREVISÃO — não receita (que só existe quando emite) nem contas a
+              receber (que só existe quando o cliente deve). */}
           <KpiCard
             icon={DollarSign}
-            iconBg="bg-[#0e2f13]"
-            iconColor="text-[#229731]"
-            label="Receita/ciclo esperada"
-            value={formatCurrency(kpis.monthlyRevenue)}
-            sub="soma dos contratos ativos"
+            iconBg="bg-success-bg"
+            iconColor="text-success"
+            label="Previsto para o mês"
+            value={formatCurrency(scheduledQuery.data?.amount ?? 0)}
+            sub={`${scheduledQuery.data?.lines ?? 0} parcela${(scheduledQuery.data?.lines ?? 0) === 1 ? '' : 's'} vencendo`}
           />
           <KpiCard
             icon={CalendarClock}
-            iconBg="bg-[#3a180f]"
-            iconColor="text-[#e65e24]"
+            iconBg="bg-warning-bg"
+            iconColor="text-warning"
             label="Vencendo em 30 dias"
             value={kpis.endingSoon}
           />
           <KpiCard
             icon={AlertTriangle}
-            iconBg="bg-[#7c1c1c]"
-            iconColor="text-[#ff9c9a]"
+            iconBg="bg-danger-bg"
+            iconColor="text-danger"
             label="Com cobrança em atraso"
             value={kpis.withOverdue}
           />
@@ -181,7 +193,7 @@ export default function LocacoesPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
           {/* Tabs de status */}
-          <div className="flex border-b border-[#616161]">
+          <div className="flex border-b border-fg-mute">
             {([
               { id: 'active' as TabId, label: 'Ativas',     count: activeCount },
               { id: 'closed' as TabId, label: 'Encerradas', count: closedCount },
@@ -191,13 +203,13 @@ export default function LocacoesPage() {
                 onClick={() => setTab(t.id)}
                 className={`border-b-2 px-4 py-2 text-[14px] font-medium transition-all ${
                   tab === t.id
-                    ? 'border-[#BAFF1A] text-[#f5f5f5]'
-                    : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
+                    ? 'border-primary text-fg'
+                    : 'border-transparent text-fg-mute hover:text-fg'
                 }`}
               >
                 {t.label}
                 {t.count > 0 && (
-                  <span className="ml-1.5 text-[#616161]">({t.count})</span>
+                  <span className="ml-1.5 text-fg-mute">({t.count})</span>
                 )}
               </button>
             ))}
@@ -208,7 +220,7 @@ export default function LocacoesPage() {
             <select
               value={typeFilter}
               onChange={e => setTypeFilter(e.target.value)}
-              className="h-9 rounded-lg border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] outline-none focus:border-[#BAFF1A]"
+              className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-[13px] text-fg outline-none focus:border-primary"
             >
               <option value="all">Todos os tipos</option>
               <option value="rental">Locação</option>
@@ -218,7 +230,7 @@ export default function LocacoesPage() {
             <select
               value={cycleFilter}
               onChange={e => setCycleFilter(e.target.value)}
-              className="h-9 rounded-lg border border-[#474747] bg-[#323232] px-3 text-[13px] text-[#f5f5f5] outline-none focus:border-[#BAFF1A]"
+              className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-[13px] text-fg outline-none focus:border-primary"
             >
               <option value="all">Todos os ciclos</option>
               <option value="monthly">Mensal</option>
@@ -226,13 +238,13 @@ export default function LocacoesPage() {
             </select>
 
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#616161]" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-mute" />
               <input
                 type="text"
                 placeholder="Buscar cliente ou placa…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="h-9 w-52 rounded-lg border border-[#474747] bg-[#323232] pl-9 pr-4 text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A]"
+                className="h-9 w-52 rounded-lg border border-border bg-surface-2 pl-9 pr-4 text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary"
               />
             </div>
           </div>
@@ -241,18 +253,18 @@ export default function LocacoesPage() {
         {/* ── Tabela ────────────────────────────────────────────────────────── */}
         {rentalsQuery.isLoading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#BAFF1A] border-t-transparent" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-xl bg-[#202020] p-16 text-center">
-            <Users className="mb-4 h-12 w-12 text-[#616161]" />
-            <p className="text-lg font-medium text-[#f5f5f5]">
+          <div className="flex flex-col items-center justify-center rounded-xl bg-surface p-16 text-center">
+            <Users className="mb-4 h-12 w-12 text-fg-mute" />
+            <p className="text-lg font-medium text-fg">
               {search ? 'Nenhuma locação encontrada.' : tab === 'active' ? 'Nenhuma locação ativa.' : 'Nenhuma locação encerrada.'}
             </p>
             {!search && tab === 'active' && (
               <Link
                 href="/locacoes/nova"
-                className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-[#BAFF1A] px-4 py-2 text-[13px] font-bold text-[#121212] hover:bg-[#a8e818]"
+                className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-[13px] font-bold text-bg hover:bg-primary-hover"
               >
                 <Plus className="h-4 w-4" />
                 Nova Locação
@@ -260,17 +272,17 @@ export default function LocacoesPage() {
             )}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-[#323232] bg-[#1a1a1a]">
+          <div className="overflow-hidden rounded-xl border border-divider bg-surface">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b border-[#323232] text-left">
-                  <th className="h-9 px-4 font-medium text-[#9e9e9e]">Cliente</th>
-                  <th className="h-9 px-4 font-medium text-[#9e9e9e]">Moto</th>
-                  <th className="h-9 px-4 font-medium text-[#9e9e9e]">Tipo / Ciclo</th>
-                  <th className="h-9 px-4 font-medium text-[#9e9e9e]">Valor/ciclo</th>
-                  <th className="h-9 px-4 font-medium text-[#9e9e9e]">Início</th>
-                  <th className="h-9 px-4 font-medium text-[#9e9e9e]">Fim</th>
-                  <th className="h-9 px-4 font-medium text-[#9e9e9e]">Status</th>
+                <tr className="border-b border-divider text-left">
+                  <th className="h-9 px-4 font-medium text-fg-mute">Cliente</th>
+                  <th className="h-9 px-4 font-medium text-fg-mute">Veículo</th>
+                  <th className="h-9 px-4 font-medium text-fg-mute">Tipo / Ciclo</th>
+                  <th className="h-9 px-4 font-medium text-fg-mute">Valor/ciclo</th>
+                  <th className="h-9 px-4 font-medium text-fg-mute">Início</th>
+                  <th className="h-9 px-4 font-medium text-fg-mute">Fim</th>
+                  <th className="h-9 px-4 font-medium text-fg-mute">Status</th>
                   <th className="h-9 px-4" />
                 </tr>
               </thead>
@@ -278,38 +290,36 @@ export default function LocacoesPage() {
                 {filtered.map(r => {
                   const badge = STATUS_BADGE[r.status] ?? STATUS_BADGE.closed
                   const days  = daysUntil(r.end_date)
-                  const hasOverdue = billings.some(
-                    b => b.lease_id === r.id && (b.status === 'overdue' || b.status === 'pending')
-                  )
+                  const hasOverdue = overdueCharges.some(c => c.rental_id === r.id)
                   const endingSoon = days !== null && days >= 0 && days <= 30 && r.status === 'active'
 
                   return (
                     <tr
                       key={r.id}
-                      className="group h-9 cursor-pointer border-b border-[#1e1e1e] transition-colors last:border-0 hover:bg-[#222222]"
+                      className="group h-9 cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-surface-2"
                     >
-                      <td className="px-4 text-[#f5f5f5]">
+                      <td className="px-4 text-fg">
                         <Link href={`/locacoes/${r.id}`} className="block w-full">
                           {r.customer?.name ?? '—'}
                         </Link>
                       </td>
                       <td className="px-4">
                         <Link href={`/locacoes/${r.id}`} className="block">
-                          <span className="font-mono font-bold text-[#BAFF1A]">
+                          <span className="font-mono font-bold text-primary">
                             {r.vehicle?.license_plate ?? '—'}
                           </span>
-                          <span className="ml-1.5 text-[#9e9e9e]">
+                          <span className="ml-1.5 text-fg-mute">
                             {r.vehicle?.make} {r.vehicle?.model}
                           </span>
                         </Link>
                       </td>
-                      <td className="px-4 text-[#c7c7c7]">
+                      <td className="px-4 text-fg-soft">
                         <Link href={`/locacoes/${r.id}`} className="block">
                           {CONTRACT_TYPE_LABEL[r.contract_type ?? 'rental']}
-                          {r.cycle && <span className="ml-1 text-[#616161]">· {CYCLE_LABEL[r.cycle]}</span>}
+                          {r.cycle && <span className="ml-1 text-fg-mute">· {CYCLE_LABEL[r.cycle]}</span>}
                         </Link>
                       </td>
-                      <td className="px-4 font-mono text-[#f5f5f5]">
+                      <td className="px-4 font-mono text-fg">
                         <Link href={`/locacoes/${r.id}`} className="block">
                           {r.cycle_amount != null
                             ? formatCurrency(r.cycle_amount)
@@ -318,18 +328,18 @@ export default function LocacoesPage() {
                               : '—'}
                         </Link>
                       </td>
-                      <td className="px-4 text-[#9e9e9e]">
+                      <td className="px-4 text-fg-mute">
                         <Link href={`/locacoes/${r.id}`} className="block">
                           {r.start_date ? formatDate(r.start_date) : '—'}
                         </Link>
                       </td>
                       <td className="px-4">
                         <Link href={`/locacoes/${r.id}`} className="block">
-                          <span className={endingSoon ? 'font-medium text-[#e65e24]' : 'text-[#9e9e9e]'}>
+                          <span className={endingSoon ? 'font-medium text-warning' : 'text-fg-mute'}>
                             {r.end_date ? formatDate(r.end_date) : '—'}
                           </span>
                           {endingSoon && days !== null && (
-                            <span className="ml-1 text-[12px] text-[#e65e24]">({days}d)</span>
+                            <span className="ml-1 text-[12px] text-warning">({days}d)</span>
                           )}
                         </Link>
                       </td>
@@ -339,7 +349,7 @@ export default function LocacoesPage() {
                             {badge.label}
                           </span>
                           {hasOverdue && r.status === 'active' && (
-                            <span className="rounded-full bg-[#7c1c1c] px-2 py-0.5 text-[11px] font-semibold text-[#ff9c9a]">
+                            <span className="rounded-full bg-danger-bg px-2 py-0.5 text-[11px] font-semibold text-danger">
                               inadimplente
                             </span>
                           )}
@@ -347,7 +357,7 @@ export default function LocacoesPage() {
                       </td>
                       <td className="px-4">
                         <Link href={`/locacoes/${r.id}`} className="flex justify-end">
-                          <ChevronRight className="h-4 w-4 text-[#616161] transition-colors group-hover:text-[#9e9e9e]" />
+                          <ChevronRight className="h-4 w-4 text-fg-mute transition-colors group-hover:text-fg-mute" />
                         </Link>
                       </td>
                     </tr>
@@ -362,7 +372,7 @@ export default function LocacoesPage() {
         <div className="flex items-center justify-end">
           <Link
             href="/locacoes/fila"
-            className="inline-flex items-center gap-1.5 text-[13px] text-[#9e9e9e] transition-colors hover:text-[#BAFF1A]"
+            className="inline-flex items-center gap-1.5 text-[13px] text-fg-mute transition-colors hover:text-primary"
           >
             <Users className="h-4 w-4" />
             Ver fila de espera

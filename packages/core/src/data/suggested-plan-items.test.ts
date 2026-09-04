@@ -25,7 +25,7 @@ describe('SUGGESTED_PLAN_ITEMS', () => {
     expect(new Set(normalized).size).toBe(normalized.length)
   })
 
-  it('freio/pneu/vistoria de entrega/vistoria mensal estão marcados como críticos', () => {
+  it('freio/pneu/revisão de entrega/revisão mensal estão marcados como críticos', () => {
     const critical = SUGGESTED_PLAN_ITEMS.filter((i) => i.is_critical).map((i) => i.name)
     expect(critical).toEqual(expect.arrayContaining([
       'Pastilha de freio dianteira',
@@ -34,8 +34,8 @@ describe('SUGGESTED_PLAN_ITEMS', () => {
       'Lona de freio traseira',
       'Pneu dianteiro',
       'Pneu traseiro',
-      'Vistoria de entrega',
-      'Vistoria mensal',
+      'Revisão de entrega',
+      'Revisão mensal',
     ]))
   })
 })

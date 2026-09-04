@@ -1,8 +1,8 @@
 import {
   LayoutDashboard, Bike, Users, DollarSign, ScrollText,
-  TrendingUp, TrendingDown, AlertTriangle, Wrench,
+  TrendingDown, AlertTriangle, Wrench,
   Clock, BarChart2, HelpCircle, Settings,
-  ClipboardCheck, ClipboardList, ListOrdered,
+  ClipboardCheck, ClipboardList, ListOrdered, Camera, FileText,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -64,15 +64,25 @@ export const DASHBOARD_NAV: NavSection[] = [
           { kind: 'leaf', href: '/planos-manutencao', label: 'Planos',     icon: ClipboardList },
         ],
       },
+      {
+        kind: 'branch',
+        label: 'Vistorias',
+        icon: Camera,
+        children: [
+          { kind: 'leaf', href: '/vistorias',        label: 'Pendências', icon: Camera },
+          { kind: 'leaf', href: '/vistorias/perfis', label: 'Perfis',     icon: ClipboardList },
+        ],
+      },
       { kind: 'leaf', href: '/multas', label: 'Multas', icon: AlertTriangle },
     ],
   },
   {
     label: 'Financeiro',
     items: [
-      { kind: 'leaf', href: '/despesas',  label: 'Despesas',  icon: TrendingDown },
-      { kind: 'leaf', href: '/entradas',  label: 'Entradas',  icon: TrendingUp },
-      { kind: 'leaf', href: '/cobrancas', label: 'Cobranças', icon: DollarSign },
+      { kind: 'leaf', href: '/financeiro',     label: 'Painel',    icon: BarChart2 },
+      { kind: 'leaf', href: '/financeiro/dre', label: 'DRE',       icon: FileText },
+      { kind: 'leaf', href: '/despesas',       label: 'Despesas',  icon: TrendingDown },
+      { kind: 'leaf', href: '/cobrancas',      label: 'Cobranças', icon: DollarSign },
     ],
   },
   {

@@ -2,48 +2,41 @@
  * @file src/app/(dashboard)/configuracoes/page.tsx
  * @description Página de Configurações do Sistema GoMoto.
  *
- * @summary
- * Esta página conecta as configurações da empresa e da conta do usuário
- * diretamente ao Supabase. A tabela `configuracoes` usa estrutura chave-valor,
- * portanto os campos são mapeados de/para pares { chave, valor } nas operações
- * de leitura e escrita.
- *
  * @funcionalidades
- * 1. **Dados da Empresa**: Busca e salva na tabela `configuracoes` via upsert.
- * 2. **Segurança**: Altera a senha do usuário via `supabase.auth.updateUser`.
- * 3. **Informações da Conta**: Exibe e-mail e data de criação do usuário logado.
+ * 1. **Segurança**: Altera a senha do usuário via `supabase.auth.updateUser`.
+ * 2. **Informações da Conta**: Exibe e-mail e data de criação do usuário logado.
  */
 
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { Building2, Lock, User, Save, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, CreditCard, Link2, Link2Off } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { Lock, User, Save, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, CreditCard, Link2, Link2Off, Palette, UsersRound, ChevronRight } from 'lucide-react'
 import { PageTitle } from '@/components/layout/PageTitle'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
+import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { usePaymentConnection } from '@gomoto/data'
-import { connectMercadoPagoAction, disconnectPaymentAction } from './actions'
+import { useProviderAccounts, useThemePreference, useLateChargePolicies } from '@gomoto/data'
+import type { ThemeBrand, ColorMode } from '@gomoto/core'
+import { connectMercadoPagoAction, disconnectPaymentAction, updateThemePreferenceAction } from './actions'
+import { LateChargePolicySection, type PolicyVersion } from './_components/LateChargePolicySection'
 
-/**
- * @interface CompanyData
- * @description Define a estrutura dos dados da empresa gerenciados nesta página.
- * Cada campo corresponde a uma chave na tabela `configuracoes`.
- */
-interface CompanyData {
-  /** Chave: empresa_nome */
-  company_name: string
-  /** Chave: empresa_cnpj */
-  cnpj: string
-  /** Chave: empresa_telefone */
-  phone: string
-  /** Chave: empresa_email */
-  email: string
-  /** Chave: empresa_endereco */
-  address: string
-}
+const THEME_BRANDS: { value: ThemeBrand; label: string; description: string; swatch: string[] }[] = [
+  { value: 'frota-confiavel', label: 'Frota Confiável', description: 'Azul, neutros frios — recomendado', swatch: ['#F8FAFC', '#2563EB', '#0F172A'] },
+  { value: 'estrada', label: 'Estrada', description: 'Petróleo, neutros quentes', swatch: ['#FAFAF9', '#0D9488', '#1C1917'] },
+  { value: 'sinalizacao', label: 'Sinalização', description: 'Laranja-ember, escuro por padrão', swatch: ['#0B0C10', '#F2790A', '#F4F5F7'] },
+  { value: 'classico', label: 'Clássico', description: 'Verde-limão sobre preto — visual original', swatch: ['#121212', '#BAFF1A', '#FFFFFF'] },
+]
+
+const COLOR_MODES: { value: ColorMode; label: string }[] = [
+  { value: 'system', label: 'Sistema' },
+  { value: 'light', label: 'Claro' },
+  { value: 'dark', label: 'Escuro' },
+]
 
 /**
  * @interface UserData
@@ -74,26 +67,7 @@ export default function SettingsPage() {
    * a criação de novas instâncias a cada atualização de estado.
    */
   const supabase = React.useMemo(() => createClient(), [])
-
-  // --- ESTADOS: Dados da Empresa ---
-
-  /** @state companyData — Formulário com os dados da empresa. */
-  const [companyData, setCompanyData] = useState<CompanyData>({
-    company_name: '',
-    cnpj: '',
-    phone: '',
-    email: '',
-    address: '',
-  })
-
-  /** @state isLoadingCompany — Exibe o spinner enquanto os dados são carregados. */
-  const [isLoadingCompany, setIsLoadingCompany] = useState<boolean>(true)
-
-  /** @state isSavingCompany — Bloqueia o botão e exibe loading durante o salvamento. */
-  const [isSavingCompany, setIsSavingCompany] = useState<boolean>(false)
-
-  /** @state companyFeedback — Mensagem inline de sucesso ou erro do formulário da empresa. */
-  const [companyFeedback, setCompanyFeedback] = useState<FeedbackState | null>(null)
+  const router = useRouter()
 
   // --- ESTADOS: Segurança (Senha) ---
 
@@ -120,18 +94,109 @@ export default function SettingsPage() {
   /** @state isLoadingUser — Exibe o spinner enquanto os dados do usuário carregam. */
   const [isLoadingUser, setIsLoadingUser] = useState<boolean>(true)
 
+  /**
+   * @state canManageUsers — Owner/Admin do tenant vê o card de "Usuários"
+   * (Spec 0011 RNF-003: Operator/Viewer não deve nem saber que a tela existe,
+   * então o link só aparece pra quem pode de fato acessá-la).
+   */
+  const [canManageUsers, setCanManageUsers] = useState(false)
+
+  /**
+   * @state isOwner — só o Owner do tenant vê/manipula a Integração de
+   * Pagamento (conectar/desconectar Mercado Pago afeta o recebimento de
+   * toda a empresa). Mais restrito que canManageUsers (que também libera Admin).
+   */
+  const [isOwner, setIsOwner] = useState(false)
+
   // --- ESTADOS: Integração de Pagamento ---
 
-  const paymentConnectionQuery = usePaymentConnection()
+  const paymentConnectionQuery = useProviderAccounts()
+  const policiesQuery = useLateChargePolicies()
   const [paymentFeedback, setPaymentFeedback] = useState<FeedbackState | null>(null)
   const [isConnecting, setIsConnecting] = useState(false)
   const [isDisconnecting, setIsDisconnecting] = useState(false)
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false)
 
+  // --- ESTADOS: Aparência (ADR 0019) ---
+
+  const themePreferenceQuery = useThemePreference()
+  const [themeBrand, setThemeBrand] = useState<ThemeBrand>('frota-confiavel')
+  const [colorMode, setColorMode] = useState<ColorMode>('system')
+  const [isSavingTheme, setIsSavingTheme] = useState(false)
+  const [themeFeedback, setThemeFeedback] = useState<FeedbackState | null>(null)
+
+  useEffect(() => {
+    if (themePreferenceQuery.data) {
+      setThemeBrand(themePreferenceQuery.data.theme_brand)
+      setColorMode(themePreferenceQuery.data.color_mode)
+    }
+  }, [themePreferenceQuery.data])
+
+  /**
+   * Pré-visualização ao vivo (ADR 0019): escrever os atributos direto no
+   * <html> mostra o tema escolhido na hora, sem esperar salvar. Só roda em
+   * resposta a clique do usuário — nunca no mount/carregamento da
+   * preferência salva, pra não piscar o tema real por um instante.
+   *
+   * O layout raiz (Server Component) só reexecuta em reload completo ou
+   * depois de `router.refresh()` — navegação client-side entre páginas do
+   * dashboard não remonta ele. Sem o cleanup abaixo, uma pré-visualização
+   * não salva "vazaria" pro resto do app ao trocar de tela pela sidebar.
+   * `themeSavedRef` guarda se o usuário confirmou com "Salvar Aparência";
+   * se não confirmou, o unmount desta página restaura o que estava
+   * persistido antes de qualquer clique.
+   */
+  const originalThemeRef = useRef<{ brand: string | null; mode: string | null } | null>(null)
+  const themeSavedRef = useRef(false)
+
+  useEffect(() => {
+    if (originalThemeRef.current === null) {
+      originalThemeRef.current = {
+        brand: document.documentElement.getAttribute('data-brand'),
+        mode: document.documentElement.getAttribute('data-mode'),
+      }
+    }
+    return () => {
+      if (themeSavedRef.current || !originalThemeRef.current) return
+      const { brand, mode } = originalThemeRef.current
+      if (brand) document.documentElement.setAttribute('data-brand', brand)
+      if (mode) document.documentElement.setAttribute('data-mode', mode)
+      else document.documentElement.removeAttribute('data-mode')
+    }
+  }, [])
+
+  function handleSelectThemeBrand(brand: ThemeBrand) {
+    setThemeBrand(brand)
+    document.documentElement.setAttribute('data-brand', brand)
+  }
+
+  function handleSelectColorMode(mode: ColorMode) {
+    setColorMode(mode)
+    if (mode === 'system') {
+      document.documentElement.removeAttribute('data-mode')
+    } else {
+      document.documentElement.setAttribute('data-mode', mode)
+    }
+  }
+
+  async function handleSaveTheme() {
+    setIsSavingTheme(true)
+    setThemeFeedback(null)
+    const result = await updateThemePreferenceAction({ theme_brand: themeBrand, color_mode: colorMode })
+    if (!result.ok) {
+      setThemeFeedback({ type: 'error', message: result.error?.message ?? 'Erro ao salvar aparência.' })
+    } else {
+      themeSavedRef.current = true
+      setThemeFeedback({ type: 'success', message: 'Aparência atualizada.' })
+      router.refresh()
+    }
+    setIsSavingTheme(false)
+  }
+
   /**
    * @effect fetchInitialData
-   * @description Busca os dados da empresa na tabela `configuracoes` e
-   * as informações do usuário logado via Supabase Auth ao montar o componente.
+   * @description Busca as informações do usuário logado via Supabase Auth
+   * ao montar o componente.
    */
   useEffect(() => {
     async function fetchInitialData() {
@@ -151,39 +216,20 @@ export default function SettingsPage() {
               year: 'numeric',
             }),
           })
+
+          const { data: membership } = await supabase
+            .from('tenant_members')
+            .select('role')
+            .eq('user_id', user.id)
+            .eq('status', 'active')
+            .maybeSingle()
+          setCanManageUsers(membership?.role === 'owner' || membership?.role === 'admin')
+          setIsOwner(membership?.role === 'owner')
         }
       } catch {
         // Falha silenciosa: o card de conta exibirá mensagem de erro
       } finally {
         setIsLoadingUser(false)
-      }
-
-      try {
-        // Busca todos os registros da tabela de configurações (estrutura chave-valor)
-        const { data: settingsData, error: settingsError } = await supabase
-          .from('settings')
-          .select('key, value')
-
-        if (settingsData && !settingsError) {
-          /**
-           * Transforma o array [{chave, valor}] em um objeto estruturado,
-           * mapeando cada chave do banco para a propriedade correspondente.
-           */
-          const find = (key: string) =>
-            settingsData.find((item) => item.key === key)?.value ?? ''
-
-          setCompanyData({
-            company_name: find('empresa_nome'),
-            cnpj: find('empresa_cnpj'),
-            phone: find('empresa_telefone'),
-            email: find('empresa_email'),
-            address: find('empresa_endereco'),
-          })
-        }
-      } catch {
-        // Falha silenciosa: o formulário iniciará vazio
-      } finally {
-        setIsLoadingCompany(false)
       }
     }
 
@@ -236,44 +282,6 @@ export default function SettingsPage() {
       paymentConnectionQuery.refetch()
     }
     setIsDisconnecting(false)
-  }
-
-  /**
-   * @function handleSaveCompany
-   * @description Salva todos os campos da empresa na tabela `configuracoes`
-   * usando Promise.all para executar os upserts em paralelo.
-   */
-  const handleSaveCompany = async () => {
-    setIsSavingCompany(true)
-    setCompanyFeedback(null)
-
-    try {
-      const updates = [
-        { key: 'empresa_nome', value: companyData.company_name },
-        { key: 'empresa_cnpj', value: companyData.cnpj },
-        { key: 'empresa_telefone', value: companyData.phone },
-        { key: 'empresa_email', value: companyData.email },
-        { key: 'empresa_endereco', value: companyData.address },
-      ]
-
-      await Promise.all(
-        updates.map((update) =>
-          supabase.from('settings').upsert(update, { onConflict: 'key' })
-        )
-      )
-
-      setCompanyFeedback({
-        type: 'success',
-        message: 'Dados da empresa salvos com sucesso!',
-      })
-    } catch {
-      setCompanyFeedback({
-        type: 'error',
-        message: 'Erro ao salvar os dados. Tente novamente.',
-      })
-    } finally {
-      setIsSavingCompany(false)
-    }
   }
 
   /**
@@ -338,8 +346,8 @@ export default function SettingsPage() {
       <div
         className={`flex items-center gap-2 rounded-2xl px-4 py-3 text-[13px] font-medium ${
           isSuccess
-            ? 'bg-[#0e2f13] border border-[#229731] text-[#229731]'
-            : 'bg-[#7c1c1c] border border-[#ff9c9a] text-[#ff9c9a]'
+            ? 'bg-success-bg border border-success text-success'
+            : 'bg-danger-bg border border-danger text-danger'
         }`}
       >
         {isSuccess ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
@@ -350,101 +358,101 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col min-h-full">
-      <PageTitle title="Configurações" subtitle="Gerencie as informações da empresa e detalhes da sua conta" />
+      <PageTitle title="Configurações" subtitle="Gerencie as preferências do sistema e detalhes da sua conta" />
       <div className="p-6 space-y-8 max-w-5xl">
 
-        {/* SEÇÃO 1: Dados da Empresa */}
+        {/* SEÇÃO 1: Aparência (ADR 0019) — preferência pessoal, colocada primeiro
+            para ser encontrada sem depender de rolar a página (achado de
+            descobribilidade da auditoria de UX/UI 2026-08-06, ver ADR 0019 §7). */}
         <section>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2.5 rounded-full bg-[#323232]">
-              <Building2 className="w-5 h-5 text-[#BAFF1A]" />
+            <div className="p-2.5 rounded-full bg-primary-tint">
+              <Palette className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h2 className="text-[28px] font-semibold text-[#f5f5f5]">Dados da Empresa</h2>
-              <p className="text-[13px] text-[#9e9e9e]">
-                Informações que aparecerão em contratos e relatórios.
+              <h2 className="text-[28px] font-semibold text-fg">Aparência</h2>
+              <p className="text-[13px] text-fg-mute">
+                Escolha a identidade visual e o modo de cor do sistema — vale só pra você, não muda pros outros operadores.
               </p>
             </div>
           </div>
 
           <Card>
-            {isLoadingCompany ? (
-              /* Estado de carregamento: exibe spinner centralizado */
-              <div className="flex flex-col items-center justify-center py-12 gap-3">
-                <Loader2 className="animate-spin text-[#BAFF1A]" size={32} />
-                <p className="text-[#9e9e9e] text-[13px]">Carregando dados da empresa...</p>
+            <div className="space-y-5">
+              <div>
+                <p className="text-[13px] text-fg-soft mb-2">Tema</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {THEME_BRANDS.map((brand) => (
+                    <button
+                      key={brand.value}
+                      type="button"
+                      onClick={() => handleSelectThemeBrand(brand.value)}
+                      className={cn(
+                        'text-left rounded-xl border p-3 transition-colors',
+                        themeBrand === brand.value ? 'border-primary bg-primary-tint' : 'border-border hover:border-fg-mute',
+                      )}
+                    >
+                      <div className="flex gap-1 mb-2">
+                        {brand.swatch.map((hex) => (
+                          <span
+                            key={hex}
+                            className="w-5 h-5 rounded-full border border-black/10"
+                            style={{ backgroundColor: hex }}
+                          />
+                        ))}
+                      </div>
+                      <p className="text-[13px] font-medium text-fg">{brand.label}</p>
+                      <p className="text-[11px] text-fg-mute mt-0.5">{brand.description}</p>
+                    </button>
+                  ))}
+                </div>
               </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    label="Nome da Empresa"
-                    value={companyData.company_name}
-                    onChange={(e) =>
-                      setCompanyData({ ...companyData, company_name: e.target.value })
-                    }
-                  />
-                  <Input
-                    label="CNPJ"
-                    value={companyData.cnpj}
-                    onChange={(e) =>
-                      setCompanyData({ ...companyData, cnpj: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    label="Telefone"
-                    value={companyData.phone}
-                    onChange={(e) =>
-                      setCompanyData({ ...companyData, phone: e.target.value })
-                    }
-                  />
-                  <Input
-                    label="E-mail"
-                    type="email"
-                    value={companyData.email}
-                    onChange={(e) =>
-                      setCompanyData({ ...companyData, email: e.target.value })
-                    }
-                  />
-                </div>
-                <Input
-                  label="Endereço Completo"
-                  value={companyData.address}
-                  onChange={(e) =>
-                    setCompanyData({ ...companyData, address: e.target.value })
-                  }
-                />
 
-                {/* Área de ações com feedback inline */}
-                <div className="flex items-center justify-between pt-2 gap-4">
-                  <FeedbackMessage feedback={companyFeedback} />
-                  <Button
-                    variant="primary"
-                    size="md"
-                    loading={isSavingCompany}
-                    onClick={handleSaveCompany}
-                    className="ml-auto flex-shrink-0"
-                  >
-                    <Save className="w-4 h-4" />
-                    Salvar Dados da Empresa
-                  </Button>
+              <div>
+                <p className="text-[13px] text-fg-soft mb-2">Modo de cor</p>
+                <div className="inline-flex rounded-full border border-border p-1 gap-1">
+                  {COLOR_MODES.map((mode) => (
+                    <button
+                      key={mode.value}
+                      type="button"
+                      onClick={() => handleSelectColorMode(mode.value)}
+                      className={cn(
+                        'h-8 px-4 rounded-full text-[12px] font-medium transition-colors',
+                        colorMode === mode.value ? 'bg-primary text-primary-contrast' : 'text-fg-soft hover:text-fg',
+                      )}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
                 </div>
               </div>
-            )}
+
+              <div className="flex items-center justify-between pt-2 gap-4">
+                <FeedbackMessage feedback={themeFeedback} />
+                <Button
+                  variant="primary"
+                  size="md"
+                  loading={isSavingTheme}
+                  onClick={handleSaveTheme}
+                  className="ml-auto flex-shrink-0"
+                >
+                  <Save className="w-4 h-4" />
+                  Salvar Aparência
+                </Button>
+              </div>
+            </div>
           </Card>
         </section>
 
         {/* SEÇÃO 2: Segurança — Alteração de Senha */}
         <section>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2.5 rounded-full bg-[#2d0363] border border-[#a880ff]">
-              <Lock className="w-5 h-5 text-[#a880ff]" />
+            <div className="p-2.5 rounded-full bg-info-bg border border-info">
+              <Lock className="w-5 h-5 text-info" />
             </div>
             <div>
-              <h2 className="text-[28px] font-semibold text-[#f5f5f5]">Segurança</h2>
-              <p className="text-[13px] text-[#9e9e9e]">Altere sua senha de acesso ao painel.</p>
+              <h2 className="text-[28px] font-semibold text-fg">Segurança</h2>
+              <p className="text-[13px] text-fg-mute">Altere sua senha de acesso ao painel.</p>
             </div>
           </div>
 
@@ -462,7 +470,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-[38px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors focus:outline-none"
+                  className="absolute right-3 top-[38px] text-fg-mute hover:text-fg transition-colors focus:outline-none"
                   title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -497,75 +505,121 @@ export default function SettingsPage() {
           </Card>
         </section>
 
-        {/* SEÇÃO 3: Integração de Pagamento */}
-        <section>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2.5 rounded-full bg-[#0d2240] border border-[#3b82f6]">
-              <CreditCard className="w-5 h-5 text-[#3b82f6]" />
+        {/* SEÇÃO 3: Integração de Pagamento — só Owner vê/manipula (conectar/
+            desconectar afeta o recebimento de toda a empresa). Mesmo padrão de
+            "esconder, não só bloquear" já usado pra Usuários (RNF-003). */}
+        {isOwner ? (
+          <section>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 rounded-full bg-info-bg border border-info">
+                <CreditCard className="w-5 h-5 text-info" />
+              </div>
+              <div>
+                <h2 className="text-[28px] font-semibold text-fg">Integração de Pagamento</h2>
+                <p className="text-[13px] text-fg-mute">
+                  Conecte a conta Mercado Pago para gerar cobranças Pix automaticamente.
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-[28px] font-semibold text-[#f5f5f5]">Integração de Pagamento</h2>
-              <p className="text-[13px] text-[#9e9e9e]">
-                Conecte a conta Mercado Pago para gerar cobranças Pix automaticamente.
-              </p>
-            </div>
-          </div>
 
-          <Card>
-            {paymentConnectionQuery.isLoading ? (
-              <div className="flex items-center gap-3 py-2">
-                <Loader2 className="animate-spin text-[#9e9e9e]" size={20} />
-                <p className="text-[13px] text-[#9e9e9e]">Verificando integração...</p>
-              </div>
-            ) : paymentConnectionQuery.data?.is_connected ? (
-              <div className="space-y-4">
-                <div className="flex items-center gap-3 p-4 rounded-xl bg-[#0e2f13] border border-[#229731]">
-                  <CheckCircle2 className="w-5 h-5 text-[#229731] shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-[#229731]">Mercado Pago conectado</p>
-                    {paymentConnectionQuery.data.mp_account_email && (
-                      <p className="text-[12px] text-[#9e9e9e] mt-0.5 truncate">
-                        {paymentConnectionQuery.data.mp_account_email}
-                      </p>
-                    )}
-                  </div>
-                  <Button variant="danger" size="sm" onClick={() => setDisconnectModalOpen(true)}>
-                    <Link2Off className="w-4 h-4" />
-                    Desconectar
-                  </Button>
+            <Card>
+              {paymentConnectionQuery.isLoading ? (
+                <div className="flex items-center gap-3 py-2">
+                  <Loader2 className="animate-spin text-fg-mute" size={20} />
+                  <p className="text-[13px] text-fg-mute">Verificando integração...</p>
                 </div>
-                {paymentFeedback && <FeedbackMessage feedback={paymentFeedback} />}
+              ) : paymentConnectionQuery.data?.is_connected ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 p-4 rounded-xl bg-success-bg border border-success">
+                    <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-medium text-success">Mercado Pago conectado</p>
+                      {paymentConnectionQuery.data.accounts.find((a) => a.is_default)?.external_account_id && (
+                        <p className="text-[12px] text-fg-mute mt-0.5 truncate">
+                          {paymentConnectionQuery.data.accounts.find((a) => a.is_default)?.external_account_id}
+                        </p>
+                      )}
+                    </div>
+                    <Button variant="danger" size="sm" onClick={() => setDisconnectModalOpen(true)}>
+                      <Link2Off className="w-4 h-4" />
+                      Desconectar
+                    </Button>
+                  </div>
+                  {paymentFeedback && <FeedbackMessage feedback={paymentFeedback} />}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 p-4 rounded-xl bg-surface border border-border">
+                    <Link2 className="w-5 h-5 text-fg-mute shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-[13px] font-medium text-fg">Nenhuma conta conectada</p>
+                      <p className="text-[12px] text-fg-mute mt-0.5">
+                        Conecte a conta Mercado Pago da locadora para gerar cobranças Pix.
+                      </p>
+                    </div>
+                    <Button onClick={handleConnect} loading={isConnecting} size="sm">
+                      <Link2 className="w-4 h-4" />
+                      Conectar Mercado Pago
+                    </Button>
+                  </div>
+                  {paymentFeedback && <FeedbackMessage feedback={paymentFeedback} />}
+                </div>
+              )}
+            </Card>
+          </section>
+        ) : null}
+
+        {/* SEÇÃO 3-b: Encargo por atraso — Owner só, mesmo racional da integração
+            de pagamento: define quanto TODO cliente paga de multa e juros, não é
+            preferência operacional. Até aqui só dava pra mudar por SQL. */}
+        {isOwner ? (
+          <LateChargePolicySection
+            versions={(policiesQuery.data ?? []) as PolicyVersion[]}
+            onSaved={() => { void policiesQuery.refetch() }}
+          />
+        ) : null}
+
+        {/* SEÇÃO 4: Usuários (Spec 0011) — só visível pra Owner/Admin do tenant;
+            RNF-003 quer que Operator/Viewer nem saiba que a tela existe. */}
+        {canManageUsers ? (
+          <section>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 rounded-full bg-info-bg border border-info">
+                <UsersRound className="w-5 h-5 text-info" />
               </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="flex items-center gap-3 p-4 rounded-xl bg-[#1a1a1a] border border-[#474747]">
-                  <Link2 className="w-5 h-5 text-[#9e9e9e] shrink-0" />
-                  <div className="flex-1">
-                    <p className="text-[13px] font-medium text-[#f5f5f5]">Nenhuma conta conectada</p>
-                    <p className="text-[12px] text-[#9e9e9e] mt-0.5">
-                      Conecte a conta Mercado Pago da locadora para gerar cobranças Pix.
+              <div>
+                <h2 className="text-[28px] font-semibold text-fg">Usuários</h2>
+                <p className="text-[13px] text-fg-mute">
+                  Convide pessoas da sua equipe, gerencie papéis e revogue acesso.
+                </p>
+              </div>
+            </div>
+
+            <Link href="/configuracoes/usuarios">
+              <Card className="hover:border-fg-mute transition-colors cursor-pointer">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[13px] font-medium text-fg">Gerenciar usuários</p>
+                    <p className="text-[12px] text-fg-mute mt-0.5">
+                      Convidar, alterar papel, revogar e reativar acesso de membros da empresa.
                     </p>
                   </div>
-                  <Button onClick={handleConnect} loading={isConnecting} size="sm">
-                    <Link2 className="w-4 h-4" />
-                    Conectar Mercado Pago
-                  </Button>
+                  <ChevronRight className="w-5 h-5 text-fg-mute shrink-0" />
                 </div>
-                {paymentFeedback && <FeedbackMessage feedback={paymentFeedback} />}
-              </div>
-            )}
-          </Card>
-        </section>
+              </Card>
+            </Link>
+          </section>
+        ) : null}
 
-        {/* SEÇÃO 4: Informações da Conta */}
+        {/* SEÇÃO 5: Informações da Conta */}
         <section>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2.5 rounded-full bg-[#3a180f] border border-[#e65e24]">
-              <User className="w-5 h-5 text-[#e65e24]" />
+            <div className="p-2.5 rounded-full bg-warning-bg border border-warning">
+              <User className="w-5 h-5 text-warning" />
             </div>
             <div>
-              <h2 className="text-[28px] font-semibold text-[#f5f5f5]">Informações da Conta</h2>
-              <p className="text-[13px] text-[#9e9e9e]">Detalhes do usuário autenticado no sistema.</p>
+              <h2 className="text-[28px] font-semibold text-fg">Informações da Conta</h2>
+              <p className="text-[13px] text-fg-mute">Detalhes do usuário autenticado no sistema.</p>
             </div>
           </div>
 
@@ -573,25 +627,25 @@ export default function SettingsPage() {
             {isLoadingUser ? (
               /* Estado de carregamento do usuário */
               <div className="flex justify-center py-6">
-                <Loader2 className="animate-spin text-[#9e9e9e]" size={28} />
+                <Loader2 className="animate-spin text-fg-mute" size={28} />
               </div>
             ) : userData ? (
               /* Exibe os dados do usuário logado */
               <div className="space-y-4">
                 <div>
-                  <p className="text-[13px] text-[#9e9e9e] mb-1">E-mail de Acesso</p>
-                  <p className="text-[#f5f5f5] font-medium">{userData.email}</p>
+                  <p className="text-[13px] text-fg-mute mb-1">E-mail de Acesso</p>
+                  <p className="text-fg font-medium">{userData.email}</p>
                 </div>
-                <div className="border-t border-[#323232]" />
+                <div className="border-t border-border" />
                 <div>
-                  <p className="text-[13px] text-[#9e9e9e] mb-1">Membro desde</p>
-                  <p className="text-[#f5f5f5] font-medium">{userData.createdAt}</p>
+                  <p className="text-[13px] text-fg-mute mb-1">Membro desde</p>
+                  <p className="text-fg font-medium">{userData.createdAt}</p>
                 </div>
               </div>
             ) : (
               /* Fallback quando os dados do usuário não puderam ser carregados */
               <div className="py-4 text-center">
-                <p className="text-[#ff9c9a] text-[13px]">
+                <p className="text-danger text-[13px]">
                   Não foi possível carregar as informações do usuário.
                 </p>
               </div>
@@ -602,7 +656,7 @@ export default function SettingsPage() {
 
       <Modal open={disconnectModalOpen} onClose={() => setDisconnectModalOpen(false)} title="Desconectar Mercado Pago" size="sm">
         <div className="space-y-4">
-          <p className="text-[13px] text-[#9e9e9e]">
+          <p className="text-[13px] text-fg-mute">
             Ao desconectar, o sistema não poderá gerar novos Pix de cobrança. Pix já gerados continuam válidos até o vencimento.
           </p>
           <div className="flex gap-3 justify-end">

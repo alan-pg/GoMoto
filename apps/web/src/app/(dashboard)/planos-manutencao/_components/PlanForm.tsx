@@ -75,15 +75,15 @@ function parsePctOrNull(s: string): number | null {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const inputCls =
-  'w-full h-9 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all'
+  'w-full h-9 px-3 rounded-lg bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all'
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
 function SectionHeader({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="flex items-baseline gap-2 mb-5">
-      <h2 className="text-[15px] font-bold text-[#f5f5f5]">{title}</h2>
-      {hint && <span className="text-[12px] text-[#616161]">{hint}</span>}
+      <h2 className="text-[15px] font-bold text-fg">{title}</h2>
+      {hint && <span className="text-[12px] text-fg-mute">{hint}</span>}
     </div>
   )
 }
@@ -93,12 +93,12 @@ function Field({ label, hint, error, children, className }: {
 }) {
   return (
     <div className={className}>
-      <label className="block text-[13px] text-[#9e9e9e] mb-1.5">
+      <label className="block text-[13px] text-fg-mute mb-1.5">
         {label}
-        {hint && <span className="ml-1.5 text-[12px] text-[#616161]">{hint}</span>}
+        {hint && <span className="ml-1.5 text-[12px] text-fg-mute">{hint}</span>}
       </label>
       {children}
-      {error && <p className="text-[12px] text-[#ff9c9a] mt-1">{error}</p>}
+      {error && <p className="text-[12px] text-danger mt-1">{error}</p>}
     </div>
   )
 }
@@ -135,11 +135,11 @@ const ItemRow = forwardRef<HTMLDivElement, ItemRowProps>(
         id={`item-${item.key}`}
         ref={ref}
         style={{ viewTransitionName: `plan-item-${item.key}` }}
-        className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-4 space-y-3 scroll-mt-16"
+        className="rounded-xl border border-border bg-surface p-4 space-y-3 scroll-mt-16"
       >
         {/* Nome + ordem + remover */}
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-[#474747] font-mono w-5 text-center flex-shrink-0">
+          <span className="text-[11px] text-border font-mono w-5 text-center flex-shrink-0">
             {index + 1}
           </span>
           <input
@@ -149,13 +149,13 @@ const ItemRow = forwardRef<HTMLDivElement, ItemRowProps>(
             onChange={(e) => onChange({ name: e.target.value })}
             onBlur={applySuggestionOnBlur}
             maxLength={200}
-            className="flex-1 h-9 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all"
+            className="flex-1 h-9 px-3 rounded-lg bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all"
           />
           <button
             type="button"
             onClick={onMoveUp}
             disabled={!canMoveUp}
-            className="flex-shrink-0 h-7 w-7 rounded-md text-[#616161] hover:bg-[#323232] hover:text-[#9e9e9e] transition-colors flex items-center justify-center disabled:opacity-25 disabled:cursor-not-allowed"
+            className="flex-shrink-0 h-7 w-7 rounded-md text-fg-mute hover:bg-surface-2 hover:text-fg-mute transition-colors flex items-center justify-center disabled:opacity-25 disabled:cursor-not-allowed"
             title="Mover para cima"
           >
             <ChevronUp className="h-4 w-4" />
@@ -164,7 +164,7 @@ const ItemRow = forwardRef<HTMLDivElement, ItemRowProps>(
             type="button"
             onClick={onMoveDown}
             disabled={!canMoveDown}
-            className="flex-shrink-0 h-7 w-7 rounded-md text-[#616161] hover:bg-[#323232] hover:text-[#9e9e9e] transition-colors flex items-center justify-center disabled:opacity-25 disabled:cursor-not-allowed"
+            className="flex-shrink-0 h-7 w-7 rounded-md text-fg-mute hover:bg-surface-2 hover:text-fg-mute transition-colors flex items-center justify-center disabled:opacity-25 disabled:cursor-not-allowed"
             title="Mover para baixo"
           >
             <ChevronDown className="h-4 w-4" />
@@ -172,7 +172,7 @@ const ItemRow = forwardRef<HTMLDivElement, ItemRowProps>(
           <button
             type="button"
             onClick={onRemove}
-            className="flex-shrink-0 h-7 w-7 rounded-md text-[#616161] hover:bg-[#7c1c1c]/30 hover:text-[#ff9c9a] transition-colors flex items-center justify-center"
+            className="flex-shrink-0 h-7 w-7 rounded-md text-fg-mute hover:bg-danger-bg hover:text-danger transition-colors flex items-center justify-center"
             title="Remover item"
           >
             <Trash2 className="h-4 w-4" />
@@ -223,9 +223,9 @@ const ItemRow = forwardRef<HTMLDivElement, ItemRowProps>(
               type="checkbox"
               checked={item.is_critical}
               onChange={(e) => onChange({ is_critical: e.target.checked })}
-              className="accent-[#BAFF1A]"
+              className="accent-primary"
             />
-            <span className="text-[12px] text-[#9e9e9e] whitespace-nowrap">Crítico</span>
+            <span className="text-[12px] text-fg-mute whitespace-nowrap">Crítico</span>
           </label>
         </div>
       </div>
@@ -488,20 +488,20 @@ export function PlanForm({ planId, initialPlan, initialItems }: PlanFormProps) {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-[#121212]">
+    <div className="min-h-screen bg-bg">
 
       {/* ── Sticky header ──────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-20 bg-[#121212]/95 backdrop-blur border-b border-[#2a2a2a] px-6 h-14 flex items-center gap-3">
-        <Link href={backHref} className="text-[13px] text-[#9e9e9e] hover:text-[#f5f5f5] transition-colors whitespace-nowrap">
+      <div className="sticky top-0 z-20 bg-bg backdrop-blur border-b border-border px-6 h-14 flex items-center gap-3">
+        <Link href={backHref} className="text-[13px] text-fg-mute hover:text-fg transition-colors whitespace-nowrap">
           ← {backLabel}
         </Link>
-        <span className="text-[#3a3a3a]">/</span>
-        <h1 className="text-[15px] font-bold text-[#f5f5f5] flex-1 truncate">
+        <span className="text-fg-mute">/</span>
+        <h1 className="text-[15px] font-bold text-fg flex-1 truncate">
           {isEditMode ? 'Editar plano' : 'Novo plano de manutenção'}
         </h1>
         <Link
           href={backHref}
-          className="h-8 px-4 rounded-full border border-[#474747] text-[#9e9e9e] text-[13px] font-medium hover:text-[#f5f5f5] hover:border-[#616161] transition-colors inline-flex items-center"
+          className="h-8 px-4 rounded-full border border-border text-fg-mute text-[13px] font-medium hover:text-fg hover:border-fg-mute transition-colors inline-flex items-center"
         >
           Cancelar
         </Link>
@@ -509,7 +509,7 @@ export function PlanForm({ planId, initialPlan, initialItems }: PlanFormProps) {
           type="submit"
           form="plan-form"
           disabled={isPending}
-          className="h-8 px-5 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors disabled:opacity-60"
+          className="h-8 px-5 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors disabled:opacity-60"
         >
           {isPending ? 'Salvando…' : isEditMode ? 'Salvar' : 'Criar plano'}
         </button>
@@ -527,7 +527,7 @@ export function PlanForm({ planId, initialPlan, initialItems }: PlanFormProps) {
 
             {/* Grupo: Itens */}
             <div className="mt-1">
-              <p className="px-3 py-1.5 text-[11px] font-semibold text-[#474747] uppercase tracking-wider">
+              <p className="px-3 py-1.5 text-[11px] font-semibold text-border uppercase tracking-wider">
                 Itens
               </p>
               <div className="space-y-0.5">
@@ -542,10 +542,10 @@ export function PlanForm({ planId, initialPlan, initialItems }: PlanFormProps) {
                       onClick={() => scrollTo(id)}
                       title={label}
                       className={`w-full text-left pl-5 pr-3 py-1.5 rounded-lg text-[12px] transition-colors flex items-center gap-2 ${
-                        isActive ? 'bg-[#222222] text-[#f5f5f5]' : 'text-[#616161] hover:text-[#9e9e9e] hover:bg-[#1e1e1e]'
+                        isActive ? 'bg-surface-2 text-fg' : 'text-fg-mute hover:text-fg-mute hover:bg-divider'
                       }`}
                     >
-                      <span className={`inline-block w-1 h-1 rounded-full flex-shrink-0 transition-colors ${isActive ? 'bg-[#BAFF1A]' : 'bg-[#3a3a3a]'}`} />
+                      <span className={`inline-block w-1 h-1 rounded-full flex-shrink-0 transition-colors ${isActive ? 'bg-primary' : 'bg-fg-mute'}`} />
                       <span className="truncate">{label}</span>
                     </button>
                   )
@@ -601,11 +601,11 @@ export function PlanForm({ planId, initialPlan, initialItems }: PlanFormProps) {
                   type="checkbox"
                   checked={isDefault}
                   onChange={(e) => setIsDefault(e.target.checked)}
-                  className="mt-0.5 accent-[#BAFF1A]"
+                  className="mt-0.5 accent-primary"
                 />
                 <div>
-                  <p className="text-[13px] text-[#f5f5f5] font-medium">Tornar plano padrão</p>
-                  <p className="text-[12px] text-[#616161]">
+                  <p className="text-[13px] text-fg font-medium">Tornar plano padrão</p>
+                  <p className="text-[12px] text-fg-mute">
                     Pré-selecionado no cadastro de novos veículos. O padrão anterior é desmarcado automaticamente.
                   </p>
                 </div>
@@ -642,7 +642,7 @@ export function PlanForm({ planId, initialPlan, initialItems }: PlanFormProps) {
             <button
               type="button"
               onClick={addItem}
-              className="mt-3 flex items-center justify-center gap-2 w-full h-10 rounded-xl border border-dashed border-[#474747] text-[13px] text-[#616161] hover:border-[#BAFF1A] hover:text-[#BAFF1A] transition-colors"
+              className="mt-3 flex items-center justify-center gap-2 w-full h-10 rounded-xl border border-dashed border-border text-[13px] text-fg-mute hover:border-primary hover:text-primary transition-colors"
             >
               <Plus className="w-4 h-4" /> Adicionar item
             </button>
@@ -658,22 +658,22 @@ export function PlanForm({ planId, initialPlan, initialItems }: PlanFormProps) {
               <div className="space-y-3">
 
                 {/* Clonar */}
-                <div className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] overflow-hidden">
+                <div className="rounded-xl border border-border bg-surface overflow-hidden">
                   <button
                     type="button"
                     onClick={() => {
                       if (!showCloneInput) setCloneNameInput(`${initialPlan?.name ?? 'Plano'} (cópia)`)
                       setShowCloneInput((p) => !p)
                     }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-[13px] text-[#f5f5f5] hover:bg-[#222] transition-colors"
+                    className="w-full flex items-center gap-3 px-4 py-3 text-[13px] text-fg hover:bg-divider transition-colors"
                   >
-                    <Copy className="h-4 w-4 text-[#9e9e9e] flex-shrink-0" />
+                    <Copy className="h-4 w-4 text-fg-mute flex-shrink-0" />
                     <span className="flex-1 text-left">Clonar este plano</span>
-                    <ChevronRight className={`h-4 w-4 text-[#616161] transition-transform duration-200 ${showCloneInput ? 'rotate-90' : ''}`} />
+                    <ChevronRight className={`h-4 w-4 text-fg-mute transition-transform duration-200 ${showCloneInput ? 'rotate-90' : ''}`} />
                   </button>
                   {showCloneInput && (
-                    <div className="px-4 pb-4 pt-1 border-t border-[#2a2a2a] space-y-3">
-                      <p className="text-[12px] text-[#9e9e9e]">
+                    <div className="px-4 pb-4 pt-1 border-t border-border space-y-3">
+                      <p className="text-[12px] text-fg-mute">
                         Cria uma cópia independente com todos os itens. O clone nunca herda o status padrão.
                       </p>
                       <div className="flex gap-2">
@@ -684,13 +684,13 @@ export function PlanForm({ planId, initialPlan, initialItems }: PlanFormProps) {
                           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleClone() } }}
                           placeholder="Nome do novo plano"
                           maxLength={200}
-                          className="flex-1 h-9 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all"
+                          className="flex-1 h-9 px-3 rounded-lg bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all"
                         />
                         <button
                           type="button"
                           disabled={!cloneNameInput.trim() || cloning}
                           onClick={handleClone}
-                          className="h-9 px-4 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] hover:border-[#BAFF1A] hover:text-[#BAFF1A] transition-all disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
+                          className="h-9 px-4 rounded-lg bg-surface-2 border border-border text-[13px] text-fg hover:border-primary hover:text-primary transition-all disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
                         >
                           {cloning ? 'Clonando…' : <><Check className="h-3.5 w-3.5" /> Clonar</>}
                         </button>
@@ -700,20 +700,20 @@ export function PlanForm({ planId, initialPlan, initialItems }: PlanFormProps) {
                 </div>
 
                 {/* Arquivar / Reativar */}
-                <div className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-4">
+                <div className="rounded-xl border border-border bg-surface p-4">
                   {isArchived ? (
                     <div className="flex items-start gap-3">
-                      <ArchiveRestore className="h-4 w-4 text-[#9e9e9e] flex-shrink-0 mt-0.5" />
+                      <ArchiveRestore className="h-4 w-4 text-fg-mute flex-shrink-0 mt-0.5" />
                       <div className="flex-1">
-                        <p className="text-[13px] text-[#f5f5f5] font-medium mb-1">Plano arquivado</p>
-                        <p className="text-[12px] text-[#616161] mb-3">
+                        <p className="text-[13px] text-fg font-medium mb-1">Plano arquivado</p>
+                        <p className="text-[12px] text-fg-mute mb-3">
                           Veículos atribuídos continuam com ele, mas não aparece para novos cadastros.
                         </p>
                         <button
                           type="button"
                           disabled={archiving}
                           onClick={handleUnarchive}
-                          className="h-8 px-4 rounded-full border border-[#474747] text-[13px] text-[#f5f5f5] hover:border-[#BAFF1A] hover:text-[#BAFF1A] transition-colors disabled:opacity-50"
+                          className="h-8 px-4 rounded-full border border-border text-[13px] text-fg hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
                         >
                           {archiving ? 'Reativando…' : 'Reativar plano'}
                         </button>
@@ -721,17 +721,17 @@ export function PlanForm({ planId, initialPlan, initialItems }: PlanFormProps) {
                     </div>
                   ) : (
                     <div className="flex items-start gap-3">
-                      <Archive className="h-4 w-4 text-[#9e9e9e] flex-shrink-0 mt-0.5" />
+                      <Archive className="h-4 w-4 text-fg-mute flex-shrink-0 mt-0.5" />
                       <div className="flex-1">
-                        <p className="text-[13px] text-[#f5f5f5] font-medium mb-1">Arquivar plano</p>
-                        <p className="text-[12px] text-[#616161] mb-3">
+                        <p className="text-[13px] text-fg font-medium mb-1">Arquivar plano</p>
+                        <p className="text-[12px] text-fg-mute mb-3">
                           Remove da seleção de novos cadastros. Veículos atribuídos não são afetados.
                         </p>
                         <button
                           type="button"
                           disabled={archiving}
                           onClick={handleArchive}
-                          className="h-8 px-4 rounded-full border border-[#7c1c1c] text-[13px] text-[#ff9c9a] hover:bg-[#7c1c1c]/30 transition-colors disabled:opacity-50"
+                          className="h-8 px-4 rounded-full border border-danger-bg text-[13px] text-danger hover:bg-danger-bg transition-colors disabled:opacity-50"
                         >
                           {archiving ? 'Arquivando…' : 'Arquivar plano'}
                         </button>
@@ -745,24 +745,24 @@ export function PlanForm({ planId, initialPlan, initialItems }: PlanFormProps) {
 
           {/* ── Erro global ─────────────────────────────────────────────── */}
           {globalError && (
-            <div className="flex items-start gap-3 px-4 py-3 bg-[#7c1c1c] border border-[#ff9c9a]/30 rounded-xl">
-              <AlertCircle className="w-4 h-4 text-[#ff9c9a] flex-shrink-0 mt-0.5" />
-              <p className="text-[13px] text-[#ff9c9a]">{globalError}</p>
+            <div className="flex items-start gap-3 px-4 py-3 bg-danger-bg border border-danger rounded-xl">
+              <AlertCircle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
+              <p className="text-[13px] text-danger">{globalError}</p>
             </div>
           )}
 
           {/* ── Footer ──────────────────────────────────────────────────── */}
-          <div className="flex gap-3 justify-end pt-4 pb-16 border-t border-[#2a2a2a]">
+          <div className="flex gap-3 justify-end pt-4 pb-16 border-t border-border">
             <Link
               href={backHref}
-              className="inline-flex items-center h-9 px-5 rounded-full border border-[#474747] text-[#9e9e9e] text-[13px] font-medium hover:text-[#f5f5f5] hover:border-[#616161] transition-colors"
+              className="inline-flex items-center h-9 px-5 rounded-full border border-border text-fg-mute text-[13px] font-medium hover:text-fg hover:border-fg-mute transition-colors"
             >
               Cancelar
             </Link>
             <button
               type="submit"
               disabled={isPending}
-              className="h-9 px-6 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e616] transition-colors disabled:opacity-60"
+              className="h-9 px-6 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors disabled:opacity-60"
             >
               {isPending ? 'Salvando…' : isEditMode ? 'Salvar alterações' : 'Criar plano'}
             </button>
@@ -784,10 +784,10 @@ function NavButton({ id, label, activeSection, onScrollTo }: {
       type="button"
       onClick={() => onScrollTo(id)}
       className={`w-full text-left px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${
-        isActive ? 'bg-[#222222] text-[#f5f5f5]' : 'text-[#616161] hover:text-[#9e9e9e] hover:bg-[#1e1e1e]'
+        isActive ? 'bg-surface-2 text-fg' : 'text-fg-mute hover:text-fg-mute hover:bg-divider'
       }`}
     >
-      <span className={`inline-block w-1.5 h-1.5 rounded-full mr-2.5 mb-0.5 transition-colors ${isActive ? 'bg-[#BAFF1A]' : 'bg-[#3a3a3a]'}`} />
+      <span className={`inline-block w-1.5 h-1.5 rounded-full mr-2.5 mb-0.5 transition-colors ${isActive ? 'bg-primary' : 'bg-fg-mute'}`} />
       {label}
     </button>
   )

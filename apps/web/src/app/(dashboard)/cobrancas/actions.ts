@@ -1,187 +1,267 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+/**
+ * Server Actions de cobranças (Spec 0014 / ADR 0024).
+ *
+ * Toda escrita passa por `lib/financial` — nenhuma action monta lançamento à
+ * mão nem escreve em `financial_entries`. Substitui o arquivo anterior, que
+ * operava sobre `billings` com um único `original_amount` e marcava pagamento
+ * atualizando o status do documento.
+ */
+
 import { revalidatePath } from 'next/cache'
-import { BillingSchema, GeneratePixSchema, canGeneratePix } from '@gomoto/core'
+import { createClient } from '@/lib/supabase/server'
 import { logAction } from '@/lib/audit'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
-import { getOrCreatePix } from '@/lib/payment/pix'
+import {
+  CreateChargeSchema,
+  ReceivePaymentSchema,
+  CancelChargeSchema,
+  WriteOffChargeSchema,
+  type ActionResult, type ErrorCode,
+} from '@gomoto/core'
+import {
+  createCharge,
+  cancelCharge,
+  writeOffCharge,
+  receivePayment,
+  reversePayment,
+} from '@/lib/financial'
 
-async function getAuthenticatedUser() {
+type Failure = { ok: false; error: { code: ErrorCode; message: string } }
+
+function fail(code: ErrorCode, message: string): Failure {
+  return { ok: false, error: { code, message } }
+}
+
+type Context =
+  | { ok: true; supabase: Awaited<ReturnType<typeof createClient>>; userId: string; tenantId: string }
+  | { ok: false; failure: Failure }
+
+async function getContext(): Promise<Context> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  return { supabase, user }
-}
-
-export async function createBilling(rawData: unknown) {
-  const { supabase, user } = await getAuthenticatedUser()
-  if (!user) return { error: 'Não autorizado' }
+  if (!user) return { ok: false, failure: fail('UNAUTHORIZED', 'Não autorizado') }
 
   const tenantId = await getCurrentTenantId(supabase)
-  if (!tenantId) return { error: 'Tenant não resolvido para o usuário' }
+  if (!tenantId) return { ok: false, failure: fail('FORBIDDEN', 'Empresa não resolvida') }
 
-  const parsed = BillingSchema.safeParse(rawData)
-  if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
+  return { ok: true, supabase, userId: user.id, tenantId }
+}
 
-  const { data, error } = await supabase
-    .from('billings')
-    .insert({ ...parsed.data, status: parsed.data.status ?? 'pending', tenant_id: tenantId })
-    .select()
-    .single()
-
-  if (error) return { error: 'Erro ao criar cobrança' }
-
-  await logAction({ action: 'create', table: 'billings', recordId: data.id, newData: data })
+function revalidateFinancial() {
   revalidatePath('/cobrancas')
-  return { data }
+  revalidatePath('/financeiro')
+  revalidatePath('/dashboard')
 }
 
-export async function updateBilling(id: string, rawData: unknown) {
-  const { supabase, user } = await getAuthenticatedUser()
-  if (!user) return { error: 'Não autorizado' }
-
-  const parsed = BillingSchema.partial().safeParse(rawData)
-  if (!parsed.success) return { error: 'Dados inválidos', details: parsed.error.flatten() }
-
-  const { data: before } = await supabase.from('billings').select().eq('id', id).single()
-
-  const { data, error } = await supabase
-    .from('billings')
-    .update(parsed.data)
-    .eq('id', id)
-    .select()
-    .single()
-
-  if (error) return { error: 'Erro ao atualizar cobrança' }
-
-  await logAction({ action: 'update', table: 'billings', recordId: id, oldData: before, newData: data })
-  revalidatePath('/cobrancas')
-  return { data }
+/** Mensagem de erro legível, sem vazar detalhe interno do banco. */
+function toMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'Erro inesperado'
 }
 
-const PAYMENT_METHOD_MAP: Record<string, 'pix' | 'cash' | 'credit_card' | 'debit_card' | 'bank_transfer'> = {
-  'PIX':               'pix',
-  'Dinheiro':          'cash',
-  'Cartão de Crédito': 'credit_card',
-  'Cartão de Débito':  'debit_card',
-  'Transferência':     'bank_transfer',
-}
+// ============================================================
+// Emissão
+// ============================================================
 
-export async function markBillingAsPaid(id: string, paymentMethod: string) {
-  const { supabase, user } = await getAuthenticatedUser()
-  if (!user) return { error: 'Não autorizado' }
+/**
+ * Cria uma cobrança com um ou mais itens.
+ *
+ * A cobrança composta — aluguel + multa + encargo num documento só — é o que o
+ * modelo anterior não permitia: `billings` tinha um único `original_amount`.
+ */
+export async function createChargeAction(
+  raw: unknown,
+): Promise<ActionResult<{ charge_id: string; charge_number: number }>> {
+  const ctx = await getContext()
+  if (!ctx.ok) return ctx.failure
 
-  const dbMethod = PAYMENT_METHOD_MAP[paymentMethod]
-  if (!dbMethod) return { error: 'Método de pagamento inválido' }
-
-  const { data: before } = await supabase.from('billings').select().eq('id', id).single()
-
-  const today = new Date().toISOString().split('T')[0]
-
-  const { data, error } = await supabase
-    .from('billings')
-    .update({
-      status:           'paid',
-      paid_at:          today,
-      payment_method:   dbMethod,
-      confirmed_source: 'manual',
-      paid_by:          user.id,
-    })
-    .eq('id', id)
-    .select()
-    .single()
-
-  if (error) return { error: 'Erro ao marcar como recebido' }
-
-  await logAction({ action: 'update', table: 'billings', recordId: id, oldData: before, newData: data })
-  revalidatePath('/cobrancas')
-  return { data }
-}
-
-export async function markBillingAsLoss(id: string) {
-  const { supabase, user } = await getAuthenticatedUser()
-  if (!user) return { error: 'Não autorizado' }
-
-  const { data: before } = await supabase.from('billings').select().eq('id', id).single()
-
-  const { data, error } = await supabase
-    .from('billings')
-    .update({ status: 'prejudice' })
-    .eq('id', id)
-    .select()
-    .single()
-
-  if (error) return { error: 'Erro ao marcar como prejuízo' }
-
-  await logAction({ action: 'update', table: 'billings', recordId: id, oldData: before, newData: data })
-  revalidatePath('/cobrancas')
-  return { data }
-}
-
-export async function deleteBilling(id: string) {
-  const { supabase, user } = await getAuthenticatedUser()
-  if (!user) return { error: 'Não autorizado' }
-
-  const { data: before } = await supabase.from('billings').select().eq('id', id).single()
-  const { error } = await supabase.from('billings').delete().eq('id', id)
-
-  if (error) {
-    if (error.code === '23503') return { error: 'Esta cobrança possui histórico de Pix e não pode ser excluída' }
-    return { error: 'Erro ao excluir cobrança' }
-  }
-
-  await logAction({ action: 'delete', table: 'billings', recordId: id, oldData: before })
-  revalidatePath('/cobrancas')
-  return { success: true }
-}
-
-export async function generatePixAction(billingId: string) {
-  const { supabase, user } = await getAuthenticatedUser()
-  if (!user) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Não autorizado' } }
-
-  const tenantId = await getCurrentTenantId(supabase)
-  if (!tenantId) return { ok: false, error: { code: 'UNAUTHORIZED', message: 'Tenant não resolvido' } }
-
-  const parsed = GeneratePixSchema.safeParse({ billing_id: billingId })
-  if (!parsed.success) return { ok: false, error: { code: 'VALIDATION_ERROR', message: 'ID de cobrança inválido' } }
-
-  const { data: billing } = await supabase
-    .from('billings')
-    .select('id, status, original_amount, discount_amount, tenant_id')
-    .eq('id', billingId)
-    .eq('tenant_id', tenantId)
-    .maybeSingle()
-
-  if (!billing) return { ok: false, error: { code: 'NOT_FOUND', message: 'Cobrança não encontrada' } }
-  if (billing.status === 'paid') return { ok: false, error: { code: 'CONFLICT', message: 'Esta cobrança já foi paga' } }
-
-  const { data: conn } = await supabase
-    .from('payment_connections')
-    .select('mp_user_id')
-    .eq('tenant_id', tenantId)
-    .maybeSingle()
-
-  if (!canGeneratePix(billing, !!conn)) {
-    return { ok: false, error: { code: 'FORBIDDEN', message: 'Configure a integração de pagamento nas Configurações' } }
+  const parsed = CreateChargeSchema.safeParse(raw)
+  if (!parsed.success) {
+    return fail('VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Dados inválidos')
   }
 
   try {
-    const result = await getOrCreatePix(billingId, tenantId, supabase)
+    const result = await createCharge(ctx.supabase, ctx.tenantId, {
+      customerId: parsed.data.customer_id,
+      rentalId: parsed.data.rental_id ?? null,
+      dueDate: parsed.data.due_date,
+      issueDate: parsed.data.issue_date,
+      items: parsed.data.items,
+      sourceModule: 'manual',
+      createdBy: ctx.userId,
+    })
 
-    if (!result.is_reused) {
-      await logAction({
-        action: 'generate_pix',
-        table: 'billing_pix',
-        recordId: billingId,
-        newData: { billing_id: billingId, tenant_id: tenantId, actor: 'operator' },
-      })
-    }
+    await logAction({
+      action: 'create',
+      table: 'charges',
+      recordId: result.chargeId,
+      newData: { charge_number: result.chargeNumber, total: result.totalAmount },
+    })
 
-    revalidatePath('/cobrancas')
-    return { ok: true, data: result }
-  } catch (err: unknown) {
-    const e = err as Error & { code?: string }
-    if (e.code === 'FORBIDDEN') return { ok: false, error: { code: 'FORBIDDEN', message: 'Configure a integração de pagamento nas Configurações' } }
-    return { ok: false, error: { code: 'INTERNAL', message: 'Falha ao gerar Pix. Tente novamente.' } }
+    revalidateFinancial()
+    return { ok: true, data: { charge_id: result.chargeId, charge_number: result.chargeNumber } }
+  } catch (err) {
+    return fail('INTERNAL', toMessage(err))
+  }
+}
+
+// ============================================================
+// Recebimento
+// ============================================================
+
+/**
+ * Registra dinheiro recebido do cliente.
+ *
+ * Sem alocação explícita, distribui por vencimento mais antigo. Pagamento
+ * parcial é natural: a alocação pode ser menor que o total da cobrança.
+ *
+ * Sobra vira crédito do cliente — antes, um pagamento a maior simplesmente não
+ * tinha onde ser registrado.
+ */
+export async function receivePaymentAction(
+  raw: unknown,
+): Promise<ActionResult<{ payment_id: string; unallocated: number }>> {
+  const ctx = await getContext()
+  if (!ctx.ok) return ctx.failure
+
+  const parsed = ReceivePaymentSchema.safeParse(raw)
+  if (!parsed.success) {
+    return fail('VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Dados inválidos')
+  }
+
+  try {
+    const result = await receivePayment(ctx.supabase, ctx.tenantId, {
+      customerId: parsed.data.customer_id,
+      amount: parsed.data.amount,
+      method: parsed.data.method,
+      paidAt: new Date(parsed.data.paid_at),
+      allocations: parsed.data.allocations?.map((a) => ({
+        chargeId: a.charge_id,
+        amount: a.amount,
+      })),
+      notes: parsed.data.notes ?? null,
+      receivedBy: ctx.userId,
+    })
+
+    // A sobra virava crédito AQUI: inseria a linha em `customer_credits` e não
+    // lançava nada no razão. Como o saldo de crédito agrega `creditos_de_clientes`,
+    // o crédito nascia visível na ficha do cliente e impossível de aplicar — e o
+    // dinheiro do pagamento existia em `payments` e em lugar nenhum do razão.
+    // Verificado na tela: R$ 50.000.000,00 numa cobrança de R$ 500,00 deixaram
+    // R$ 49.999.500,00 nesse limbo, sem mensagem nenhuma.
+    //
+    // `receivePayment` passou a recusar valor que não cabe na dívida (decisão do
+    // produto: quem quer receber a mais registra o devido e concede o crédito à
+    // parte, pela ficha do cliente, onde o lançamento é feito). Este bloco ficou
+    // inalcançável, e código morto com defeito dentro é pior que nenhum.
+
+    await logAction({
+      action: 'create',
+      table: 'payments',
+      recordId: result.paymentId,
+      newData: { amount: parsed.data.amount, allocations: result.allocations.length },
+    })
+
+    revalidateFinancial()
+    return { ok: true, data: { payment_id: result.paymentId, unallocated: result.unallocated } }
+  } catch (err) {
+    return fail('INTERNAL', toMessage(err))
+  }
+}
+
+/** Estorna um pagamento. As cobranças quitadas por ele voltam a ficar em aberto. */
+export async function reversePaymentAction(
+  paymentId: string,
+  reason: string,
+): Promise<ActionResult<void>> {
+  const ctx = await getContext()
+  if (!ctx.ok) return ctx.failure
+
+  if (!reason || reason.trim().length < 3) {
+    return fail('VALIDATION_ERROR', 'Informe o motivo do estorno')
+  }
+
+  try {
+    await reversePayment(ctx.supabase, ctx.tenantId, paymentId, reason.trim(), ctx.userId)
+
+    await logAction({
+      action: 'update',
+      table: 'payments',
+      recordId: paymentId,
+      newData: { reversed: true, reason },
+    })
+
+    revalidateFinancial()
+    return { ok: true, data: undefined }
+  } catch (err) {
+    return fail('INTERNAL', toMessage(err))
+  }
+}
+
+// ============================================================
+// Ciclo de vida
+// ============================================================
+
+/** Cancela a cobrança e estorna a emissão. Recusa se já houver recebimento. */
+export async function cancelChargeAction(raw: unknown): Promise<ActionResult<void>> {
+  const ctx = await getContext()
+  if (!ctx.ok) return ctx.failure
+
+  const parsed = CancelChargeSchema.safeParse(raw)
+  if (!parsed.success) {
+    return fail('VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Dados inválidos')
+  }
+
+  try {
+    await cancelCharge(
+      ctx.supabase, ctx.tenantId, parsed.data.charge_id, parsed.data.reason, ctx.userId,
+    )
+
+    await logAction({
+      action: 'update',
+      table: 'charges',
+      recordId: parsed.data.charge_id,
+      newData: { status: 'cancelled', reason: parsed.data.reason },
+    })
+
+    revalidateFinancial()
+    return { ok: true, data: undefined }
+  } catch (err) {
+    return fail('INTERNAL', toMessage(err))
+  }
+}
+
+/**
+ * Baixa por inadimplência.
+ *
+ * Substitui `markBillingAsLoss`, que só trocava o status para 'prejudice' —
+ * sem reconhecer a perda em lugar nenhum.
+ */
+export async function writeOffChargeAction(raw: unknown): Promise<ActionResult<void>> {
+  const ctx = await getContext()
+  if (!ctx.ok) return ctx.failure
+
+  const parsed = WriteOffChargeSchema.safeParse(raw)
+  if (!parsed.success) {
+    return fail('VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Dados inválidos')
+  }
+
+  try {
+    await writeOffCharge(
+      ctx.supabase, ctx.tenantId, parsed.data.charge_id, parsed.data.reason, ctx.userId,
+    )
+
+    await logAction({
+      action: 'update',
+      table: 'charges',
+      recordId: parsed.data.charge_id,
+      newData: { status: 'written_off', reason: parsed.data.reason },
+    })
+
+    revalidateFinancial()
+    return { ok: true, data: undefined }
+  } catch (err) {
+    return fail('INTERNAL', toMessage(err))
   }
 }

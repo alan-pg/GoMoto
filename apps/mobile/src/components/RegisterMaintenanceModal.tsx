@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -16,12 +16,15 @@ import {
 import * as ImagePicker from 'expo-image-picker'
 import { useCreateMaintenanceRecord } from '@gomoto/data'
 import type { Maintenance } from '@gomoto/core'
+import { useTheme, type ThemeTokens } from '../theme'
 
 type PickedPhoto = {
   uri: string
   contentType: string
   body: ArrayBuffer
 }
+
+type Styles = ReturnType<typeof createStyles>
 
 type Props = {
   visible: boolean
@@ -41,6 +44,8 @@ export function RegisterMaintenanceModal({ visible, onClose, customerId, mainten
   const [odometerPhoto, setOdometerPhoto] = useState<PickedPhoto | null>(null)
   const [invoicePhoto, setInvoicePhoto] = useState<PickedPhoto | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const theme = useTheme()
+  const styles = useMemo(() => createStyles(theme), [theme])
 
   const create = useCreateMaintenanceRecord()
 
@@ -155,58 +160,60 @@ export function RegisterMaintenanceModal({ visible, onClose, customerId, mainten
             </View>
           ) : null}
 
-          <FieldLabel text="KM atual da moto *" />
+          <FieldLabel text="KM atual da moto *" styles={styles} />
           <TextInput
             value={actualKm}
             onChangeText={setActualKm}
             keyboardType="numeric"
             placeholder="Ex.: 45200"
-            placeholderTextColor="#5a5a5a"
+            placeholderTextColor={theme.textMute}
             style={styles.input}
           />
 
-          <FieldLabel text="Oficina (opcional)" />
+          <FieldLabel text="Oficina (opcional)" styles={styles} />
           <TextInput
             value={workshop}
             onChangeText={setWorkshop}
             placeholder="Nome da oficina"
-            placeholderTextColor="#5a5a5a"
+            placeholderTextColor={theme.textMute}
             style={styles.input}
           />
 
-          <FieldLabel text="Custo total em R$ (opcional)" />
+          <FieldLabel text="Custo total em R$ (opcional)" styles={styles} />
           <TextInput
             value={cost}
             onChangeText={setCost}
             keyboardType="decimal-pad"
             placeholder="Ex.: 250,00"
-            placeholderTextColor="#5a5a5a"
+            placeholderTextColor={theme.textMute}
             style={styles.input}
           />
 
-          <FieldLabel text="Observações (opcional)" />
+          <FieldLabel text="Observações (opcional)" styles={styles} />
           <TextInput
             value={notes}
             onChangeText={setNotes}
             multiline
             numberOfLines={3}
             placeholder="Peças trocadas, observações da oficina..."
-            placeholderTextColor="#5a5a5a"
+            placeholderTextColor={theme.textMute}
             style={[styles.input, styles.inputMultiline]}
           />
 
-          <FieldLabel text="Foto do hodômetro *" />
+          <FieldLabel text="Foto do hodômetro *" styles={styles} />
           <PhotoSlot
             photo={odometerPhoto}
             onPress={() => pickPhoto('odometer')}
             onClear={() => setOdometerPhoto(null)}
+            styles={styles}
           />
 
-          <FieldLabel text="Foto da nota fiscal (opcional)" />
+          <FieldLabel text="Foto da nota fiscal (opcional)" styles={styles} />
           <PhotoSlot
             photo={invoicePhoto}
             onPress={() => pickPhoto('invoice')}
             onClear={() => setInvoicePhoto(null)}
+            styles={styles}
           />
         </ScrollView>
         <View style={styles.footer}>
@@ -216,7 +223,7 @@ export function RegisterMaintenanceModal({ visible, onClose, customerId, mainten
             disabled={submitting}
           >
             {submitting ? (
-              <ActivityIndicator color="#121212" />
+              <ActivityIndicator color={theme.primaryContrast} />
             ) : (
               <Text style={styles.submitText}>Enviar pra aprovação</Text>
             )}
@@ -227,7 +234,7 @@ export function RegisterMaintenanceModal({ visible, onClose, customerId, mainten
   )
 }
 
-function FieldLabel({ text }: { text: string }) {
+function FieldLabel({ text, styles }: { text: string; styles: Styles }) {
   return <Text style={styles.label}>{text}</Text>
 }
 
@@ -235,10 +242,12 @@ function PhotoSlot({
   photo,
   onPress,
   onClear,
+  styles,
 }: {
   photo: PickedPhoto | null
   onPress: () => void
   onClear: () => void
+  styles: Styles
 }) {
   if (photo) {
     return (
@@ -271,8 +280,8 @@ function guessTypeFromUri(uri: string): string {
   return 'image/jpeg'
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: '#121212' },
+const createStyles = (theme: ThemeTokens) => StyleSheet.create({
+  flex: { flex: 1, backgroundColor: theme.bg },
   header: {
     paddingHorizontal: 20,
     paddingTop: 18,
@@ -280,48 +289,48 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderBottomColor: '#323232',
+    borderBottomColor: theme.surfaceAlt,
     borderBottomWidth: 1,
   },
-  title: { color: '#f5f5f5', fontSize: 18, fontWeight: '700' },
-  closeText: { color: '#BAFF1A', fontSize: 14, fontWeight: '600' },
+  title: { color: theme.text, fontSize: 18, fontWeight: '700' },
+  closeText: { color: theme.primary, fontSize: 14, fontWeight: '600' },
   body: { flex: 1 },
   bodyContent: { padding: 20, paddingBottom: 40, gap: 6 },
   summary: {
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 12,
     padding: 14,
     marginBottom: 16,
   },
-  summaryTitle: { color: '#f5f5f5', fontSize: 14, fontWeight: '600' },
-  summaryMeta: { color: '#9e9e9e', fontSize: 12, marginTop: 4 },
-  label: { color: '#9e9e9e', fontSize: 12, marginTop: 14, marginBottom: 6 },
+  summaryTitle: { color: theme.text, fontSize: 14, fontWeight: '600' },
+  summaryMeta: { color: theme.textMute, fontSize: 12, marginTop: 4 },
+  label: { color: theme.textMute, fontSize: 12, marginTop: 14, marginBottom: 6 },
   input: {
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color: '#f5f5f5',
+    color: theme.text,
     fontSize: 14,
   },
   inputMultiline: { minHeight: 80, textAlignVertical: 'top' },
   photoEmpty: {
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderStyle: 'dashed',
     borderWidth: 1,
     borderRadius: 10,
     padding: 18,
     alignItems: 'center',
   },
-  photoEmptyText: { color: '#9e9e9e', fontSize: 13 },
+  photoEmptyText: { color: theme.textMute, fontSize: 13 },
   photoFilled: {
-    backgroundColor: '#202020',
-    borderColor: '#323232',
+    backgroundColor: theme.surface,
+    borderColor: theme.surfaceAlt,
     borderWidth: 1,
     borderRadius: 10,
     padding: 10,
@@ -329,22 +338,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
-  photoThumb: { width: 72, height: 72, borderRadius: 8, backgroundColor: '#323232' },
+  photoThumb: { width: 72, height: 72, borderRadius: 8, backgroundColor: theme.surfaceAlt },
   photoActions: { flex: 1, gap: 6 },
-  photoActionText: { color: '#BAFF1A', fontSize: 13, fontWeight: '600' },
-  photoRemove: { color: '#ff9c9a' },
+  photoActionText: { color: theme.primary, fontSize: 13, fontWeight: '600' },
+  photoRemove: { color: theme.danger },
   footer: {
     padding: 20,
-    borderTopColor: '#323232',
+    borderTopColor: theme.surfaceAlt,
     borderTopWidth: 1,
   },
   submitBtn: {
-    backgroundColor: '#BAFF1A',
+    backgroundColor: theme.primary,
     paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
   },
   submitBtnPressed: { opacity: 0.85 },
   submitBtnDisabled: { opacity: 0.5 },
-  submitText: { color: '#121212', fontSize: 14, fontWeight: '700' },
+  submitText: { color: theme.primaryContrast, fontSize: 14, fontWeight: '700' },
 })

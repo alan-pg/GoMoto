@@ -64,13 +64,13 @@ export default function MaintenancePlansPage() {
   }
 
   return (
-    <div className="flex flex-col bg-[#121212]">
+    <div className="flex flex-col bg-bg">
       <PageTitle
         title="Planos de Manutenção"
         actions={
           <Link
             href="/planos-manutencao/novo"
-            className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-[#BAFF1A] text-[#121212] text-[13px] font-bold hover:bg-[#a8e818] transition-colors"
+            className="inline-flex items-center gap-2 h-9 px-4 rounded-full bg-primary text-bg text-[13px] font-bold hover:bg-primary-hover transition-colors"
           >
             <Plus className="w-4 h-4" />
             Novo plano
@@ -79,8 +79,8 @@ export default function MaintenancePlansPage() {
       />
 
       {/* Barra de filtros — sticky abaixo do PageTitle */}
-      <div className="sticky top-[60px] z-[9] bg-[#121212] border-b border-[#323232] px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap border-b border-[#616161]">
+      <div className="sticky top-[60px] z-[9] bg-bg border-b border-divider px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap border-b border-fg-mute">
           {FILTERS.map((opt) => {
             const isActive = filter === opt.value
             return (
@@ -89,12 +89,12 @@ export default function MaintenancePlansPage() {
                 onClick={() => setFilter(opt.value)}
                 className={`px-3 py-2 text-[13px] font-medium transition-all border-b-2 ${
                   isActive
-                    ? 'border-[#BAFF1A] text-[#f5f5f5]'
-                    : 'border-transparent text-[#9e9e9e] hover:text-[#f5f5f5]'
+                    ? 'border-primary text-fg'
+                    : 'border-transparent text-fg-mute hover:text-fg'
                 }`}
               >
                 {opt.label}
-                <span className="ml-1.5 text-[#616161]">
+                <span className="ml-1.5 text-fg-mute">
                   ({counts[opt.value as keyof typeof counts]})
                 </span>
               </button>
@@ -102,27 +102,27 @@ export default function MaintenancePlansPage() {
           })}
         </div>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#616161]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-mute" />
           <input
             type="text"
             placeholder="Buscar por nome ou descrição..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-10 pl-10 pr-4 rounded-full bg-[#323232] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all w-72"
+            className="h-10 pl-10 pr-4 rounded-full bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all w-72"
           />
         </div>
       </div>
 
       {/* Conteúdo scrollável */}
       <div className="p-6">
-        <div className="overflow-hidden rounded-xl bg-[#202020]">
+        <div className="overflow-hidden rounded-xl bg-surface">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-[13px] text-[#f5f5f5]">
-              <thead className="border-b border-[#323232]">
+            <table className="w-full text-left text-[13px] text-fg">
+              <thead className="border-b border-divider">
                 <tr>
-                  <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e]">Nome</th>
-                  <th className="h-9 px-4 text-[13px] font-medium text-[#9e9e9e] hidden sm:table-cell">Descrição</th>
-                  <th className="h-9 px-4 text-right text-[13px] font-medium text-[#9e9e9e]">Ações</th>
+                  <th className="h-9 px-4 text-[13px] font-medium text-fg-mute">Nome</th>
+                  <th className="h-9 px-4 text-[13px] font-medium text-fg-mute hidden sm:table-cell">Descrição</th>
+                  <th className="h-9 px-4 text-right text-[13px] font-medium text-fg-mute">Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -130,7 +130,7 @@ export default function MaintenancePlansPage() {
                   <tr>
                     <td colSpan={3}>
                       <div className="flex items-center justify-center py-16">
-                        <div className="w-6 h-6 border-2 border-[#BAFF1A] border-t-transparent rounded-full animate-spin" />
+                        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                       </div>
                     </td>
                   </tr>
@@ -138,10 +138,10 @@ export default function MaintenancePlansPage() {
                   <tr>
                     <td colSpan={3}>
                       <div className="flex flex-col items-center justify-center py-16 gap-3">
-                        <div className="w-12 h-12 bg-[#323232] rounded-full flex items-center justify-center">
-                          <Wrench className="w-6 h-6 text-[#9e9e9e]" />
+                        <div className="w-12 h-12 bg-surface-2 rounded-full flex items-center justify-center">
+                          <Wrench className="w-6 h-6 text-fg-mute" />
                         </div>
-                        <p className="text-[13px] text-[#9e9e9e]">
+                        <p className="text-[13px] text-fg-mute">
                           {search
                             ? `Nenhum plano encontrado para "${search}"`
                             : filter === 'archived'
@@ -151,7 +151,7 @@ export default function MaintenancePlansPage() {
                         {search && (
                           <button
                             onClick={() => setSearch('')}
-                            className="text-[13px] text-[#BAFF1A] hover:underline"
+                            className="text-[13px] text-primary hover:underline"
                           >
                             Limpar busca
                           </button>
@@ -166,13 +166,13 @@ export default function MaintenancePlansPage() {
                     return (
                       <tr
                         key={plan.id}
-                        className="h-9 text-[13px] border-b border-[#323232] last:border-0 hover:bg-[#282828] transition-colors"
+                        className="h-9 text-[13px] border-b border-divider last:border-0 hover:bg-surface-2 transition-colors"
                       >
                         {/* Nome + badges */}
                         <td className="px-4">
                           <div className="flex items-center gap-2">
-                            <Wrench className="w-3.5 h-3.5 text-[#616161] flex-shrink-0" />
-                            <span className="font-medium text-[#f5f5f5] truncate max-w-[200px]">
+                            <Wrench className="w-3.5 h-3.5 text-fg-mute flex-shrink-0" />
+                            <span className="font-medium text-fg truncate max-w-[200px]">
                               {plan.name}
                             </span>
                             {plan.is_default && (
@@ -191,7 +191,7 @@ export default function MaintenancePlansPage() {
                         </td>
 
                         {/* Descrição */}
-                        <td className="px-4 text-[#9e9e9e] hidden sm:table-cell">
+                        <td className="px-4 text-fg-mute hidden sm:table-cell">
                           <span className="truncate max-w-xs block">
                             {plan.description ?? '—'}
                           </span>
@@ -202,14 +202,14 @@ export default function MaintenancePlansPage() {
                           <div className="flex items-center justify-end gap-1">
                             <Link
                               href={`/planos-manutencao/${plan.id}`}
-                              className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-[#323232] text-[#9e9e9e] hover:bg-[#474747] hover:text-[#f5f5f5] transition-colors"
+                              className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-surface-2 text-fg-mute hover:bg-divider hover:text-fg transition-colors"
                               title="Ver detalhes"
                             >
                               <Eye className="h-4 w-4" />
                             </Link>
                             <Link
                               href={`/planos-manutencao/${plan.id}/editar`}
-                              className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-[#323232] text-[#9e9e9e] hover:bg-[#474747] hover:text-[#f5f5f5] transition-colors"
+                              className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-surface-2 text-fg-mute hover:bg-divider hover:text-fg transition-colors"
                               title="Editar"
                             >
                               <Edit2 className="h-4 w-4" />
@@ -218,7 +218,7 @@ export default function MaintenancePlansPage() {
                             {/* More menu */}
                             <div className="relative">
                               <button
-                                className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-[#323232] text-[#9e9e9e] hover:bg-[#474747] hover:text-[#f5f5f5] transition-colors"
+                                className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-surface-2 text-fg-mute hover:bg-divider hover:text-fg transition-colors"
                                 onClick={() => setMenuOpenId(menuOpen ? null : plan.id)}
                                 title="Mais ações"
                               >
@@ -231,18 +231,18 @@ export default function MaintenancePlansPage() {
                                     onClick={() => setMenuOpenId(null)}
                                     aria-hidden
                                   />
-                                  <div className="absolute right-0 top-9 z-40 w-44 bg-[#282828] border border-[#474747] rounded-xl shadow-lg overflow-hidden">
+                                  <div className="absolute right-0 top-9 z-40 w-44 bg-surface-2 border border-border rounded-xl shadow-lg overflow-hidden">
                                     {isArchived ? (
                                       <button
-                                        className="w-full px-3 py-2.5 text-left text-[13px] text-[#f5f5f5] hover:bg-[#323232] flex items-center gap-2.5"
+                                        className="w-full px-3 py-2.5 text-left text-[13px] text-fg hover:bg-surface-2 flex items-center gap-2.5"
                                         onClick={() => handleUnarchive(plan)}
                                       >
-                                        <ArchiveRestore className="h-4 w-4 text-[#9e9e9e]" />
+                                        <ArchiveRestore className="h-4 w-4 text-fg-mute" />
                                         Reativar plano
                                       </button>
                                     ) : (
                                       <button
-                                        className="w-full px-3 py-2.5 text-left text-[13px] text-[#ff9c9a] hover:bg-[#323232] flex items-center gap-2.5"
+                                        className="w-full px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2 flex items-center gap-2.5"
                                         onClick={() => handleArchive(plan)}
                                       >
                                         <Archive className="h-4 w-4" />

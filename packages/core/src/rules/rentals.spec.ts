@@ -5,6 +5,10 @@ import {
   isRentalTerminationWithinMinimum,
   calculateMinimumEndDateForRental,
   getEarlyTerminationImpact,
+  calculateAdjustedBillingAmount,
+  previewRentalAdjustment,
+  computeScheduleRegenerationCutoff,
+  previewScheduleRegeneration,
   RENTAL_MINIMUM_DURATION,
 } from './rentals'
 import { RentalSchema, RenewRentalSchema, TerminateRentalSchema } from '../schemas/rentals'
@@ -74,6 +78,36 @@ describe('generateCycleCharges — mensal', () => {
     expect(charges[0]?.amount).toBeLessThan(300)
     // Intermediária deve ser integral
     expect(charges[1]?.amount).toBe(300)
+  })
+
+  it('não perde ciclo quando há ponta no início E no fim', () => {
+    // Regressão: com ponta nos dois lados, os períodos são um a mais que os
+    // vencimentos. O laço antigo emitia uma cobrança por vencimento e dava à
+    // última o valor da ponta final — o ciclo cheio que ela deveria representar
+    // desaparecia. 01/09→01/12 a R$600 saía com 3 cobranças e R$1.200.
+    const charges = generateCycleCharges({
+      start_date:   '2026-09-01',  // antes do dia 10
+      end_date:     '2026-12-01',  // depois do último dia 10
+      cycle:        'monthly',
+      due_day:      10,
+      cycle_amount: 600,
+      use_pro_rata: true,
+    })
+
+    expect(charges).toHaveLength(4)
+
+    const total = charges.reduce((s, c) => s + c.amount, 0)
+    expect(total).toBe(1800)
+
+    // Dois ciclos cheios no meio, pontas proporcionais nas bordas.
+    expect(charges.map((c) => c.amount)).toEqual([180, 600, 600, 420])
+
+    // E os períodos cobrem a locação inteira, sem buraco entre eles.
+    expect(charges[0]?.period_start).toBe('2026-09-01')
+    expect(charges[charges.length - 1]?.period_end).toBe('2026-12-01')
+    for (let i = 1; i < charges.length; i++) {
+      expect(charges[i]?.period_start).toBe(charges[i - 1]?.period_end)
+    }
   })
 
   it('aplica pro rata na última cobrança quando fim != vencimento', () => {
@@ -289,5 +323,111 @@ describe('RentalSchema', () => {
   it('rejeita contract_type inválido', () => {
     const result = RentalSchema.safeParse({ ...validRental, contract_type: 'loyalty' })
     expect(result.success).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// calculateAdjustedBillingAmount / previewRentalAdjustment (RF-027–031, RN-027)
+// ---------------------------------------------------------------------------
+
+describe('calculateAdjustedBillingAmount', () => {
+  it('escala cobrança de valor cheio 1:1 com o novo ciclo', () => {
+    expect(calculateAdjustedBillingAmount(500, 500, 600)).toBeCloseTo(600, 2)
+  })
+
+  it('escala cobrança pro rata mantendo a mesma fração (RN-027)', () => {
+    // 300 de um ciclo de 500 = 60% → deve virar 60% do novo valor (600)
+    expect(calculateAdjustedBillingAmount(300, 500, 600)).toBeCloseTo(360, 2)
+  })
+
+  it('arredonda para 2 casas decimais', () => {
+    expect(calculateAdjustedBillingAmount(100, 300, 200)).toBeCloseTo(66.67, 2)
+  })
+
+  it('retorna o novo valor cheio quando previousCycleAmount é zero ou negativo (defensivo)', () => {
+    expect(calculateAdjustedBillingAmount(100, 0, 600)).toBe(600)
+  })
+})
+
+describe('previewRentalAdjustment', () => {
+  it('soma corretamente cobranças de valor cheio e pro rata', () => {
+    const billings = [{ original_amount: 500 }, { original_amount: 500 }, { original_amount: 300 }]
+    const result = previewRentalAdjustment(billings, 500, 600)
+    expect(result.affected_count).toBe(3)
+    expect(result.total_previous).toBeCloseTo(1300, 2)
+    expect(result.total_new).toBeCloseTo(600 + 600 + 360, 2)
+  })
+
+  it('retorna zeros quando não há cobranças pendentes (F11 FA)', () => {
+    const result = previewRentalAdjustment([], 500, 600)
+    expect(result).toEqual({ affected_count: 0, total_previous: 0, total_new: 0 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// computeScheduleRegenerationCutoff / previewScheduleRegeneration
+// ---------------------------------------------------------------------------
+
+describe('computeScheduleRegenerationCutoff', () => {
+  const today = new Date(2026, 6, 24) // 24/07/2026
+
+  it('retorna a due_date mais recente entre pagas e pendentes já vencidas', () => {
+    const billings = [
+      { due_date: '2026-04-10', status: 'paid' },
+      { due_date: '2026-05-10', status: 'pending' }, // vencida na prática
+      { due_date: '2026-06-10', status: 'pending' }, // vencida na prática
+      { due_date: '2026-07-10', status: 'pending' }, // vencida na prática (< 24/07)
+      { due_date: '2026-08-10', status: 'pending' }, // ainda não venceu — livre pra regerar
+    ]
+    expect(computeScheduleRegenerationCutoff(billings, today)).toBe('2026-07-10')
+  })
+
+  it('retorna null quando nenhuma cobrança está travada', () => {
+    const billings = [
+      { due_date: '2026-08-10', status: 'pending' },
+      { due_date: '2026-09-10', status: 'pending' },
+    ]
+    expect(computeScheduleRegenerationCutoff(billings, today)).toBeNull()
+  })
+
+  it('retorna null para lista vazia', () => {
+    expect(computeScheduleRegenerationCutoff([], today)).toBeNull()
+  })
+
+  it('considera cancelada/prejuízo como travada mesmo com due_date futura', () => {
+    const billings = [
+      { due_date: '2026-12-10', status: 'cancelled' },
+      { due_date: '2026-08-10', status: 'pending' },
+    ]
+    expect(computeScheduleRegenerationCutoff(billings, today)).toBe('2026-12-10')
+  })
+})
+
+describe('previewScheduleRegeneration', () => {
+  it('soma desconto perdido e crédito a estornar das cobranças canceladas', () => {
+    const cancelled = [
+      { discount_amount: 50, credit_applied: null },
+      { discount_amount: null, credit_applied: 100 },
+      { discount_amount: null, credit_applied: null },
+    ]
+    const newCharges = [{ amount: 700 }, { amount: 700 }]
+    const result = previewScheduleRegeneration(cancelled, newCharges)
+    expect(result).toEqual({
+      cancelled_count: 3,
+      discount_lost_total: 50,
+      credit_to_restore_total: 100,
+      new_charges_count: 2,
+      new_charges_total: 1400,
+    })
+  })
+
+  it('retorna zeros quando não há cobranças canceladas nem novas', () => {
+    expect(previewScheduleRegeneration([], [])).toEqual({
+      cancelled_count: 0,
+      discount_lost_total: 0,
+      credit_to_restore_total: 0,
+      new_charges_count: 0,
+      new_charges_total: 0,
+    })
   })
 })

@@ -54,9 +54,22 @@ export const VehicleBaseSchema = z.object({
   registration_state:        z.string().trim().max(2).optional().nullable(),
   ownership_transferred:     z.boolean().optional(),
   ownership_transfer_date:   dateString.optional().nullable(),
-  // status restrito a 4 valores selecionáveis manualmente (RF-016)
-  // rented, sold, inactive só são atribuídos por ações dedicadas
-  status: z.enum(['available', 'reserved', 'maintenance', 'sinister']).optional(),
+  /**
+   * Qualquer status VÁLIDO é aceito na validação do payload; QUAL transição o
+   * operador pode fazer é outra pergunta, e ela já tem dono: `canChangeStatus`
+   * e a guarda de `updateVehicle`, que descarta `status` quando a moto está
+   * locada (RN-002).
+   *
+   * Aqui havia uma lista inline com os 4 valores selecionáveis à mão (RF-016).
+   * Como ela validava o payload INTEIRO, e o formulário devolve o status atual
+   * junto com o resto, nenhum veículo locado podia ser editado: o Zod reprovava
+   * em `status` antes de qualquer regra rodar. Salvar não fazia nada — sem
+   * mensagem, porque a tela não tem slot de erro para um campo que ela mostra
+   * como informativo ("gerenciado automaticamente via contratos"). Neste banco
+   * eram 16 motos impossíveis de editar: trocar cor, cadastrar rastreador,
+   * lançar IPVA, nada.
+   */
+  status: VehicleStatusEnum.optional(),
   has_tracker:               z.boolean().optional(),
   tracker_brand:             z.string().trim().max(100).optional().nullable(),
   tracker_model:             z.string().trim().max(100).optional().nullable(),
@@ -77,6 +90,14 @@ export const VehicleSchema = VehicleBaseSchema.refine(
 export const VehicleStatusTransitionSchema = z.object({
   vehicle_id: z.string().uuid(),
   new_status: VehicleStatusEnum,
+})
+
+export const AssignMaintenancePlanSchema = z.object({
+  vehicle_id: z.string().uuid(),
+  plan_id: z.string().uuid().nullable(),
+  // último KM/data informado por item do plano, só usado quando o veículo
+  // não tinha plano nenhum antes (bootstrap) — chave é o id do item.
+  bootstrap_items: z.record(z.string(), z.string()).optional(),
 })
 
 export const VehiclePhotoUpsertSchema = z.object({

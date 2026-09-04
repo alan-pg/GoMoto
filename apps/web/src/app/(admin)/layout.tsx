@@ -33,15 +33,15 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
 
   return (
     <Providers>
-      <div className="flex h-screen bg-[#0d0d0d]">
-          <aside className="w-[240px] border-r border-[#323232] bg-[#121212] p-4 flex flex-col shrink-0 overflow-y-auto">
+      <div className="flex h-screen bg-bg">
+          <aside className="w-[240px] border-r border-divider bg-bg p-4 flex flex-col shrink-0 overflow-y-auto">
             <div className="flex items-center gap-2 mb-6">
-              <div className="w-9 h-9 rounded-lg bg-[#BAFF1A] flex items-center justify-center">
-                <ShieldCheck className="w-5 h-5 text-[#121212]" />
+              <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
+                <ShieldCheck className="w-5 h-5 text-bg" />
               </div>
               <div>
-                <div className="text-[15px] font-semibold text-[#f5f5f5] leading-tight">GoMoto</div>
-                <div className="text-[11px] text-[#9e9e9e]">Admin da plataforma</div>
+                <div className="text-[15px] font-semibold text-fg leading-tight">GoMoto</div>
+                <div className="text-[11px] text-fg-mute">Admin da plataforma</div>
               </div>
             </div>
 
@@ -53,11 +53,11 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
               ]}
             />
 
-            <div className="border-t border-[#323232] pt-3 space-y-1">
+            <div className="border-t border-divider pt-3 space-y-1">
               <form action="/auth/logout" method="post">
                 <button
                   type="submit"
-                  className="flex items-center gap-2 w-full px-3 h-10 rounded-lg text-[13px] text-[#c7c7c7] hover:bg-[#7c1c1c] hover:text-[#ff9c9a] transition"
+                  className="flex items-center gap-2 w-full px-3 h-10 rounded-lg text-[13px] text-fg-soft hover:bg-danger-bg hover:text-danger transition"
                 >
                   <LogOut className="w-4 h-4" /> Sair
                 </button>

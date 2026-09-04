@@ -58,7 +58,41 @@ Acesse:
 
 - **App:** http://localhost:3000
 - **Studio (gerenciar o DB local):** http://127.0.0.1:54323
-- **Login de teste:** `admin@gomoto.dev` / `gomoto123` (criado pelo seed)
+- **Login de teste:** `empresa01@teste.com` / `12345678` (owner da Empresa Teste 1, criado pelo seed — ver `supabase/seed.sql` para as demais contas, incluindo `master@teste.com` como platform_admin)
+
+---
+
+## Rodando os testes E2E (Playwright)
+
+```bash
+cd apps/web
+pnpm exec playwright install chromium   # uma vez, baixa o browser
+```
+
+Crie `apps/web/.env.test` (gitignored, não commitar) com as credenciais do seed:
+
+```
+TEST_USER_EMAIL=empresa01@teste.com
+TEST_USER_PASSWORD=12345678
+```
+
+`pnpm --filter web test:e2e` roda contra `http://localhost:3000` (precisa do `pnpm dev` já rodando) e do Supabase local já com `pnpm db:reset` aplicado.
+
+`apps/web/tests/helpers.ts` cria dados de teste via `@supabase/supabase-js` autenticado como o usuário de `.env.test`, sem passar pelo browser. Esses inserts passam pelas mesmas políticas RLS do app — todo helper que insere em `customers`/`vehicles`/`rentals` **precisa** de `tenant_id` explícito (via `getTestTenantId()`, que resolve por `get_user_tenants()`). Faltou isso até 2026-08-07: a suíte inteira falhava silenciosamente com "row-level security policy" — corrigido junto com a Spec 0010.
+
+**Suíte de extração de documentos via IA** (`document-extraction-cliente.spec.ts`, `document-extraction-multa.spec.ts` — Spec 0012): **não precisa de configuração nenhuma.** Fora de produção a extração é simulada por padrão.
+
+Era o contrário — real por padrão, mock só com `DOCUMENT_EXTRACTION_MOCK=1` — e na prática ninguém lembrava da variável: bastava reiniciar o dev server sem ela para cinco testes falharem por motivo ambiental, com a suíte passando a mentir sobre o estado do código. Aconteceu repetidamente.
+
+Para exercitar o Gemini de verdade (custa chamada e exige `AI_GATEWAY_API_KEY`):
+
+```bash
+DOCUMENT_EXTRACTION_REAL=1 pnpm --filter web dev
+```
+
+**Produção nunca simula**, mesmo que a variável apareça no deploy: `NODE_ENV === 'production'` força a extração real. O modo de falha seria cadastrar cliente com o CPF fixo do fixture, e isso não pode depender de disciplina de configuração.
+
+O mock devolve um `ExtractionResult` fixo por tipo de documento — o nome do arquivo enviado no teste dirige o cenário (`mock-fail` simula falha do provedor, `mock-plate-<PLACA>` simula a placa extraída pra casar com um veículo criado no teste). Ver `apps/web/src/lib/document-extraction/mock.ts`.
 
 ---
 

@@ -45,7 +45,7 @@ export function CloneButton({ planId, planName }: CloneButtonProps) {
       <button
         type="button"
         onClick={handleOpen}
-        className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full border border-[#474747] text-[#9e9e9e] text-[13px] font-medium hover:text-[#f5f5f5] hover:border-[#616161] transition-colors"
+        className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full border border-border text-fg-mute text-[13px] font-medium hover:text-fg hover:border-fg-mute transition-colors"
       >
         <Copy className="h-3.5 w-3.5" />
         Clonar
@@ -66,24 +66,24 @@ export function CloneButton({ planId, planName }: CloneButtonProps) {
         }}
         placeholder="Nome do clone"
         maxLength={200}
-        className="h-9 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all w-56"
+        className="h-9 px-3 rounded-lg bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all w-56"
       />
       <button
         type="button"
         disabled={!cloneName.trim() || loading}
         onClick={handleClone}
-        className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] hover:border-[#BAFF1A] hover:text-[#BAFF1A] transition-all disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-surface-2 border border-border text-[13px] text-fg hover:border-primary hover:text-primary transition-all disabled:opacity-50"
       >
         {loading ? 'Clonando…' : <><Check className="h-3.5 w-3.5" /> Clonar</>}
       </button>
       <button
         type="button"
         onClick={() => setOpen(false)}
-        className="text-[13px] text-[#616161] hover:text-[#9e9e9e] transition-colors px-1"
+        className="text-[13px] text-fg-mute hover:text-fg-mute transition-colors px-1"
       >
         Cancelar
       </button>
-      {error && <p className="text-[12px] text-[#ff9c9a]">{error}</p>}
+      {error && <p className="text-[12px] text-danger">{error}</p>}
     </div>
   )
 }

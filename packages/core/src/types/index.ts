@@ -28,9 +28,14 @@ export interface Document {
 
 /**
  * @type ChargeStatus
- * @description Determina o estado financeiro de uma cobrança gerada pelo sistema.
+ * @description Estado de uma cobrança emitida (`charge_status`, ADR 0024).
+ *
+ * `overdue` não está aqui de propósito: atraso é derivado de `due_date`
+ * (Princípio 4) e chega pelas telas via `charge_balances.is_overdue`, nunca
+ * como valor armazenado. A união anterior — pending/overdue/prejudice —
+ * descrevia a tabela `billings`, removida no redesenho.
  */
-export type ChargeStatus = 'pending' | 'paid' | 'overdue' | 'cancelled' | 'prejudice';
+export type ChargeStatus = 'open' | 'paid' | 'cancelled' | 'written_off';
 
 
 /**
@@ -245,7 +250,10 @@ export interface Customer {
   residency_proof_url?: string | null;
   document_photo_url?: string | null;
   // Gestão
-  payment_status?: string | null;
+  // `payment_status` e `delinquency_status` saíram na ADR 0024: eram colunas de
+  // estado, uma escrita à mão e outra por trigger inerte. Inadimplência é
+  // derivada da view `customer_delinquency`; bloqueio é a última ação em
+  // `delinquency_blocks`.
   observations?: string | null;
   documents?: Document[];
   in_queue: boolean;
@@ -255,26 +263,6 @@ export interface Customer {
   rental_history?: CustomerRentalHistory[];
   created_at: string;
   updated_at: string;
-}
-
-/**
- * @interface Income
- * @description Registro de qualquer valor financeiro que entra no caixa da empresa.
- */
-export interface Income {
-  id: string;
-  tenant_id: string;
-  description?: string;
-  vehicle: string;
-  date: string;
-  lessee: string;
-  amount: number;
-  reference: string;
-  payment_method: string;
-  period_from?: string;
-  period_to?: string;
-  observations?: string;
-  created_at: string;
 }
 
 /**
@@ -407,44 +395,6 @@ export interface Process {
 }
 
 /**
- * @interface Billing
- * @description Cobrança gerada para um cliente, vinculada a uma locação.
- */
-export interface Billing {
-  id: string;
-  tenant_id: string;
-  /** @deprecated Use lease_id. */
-  contract_id?: string | null;
-  lease_id?: string | null;
-  customer_id?: string | null;
-  fine_id?: string | null;
-  description?: string | null;
-  /** @deprecated Use original_amount. */
-  amount?: number | null;
-  original_amount?: number | null;
-  discount_amount?: number | null;
-  discount_reason?: string | null;
-  billing_type?: 'cycle' | 'one_time' | 'complementary' | 'fine' | null;
-  due_date: string;
-  status: ChargeStatus;
-  /** @deprecated Use paid_at. */
-  payment_date?: string | null;
-  paid_at?: string | null;
-  payment_method?: 'pix' | 'cash' | 'credit_card' | 'debit_card' | 'bank_transfer' | null;
-  confirmed_source?: 'mp_webhook' | 'manual' | null;
-  paid_by?: string | null;
-  discounted_by?: string | null;
-  observations?: string | null;
-  created_at: string;
-  updated_at: string;
-  customers?: { name: string; phone: string } | null;
-  /** @deprecated Use rentals join. */
-  contracts?: { id: string } | null;
-  rentals?: { id: string } | null;
-  billing_pix?: Array<{ status: string; expires_at: string; mp_payment_id: string }> | null;
-}
-
-/**
  * @interface Rental
  * @description Entidade de locação (antigo contracts, renomeado na Spec 0004).
  */
@@ -463,14 +413,16 @@ export interface Rental {
   /** @deprecated Use cycle_amount. */
   monthly_amount?: number | null;
   status: 'active' | 'closed' | 'transferred';
-  pdf_url?: string | null;
   observations?: string | null;
-  security_deposit?: number | null;
-  security_deposit_returned_at?: string | null;
+  contract_template_id?: string | null;
+  signed_contract_path?: string | null;
+  signed_contract_file_name?: string | null;
+  signed_contract_uploaded_at?: string | null;
   created_at: string;
   updated_at: string;
   customer?: Customer;
   vehicle?: Vehicle;
+  contract_template?: Pick<ContractTemplate, 'id' | 'name'>;
 }
 
 /** Resultado tipado de Server Actions (envelope padrão). */
@@ -479,14 +431,19 @@ export type ErrorCode =
   | 'UNAUTHORIZED'
   | 'FORBIDDEN'
   | 'NOT_FOUND'
+  | 'CONFLICT'
   | 'DUPLICATE_ENTRY'
   | 'VEHICLE_ALREADY_RENTED'
   | 'VEHICLE_LOCKED'
   | 'RENTAL_NOT_ACTIVE'
   | 'BILLING_ALREADY_PAID'
   | 'BILLING_CANCELLED'
+  | 'DOWN_PAYMENT_ALREADY_PAID'
   | 'DISCOUNT_EXCEEDS_AMOUNT'
   | 'TERMINATION_FINE_APPLICABLE'
+  | 'NO_ACTIVE_RENTAL'
+  | 'EXTRACTION_FAILED'
+  | 'INTERNAL'
   | 'INTERNAL_ERROR'
 
 export type ActionResult<T> =
@@ -511,15 +468,41 @@ export interface Fine {
   responsible: 'customer' | 'company';
   observations: string | null;
   ait_number?: string | null;
-  infraction_code?: string | null;
   infraction_location?: string | null;
   points?: number | null;
-  source?: 'detran' | 'cetran' | 'municipal' | 'private_area' | 'other' | null;
-  ticket_url?: string | null;
+  // PRD 0013 — campos oficiais da NA (Notificação de Autuação) e da NP (Notificação de Penalidade)
+  renainf_number?: string | null;
+  notification_date?: string | null;
+  prior_defense_deadline?: string | null;
+  driver_identification_deadline?: string | null;
+  appeal_deadline?: string | null;
+  discounted_payment_deadline?: string | null;
+  senatran_infraction_code?: string | null;
+  issuing_agency_name?: string | null;
+  driver_name?: string | null;
+  driver_cnh?: string | null;
+  driver_cpf?: string | null;
+  driver_document?: string | null;
+  infraction_time?: string | null;
+  senatran_infraction_subcode?: string | null;
+  issuing_agency_code?: string | null;
+  competent_agency_code?: string | null;
+  competent_agency_name?: string | null;
+  measurement_instrument_id?: string | null;
+  traffic_agent_id?: string | null;
+  measured_speed?: number | null;
+  considered_speed?: number | null;
+  speed_limit?: number | null;
+  original_renainf_number?: string | null;
+  infraction_municipality_code?: string | null;
+  infraction_municipality_name?: string | null;
+  infraction_state?: string | null;
+  senatran_message?: string | null;
   created_at: string;
   updated_at: string;
   customers?: { name: string; phone: string } | null;
   vehicles?: { license_plate: string; model: string; make: string } | null;
+  fine_attachments?: { type: string }[];
 }
 
 /**
@@ -558,3 +541,6 @@ export interface QueueEntry {
     drivers_license_validity: string | null;
   } | null;
 }
+
+export * from './financial'
+export * from './inspection'

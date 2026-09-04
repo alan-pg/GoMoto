@@ -44,22 +44,22 @@ export default function OneTimeChargePage({
     })
   }
 
-  const inputCls = 'w-full h-9 px-3 rounded-lg bg-[#282828] border border-[#474747] text-[13px] text-[#f5f5f5] placeholder:text-[#616161] outline-none focus:border-[#BAFF1A] transition-all'
-  const labelCls = 'block mb-1.5 text-[13px] text-[#9e9e9e]'
+  const inputCls = 'w-full h-9 px-3 rounded-lg bg-surface-2 border border-border text-[13px] text-fg placeholder:text-fg-mute outline-none focus:border-primary transition-all'
+  const labelCls = 'block mb-1.5 text-[13px] text-fg-mute'
 
   return (
-    <div className="min-h-screen bg-[#121212]">
+    <div className="min-h-screen bg-bg">
 
       {/* Header */}
-      <div className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-[#2a2a2a] bg-[#121212]/95 px-6 backdrop-blur">
-        <Link href={`/locacoes/${rentalId}`} className="text-[13px] text-[#9e9e9e] transition-colors hover:text-[#f5f5f5]">
+      <div className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-border bg-bg px-6 backdrop-blur">
+        <Link href={`/locacoes/${rentalId}`} className="text-[13px] text-fg-mute transition-colors hover:text-fg">
           ← Locação
         </Link>
-        <span className="text-[#3a3a3a]">/</span>
-        <h1 className="flex-1 text-[15px] font-bold text-[#f5f5f5]">Cobrança avulsa</h1>
+        <span className="text-fg-mute">/</span>
+        <h1 className="flex-1 text-[15px] font-bold text-fg">Cobrança avulsa</h1>
         <Link
           href={`/locacoes/${rentalId}`}
-          className="inline-flex h-8 items-center rounded-full border border-[#474747] px-4 text-[13px] text-[#9e9e9e] transition-colors hover:border-[#616161] hover:text-[#f5f5f5]"
+          className="inline-flex h-8 items-center rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg"
         >
           Cancelar
         </Link>
@@ -67,7 +67,7 @@ export default function OneTimeChargePage({
           type="button"
           onClick={handleConfirm}
           disabled={isPending || !isReady}
-          className="inline-flex h-8 items-center rounded-full bg-[#BAFF1A] px-5 text-[13px] font-bold text-[#121212] transition-colors hover:bg-[#a8e616] disabled:opacity-60"
+          className="inline-flex h-8 items-center rounded-full bg-primary px-5 text-[13px] font-bold text-bg transition-colors hover:bg-primary-hover disabled:opacity-60"
         >
           {isPending ? 'Criando…' : 'Criar Cobrança'}
         </button>
@@ -111,9 +111,9 @@ export default function OneTimeChargePage({
         </div>
 
         {error && (
-          <div className="flex items-start gap-3 rounded-xl border border-[#ff9c9a]/30 bg-[#7c1c1c] px-4 py-3">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#ff9c9a]" />
-            <p className="text-[13px] text-[#ff9c9a]">{error}</p>
+          <div className="flex items-start gap-3 rounded-xl border border-danger bg-danger-bg px-4 py-3">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+            <p className="text-[13px] text-danger">{error}</p>
           </div>
         )}
       </div>

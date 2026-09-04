@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { registerApprovedRecordCost } from './actions'
 
 const TYPE_LABEL: Record<string, string> = {
   preventive: 'Preventiva',
@@ -90,7 +91,6 @@ export default function AprovacoesPage() {
   async function handleApprove(input: {
     record: MaintenanceRecord
     effective_executor: 'company' | 'customer'
-    effective_customer_payer_pct: number
   }): Promise<void> {
     const { record } = input
     const { data: userRes } = await supabase.auth.getUser()
@@ -104,13 +104,15 @@ export default function AprovacoesPage() {
           completed: true,
           completed_date: new Date().toISOString().slice(0, 10),
           actual_km: record.actual_km,
-          cost: record.cost,
           workshop: record.workshop,
           observations: record.notes,
           odometer_photo_url: record.odometer_photo_url,
           invoice_photo_url: record.invoice_photo_url,
           effective_executor: input.effective_executor,
-          effective_customer_payer_pct: input.effective_customer_payer_pct,
+          // `cost` e `effective_customer_payer_pct` saíram de `maintenances` na
+          // ADR 0024 — custo e rateio viraram payable, em valores, porque
+          // percentual inteiro não representa 1/3 e deixa centavo sem dono.
+          // Enquanto continuaram no payload, aprovar manutenção falhava.
         },
       })
     }
@@ -123,6 +125,20 @@ export default function AprovacoesPage() {
         reviewed_at: new Date().toISOString(),
       },
     })
+
+    // O custo que o cliente informou precisa VIRAR lançamento. Aprovar só
+    // mudava o status: a despesa não existia, o crédito de quem pagou a oficina
+    // não nascia, e o resultado do veículo não via nada. Depois do review para
+    // que uma falha aqui não deixe o registro pendente com custo já lançado —
+    // a action é idempotente por (source_module, source_id) e pode ser
+    // reexecutada.
+    const custo = await registerApprovedRecordCost({
+      record_id: record.id,
+      effective_executor: input.effective_executor,
+      customer_amount: 0,
+    })
+
+    if (!custo.ok) throw new Error(custo.error.message)
   }
 
   async function handleReject(input: {
@@ -152,7 +168,7 @@ export default function AprovacoesPage() {
       />
       <div className="px-6 py-6">
         {loading ? (
-          <div className="flex items-center justify-center py-20 text-[#9e9e9e]">
+          <div className="flex items-center justify-center py-20 text-fg-mute">
             <Loader2 className="w-5 h-5 animate-spin mr-2" /> Carregando…
           </div>
         ) : records.length === 0 ? (
@@ -190,10 +206,10 @@ export default function AprovacoesPage() {
 
 function EmptyState() {
   return (
-    <div className="border border-[#323232] rounded-2xl bg-[#202020] px-8 py-12 text-center">
-      <ClipboardList className="w-8 h-8 text-[#9e9e9e] mx-auto mb-3" />
-      <h2 className="text-[16px] font-medium text-[#f5f5f5]">Nenhum registro pendente</h2>
-      <p className="text-[13px] text-[#9e9e9e] mt-1">
+    <div className="border border-divider rounded-2xl bg-surface px-8 py-12 text-center">
+      <ClipboardList className="w-8 h-8 text-fg-mute mx-auto mb-3" />
+      <h2 className="text-[16px] font-medium text-fg">Nenhum registro pendente</h2>
+      <p className="text-[13px] text-fg-mute mt-1">
         Quando um cliente concluir uma manutenção pelo app, ela aparece aqui pra revisão.
       </p>
     </div>
@@ -216,13 +232,13 @@ function RecordCard({
   onReject: () => void
 }) {
   return (
-    <div className="border border-[#323232] rounded-2xl bg-[#202020] p-4 flex flex-col gap-3">
+    <div className="border border-divider rounded-2xl bg-surface p-4 flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-[14px] font-medium text-[#f5f5f5]">
+          <h3 className="text-[14px] font-medium text-fg">
             {maintenance?.description || 'Manutenção corretiva (sem vínculo no plano)'}
           </h3>
-          <p className="text-[12px] text-[#9e9e9e] mt-0.5">
+          <p className="text-[12px] text-fg-mute mt-0.5">
             {maintenance ? TYPE_LABEL[maintenance.type] ?? maintenance.type : 'Avulsa'}
             {' · '}
             {customer?.name ?? '—'}
@@ -230,7 +246,7 @@ function RecordCard({
             {vehicle ? `${vehicle.license_plate} ${vehicle.make ?? ''} ${vehicle.model ?? ''}` : 'Moto não identificada'}
           </p>
         </div>
-        <span className="bg-[#5e3a00] text-[#ffba49] text-[11px] font-medium px-2 py-1 rounded-full whitespace-nowrap">
+        <span className="bg-pending-bg text-pending text-[11px] font-medium px-2 py-1 rounded-full whitespace-nowrap">
           Pendente
         </span>
       </div>
@@ -243,7 +259,7 @@ function RecordCard({
       </div>
 
       {record.notes ? (
-        <div className="text-[13px] text-[#c7c7c7] bg-[#121212] border border-[#323232] rounded-lg px-3 py-2">
+        <div className="text-[13px] text-fg-soft bg-bg border border-divider rounded-lg px-3 py-2">
           {record.notes}
         </div>
       ) : null}
@@ -270,8 +286,8 @@ function RecordCard({
 function KV({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[11px] text-[#9e9e9e] uppercase tracking-wide">{label}</p>
-      <p className="text-[13px] text-[#f5f5f5] mt-0.5">{value}</p>
+      <p className="text-[11px] text-fg-mute uppercase tracking-wide">{label}</p>
+      <p className="text-[13px] text-fg mt-0.5">{value}</p>
     </div>
   )
 }
@@ -279,7 +295,7 @@ function KV({ label, value }: { label: string; value: string }) {
 function PhotoSlot({ label, url }: { label: string; url: string | null }) {
   if (!url) {
     return (
-      <div className="border border-dashed border-[#323232] rounded-lg p-3 text-center text-[12px] text-[#9e9e9e]">
+      <div className="border border-dashed border-divider rounded-lg p-3 text-center text-[12px] text-fg-mute">
         {label}: sem foto
       </div>
     )
@@ -289,11 +305,11 @@ function PhotoSlot({ label, url }: { label: string; url: string | null }) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group block border border-[#323232] rounded-lg overflow-hidden"
+      className="group block border border-divider rounded-lg overflow-hidden"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={url} alt={label} className="w-full h-32 object-cover" />
-      <div className="flex items-center justify-between bg-[#121212] px-2 py-1 text-[12px] text-[#c7c7c7] group-hover:text-[#BAFF1A]">
+      <div className="flex items-center justify-between bg-bg px-2 py-1 text-[12px] text-fg-soft group-hover:text-primary">
         <span>{label}</span>
         <ExternalLink className="w-3 h-3" />
       </div>
@@ -311,11 +327,9 @@ function ApproveModal({
   onConfirm: (input: {
     record: MaintenanceRecord
     effective_executor: 'company' | 'customer'
-    effective_customer_payer_pct: number
   }) => Promise<void>
 }) {
   const [executor, setExecutor] = useState<'company' | 'customer'>('company')
-  const [pct, setPct] = useState<string>('0')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -323,28 +337,20 @@ function ApproveModal({
     if (submitting) return
     setError(null)
     setExecutor('company')
-    setPct('0')
     onClose()
   }
 
   async function handleSubmit() {
     if (!record) return
-    const pctNum = Number(pct.replace(',', '.'))
-    if (!Number.isFinite(pctNum) || pctNum < 0 || pctNum > 100) {
-      setError('Informe % do cliente entre 0 e 100.')
-      return
-    }
     setSubmitting(true)
     setError(null)
     try {
       await onConfirm({
         record,
         effective_executor: executor,
-        effective_customer_payer_pct: Math.round(pctNum),
       })
       setExecutor('company')
-      setPct('0')
-      onClose()
+        onClose()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao aprovar.')
     } finally {
@@ -355,9 +361,15 @@ function ApproveModal({
   return (
     <Modal open={record !== null} onClose={handleClose} title="Aprovar registro" size="md">
       <div className="flex flex-col gap-4">
-        <p className="text-[13px] text-[#c7c7c7]">
-          Aprovar marca a manutenção como concluída no sistema, com o KM e custo informados pelo
-          cliente. Defina o snapshot de responsabilidade (D4 do PRD).
+        <p className="text-[13px] text-fg-soft">
+          {/* "Defina o snapshot de responsabilidade (D4 do PRD)" — referência
+              interna de especificação, sem sentido para quem opera. O texto
+              agora diz o que a escolha DECIDE, que é o que o operador precisa
+              saber para escolher. */}
+          Aprovar marca a manutenção como concluída, com o KM e o custo informados pelo cliente,
+          e lança a despesa. Quem levou a moto à oficina decide o destino do dinheiro: pela
+          empresa, a parte do cliente vira cobrança; pelo cliente, o que cabia à empresa vira
+          crédito para ele.
         </p>
         <Select
           label="Quem levou à oficina"
@@ -368,16 +380,11 @@ function ApproveModal({
             { value: 'customer', label: 'Cliente' },
           ]}
         />
-        <Input
-          label="% do custo pago pelo cliente (empresa = 100 − %)"
-          type="number"
-          inputMode="numeric"
-          min={0}
-          max={100}
-          value={pct}
-          onChange={(e) => setPct(e.target.value)}
-        />
-        {error ? <p className="text-[12px] text-[#ff9c9a]">{error}</p> : null}
+        {/* O campo de % do cliente saiu: rateio virou valor no payable, não
+            percentual na manutenção. O input continuava pedindo o número ao
+            operador e descartando a resposta em silêncio. O rateio é informado
+            ao lançar a despesa, em Despesas. */}
+        {error ? <p className="text-[12px] text-danger">{error}</p> : null}
         <div className="flex items-center justify-end gap-2">
           <Button variant="secondary" onClick={handleClose} disabled={submitting}>
             <X className="w-4 h-4" />
@@ -436,7 +443,7 @@ function RejectModal({
   return (
     <Modal open={record !== null} onClose={handleClose} title="Rejeitar registro" size="md">
       <div className="flex flex-col gap-4">
-        <p className="text-[13px] text-[#c7c7c7]">
+        <p className="text-[13px] text-fg-soft">
           O cliente recebe o motivo e pode reenviar. Não altera a manutenção planejada.
         </p>
         <Textarea
@@ -445,7 +452,7 @@ function RejectModal({
           onChange={(e) => setReason(e.target.value)}
           placeholder="Ex.: a foto do hodômetro está borrada, refaça com a moto desligada."
         />
-        {error ? <p className="text-[12px] text-[#ff9c9a]">{error}</p> : null}
+        {error ? <p className="text-[12px] text-danger">{error}</p> : null}
         <div className="flex items-center justify-end gap-2">
           <Button variant="secondary" onClick={handleClose} disabled={submitting}>
             <X className="w-4 h-4" />
