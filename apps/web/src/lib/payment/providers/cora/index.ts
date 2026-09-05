@@ -45,13 +45,12 @@ export const coraProvider: PaymentProvider = {
     async exchangeCode(code): Promise<ProviderConnection> {
       const tokens = await exchangeCode(code)
 
-      // A Cora não devolve identificação da conta na troca do código. O `sub`
-      // do JWT é quem a identifica, e é por ele que o webhook acha o tenant.
-      const subject = subjectOf(tokens.access_token)
+      // A conta autorizada vem nos claims do access token.
+      const conta = accountFromToken(tokens.access_token)
 
       return {
-        externalAccountId: subject,
-        accountEmail: null,
+        externalAccountId: conta.businessId,
+        accountLabel: conta.cnpj,
         credentials: {
           access_token: tokens.access_token,
           refresh_token: tokens.refresh_token,
@@ -123,25 +122,41 @@ export const coraProvider: PaymentProvider = {
 }
 
 /**
- * `sub` do access token — a identidade da conta autorizada.
+ * Identidade da conta autorizada, lida dos claims do access token.
+ *
+ * **`sub` NÃO serve.** Verificado contra a homologação: `sub` vale
+ * `app-1sZTHkFlwIp774snsVEuGG` — o NOSSO client_id, idêntico para todo tenant
+ * que autorizar. Usá-lo faria toda locadora compartilhar o mesmo
+ * `external_account_id`, e a linha de uma sobrescreveria a da outra na
+ * reconexão. Quem identifica a conta é `business_id`.
+ *
+ * `person_id` também vem, e é a pessoa que autorizou — não é o que queremos:
+ * a cobrança vai para a conta da EMPRESA, e o mesmo sócio pode autorizar por
+ * mais de uma.
  *
  * Decodifica sem verificar assinatura, de propósito: o token acabou de chegar
  * pelo canal TLS da própria Cora, em resposta a uma requisição autenticada com
  * o nosso client secret. Verificar a assinatura exigiria buscar e cachear o
- * JWKS da Cora para extrair um identificador de conta — e o que esse valor
- * protege é a resolução do tenant no webhook, que NÃO confia nele sozinho:
- * o webhook casa o `webhook-resource-id` com o nosso `payment_intents`.
+ * JWKS só para extrair um identificador — e o que esse valor protege é a
+ * resolução do tenant no webhook, que NÃO confia nele sozinho: o webhook casa
+ * o `webhook-resource-id` com o nosso `payment_intents`.
  */
-function subjectOf(accessToken: string): string {
+function accountFromToken(accessToken: string): { businessId: string; cnpj: string | null } {
   const parts = accessToken.split('.')
   if (parts.length !== 3) throw new ProviderAuthError('cora', 'Token da Cora em formato inesperado')
 
   try {
     const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as {
-      sub?: unknown
+      business_id?: unknown
+      cnpj?: unknown
     }
-    if (typeof claims.sub !== 'string' || !claims.sub) throw new Error('sem sub')
-    return claims.sub
+    if (typeof claims.business_id !== 'string' || !claims.business_id) {
+      throw new Error('sem business_id')
+    }
+    return {
+      businessId: claims.business_id,
+      cnpj: typeof claims.cnpj === 'string' && claims.cnpj ? claims.cnpj : null,
+    }
   } catch {
     throw new ProviderAuthError('cora', 'Não foi possível identificar a conta Cora no token')
   }

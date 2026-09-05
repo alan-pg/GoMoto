@@ -73,8 +73,33 @@ O app passa a **gerar o QR a partir do EMV**. O Mercado Pago também devolve o E
 
 Apenas `invoice`. A Cora oferece `account`, `payment` e `transfer`; pedir acesso a extrato, saldo ou iniciação de pagamento da conta do cliente sem precisar seria coletar poder que não usamos.
 
-## A verificar em homologação
+## Verificado em homologação (2026-09-05)
 
-**O `state` do OAuth.** A documentação da Cora não menciona `state` no `/oauth/authorize`, e o exemplo de callback mostra `session_state` e `code` sem ele. Toda a nossa defesa de CSRF depende de o `state` voltar — é ele que carrega tenant e provedor.
+Fluxo completo exercitado contra `api.stage.cora.com.br` com o Cliente A de teste.
 
-O emissor do token é `auth.stage.cora.com.br/realms/cora`, ou seja **Keycloak**, que devolve `state` por especificação. Mas "por especificação" não vale como garantia para o parâmetro que impede sequestro de conexão: é o primeiro teste da homologação. Se não voltar, o plano B é um nonce no path do `redirect_uri`.
+| Ponto | Resultado |
+|---|---|
+| **`state`** | **Volta.** `state=PROVA-DE-STATE-123` chegou no retorno junto do `code`. A defesa de CSRF está de pé — era a maior incógnita |
+| `redirect_uri` | A Cora **já tem** `https://gomotos-web.vercel.app*` registrado. `https://gomotos-web.vercel.app/api/auth/gateway/cora/callback` é aceito. `localhost`/`127.0.0.1` **não** — falta pedir |
+| HTTP Basic no `/oauth/token` | Correto. Com Basic válido e código inválido o erro é `invalid_grant: Code not valid`; com secret errado, `unauthorized_client` |
+| `expires_in` | 86400 (24h), como a doc diz |
+| Refresh | Funciona, e o `refresh_token` **muda a cada renovação** — a rotação é real, não teórica. O `business_id` sobrevive |
+| Emissão de Pix | `POST /v2/invoices` com `payment_forms: ['PIX']` → 200, `pix.emv` presente |
+| Centavos | R$ 350,10 enviado como `35010`; a invoice voltou com `total_amount: 35010`. Conversão confirmada ponta a ponta |
+| Reconsulta da invoice | `GET /v2/invoices/{id}` devolve `status` e `total_paid` — é a camada 2 do webhook |
+
+### Três defeitos que só apareceram contra a API viva
+
+**1. `sub` não identifica a conta.** Vale `app-1sZTHkFlwIp774snsVEuGG` — o NOSSO client_id, idêntico para todo tenant que autorizar. Quem identifica a conta é **`business_id`**; `cnpj` e `person_id` também vêm nos claims. Usar `sub` faria toda locadora compartilhar o mesmo `external_account_id`, e a reconexão de uma sobrescreveria a linha da outra.
+
+**2. `Idempotency-Key` precisa ser UUID.** `charge-<uuid>` é recusado com *"The Idempotency-Key|x-idempotency-id header must be a valid UUID"*. O Mercado Pago aceita string livre; a Cora não. Passou a ser UUID novo por tentativa — a proteção contra cobrar duas vezes é o índice único parcial de `payment_intents`, que é mais forte, e chave fixa por cobrança quebraria a reemissão legítima depois de uma troca de gateway.
+
+**3. Sem `payment_forms: ['PIX']` não vem `pix.emv`.** A invoice é criada, com status `OPEN`, e sem código Pix nenhum — cobrança que o cliente não consegue pagar. O provider passou a falhar explicitamente quando o EMV não vem, em vez de gravar uma tentativa pendente inútil.
+
+Como consequência do achado 1, `account_email` virou **`account_label`**: o nome estava preso ao primeiro provedor, e o que a Cora oferece para o usuário reconhecer a conta é o CNPJ, não um e-mail.
+
+### O que ainda falta pedir à Cora
+
+1. Liberar `http://localhost:3000/*` como `redirect_uri` — sem isso o round trip não fecha em desenvolvimento local (em produção já fecha).
+2. Cadastrar o endpoint de webhook: `POST /endpoints/` com `resource: invoice`, `trigger: *` e a URL com o segredo no path.
+3. Rotacionar o client secret de homologação, que trafegou por canal de conversa.

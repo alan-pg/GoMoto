@@ -125,14 +125,15 @@ export function supportsMethod(descriptor: PaymentProviderDescriptor, method: st
  * Uma conta conectada, do ponto de vista de quem lê a tela.
  *
  * `secret_id` não está aqui e nunca estará: a credencial mora no Vault e só sai
- * por `fn_provider_credentials`, server-side. `account_email` está, porque é
- * como o usuário reconhece QUAL conta é aquela.
+ * por `fn_provider_credentials`, server-side. `account_label` está, porque é
+ * como o usuário reconhece QUAL conta é aquela — e-mail no Mercado Pago, CNPJ
+ * na Cora.
  */
 export const ProviderAccountSchema = z.object({
   id: z.string().uuid(),
   provider: ProviderIdSchema,
   external_account_id: z.string(),
-  account_email: z.string().nullable(),
+  account_label: z.string().nullable(),
   is_default: z.boolean(),
   active: z.boolean(),
 })

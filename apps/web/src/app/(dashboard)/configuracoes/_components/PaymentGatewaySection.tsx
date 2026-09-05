@@ -218,7 +218,7 @@ function GatewayRow({
   onDisconnect: () => void
 }) {
   const { descriptor, account, connected, billing } = row
-  const identidade = account?.account_email ?? account?.external_account_id ?? null
+  const identidade = account?.account_label ?? account?.external_account_id ?? null
 
   return (
     <div

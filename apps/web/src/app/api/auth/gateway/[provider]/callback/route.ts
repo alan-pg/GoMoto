@@ -115,7 +115,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
     p_tenant_id: tenantId,
     p_provider: providerId,
     p_external_account_id: connection.externalAccountId,
-    p_account_email: connection.accountEmail,
+    p_account_label: connection.accountLabel,
     p_credentials: connection.credentials,
   })
 
@@ -142,7 +142,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
       tenant_id: tenantId,
       provider: providerId,
       external_account_id: connection.externalAccountId,
-      account_email: connection.accountEmail,
+      account_label: connection.accountLabel,
       is_default: result?.elected ?? false,
     },
   })

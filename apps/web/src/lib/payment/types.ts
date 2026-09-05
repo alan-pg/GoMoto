@@ -24,8 +24,11 @@ export type ProviderCredentials = Record<string, unknown>
 export type ProviderConnection = {
   /** Identidade da conta no provedor. É por aqui que o webhook acha o tenant. */
   externalAccountId: string
-  /** Como o usuário reconhece a conta na tela. Nem todo provedor informa. */
-  accountEmail: string | null
+  /**
+   * Como o usuário reconhece a conta na tela: e-mail no Mercado Pago, CNPJ na
+   * Cora. Não é "email" — foi o que o primeiro provedor devolvia.
+   */
+  accountLabel: string | null
   credentials: ProviderCredentials
 }
 

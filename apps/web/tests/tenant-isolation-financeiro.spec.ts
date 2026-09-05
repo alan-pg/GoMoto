@@ -126,7 +126,7 @@ test.describe('Isolamento por tenant — tabelas do redesenho financeiro (Spec 0
     // ── Gateway ─────────────────────────────────────────────────────────────
     const providerAccountId = await seed('payment_provider_accounts', {
       tenant_id: TENANT_2, provider: 'mercadopago', external_account_id: `acct_${suffix}`,
-      account_email: 'loja-t2@teste.com',
+      account_label: 'loja-t2@teste.com',
     })
     cleanup.push({ table: 'payment_provider_accounts', id: providerAccountId })
 

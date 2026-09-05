@@ -581,7 +581,7 @@ export type ProviderAccountRow = {
   id: string
   provider: string
   external_account_id: string
-  account_email: string | null
+  account_label: string | null
   is_default: boolean
   active: boolean
 }
@@ -594,16 +594,16 @@ export type ProviderAccountRow = {
  * por `is_default AND active` é quem vai cobrar, não quem vai desenhar.
  *
  * `secret_id` fica fora do select e fora do GRANT: a credencial mora no Vault e
- * só sai por `fn_provider_credentials`, server-side. `account_email` entrou —
- * era gravado pelo callback e ninguém podia ler, então a tela exibia o número
- * da conta no lugar do e-mail.
+ * só sai por `fn_provider_credentials`, server-side. `account_label` entrou —
+ * era gravado pelo callback e ninguém podia ler, então a tela exibia o
+ * identificador interno da conta no lugar do rótulo.
  */
 export async function listProviderAccounts(
   client: SupabaseClient,
 ): Promise<ProviderAccountRow[]> {
   const { data, error } = await client
     .from('payment_provider_accounts')
-    .select('id, provider, external_account_id, account_email, is_default, active')
+    .select('id, provider, external_account_id, account_label, is_default, active')
     .order('is_default', { ascending: false })
     .order('provider', { ascending: true })
 

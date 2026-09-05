@@ -12,6 +12,7 @@
  * redondo.
  */
 
+import { randomUUID } from 'node:crypto'
 import { oauthRedirectUri } from '../../oauth-state'
 
 /** Credencial recusada pela Cora. Retentar não resolve; renovar ou reconectar sim. */
@@ -204,9 +205,17 @@ export async function createPixInvoice(params: CreatePixParams): Promise<CoraInv
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      // Mesmo mecanismo do Mercado Pago: a chave é a cobrança, então retentar
-      // a mesma requisição não gera uma segunda invoice.
-      'Idempotency-Key': `charge-${params.chargeId}`,
+      // A Cora EXIGE UUID aqui — `charge-<uuid>` é recusado com
+      // "The Idempotency-Key|x-idempotency-id header must be a valid UUID"
+      // (verificado contra a homologação). O Mercado Pago aceita string livre.
+      //
+      // UUID novo a cada tentativa, e não derivado da cobrança: a proteção
+      // contra cobrar duas vezes a mesma dívida é o índice único parcial de
+      // `payment_intents` (um pendente por cobrança), que é mais forte. Chave
+      // fixa por cobrança quebraria a reemissão legítima — trocar de gateway
+      // expira os pendentes, e a tentativa seguinte receberia de volta a
+      // invoice antiga, colidindo em `UNIQUE (provider, provider_intent_id)`.
+      'Idempotency-Key': randomUUID(),
     },
     body: JSON.stringify(body),
   })

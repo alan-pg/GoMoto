@@ -42,7 +42,7 @@ export const mercadoPagoProvider: PaymentProvider = {
       const tokens = await exchangeCodeForTokens(code)
       return {
         externalAccountId: tokens.mp_user_id,
-        accountEmail: tokens.mp_account_email,
+        accountLabel: tokens.mp_account_email,
         credentials: {
           access_token: tokens.access_token,
           refresh_token: tokens.refresh_token,
