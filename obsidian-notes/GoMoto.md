@@ -43,7 +43,7 @@ Sistema monolítico full-stack para gerenciar:
 
 ## ⚙️ Stack resumida
 - [[Next.js]] 14.2.35 + TypeScript 5 + TailwindCSS 3.4
-- [[Supabase]] (PostgreSQL + Auth + Storage) — projeto `hcnxbqunescfanqzmsha`
+- [[Supabase]] (PostgreSQL + Auth + Storage) — projeto `oskgooflepkkjdwxuouj`
 - Leaflet 1.9, Recharts 3.8, Zod 4.3, Lucide
 - Deploy: Vercel (pendente)
 

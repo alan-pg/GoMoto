@@ -248,7 +248,7 @@ Spec 0004 (locação e cobranças) — ✅ backend + core + mobile fechados em 2
 - `pnpm build` sem erros (Turbo cobre `web` + `core` + `data`).
 - Dev server: `http://localhost:3000`
 - Supabase local: `http://127.0.0.1:54321`
-- Projeto Supabase cloud: `hcnxbqunescfanqzmsha`
+- Projeto Supabase cloud: `oskgooflepkkjdwxuouj`
 
 ## Últimos commits relevantes (2026-06-20)
 
