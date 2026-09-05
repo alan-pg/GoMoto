@@ -22,6 +22,7 @@ import {
   listChargesForCockpit,
   listPayables,
   listProviderAccounts,
+  getPaymentIntentStatus,
   listLateChargePolicies,
   listOpenChargesByRental,
   getChargeBalance,
@@ -55,6 +56,7 @@ const KEY = {
   schedule: 'rental-schedule',
   policy: 'financial-policy',
   monthlySummary: 'monthly-summary',
+  paymentIntent: 'payment-intent',
 } as const
 
 function today(): string {
@@ -505,6 +507,30 @@ export function useProviderAccounts() {
         is_billing_enabled: active !== null,
       }
     },
+  })
+}
+
+/**
+ * Acompanha uma tentativa de pagamento até o gateway confirmar.
+ *
+ * O pagamento chega por webhook, fora do navegador: sem isto a tela fica
+ * mostrando o QR de uma cobrança já quitada, e o botão de gerar Pix continua
+ * aparecendo numa cobrança paga — os dois sintomas de a tela não saber o que o
+ * banco já sabe.
+ *
+ * `enabled` desliga o poll assim que o modal fecha ou o pagamento confirma:
+ * intervalo que sobrevive à tela é bateria e requisição jogadas fora.
+ */
+export function usePaymentIntentStatus(intentId: string | undefined, enabled = true) {
+  const supabase = useSupabaseContext()
+
+  return useQuery({
+    queryKey: [KEY.paymentIntent, intentId],
+    enabled: !!intentId && enabled,
+    // 5 s é o mesmo do app do cliente. Confirmação de Pix leva segundos, e o
+    // custo é uma leitura de linha única por chave primária.
+    refetchInterval: 5000,
+    queryFn: async () => getPaymentIntentStatus(supabase, intentId!),
   })
 }
 

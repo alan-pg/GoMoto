@@ -612,6 +612,28 @@ export async function listProviderAccounts(
 }
 
 /**
+ * Status de uma tentativa de pagamento.
+ *
+ * Sinal mais barato e mais direto de "o cliente pagou": é esta linha que
+ * `fn_confirm_gateway_payment` marca como `paid`, na mesma transação que grava
+ * o recebimento e lança no razão. Uma leitura de linha única por chave, contra
+ * recarregar a cobrança inteira (saldo + itens + política) a cada 5 segundos.
+ */
+export async function getPaymentIntentStatus(
+  client: SupabaseClient,
+  intentId: string,
+): Promise<string | null> {
+  const { data, error } = await client
+    .from('payment_intents')
+    .select('status')
+    .eq('id', intentId)
+    .maybeSingle()
+
+  if (error) throw error
+  return (data as { status: string } | null)?.status ?? null
+}
+
+/**
  * Cobranças em aberto de uma LOCAÇÃO.
  *
  * Distinta de `listOpenCharges`, que é por cliente: a apuração de encerramento

@@ -1,6 +1,8 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { usePaymentIntentStatus } from '@gomoto/data'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { formatCurrency } from '@/lib/utils'
@@ -73,6 +75,7 @@ function qrPngDe(intent: PaymentIntentResult | null): string {
 }
 
 export function BillingActions({ billingId, customerId, status, amountDue, cobranca, latePolicy, availableCredits, creditBalance }: BillingActionsProps) {
+  const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [flashError, setFlashError] = useState<string | null>(null)
 
@@ -85,6 +88,25 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
   // enquanto isso.
   const [pix, setPix] = useState<PaymentIntentResult | null>(null)
   const [copiado, setCopiado] = useState(false)
+  const [pago, setPago] = useState(false)
+
+  // O pagamento chega por WEBHOOK, fora do navegador. Sem acompanhar, a tela
+  // segue exibindo o QR de uma cobrança já quitada — e o botão de gerar Pix
+  // continua aparecendo numa cobrança paga.
+  //
+  // O poll para assim que confirma (`!pago`) e quando o modal fecha (`!!pix`).
+  const intentStatus = usePaymentIntentStatus(pix?.intent_id, !!pix && !pago)
+
+  useEffect(() => {
+    if (!pix || pago) return
+    if (intentStatus.data !== 'paid') return
+
+    setPago(true)
+    // `router.refresh()` reexecuta o Server Component: o status vira 'paid', e
+    // com ele somem os botões de ação — inclusive o de gerar Pix. Era o segundo
+    // sintoma da mesma causa, não um bug separado.
+    router.refresh()
+  }, [intentStatus.data, pix, pago, router])
 
   // Register Payment form
 
@@ -143,6 +165,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
       if (!result.ok) { setFlashError(result.error.message); return }
       setPix(result.data)
       setCopiado(false)
+      setPago(false)
     })
   }
 
@@ -225,9 +248,17 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
       />
 
       {/* ── Pix do gateway ativo ───────────────────────────────────────────── */}
-      <Modal open={!!pix} onClose={() => setPix(null)} title="Cobrança Pix" size="sm">
+      <Modal open={!!pix} onClose={() => { setPix(null); setPago(false) }} title="Cobrança Pix" size="sm">
         <div className="space-y-4">
-          {pix?.is_reused && (
+          {pago && (
+            <div className="rounded-lg border border-success bg-success-bg px-3 py-2.5 text-center">
+              <p className="text-[14px] font-semibold text-success">Pagamento confirmado!</p>
+              <p className="text-[12px] text-fg-mute mt-0.5">
+                A cobrança foi quitada e o recebimento já está no financeiro.
+              </p>
+            </div>
+          )}
+          {!pago && pix?.is_reused && (
             <p className="rounded-lg border border-divider bg-surface-2 px-3 py-2 text-[12px] text-fg-mute">
               Este Pix já existia e continua válido. Gerar um novo cobraria a mesma
               dívida duas vezes, então o mesmo código é reaproveitado.
@@ -235,7 +266,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
           )}
 
           <div className="flex flex-col items-center gap-3">
-            {qrPngDe(pix) ? (
+            {!pago && qrPngDe(pix) ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={qrPngDe(pix)}
@@ -255,26 +286,30 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
             </div>
           </div>
 
+          {!pago && (
           <div className="space-y-1.5">
             <p className="text-[12px] text-fg-mute">Copia e cola</p>
             <p className="max-h-24 overflow-y-auto break-all rounded-lg border border-divider bg-surface-2 px-3 py-2 font-mono text-[11px] text-fg">
               {emvDe(pix)}
             </p>
           </div>
+          )}
 
           <div className="flex justify-end gap-2">
             <button
-              onClick={() => setPix(null)}
+              onClick={() => { setPix(null); setPago(false) }}
               className="inline-flex h-9 items-center rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg"
             >
               Fechar
             </button>
-            <button
-              onClick={copiarEmv}
-              className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-[13px] font-semibold text-bg transition-colors hover:bg-primary-hover"
-            >
-              {copiado ? 'Copiado!' : 'Copiar código'}
-            </button>
+            {!pago && (
+              <button
+                onClick={copiarEmv}
+                className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-[13px] font-semibold text-bg transition-colors hover:bg-primary-hover"
+              >
+                {copiado ? 'Copiado!' : 'Copiar código'}
+              </button>
+            )}
           </div>
         </div>
       </Modal>
