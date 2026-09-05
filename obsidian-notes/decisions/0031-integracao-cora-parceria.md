@@ -41,6 +41,26 @@ Três camadas, todas necessárias — nenhuma delas suficiente sozinha:
 
 `gateway_events.signature_valid` fica **`false` permanentemente** para a Cora. É honesto e é o ponto: a coluna diz o que aconteceu, e um provedor que não assina não pode produzir um registro que afirme verificação.
 
+### 1-bis. O webhook é cadastrado uma vez, para a aplicação inteira
+
+`POST /endpoints/` aceita **token `client_credentials`**, que na modalidade Parceria sai com o mesmo `Authorization: Basic` do resto — **sem certificado**. Verificado: `GET /endpoints` e `POST /endpoints/` respondem com esse token.
+
+Isso significa **um cadastro para todos os tenants**, não um por conta conectada. Consequências que valem a pena:
+
+- conectar uma conta Cora não precisa registrar webhook nenhum — nada a mais no fluxo de conexão, nada a desfazer na desconexão
+- locadora nova passa a receber notificação sem nenhum passo extra
+- a URL secreta é uma só, e rotacioná-la é um `DELETE` mais um `POST`
+
+O `POST /endpoints/` fica fora do fluxo da aplicação: é operação de infraestrutura, feita uma vez por ambiente, como configurar um webhook em painel.
+
+### 1-ter. A Cora dá 2 segundos para responder
+
+O cadastro devolve `connectionTimeout: 1000, readTimeout: 2000`. Processar um evento envolve reconsultar a invoice na API da Cora — sozinho isso pode estourar o prazo.
+
+Por isso a Edge Function **responde antes de processar**, com `EdgeRuntime.waitUntil`. Seguro porque o evento já está no inbox: se o processamento morrer, a linha fica com `processed_at IS NULL` e `idx_gateway_events_unprocessed` é a fila de reprocessamento.
+
+O mesmo defeito estava no webhook do Mercado Pago, onde o comentário afirmava esse comportamento havia meses e o `await` fazia o contrário. Corrigido nos dois.
+
 ### 2. Renovação de credencial com posse declarada no banco
 
 24 horas de validade tornam o refresh obrigatório — sem ele, toda cobrança a partir do segundo dia falha. E o refresh token da Cora é **rotativo**: renovar devolve um novo, o anterior sobrevive a no máximo 3 usos.

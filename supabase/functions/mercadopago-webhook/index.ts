@@ -12,6 +12,9 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { z } from 'npm:zod@3'
+
+// Mantém o trabalho vivo depois da resposta (runtime do Supabase Edge).
+declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void }
 import { verifyWebhookSignature } from '../_shared/signature.ts'
 import {
   accountCredentials, applyPayment, log, markFailed, markProcessed,
@@ -93,13 +96,18 @@ Deno.serve(async (req: Request) => {
   // Duplicata: o UNIQUE reconheceu, nada a fazer.
   if (!eventId) return new Response('OK', { status: 200 })
 
-  // Confirma o recebimento antes de processar: o provedor não deve reenviar por
-  // lentidão nossa, e o evento já está seguro para replay.
-  try {
-    await process(supabase, eventId, ipn.data)
-  } catch (err) {
-    await markFailed(supabase, eventId, err)
-  }
+  // RESPONDE ANTES DE PROCESSAR.
+  //
+  // O comentário aqui sempre disse isso, mas o código fazia o contrário: o
+  // `await` segurava a resposta até a consulta ao MP e a confirmação
+  // terminarem. Gateway lento nosso vira reenvio deles.
+  //
+  // Seguro porque o evento já está no inbox: falha no processamento deixa a
+  // linha com `processed_at IS NULL`, que é a fila de reprocessamento.
+  EdgeRuntime.waitUntil(
+    process(supabase, eventId, ipn.data)
+      .catch((err) => markFailed(supabase, eventId, err)),
+  )
 
   return new Response('OK', { status: 200 })
 })

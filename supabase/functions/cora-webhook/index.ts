@@ -22,6 +22,9 @@
 // provedor que não assina não pode produzir registro afirmando verificação.
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
+
+// Mantém o trabalho vivo depois da resposta (runtime do Supabase Edge).
+declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void }
 import {
   accountCredentials, applyPayment, log, markFailed, markProcessed,
   recordEvent, type NormalizedPayment,
@@ -93,19 +96,30 @@ Deno.serve(async (req: Request) => {
     return new Response('Internal error', { status: 500 })
   }
 
-  if (!eventId) return new Response(JSON.stringify({ success: true }), { status: 200 })
-
-  try {
-    await process(supabase, eventId, eventType, resourceId)
-  } catch (err) {
-    await markFailed(supabase, eventId, err)
-  }
-
   // A Cora espera este corpo exato.
-  return new Response(JSON.stringify({ success: true }), {
+  const ok = new Response(JSON.stringify({ success: true }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   })
+
+  if (!eventId) return ok
+
+  // RESPONDE ANTES DE PROCESSAR.
+  //
+  // O cadastro do endpoint na Cora traz `readTimeout: 2000` — dois segundos.
+  // Processar envolve uma ida à API da Cora para reconsultar a invoice, o que
+  // sozinho já pode estourar esse prazo. Segurar a resposta faria a Cora
+  // considerar a entrega falha e reenviar por lentidão nossa.
+  //
+  // Seguro porque o evento JÁ está no inbox: se o processamento morrer, a
+  // linha fica com `processed_at IS NULL` e o índice
+  // `idx_gateway_events_unprocessed` é a fila de reprocessamento.
+  EdgeRuntime.waitUntil(
+    process(supabase, eventId, eventType, resourceId)
+      .catch((err) => markFailed(supabase, eventId, err)),
+  )
+
+  return ok
 })
 
 async function process(
