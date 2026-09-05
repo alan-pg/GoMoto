@@ -113,7 +113,7 @@ function provedorFalso(id = 'mercadopago') {
   const provider: PaymentProvider = {
     descriptor: {
       id, label: 'Provedor Falso', description: 'teste',
-      connectionMode: 'oauth', methods: ['pix'], available: true,
+      connectionMode: 'oauth', methods: ['pix'], minAmount: 5, available: true,
     },
     async createIntent({ amount, chargeId, method }) {
       chamadas.push({ amount, chargeId, method })
@@ -438,6 +438,27 @@ test.describe('Valor do QR — getOrCreateIntent', () => {
       .from('payment_intents').select('id', { count: 'exact', head: true })
       .eq('charge_id', chargeId)
     expect(count, 'gerou tentativa para um método recusado').toBe(0)
+  })
+
+  /**
+   * Piso do gateway. A Cora recusa abaixo de R$ 5,00 com um 400 genérico
+   * (`services[0].amount must be greater than or equal to 500`) que virava
+   * "Não foi possível gerar o Pix. Tente novamente." — conselho inútil, porque
+   * o valor da cobrança não muda por tentar de novo. Aconteceu em PRODUÇÃO.
+   */
+  test('valor abaixo do mínimo do gateway falha dizendo o limite, sem chamar a API', async () => {
+    const chargeId = await cobrancaPara(cliente.customerId, 3)
+    const { registry, chamadas } = provedorFalso()
+
+    await expect(getOrCreateIntent(admin(), { tenantId, chargeId, method: 'pix' }, registry))
+      .rejects.toThrow(/não gera cobrança abaixo de R\$\s?5,00/i)
+
+    expect(chamadas, 'gastou uma chamada ao gateway para receber um 400 previsível').toHaveLength(0)
+
+    const { count } = await admin()
+      .from('payment_intents').select('id', { count: 'exact', head: true })
+      .eq('charge_id', chargeId)
+    expect(count, 'gravou tentativa para um valor que o gateway recusa').toBe(0)
   })
 
   /** Conta gravada com slug sem implementação tem que parar aqui, com nome. */

@@ -44,7 +44,7 @@ function provedorFalso(opts: { falhar?: boolean } = {}) {
   const provider: PaymentProvider = {
     descriptor: {
       id: 'cora', label: 'Provedor Falso', description: 'teste',
-      connectionMode: 'oauth', methods: ['pix'], available: true,
+      connectionMode: 'oauth', methods: ['pix'], minAmount: 0.01, available: true,
     },
     oauth: {
       buildAuthUrl: () => 'https://exemplo',

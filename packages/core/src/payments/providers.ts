@@ -60,6 +60,18 @@ export type PaymentProviderDescriptor = {
   /** Meios que ESTE provedor sabe gerar. Validado antes de criar a tentativa. */
   methods: GatewayMethod[]
   /**
+   * Menor valor que este gateway aceita cobrar, em REAIS.
+   *
+   * Existe porque a recusa vem tarde e feia: a Cora responde 400 com
+   * `services[0].amount must be greater than or equal to 500` (centavos), e sem
+   * este campo isso virava "Não foi possível gerar o Pix. Tente novamente." —
+   * conselho que nunca ia funcionar, porque o valor da cobrança não muda por
+   * tentar de novo.
+   *
+   * Conferido contra a API de cada provedor, não estimado.
+   */
+  minAmount: number
+  /**
    * `false` enquanto a implementação não existe. A tela mostra o provedor como
    * "em breve" em vez de escondê-lo: o tenant vê para onde a integração vai, e
    * ninguém clica num botão que não faz nada.
@@ -82,6 +94,8 @@ export const PAYMENT_PROVIDERS: PaymentProviderDescriptor[] = [
     description: 'Cobrança Pix com QR code no app do cliente. Conexão pela sua conta Mercado Pago.',
     connectionMode: 'oauth',
     methods: ['pix'],
+    // O Pix do Mercado Pago aceita a partir de um centavo.
+    minAmount: 0.01,
     available: true,
   },
   {
@@ -94,6 +108,9 @@ export const PAYMENT_PROVIDERS: PaymentProviderDescriptor[] = [
     // o ADR 0030 tinha registrado 'certificate' por suposição.
     connectionMode: 'oauth',
     methods: ['pix'],
+    // R$ 5,00 — o número veio da própria API, em produção:
+    // `services[0].amount must be greater than or equal to 500`.
+    minAmount: 5,
     available: true,
   },
 ]

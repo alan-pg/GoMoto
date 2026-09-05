@@ -103,6 +103,24 @@ export async function getOrCreateIntent(
 
   if (amount_due <= 0) throw codedError('CONFLICT', 'Nada a cobrar nesta cobrança')
 
+  // Piso do gateway, conferido ANTES de gastar a chamada.
+  //
+  // A Cora recusa abaixo de R$ 5,00 com um 400 genérico
+  // (`services[0].amount must be greater than or equal to 500`), que virava
+  // "Não foi possível gerar o Pix. Tente novamente." na tela do operador —
+  // conselho inútil, porque o valor da cobrança não muda por tentar de novo.
+  //
+  // Aqui a mensagem diz o limite e nomeia o gateway, e a decisão sai do
+  // provedor específico: qualquer um que declare `minAmount` ganha a guarda.
+  if (amount_due < provider.descriptor.minAmount) {
+    throw codedError(
+      'CONFLICT',
+      `${provider.descriptor.label} não gera cobrança abaixo de `
+      + `${provider.descriptor.minAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`
+      + ` — esta cobrança tem ${amount_due.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`,
+    )
+  }
+
   // ── 4. Credencial ─────────────────────────────────────────────────
   // Não vem na linha da conta: sai do Vault por função que checa o tenant,
   // porque SECURITY DEFINER ignora RLS. E é RENOVADA aqui se estiver perto de
