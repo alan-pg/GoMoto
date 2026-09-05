@@ -414,3 +414,21 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# ---------------------------------------------------------------------------
+# Edge Functions — webhooks de gateway (ADR 0030 / 0031)
+# ---------------------------------------------------------------------------
+# `verify_jwt = false` é obrigatório: quem chama estas funções é o gateway, de
+# fora, sem JWT do Supabase. Estava só como flag `--no-verify-jwt` na linha de
+# comando — quem deployasse sem lembrar dela derrubaria a confirmação de
+# pagamento em silêncio, com todo webhook virando 401.
+#
+# Isso NÃO deixa as funções abertas. Cada uma tem a sua própria porta:
+#   mercadopago-webhook → assinatura HMAC (x-signature)
+#   cora-webhook        → segredo no path, porque a Cora não assina nada
+
+[functions.mercadopago-webhook]
+verify_jwt = false
+
+[functions.cora-webhook]
+verify_jwt = false
