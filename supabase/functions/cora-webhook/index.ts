@@ -191,7 +191,12 @@ async function fetchInvoice(
     status: string
     total_paid: number | null
     total_amount: number | null
-    payments?: { paid_at?: string; created_at?: string }[] | null
+    // `finalized_at` é o instante da liquidação — o campo que a Cora devolve de
+    // verdade. `paid_at` foi suposição minha e nunca vem; sem isto o razão
+    // registrava a hora de CRIAÇÃO do pagamento como data do recebimento.
+    // Verificado na homologação: {"status":"SUCCESS","created_at":"...",
+    // "finalized_at":"...","total_paid":1000,"method":"PIX"}
+    payments?: { finalized_at?: string; created_at?: string }[] | null
   }
 
   const paidCents = inv.total_paid ?? 0
@@ -212,7 +217,7 @@ async function fetchInvoice(
     outcome,
     providerIntentId: invoiceId,
     amount: paidCents > 0 ? paidCents / 100 : null,
-    paidAt: last?.paid_at ?? last?.created_at ?? null,
+    paidAt: last?.finalized_at ?? last?.created_at ?? null,
     detail: `${inv.status} (total_paid=${paidCents})`,
   }
 }
