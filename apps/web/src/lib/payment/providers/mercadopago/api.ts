@@ -43,6 +43,7 @@ export function buildOAuthUrl(stateJwt: string): string {
 export async function exchangeCodeForTokens(code: string): Promise<{
   access_token: string
   refresh_token: string
+  expires_in: number | null
   mp_user_id: string
   mp_account_email: string | null
 }> {
@@ -63,6 +64,9 @@ export async function exchangeCodeForTokens(code: string): Promise<{
   return {
     access_token:     json.access_token,
     refresh_token:    json.refresh_token,
+    // ~180 dias no MP. Gravar a validade é o que permite renovar ANTES de
+    // falhar, em vez de descobrir pelo 401 (ADR 0031).
+    expires_in:       typeof json.expires_in === 'number' ? json.expires_in : null,
     mp_user_id:       String(json.user_id),
     mp_account_email: json.email ?? null,
   }
@@ -71,6 +75,7 @@ export async function exchangeCodeForTokens(code: string): Promise<{
 export async function refreshAccessToken(refreshToken: string): Promise<{
   access_token: string
   refresh_token: string
+  expires_in: number | null
 }> {
   const res = await fetch(`${MP_TOKEN}/oauth/token`, {
     method: 'POST',
@@ -85,7 +90,11 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   if (res.status === 401) throw new MercadoPagoAuthError('Refresh token do Mercado Pago não vale mais')
   if (!res.ok) throw new Error(`MP token refresh failed: ${res.status}`)
   const json = await res.json()
-  return { access_token: json.access_token, refresh_token: json.refresh_token }
+  return {
+    access_token:  json.access_token,
+    refresh_token: json.refresh_token,
+    expires_in:    typeof json.expires_in === 'number' ? json.expires_in : null,
+  }
 }
 
 export interface PixChargeParams {

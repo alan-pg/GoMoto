@@ -15,18 +15,20 @@ import { findPaymentProvider, supportsMethod, type GatewayMethod } from '@gomoto
 import type { PaymentProvider } from './types'
 import { codedError } from './types'
 import { mercadoPagoProvider } from './providers/mercadopago'
+import { coraProvider } from './providers/cora'
 
 export type ProviderRegistry = Record<string, PaymentProvider>
 
 /**
  * Implementações disponíveis, por slug.
  *
- * Provedor que está no catálogo de `@gomoto/core` com `available: false` (o
- * Cora, hoje) NÃO aparece aqui — e é essa ausência que a tela lê como "em
- * breve". Somar o Cora é somar uma linha aqui e virar a flag lá.
+ * Provedor que está no catálogo de `@gomoto/core` com `available: false` NÃO
+ * aparece aqui — e é essa ausência que a tela lê como "em breve". Somar um
+ * gateway é somar uma linha aqui e virar a flag lá.
  */
 export const PROVIDER_REGISTRY: ProviderRegistry = {
   [mercadoPagoProvider.descriptor.id]: mercadoPagoProvider,
+  [coraProvider.descriptor.id]: coraProvider,
 }
 
 /**

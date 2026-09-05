@@ -71,7 +71,9 @@ O que é puro vai para `@gomoto/core`, o que faz I/O fica em `apps/web`:
 - **`@gomoto/core/payments`** — o *descriptor*: `id`, `label`, `connectionMode` (`oauth` | `api_key` | `certificate`), `methods`. Sem I/O, então serve a UI web, o app mobile e a validação de entrada.
 - **`apps/web/src/lib/payment`** — a interface `PaymentProvider` com I/O (`connect`, `refresh`, `createIntent`) e o registry.
 
-`connectionMode` já nasce com três valores porque o Cora não é OAuth. Implementamos agora **apenas o caminho OAuth**, que é o do único provedor existente: escrever o formulário de API key sem provedor que o use seria tela sem consumidor — o mesmo defeito que produziu G-05, G-06 e G-07.
+`connectionMode` nasce com três valores porque nem todo gateway é OAuth (Asaas e Pagar.me usam API key). Implementamos agora **apenas o caminho OAuth**: escrever o formulário de API key sem provedor que o use seria tela sem consumidor — o mesmo defeito que produziu G-05, G-06 e G-07.
+
+> **Correção de 2026-09-04, depois de ler a documentação da Cora.** Esta ADR registrou, por suposição, que "o Cora não é OAuth" e o catalogou como `certificate`. Errado: a Cora tem duas modalidades, e a nossa — **Parceria** — é OAuth2 authorization_code puro, sem certificado (`https://api.cora.com.br`). O mTLS pertence à "Integração Direta" (`https://matls-clients.api.cora.com.br`), em que a empresa gerencia a própria conta. O catálogo foi corrigido para `oauth`. Ver [[decisions/0031-integracao-cora-parceria|ADR 0031]].
 
 ### 5. O webhook continua sendo uma Edge Function por provedor
 

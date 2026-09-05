@@ -14,7 +14,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { calculateAmountDue, type LateChargePolicy } from '@gomoto/core'
 import { assertMethodSupported, getProvider, PROVIDER_REGISTRY, type ProviderRegistry } from './registry'
-import { codedError, ProviderAuthError, type ProviderCredentials } from './types'
+import { resolveCredentials } from './credentials'
+import { ensureQrImage } from './qr'
+import { codedError, ProviderAuthError } from './types'
 
 export type PaymentIntentResult = {
   intent_id: string
@@ -102,18 +104,11 @@ export async function getOrCreateIntent(
   if (amount_due <= 0) throw codedError('CONFLICT', 'Nada a cobrar nesta cobrança')
 
   // ── 4. Credencial ─────────────────────────────────────────────────
-  // Não vem na linha da conta: é resolvida por função que checa o tenant,
-  // porque SECURITY DEFINER ignora RLS. Ponto único de leitura do segredo.
-  const { data: credentials, error: credError } = await supabase.rpc('fn_provider_credentials', {
-    p_account_id: account.id,
-  })
-
-  if (credError || !credentials) {
-    throw codedError(
-      'GATEWAY_UNAUTHORIZED',
-      `Credenciais de ${provider.descriptor.label} não configuradas. Reconecte a conta em Configurações.`,
-    )
-  }
+  // Não vem na linha da conta: sai do Vault por função que checa o tenant,
+  // porque SECURITY DEFINER ignora RLS. E é RENOVADA aqui se estiver perto de
+  // vencer — o token da Cora dura 24h, então sem isso a segunda diária de
+  // cobranças já falharia (ADR 0031).
+  const credentials = await resolveCredentials(supabase, account, provider)
 
   const { data: customer } = await supabase
     .from('customers')
@@ -130,7 +125,7 @@ export async function getOrCreateIntent(
       amount: amount_due,
       chargeId,
       method,
-      credentials: credentials as ProviderCredentials,
+      credentials,
       customer: { name: c?.name ?? null, email: c?.email ?? null, document: c?.cpf ?? null },
     })
   } catch (err) {
@@ -143,6 +138,13 @@ export async function getOrCreateIntent(
     }
     throw err
   }
+
+  // O app do cliente desenha o QR a partir de uma imagem. O Mercado Pago a
+  // devolve pronta; a Cora devolve só o EMV (o copia-e-cola). Em vez de ensinar
+  // o app a desenhar — duas dependências novas no Expo, cujo acoplamento de SDK
+  // já quebrou o app antes — a imagem é gerada aqui, uma vez, para qualquer
+  // provedor que não a ofereça (ADR 0031 §4).
+  const payload = await ensureQrImage(created.payload)
 
   // ── 6. Persiste ───────────────────────────────────────────────────
   const { data: intent, error } = await supabase
@@ -164,7 +166,7 @@ export async function getOrCreateIntent(
       accrued_amount: accrued.total,
       status: 'pending',
       expires_at: created.expiresAt,
-      payload: created.payload,
+      payload,
     })
     .select('id')
     .single()
@@ -198,7 +200,7 @@ export async function getOrCreateIntent(
     method,
     amount: amount_due,
     expires_at: created.expiresAt,
-    payload: created.payload,
+    payload,
     is_reused: false,
   }
 }

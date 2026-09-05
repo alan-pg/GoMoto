@@ -24,6 +24,8 @@ A lista sai do catálogo `PAYMENT_PROVIDERS` (`@gomoto/core/payments`) cruzado c
 
 **Aviso de "Nenhum gateway ativo".** Existe conta conectada e nenhuma eleita — normalmente depois de desconectar a que cobrava. O app do cliente para de gerar Pix; sem o aviso, isso acontecia sem nada na tela dizer por quê.
 
+**Provedores disponíveis:** Mercado Pago e Cora, ambos OAuth2 — o tenant é levado ao provedor, faz login e autoriza. O `redirect_uri` (`<NEXT_PUBLIC_APP_URL>/api/auth/gateway/<provedor>/callback`) precisa estar **registrado no painel de cada provedor**, senão a autorização é recusada antes da tela de login.
+
 Escrita: as três operações passam por RPC `SECURITY DEFINER` (`fn_connect_provider_account`, `fn_set_default_provider_account`, `fn_disconnect_provider_account`), que checam Owner **e** tenant dentro do banco. `authenticated` não tem `INSERT`/`UPDATE` em `payment_provider_accounts` — a linha aponta para uma credencial no Vault, e o guard de dinheiro não pode viver só na aplicação.
 
 ### Encargo por atraso (Owner apenas) — ADR 0024

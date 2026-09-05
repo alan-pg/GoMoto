@@ -29,9 +29,16 @@ import { useTheme, type ThemeTokens } from '../theme'
 type PaymentMethod = 'pix' | 'boleto' | 'card'
 
 type PixResult = {
+  /** Copia-e-cola do Pix. Campo canônico, comum a todo gateway (ADR 0031 §4). */
+  emv?: string
   qr_code: string
   qr_code_base64: string
-  expires_at: string
+  /**
+   * `null` quando o gateway não declara validade — é o caso da Cora, cujo Pix
+   * não vence sozinho. Antes isto era `string` e a tela fazia
+   * `expires_at.slice(0, 10)` direto: o primeiro QR da Cora derrubaria o modal.
+   */
+  expires_at: string | null
   is_reused: boolean
 }
 
@@ -345,7 +352,7 @@ function PixModal({
   const finalAmount = billing.amount_due
 
   function copyCode() {
-    void Clipboard.setStringAsync(result.qr_code)
+    void Clipboard.setStringAsync(result.emv ?? result.qr_code)
     Alert.alert('Copiado!', 'Código Pix copiado para a área de transferência.')
   }
 
@@ -378,11 +385,13 @@ function PixModal({
           </View>
           <View style={styles.pixInfo}>
             <Text style={styles.pixAmount}>{formatCurrency(finalAmount)}</Text>
-            <Text style={styles.pixExpiry}>Vence em {formatDate(result.expires_at.slice(0, 10))}</Text>
+            {result.expires_at ? (
+              <Text style={styles.pixExpiry}>Vence em {formatDate(result.expires_at.slice(0, 10))}</Text>
+            ) : null}
           </View>
           <View style={styles.pixCodeBlock}>
             <Text style={styles.pixCodeLabel}>Copia e Cola</Text>
-            <Text style={styles.pixCode} selectable>{result.qr_code}</Text>
+            <Text style={styles.pixCode} selectable>{result.emv ?? result.qr_code}</Text>
           </View>
           <TouchableOpacity style={styles.copyBtn} onPress={copyCode}>
             <Text style={styles.copyBtnText}>Copiar Código Pix</Text>

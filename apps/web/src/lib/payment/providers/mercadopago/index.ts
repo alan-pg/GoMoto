@@ -10,6 +10,7 @@
  */
 
 import { findPaymentProvider } from '@gomoto/core'
+import { expiresAtFrom } from '../../credentials'
 import type { PaymentProvider, ProviderConnection, ProviderCredentials } from '../../types'
 import { ProviderAuthError } from '../../types'
 import {
@@ -45,6 +46,7 @@ export const mercadoPagoProvider: PaymentProvider = {
         credentials: {
           access_token: tokens.access_token,
           refresh_token: tokens.refresh_token,
+          expires_at: expiresAtFrom(tokens.expires_in),
         },
       }
     },
@@ -55,7 +57,11 @@ export const mercadoPagoProvider: PaymentProvider = {
         throw new ProviderAuthError('mercadopago', 'Sem refresh token — reconecte a conta')
       }
       const renewed = await refreshAccessToken(refreshToken)
-      return { access_token: renewed.access_token, refresh_token: renewed.refresh_token }
+      return {
+        access_token: renewed.access_token,
+        refresh_token: renewed.refresh_token,
+        expires_at: expiresAtFrom(renewed.expires_in),
+      }
     },
   },
 
@@ -88,6 +94,11 @@ export const mercadoPagoProvider: PaymentProvider = {
         providerIntentId: charge.mp_payment_id,
         expiresAt: charge.expires_at,
         payload: {
+          // Campo canônico do Pix, comum a todo provedor (ADR 0031 §4): é dele
+          // que o app do cliente desenha o QR. `qr_code_base64` continua sendo
+          // gravado porque o MP o oferece, mas nada depende dele — a Cora não
+          // devolve imagem nenhuma.
+          emv: charge.qr_code,
           qr_code: charge.qr_code,
           qr_code_base64: charge.qr_code_base64,
         },
