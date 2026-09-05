@@ -14,14 +14,28 @@
  */
 
 import { test, expect } from '@playwright/test'
-import { getSupabaseAdmin, getTestTenantId, TEST_TAG } from './helpers'
+import { getSupabaseAdmin, TEST_TAG } from './helpers'
 import { resolveCredentials } from '../src/lib/payment/credentials'
 import type { PaymentProvider, ProviderCredentials } from '../src/lib/payment/types'
 
 const admin = () => getSupabaseAdmin()
 const RUN = Date.now().toString(36)
 
-let tenantId = ''
+/**
+ * Tenant 2, de propósito — NÃO o de `getTestTenantId()`.
+ *
+ * `api-payment-intent.spec.ts` tem um teste que desconecta TODAS as contas
+ * ativas do tenant 1 para montar a condição "nenhum gateway eleito". Os
+ * arquivos de spec rodam em workers paralelos: com este aqui no mesmo tenant,
+ * um derruba a conta do outro no meio, e o índice único parcial de
+ * `is_default` estoura na hora errada. Deu falha intermitente na suíte.
+ *
+ * Este spec não precisa de nada do tenant 1 — só de uma linha em
+ * `payment_provider_accounts` e das RPCs de credencial. Tenant separado é
+ * isolamento de verdade, não sincronização entre arquivos.
+ */
+const tenantId = '00000000-0000-0000-0000-000000000002'
+
 let accountId = ''
 
 /** Provedor falso que conta quantas vezes o refresh foi de fato chamado. */
@@ -70,7 +84,6 @@ async function tokenVigente(): Promise<string> {
 const AGORA_MAIS = (ms: number) => new Date(Date.now() + ms).toISOString()
 
 test.beforeAll(async () => {
-  tenantId = await getTestTenantId()
   const { data, error } = await admin()
     .from('payment_provider_accounts')
     .insert({

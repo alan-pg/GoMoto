@@ -3,8 +3,8 @@
 /**
  * Server Actions do detalhe da cobrança (Spec 0014 / ADR 0024).
  *
- * Aplicação de crédito e consolidação de encargo. O recebimento e o ciclo de
- * vida do documento ficam em `../actions.ts`.
+ * Aplicação de crédito, consolidação de encargo e geração de Pix. O
+ * recebimento e o ciclo de vida do documento ficam em `../actions.ts`.
  */
 
 import { revalidatePath } from 'next/cache'
@@ -19,6 +19,7 @@ import {
   type ChargeBalance,
 } from '@gomoto/core'
 import { postTransaction, dimensionsOf, realizeAccruedBefore } from '@/lib/financial'
+import { getOrCreateIntent, type PaymentIntentResult } from '@/lib/payment/intents'
 
 type Failure = { ok: false; error: { code: ErrorCode; message: string } }
 
@@ -114,4 +115,84 @@ export async function applyCustomerCredits(
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
+}
+
+/**
+ * Gera (ou reaproveita) a cobrança Pix desta cobrança no gateway ativo.
+ *
+ * O cockpit **perdeu** esta ação. O commit `930a50b` (27/06) tinha um botão
+ * "Gerar Pix" na listagem; a reescrita da tela sobre o ledger (`eac1e7f`,
+ * 12/08, 877 → 600 linhas) o removeu junto com a Server Action e nada foi
+ * reposto. Desde então o operador conecta o gateway em Configurações e não tem
+ * por onde cobrar — o único caminho vivo era `/api/charges/[id]/payment-intent`,
+ * que exige token de CLIENTE (`customers.user_id = auth.uid()`) e portanto só
+ * serve ao app. Um operador não é `customer` e não passa naquela checagem.
+ *
+ * Roda com o cliente do USUÁRIO, não com service role: tudo que
+ * `getOrCreateIntent` toca é alcançável por `authenticated` sob RLS —
+ * `charge_balances`, `payment_intents` (GRANT ALL), as colunas públicas de
+ * `payment_provider_accounts` e `fn_provider_credentials`, que checa o tenant
+ * por dentro. Contornar a RLS aqui seria trocar uma garantia do banco por uma
+ * comparação escrita à mão.
+ */
+export async function generateChargePixAction(rawChargeId: unknown): Promise<ActionResult<PaymentIntentResult>> {
+  const ctx = await getContext()
+  if (!ctx.ok) return ctx.failure
+
+  if (typeof rawChargeId !== 'string' || !rawChargeId) {
+    return fail('VALIDATION_ERROR', 'Cobrança inválida')
+  }
+
+  // Titularidade antes de qualquer coisa. A RLS já filtraria, mas uma cobrança
+  // de outro tenant deve responder "não encontrada" e não seguir adiante até
+  // estourar em algum ponto interno com mensagem de banco.
+  const { data: charge } = await ctx.supabase
+    .from('charges')
+    .select('id')
+    .eq('id', rawChargeId)
+    .eq('tenant_id', ctx.tenantId)
+    .maybeSingle()
+
+  if (!charge) return fail('NOT_FOUND', 'Cobrança não encontrada')
+
+  try {
+    const intent = await getOrCreateIntent(ctx.supabase, {
+      tenantId: ctx.tenantId,
+      chargeId: rawChargeId,
+      method: 'pix',
+    })
+
+    await logAction({
+      action: 'generate_pix',
+      table: 'payment_intents',
+      recordId: intent.intent_id,
+      newData: {
+        charge_id: rawChargeId,
+        provider: intent.provider,
+        amount: intent.amount,
+        reused: intent.is_reused,
+      },
+    })
+
+    revalidatePath(`/cobrancas/${rawChargeId}`)
+    return { ok: true, data: intent }
+  } catch (err) {
+    const e = err as Error & { code?: string }
+
+    // Os códigos vêm de `getOrCreateIntent`, que fala o vocabulário do gateway.
+    // Traduzir aqui mantém a tela sem precisar conhecê-lo — e preserva a
+    // distinção que importa: "não há gateway" pede configuração, "credencial
+    // expirada" pede reconexão, e nenhuma das duas pede nova tentativa.
+    if (e.code === 'FORBIDDEN') {
+      return fail('FORBIDDEN', e.message)
+    }
+    if (e.code === 'GATEWAY_UNAUTHORIZED') {
+      return fail('FORBIDDEN', e.message)
+    }
+    if (e.code === 'NOT_FOUND')  return fail('NOT_FOUND', e.message)
+    if (e.code === 'CONFLICT')   return fail('CONFLICT', e.message)
+
+    console.error('[generateChargePixAction]', e)
+    return fail('INTERNAL', 'Não foi possível gerar o Pix. Tente novamente.')
+  }
 }

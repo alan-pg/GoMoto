@@ -7,7 +7,8 @@ import { formatCurrency } from '@/lib/utils'
 import { type LateChargePolicy } from '@gomoto/core'
 import { RegistrarPagamentoModal, type CobrancaParaPagamento } from '@/components/financial/RegistrarPagamentoModal'
 import { cancelChargeAction } from '../../actions'
-import { applyCustomerCredits } from '../actions'
+import { applyCustomerCredits, generateChargePixAction } from '../actions'
+import type { PaymentIntentResult } from '@/lib/payment/intents'
 
 interface AvailableCredit {
   id: string
@@ -51,6 +52,26 @@ const CREDIT_ORIGIN_LABELS: Record<string, string> = {
   customer_credit:    'Crédito ao cliente',
 }
 
+/**
+ * Código copia-e-cola do Pix, venha do gateway que vier.
+ *
+ * `emv` é o campo canônico (ADR 0031 §4). `qr_code` é como o Mercado Pago o
+ * nomeia e continua sendo gravado; a Cora só devolve `emv`. Ler os dois aqui
+ * evita que a tela precise saber qual gateway gerou a cobrança.
+ */
+function emvDe(intent: PaymentIntentResult | null): string {
+  const p = intent?.payload
+  if (!p) return ''
+  const emv = p.emv ?? p.qr_code
+  return typeof emv === 'string' ? emv : ''
+}
+
+/** PNG do QR. Gerado no servidor quando o provedor não o entrega (ADR 0031 §4). */
+function qrPngDe(intent: PaymentIntentResult | null): string {
+  const b64 = intent?.payload?.qr_code_base64
+  return typeof b64 === 'string' && b64 ? `data:image/png;base64,${b64}` : ''
+}
+
 export function BillingActions({ billingId, customerId, status, amountDue, cobranca, latePolicy, availableCredits, creditBalance }: BillingActionsProps) {
   const [isPending, startTransition] = useTransition()
   const [flashError, setFlashError] = useState<string | null>(null)
@@ -58,6 +79,12 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
   const [payOpen, setPayOpen]     = useState(false)
   const [creditOpen, setCreditOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
+
+  // Pix do gateway ativo. `pix` só existe depois que a action volta — não há
+  // estado "gerando" separado porque `isPending` já cobre, e o botão some
+  // enquanto isso.
+  const [pix, setPix] = useState<PaymentIntentResult | null>(null)
+  const [copiado, setCopiado] = useState(false)
 
   // Register Payment form
 
@@ -109,6 +136,30 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
     })
   }
 
+  function handleGeneratePix() {
+    setFlashError(null)
+    startTransition(async () => {
+      const result = await generateChargePixAction(billingId)
+      if (!result.ok) { setFlashError(result.error.message); return }
+      setPix(result.data)
+      setCopiado(false)
+    })
+  }
+
+  async function copiarEmv() {
+    const codigo = emvDe(pix)
+    if (!codigo) return
+    try {
+      await navigator.clipboard.writeText(codigo)
+      setCopiado(true)
+      setTimeout(() => setCopiado(false), 2500)
+    } catch {
+      // Área de transferência bloqueada (http, permissão negada). O código está
+      // selecionável na tela — não vale derrubar o modal por causa disso.
+      setFlashError('Não foi possível copiar. Selecione o código manualmente.')
+    }
+  }
+
   function handleCancel() {
     setFlashError(null)
     startTransition(async () => {
@@ -147,6 +198,15 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
         )}
         {isActionable && (
           <button
+            onClick={handleGeneratePix}
+            disabled={isPending}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg disabled:opacity-50"
+          >
+            {isPending && !pix ? 'Gerando Pix...' : 'Gerar Pix'}
+          </button>
+        )}
+        {isActionable && (
+          <button
             onClick={() => { setFlashError(null); setCancelOpen(true) }}
             disabled={isPending}
             className="inline-flex h-9 items-center gap-1.5 rounded-full border border-danger bg-danger-bg px-4 text-[13px] text-danger transition-colors hover:bg-danger-bg disabled:opacity-50"
@@ -163,6 +223,61 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
         cobranca={cobranca}
         policy={latePolicy}
       />
+
+      {/* ── Pix do gateway ativo ───────────────────────────────────────────── */}
+      <Modal open={!!pix} onClose={() => setPix(null)} title="Cobrança Pix" size="sm">
+        <div className="space-y-4">
+          {pix?.is_reused && (
+            <p className="rounded-lg border border-divider bg-surface-2 px-3 py-2 text-[12px] text-fg-mute">
+              Este Pix já existia e continua válido. Gerar um novo cobraria a mesma
+              dívida duas vezes, então o mesmo código é reaproveitado.
+            </p>
+          )}
+
+          <div className="flex flex-col items-center gap-3">
+            {qrPngDe(pix) ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={qrPngDe(pix)}
+                alt="QR code do Pix"
+                className="h-[220px] w-[220px] rounded-lg bg-white p-2"
+              />
+            ) : null}
+
+            <div className="text-center">
+              <p className="text-[20px] font-semibold text-fg">{formatCurrency(pix?.amount ?? 0)}</p>
+              <p className="text-[12px] text-fg-mute">
+                via {pix?.provider_label ?? pix?.provider}
+                {pix?.expires_at
+                  ? ` · vence em ${new Date(pix.expires_at).toLocaleString('pt-BR')}`
+                  : ''}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <p className="text-[12px] text-fg-mute">Copia e cola</p>
+            <p className="max-h-24 overflow-y-auto break-all rounded-lg border border-divider bg-surface-2 px-3 py-2 font-mono text-[11px] text-fg">
+              {emvDe(pix)}
+            </p>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setPix(null)}
+              className="inline-flex h-9 items-center rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg"
+            >
+              Fechar
+            </button>
+            <button
+              onClick={copiarEmv}
+              className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-[13px] font-semibold text-bg transition-colors hover:bg-primary-hover"
+            >
+              {copiado ? 'Copiado!' : 'Copiar código'}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* ── Aplicar crédito ────────────────────────────────────────────────── */}
       <Modal open={creditOpen} onClose={() => setCreditOpen(false)} title="Aplicar crédito">

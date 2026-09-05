@@ -13,6 +13,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { validateCpfDigits } from '@gomoto/core'
+import { codedError } from '../../types'
 import { oauthRedirectUri } from '../../oauth-state'
 
 /** Credencial recusada pela Cora. Retentar não resolve; renovar ou reconectar sim. */
@@ -176,8 +178,41 @@ async function coraFetch(path: string, accessToken: string, init: RequestInit = 
   return await res.json()
 }
 
+/**
+ * Documento do pagador. A Cora **exige** e valida.
+ *
+ * O OpenAPI dela lista só `name` e `email` como obrigatórios em `customer`, mas
+ * a API real recusa os dois casos, verificado contra a homologação:
+ *
+ *   documento ausente  → 400 `customer.document must not be null`
+ *   documento inválido → 400 `customer.document.identity is not a valid CNPJ or CPF`
+ *
+ * Ou seja: não dá para omitir quando o cadastro está ruim. O que dá é falhar
+ * dizendo o que corrigir. No primeiro teste real da tela, um cliente com CPF de
+ * dígito verificador inválido produzia "Não foi possível gerar o Pix. Tente
+ * novamente." — conselho inútil, porque tentar de novo nunca ia funcionar.
+ */
+function documentoValido(raw: string | null): { identity: string; type: 'CPF' | 'CNPJ' } | null {
+  const digits = raw?.replace(/\D/g, '') ?? ''
+  if (digits.length === 11) {
+    return validateCpfDigits(digits) ? { identity: digits, type: 'CPF' } : null
+  }
+  // CNPJ não tem validador em `@gomoto/core` e o cadastro é de pessoa física;
+  // o comprimento é a única checagem honesta que dá para fazer aqui.
+  if (digits.length === 14) return { identity: digits, type: 'CNPJ' }
+  return null
+}
+
 export async function createPixInvoice(params: CreatePixParams): Promise<CoraInvoice> {
-  const document = params.customer.document?.replace(/\D/g, '') ?? ''
+  const document = documentoValido(params.customer.document)
+  if (!document) {
+    throw codedError(
+      'CONFLICT',
+      params.customer.document
+        ? 'O CPF/CNPJ deste cliente é inválido. Corrija o cadastro para gerar o Pix.'
+        : 'Este cliente não tem CPF/CNPJ cadastrado, e a Cora exige o documento do pagador.',
+    )
+  }
 
   const body = {
     // Nossa referência viaja aqui, como `external_reference` no Mercado Pago.
@@ -188,9 +223,7 @@ export async function createPixInvoice(params: CreatePixParams): Promise<CoraInv
       // entra no lugar — a cobrança não pode deixar de existir porque o
       // cadastro está incompleto.
       email: params.customer.email ?? 'cliente@gomoto.app',
-      ...(document
-        ? { document: { identity: document, type: document.length > 11 ? 'CNPJ' : 'CPF' } }
-        : {}),
+      ...(document ? { document } : {}),
     },
     services: [{
       name: 'Locação',
