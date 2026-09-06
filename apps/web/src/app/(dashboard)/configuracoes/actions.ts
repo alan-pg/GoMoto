@@ -1,10 +1,16 @@
 'use server'
 
 import { SignJWT } from 'jose'
-import { LateChargePolicyInputSchema, toPolicyRow, ThemePreferenceSchema, ProviderIdSchema } from '@gomoto/core'
+import {
+  LateChargePolicyInputSchema, toPolicyRow, ThemePreferenceSchema,
+  ProviderIdSchema, findPaymentProvider,
+} from '@gomoto/core'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId, requireTenantOwner } from '@/lib/auth/tenant'
 import { getOAuthProvider } from '@/lib/payment/registry'
+import {
+  verifyHandle, normalizeHandle, isValidHandleFormat, InfinitePayHandleError,
+} from '@/lib/payment/providers/infinitepay/api'
 import { oauthStateSecret } from '@/lib/payment/oauth-state'
 import { logAction } from '@/lib/audit'
 import { revalidatePath } from 'next/cache'
@@ -111,6 +117,96 @@ export async function connectGatewayAction(providerId: unknown): Promise<ActionD
     console.error('[gateway] buildAuthUrl falhou:', err)
     return { ok: false, error: { code: 'INTERNAL', message: 'Integração não configurada. Contate o suporte.' } }
   }
+}
+
+/**
+ * Conecta um gateway cuja credencial é um HANDLE (ADR 0032).
+ *
+ * Não é o caminho OAuth com outro nome. Lá o provedor autentica o tenant e nos
+ * devolve a identidade da conta; aqui o operador DIGITA um nome de usuário
+ * público e nada na API prova que ele é o dono. O risco não é vazamento, é
+ * digitação: um handle errado manda o aluguel para a conta de um estranho, em
+ * silêncio e para sempre.
+ *
+ * Por isso o handle é SONDADO contra a API antes de virar linha no banco. A
+ * sonda não prova posse — nada prova — mas mata os dois erros que de fato
+ * acontecem (handle inexistente e Checkout Externo desligado) enquanto o
+ * operador ainda está olhando para o campo, em vez de na primeira cobrança de
+ * um cliente real.
+ */
+export async function connectGatewayWithHandleAction(
+  providerId: unknown,
+  rawHandle: unknown,
+): Promise<ActionData<{ accountId: string; handle: string; checkoutUrl: string }>> {
+  const ctx = await getOwnerTenant()
+  if ('error' in ctx) return { ok: false, error: ownerError(ctx.error, 'conectar um gateway de pagamento') }
+
+  const parsed = ProviderIdSchema.safeParse(providerId)
+  if (!parsed.success) return { ok: false, error: { code: 'VALIDATION', message: 'Provedor inválido' } }
+
+  const descriptor = findPaymentProvider(parsed.data)
+  if (!descriptor || descriptor.connectionMode !== 'handle') {
+    return { ok: false, error: { code: 'CONFLICT', message: 'Este gateway não se conecta por InfiniteTag' } }
+  }
+
+  if (typeof rawHandle !== 'string') {
+    return { ok: false, error: { code: 'VALIDATION', message: 'Informe a sua InfiniteTag' } }
+  }
+
+  const handle = normalizeHandle(rawHandle)
+  if (!isValidHandleFormat(handle)) {
+    return { ok: false, error: { code: 'VALIDATION', message: 'InfiniteTag em formato inválido' } }
+  }
+
+  // A sonda vem ANTES da escrita. Gravar primeiro e validar depois deixaria o
+  // tenant com um gateway conectado que não cobra — o estado que a ADR 0030 foi
+  // escrita para acabar.
+  let checkoutUrl: string
+  try {
+    const probe = await verifyHandle(handle)
+    checkoutUrl = probe.checkoutUrl
+  } catch (err) {
+    if (err instanceof InfinitePayHandleError) {
+      return { ok: false, error: { code: 'VALIDATION', message: err.message } }
+    }
+    console.error('[gateway] sonda de handle falhou:', err)
+    return {
+      ok: false,
+      error: { code: 'INTERNAL', message: 'Não foi possível falar com a InfinitePay agora. Tente de novo.' },
+    }
+  }
+
+  // O Vault guarda o handle mesmo ele não sendo segredo. É deliberado: manter
+  // um único caminho de credencial (`fn_provider_credentials`) vale mais que
+  // economizar uma ida ao Vault, e a coluna `external_account_id` continua
+  // sendo a identidade que o webhook procura.
+  const { data, error } = await ctx.supabase.rpc('fn_connect_provider_account', {
+    p_tenant_id: ctx.tenantId,
+    p_provider: parsed.data,
+    p_external_account_id: handle,
+    p_account_label: `$${handle}`,
+    p_credentials: { handle },
+  })
+
+  if (error) return { ok: false, error: gatewayError(error.message) }
+
+  const conta = (Array.isArray(data) ? data[0] : data) as { account_id: string } | null
+  if (!conta?.account_id) {
+    return { ok: false, error: { code: 'INTERNAL', message: 'Não foi possível concluir a operação' } }
+  }
+
+  await logAction({
+    action: 'connect_payment',
+    table: 'payment_provider_accounts',
+    recordId: conta.account_id,
+    newData: { tenant_id: ctx.tenantId, provider: parsed.data, external_account_id: handle },
+  })
+
+  revalidatePath('/configuracoes')
+  // `accountId` volta para a tela poder oferecer o desfazer imediato: se o link
+  // de conferência não abrir a loja do operador, desconectar é um clique, não
+  // uma caçada na lista.
+  return { ok: true, data: { accountId: conta.account_id, handle, checkoutUrl } }
 }
 
 /**

@@ -16,6 +16,7 @@ import type { PaymentProvider } from './types'
 import { codedError } from './types'
 import { mercadoPagoProvider } from './providers/mercadopago'
 import { coraProvider } from './providers/cora'
+import { infinitePayProvider } from './providers/infinitepay'
 
 export type ProviderRegistry = Record<string, PaymentProvider>
 
@@ -29,6 +30,7 @@ export type ProviderRegistry = Record<string, PaymentProvider>
 export const PROVIDER_REGISTRY: ProviderRegistry = {
   [mercadoPagoProvider.descriptor.id]: mercadoPagoProvider,
   [coraProvider.descriptor.id]: coraProvider,
+  [infinitePayProvider.descriptor.id]: infinitePayProvider,
 }
 
 /**

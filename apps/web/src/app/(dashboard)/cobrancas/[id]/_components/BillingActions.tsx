@@ -29,6 +29,16 @@ interface BillingActionsProps {
    *  recalcular o devido na data do recebimento. */
   cobranca: CobrancaParaPagamento
   latePolicy: LateChargePolicy | null
+  /**
+   * Meio que o gateway ELEITO gera — `pix`, `payment_link`, ou `null` quando
+   * não há gateway ativo.
+   *
+   * Vem do servidor porque o botão precisa dizer a verdade ANTES de gerar. O
+   * rótulo era "Gerar Pix" fixo, o que funcionava enquanto todo gateway gerava
+   * Pix; com um checkout hospedado eleito ele prometeria um QR e entregaria uma
+   * URL.
+   */
+  gatewayMethod: string | null
   availableCredits: AvailableCredit[]
   /** Saldo de crédito do cliente — um POOL, vindo do razão.
    *
@@ -74,7 +84,27 @@ function qrPngDe(intent: PaymentIntentResult | null): string {
   return typeof b64 === 'string' && b64 ? `data:image/png;base64,${b64}` : ''
 }
 
-export function BillingActions({ billingId, customerId, status, amountDue, cobranca, latePolicy, availableCredits, creditBalance }: BillingActionsProps) {
+/**
+ * URL do checkout hospedado (ADR 0032).
+ *
+ * Chave própria, deliberadamente fora do vocabulário do Pix. Se a InfinitePay
+ * gravasse a URL em `emv`, esta tela mostraria uma URL como copia-e-cola e o
+ * cliente tentaria colá-la no app do banco.
+ */
+function checkoutUrlDe(intent: PaymentIntentResult | null): string {
+  const url = intent?.payload?.checkout_url
+  return typeof url === 'string' ? url : ''
+}
+
+/** Rótulo do que o gateway eleito vai gerar. */
+function rotuloDoMeio(method: string | null): { acao: string; gerando: string; titulo: string } {
+  if (method === 'payment_link') {
+    return { acao: 'Gerar link de pagamento', gerando: 'Gerando link...', titulo: 'Link de pagamento' }
+  }
+  return { acao: 'Gerar Pix', gerando: 'Gerando Pix...', titulo: 'Cobrança Pix' }
+}
+
+export function BillingActions({ billingId, customerId, status, amountDue, cobranca, latePolicy, gatewayMethod, availableCredits, creditBalance }: BillingActionsProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [flashError, setFlashError] = useState<string | null>(null)
@@ -83,10 +113,10 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
   const [creditOpen, setCreditOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
 
-  // Pix do gateway ativo. `pix` só existe depois que a action volta — não há
+  // Pix do gateway ativo. `intent` só existe depois que a action volta — não há
   // estado "gerando" separado porque `isPending` já cobre, e o botão some
   // enquanto isso.
-  const [pix, setPix] = useState<PaymentIntentResult | null>(null)
+  const [intent, setIntent] = useState<PaymentIntentResult | null>(null)
   const [copiado, setCopiado] = useState(false)
   const [pago, setPago] = useState(false)
 
@@ -94,11 +124,11 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
   // segue exibindo o QR de uma cobrança já quitada — e o botão de gerar Pix
   // continua aparecendo numa cobrança paga.
   //
-  // O poll para assim que confirma (`!pago`) e quando o modal fecha (`!!pix`).
-  const intentStatus = usePaymentIntentStatus(pix?.intent_id, !!pix && !pago)
+  // O poll para assim que confirma (`!pago`) e quando o modal fecha (`!!intent`).
+  const intentStatus = usePaymentIntentStatus(intent?.intent_id, !!intent && !pago)
 
   useEffect(() => {
-    if (!pix || pago) return
+    if (!intent || pago) return
     if (intentStatus.data !== 'paid') return
 
     setPago(true)
@@ -106,7 +136,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
     // com ele somem os botões de ação — inclusive o de gerar Pix. Era o segundo
     // sintoma da mesma causa, não um bug separado.
     router.refresh()
-  }, [intentStatus.data, pix, pago, router])
+  }, [intentStatus.data, intent, pago, router])
 
   // Register Payment form
 
@@ -158,19 +188,25 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
     })
   }
 
+  /** Rótulos do gateway eleito antes de gerar; do intent depois que ele existe. */
+  const rotulo = rotuloDoMeio(intent?.method ?? gatewayMethod)
+  const ehLink = !!checkoutUrlDe(intent)
+
   function handleGeneratePix() {
     setFlashError(null)
     startTransition(async () => {
       const result = await generateChargePixAction(billingId)
       if (!result.ok) { setFlashError(result.error.message); return }
-      setPix(result.data)
+      setIntent(result.data)
       setCopiado(false)
       setPago(false)
     })
   }
 
-  async function copiarEmv() {
-    const codigo = emvDe(pix)
+  async function copiarCodigo() {
+    // Pix copia o EMV; checkout hospedado copia a URL. É a mesma ação para o
+    // operador — "manda isso para o cliente" — e o que muda é só o conteúdo.
+    const codigo = emvDe(intent) || checkoutUrlDe(intent)
     if (!codigo) return
     try {
       await navigator.clipboard.writeText(codigo)
@@ -225,7 +261,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
             disabled={isPending}
             className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg disabled:opacity-50"
           >
-            {isPending && !pix ? 'Gerando Pix...' : 'Gerar Pix'}
+            {isPending && !intent ? rotulo.gerando : rotulo.acao}
           </button>
         )}
         {isActionable && (
@@ -248,7 +284,7 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
       />
 
       {/* ── Pix do gateway ativo ───────────────────────────────────────────── */}
-      <Modal open={!!pix} onClose={() => { setPix(null); setPago(false) }} title="Cobrança Pix" size="sm">
+      <Modal open={!!intent} onClose={() => { setIntent(null); setPago(false) }} title={rotulo.titulo} size="sm">
         <div className="space-y-4">
           {pago && (
             <div className="rounded-lg border border-success bg-success-bg px-3 py-2.5 text-center">
@@ -258,29 +294,30 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
               </p>
             </div>
           )}
-          {!pago && pix?.is_reused && (
+          {!pago && intent?.is_reused && (
             <p className="rounded-lg border border-divider bg-surface-2 px-3 py-2 text-[12px] text-fg-mute">
-              Este Pix já existia e continua válido. Gerar um novo cobraria a mesma
-              dívida duas vezes, então o mesmo código é reaproveitado.
+              {ehLink
+                ? 'Este link já existia e continua válido. Gerar outro cobraria a mesma dívida duas vezes, então o mesmo link é reaproveitado.'
+                : 'Este Pix já existia e continua válido. Gerar um novo cobraria a mesma dívida duas vezes, então o mesmo código é reaproveitado.'}
             </p>
           )}
 
           <div className="flex flex-col items-center gap-3">
-            {!pago && qrPngDe(pix) ? (
+            {!pago && qrPngDe(intent) ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={qrPngDe(pix)}
+                src={qrPngDe(intent)}
                 alt="QR code do Pix"
                 className="h-[220px] w-[220px] rounded-lg bg-white p-2"
               />
             ) : null}
 
             <div className="text-center">
-              <p className="text-[20px] font-semibold text-fg">{formatCurrency(pix?.amount ?? 0)}</p>
+              <p className="text-[20px] font-semibold text-fg">{formatCurrency(intent?.amount ?? 0)}</p>
               <p className="text-[12px] text-fg-mute">
-                via {pix?.provider_label ?? pix?.provider}
-                {pix?.expires_at
-                  ? ` · vence em ${new Date(pix.expires_at).toLocaleString('pt-BR')}`
+                via {intent?.provider_label ?? intent?.provider}
+                {intent?.expires_at
+                  ? ` · vence em ${new Date(intent.expires_at).toLocaleString('pt-BR')}`
                   : ''}
               </p>
             </div>
@@ -288,26 +325,38 @@ export function BillingActions({ billingId, customerId, status, amountDue, cobra
 
           {!pago && (
           <div className="space-y-1.5">
-            <p className="text-[12px] text-fg-mute">Copia e cola</p>
+            <p className="text-[12px] text-fg-mute">{ehLink ? 'Link do checkout' : 'Copia e cola'}</p>
             <p className="max-h-24 overflow-y-auto break-all rounded-lg border border-divider bg-surface-2 px-3 py-2 font-mono text-[11px] text-fg">
-              {emvDe(pix)}
+              {ehLink ? checkoutUrlDe(intent) : emvDe(intent)}
             </p>
+            {/* O cliente escolhe Pix ou cartão na página do provedor, não aqui.
+                Dizer isso evita que o operador procure um QR que não existe. */}
+            {ehLink && (
+              <a
+                href={checkoutUrlDe(intent)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block text-[12px] text-primary hover:underline"
+              >
+                Abrir checkout
+              </a>
+            )}
           </div>
           )}
 
           <div className="flex justify-end gap-2">
             <button
-              onClick={() => { setPix(null); setPago(false) }}
+              onClick={() => { setIntent(null); setPago(false) }}
               className="inline-flex h-9 items-center rounded-full border border-border px-4 text-[13px] text-fg-mute transition-colors hover:border-fg-mute hover:text-fg"
             >
               Fechar
             </button>
             {!pago && (
               <button
-                onClick={copiarEmv}
+                onClick={copiarCodigo}
                 className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-[13px] font-semibold text-bg transition-colors hover:bg-primary-hover"
               >
-                {copiado ? 'Copiado!' : 'Copiar código'}
+                {copiado ? 'Copiado!' : ehLink ? 'Copiar link' : 'Copiar código'}
               </button>
             )}
           </div>

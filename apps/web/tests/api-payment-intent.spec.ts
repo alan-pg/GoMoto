@@ -108,12 +108,12 @@ async function cobrancaPara(customerId: string, valor: number) {
  * pelo slug daquela conta. É o que torna o teste uma prova de que a resolução
  * funciona, e não só do cálculo de valor.
  */
-function provedorFalso(id = 'mercadopago') {
+function provedorFalso(id = 'mercadopago', methods: PaymentProvider['descriptor']['methods'] = ['pix']) {
   const chamadas: { amount: number; chargeId: string; method: string }[] = []
   const provider: PaymentProvider = {
     descriptor: {
       id, label: 'Provedor Falso', description: 'teste',
-      connectionMode: 'oauth', methods: ['pix'], minAmount: 5, available: true,
+      connectionMode: 'oauth', methods, minAmount: 5, available: true,
     },
     async createIntent({ amount, chargeId, method }) {
       chamadas.push({ amount, chargeId, method })
@@ -277,6 +277,25 @@ test.describe('Valor do QR — getOrCreateIntent', () => {
     expect(r.amount).toBe(500)
     expect(r.is_reused).toBe(false)
     expect(chamadas[0].amount, 'pediu ao provedor um valor diferente do devido').toBe(500)
+  })
+
+  test('sem método pedido, usa o meio do gateway ELEITO', async () => {
+    // Os dois chamadores reais escreviam `'pix'` fixo, o que só funcionava
+    // enquanto todo gateway gerava PIX. Um provedor de checkout hospedado
+    // (`payment_link`) recusaria — e a locadora leria "não gera cobrança por
+    // pix" depois de trocar de gateway, sem nunca ter pedido PIX.
+    const chargeId = await cobrancaPara(cliente.customerId, 300)
+    const { registry, chamadas } = provedorFalso('mercadopago', ['payment_link'])
+
+    const r = await getOrCreateIntent(admin(), { tenantId, chargeId }, registry)
+
+    expect(chamadas[0].method, 'pediu ao provedor um meio que ele não gera').toBe('payment_link')
+    expect(r.method).toBe('payment_link')
+
+    // E o que ficou gravado é o que a confirmação vai ler.
+    const { data } = await admin()
+      .from('payment_intents').select('method').eq('id', r.intent_id).single()
+    expect((data as { method: string }).method).toBe('payment_link')
   })
 
   test('a segunda chamada REAPROVEITA a tentativa pendente', async () => {

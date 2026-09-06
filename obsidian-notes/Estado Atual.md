@@ -143,6 +143,29 @@ encerramento.
 
 ## 🧱 Dívida técnica registrada
 
+**Dinheiro para cobrança cancelada — [[decisions/0033-dinheiro-para-cobranca-cancelada|ADR 0033]]** (2026-09-06)
+
+🟡 **Proposta, nada implementado.** Vale para os três gateways, é anterior à
+InfinitePay, e foi ela que tornou visível.
+
+Cancelar uma cobrança **não expira o `payment_intent` pendente**, então o código
+de pagamento continua vivo no provedor. Se alguém pagar,
+`fn_confirm_gateway_payment` não olha o status da cobrança: credita normalmente
+e, como a emissão já foi revertida no razão, **`contas_a_receber` fica
+negativo** — os livros passam a dizer que a locadora deve ao cliente.
+
+Duas metades. A mecânica (cancelar expira os intents, como
+`fn_disconnect_provider_account` já faz) não tem decisão pendente. A outra é
+**decisão do humano**: dinheiro que chega para cobrança cancelada vira crédito
+do cliente (recomendado) ou continua recebível? Recusar viola a ADR 0024.
+
+Cancelar no provedor — MP e Cora têm endpoint, InfinitePay **não tem** — reduz a
+probabilidade, mas não elimina o caso (corrida, falha de rede, janela de status).
+
+Registrada junto: **nada drena a fila de replay** (`gateway_events` com
+`processed_at IS NULL`). Como respondemos antes de processar, o provedor não
+reenvia — a fila depende de alguém olhar.
+
 **Leitura do cliente sobre o razão — [[decisions/0027-como-o-cliente-le-saldo-derivado-do-razao|ADR 0027]]** (2026-08-31)
 
 **Portão decidido e implementado; uma questão em aberto.** As views de saldo são

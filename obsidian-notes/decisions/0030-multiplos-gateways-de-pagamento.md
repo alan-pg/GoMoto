@@ -108,3 +108,7 @@ Deno não alcança `packages/core` pelo workspace, então esse núcleo vive em `
 
 - Se um tenant precisar de **duas contas ativas do mesmo provedor** ao mesmo tempo (ex.: PIX por uma conta, cartão por outra). O modelo de dados aguenta — `UNIQUE (tenant_id, provider, external_account_id)` —, mas `is_default` único por tenant não: viraria default por *método*.
 - Se o número de provedores passar de ~4, o registry por objeto literal vira carregamento dinâmico.
+
+---
+
+**Aberto sobre esta fundação:** [[decisions/0033-dinheiro-para-cobranca-cancelada|ADR 0033]] — cancelar cobrança não expira o intent pendente, e a confirmação não olha o status da cobrança. Vale para os três provedores.

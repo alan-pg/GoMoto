@@ -48,7 +48,7 @@ const PENDING_COLUMNS = 'id, provider, method, amount, expires_at, payload'
  */
 export async function getOrCreateIntent(
   supabase: SupabaseClient,
-  params: { tenantId: string; chargeId: string; method: string },
+  params: { tenantId: string; chargeId: string; method?: string | null },
   registry: ProviderRegistry = PROVIDER_REGISTRY,
 ): Promise<PaymentIntentResult> {
   const { tenantId, chargeId } = params
@@ -75,7 +75,18 @@ export async function getOrCreateIntent(
   // fazia três consultas antes de descobrir que não havia com o que cobrar.
   const account = await resolveActiveAccount(supabase, tenantId)
   const provider = getProvider(account.provider, registry)
-  const method = assertMethodSupported(provider, params.method)
+
+  // Sem método pedido, o meio principal do gateway ELEITO — nunca um literal
+  // do chamador. A rota do app e a ação do cockpit escreviam `'pix'` como
+  // default, o que só funcionava porque os dois únicos provedores geravam PIX:
+  // eleger um gateway de checkout hospedado fazia a cobrança morrer em
+  // "InfinitePay não gera cobrança por pix" — a locadora trocou de gateway e o
+  // produto respondia acusando ela de pedir a coisa errada.
+  const requested = params.method ?? provider.descriptor.methods[0]
+  if (!requested) {
+    throw codedError('CONFLICT', `${provider.descriptor.label} não declara nenhum meio de cobrança`)
+  }
+  const method = assertMethodSupported(provider, requested)
 
   // ── 3. Valor devido — fonte única ─────────────────────────────────
   const { data: balance, error: balanceError } = await supabase

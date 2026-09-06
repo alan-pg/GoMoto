@@ -75,8 +75,12 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Cobrança não encontrada' } }, 404)
   }
 
+  // Sem `?? 'pix'`: o default é do gateway ELEITO, resolvido dentro de
+  // `getOrCreateIntent`. Fixar aqui fazia o app pedir PIX a um provedor de
+  // checkout hospedado e ouvir que ele não gera PIX — culpa nossa, mensagem
+  // apontando para o cliente.
   const body = await req.json().catch(() => ({})) as { method?: string }
-  const method = body.method ?? 'pix'
+  const method = body.method ?? null
 
   try {
     const result = await getOrCreateIntent(admin, {

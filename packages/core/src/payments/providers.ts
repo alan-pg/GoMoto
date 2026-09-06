@@ -36,17 +36,27 @@ export type GatewayMethod = z.infer<typeof GatewayMethodSchema>
 /**
  * Como o tenant entrega a credencial ao GoMoto.
  *
- * - `oauth` — redireciona, autoriza, volta com código (Mercado Pago).
+ * - `oauth` — redireciona, autoriza, volta com código (Mercado Pago, Cora).
  * - `api_key` — cola uma chave num formulário (Asaas, Pagar.me).
- * - `certificate` — chave + certificado mTLS (Cora).
+ * - `certificate` — chave + certificado mTLS.
+ * - `handle` — cola um NOME DE USUÁRIO PÚBLICO (InfinitePay).
  *
- * Os três valores existem desde já porque a tela decide o que renderizar a
- * partir daqui. Só o caminho `oauth` está implementado — é o do único provedor
- * que existe. O ramo de cada outro entra junto com o provedor que o usa, não
- * antes: formulário sem provedor por trás é a mesma tela que aceita e descarta
- * que este ADR foi escrito para corrigir.
+ * `handle` não é `api_key` com outro nome, e a distinção é de segurança, não de
+ * vocabulário. Uma chave é segredo: quem a tem, age pela conta. Um handle é a
+ * InfiniteTag — qualquer pessoa pode criar links para qualquer comerciante que
+ * tenha o checkout externo ligado. Nada na API prova posse.
+ *
+ * A consequência prática é que o risco muda de lado: não é vazamento, é
+ * DIGITAÇÃO. Handle errado manda o aluguel para a conta de um estranho, em
+ * silêncio e para sempre. Por isso a tela deste modo confirma antes de gravar,
+ * em vez de só mascarar o campo como faria com uma chave (ADR 0032).
+ *
+ * O ramo de cada modo entra junto com o provedor que o usa, não antes:
+ * formulário sem provedor por trás é a mesma tela que aceita e descarta que a
+ * ADR 0030 foi escrita para corrigir. `api_key` e `certificate` seguem sem
+ * implementação, de propósito.
  */
-export const ProviderConnectionModeSchema = z.enum(['oauth', 'api_key', 'certificate'])
+export const ProviderConnectionModeSchema = z.enum(['oauth', 'api_key', 'certificate', 'handle'])
 export type ProviderConnectionMode = z.infer<typeof ProviderConnectionModeSchema>
 
 export type PaymentProviderDescriptor = {
@@ -111,6 +121,26 @@ export const PAYMENT_PROVIDERS: PaymentProviderDescriptor[] = [
     // R$ 5,00 — o número veio da própria API, em produção:
     // `services[0].amount must be greater than or equal to 500`.
     minAmount: 5,
+    available: true,
+  },
+  {
+    id: 'infinitepay',
+    label: 'InfinitePay',
+    description: 'Link de checkout com Pix e cartão em até 12x. Você informa a sua InfiniteTag.',
+    // Sem OAuth, sem chave, sem assinatura: a credencial é a InfiniteTag, que é
+    // pública. Ver o comentário de `ProviderConnectionModeSchema`.
+    connectionMode: 'handle',
+    // O ÚNICO provedor que não entrega um código de pagamento: entrega uma URL
+    // e é o cliente quem escolhe Pix ou cartão, na página deles. Declarar `pix`
+    // aqui seria mentir sobre o que o GoMoto controla — e faria a tela desenhar
+    // um QR que não existe.
+    methods: ['payment_link'],
+    // R$ 1,00 — sondado contra a API, não estimado. A recusa vem como 422
+    // `Total price must be greater than 1`: o número está em REAIS numa
+    // mensagem sobre um campo que é em CENTAVOS, então ela se lê como "mais que
+    // um centavo" e manda o leitor para o lugar errado. Conferido: 50 e 99 são
+    // recusados, 100 passa — e "greater than" na verdade é "a partir de".
+    minAmount: 1,
     available: true,
   },
 ]

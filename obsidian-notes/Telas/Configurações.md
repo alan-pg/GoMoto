@@ -22,9 +22,21 @@ A lista sai do catálogo `PAYMENT_PROVIDERS` (`@gomoto/core/payments`) cruzado c
 
 **Conectar não elege.** Só o primeiro gateway do tenant nasce eleito; um segundo entra como "Conectado" e a troca é um clique explícito em *Ativar*. Conectar nunca redireciona o dinheiro da empresa em silêncio.
 
-**Aviso de "Nenhum gateway ativo".** Existe conta conectada e nenhuma eleita — normalmente depois de desconectar a que cobrava. O app do cliente para de gerar Pix; sem o aviso, isso acontecia sem nada na tela dizer por quê.
+**Aviso de "Nenhum gateway ativo".** Existe conta conectada e nenhuma eleita — normalmente depois de desconectar a que cobrava. O app do cliente para de gerar cobrança online; sem o aviso, isso acontecia sem nada na tela dizer por quê.
 
-**Provedores disponíveis:** Mercado Pago e Cora, ambos OAuth2 — o tenant é levado ao provedor, faz login e autoriza. O `redirect_uri` (`<NEXT_PUBLIC_APP_URL>/api/auth/gateway/<provedor>/callback`) precisa estar **registrado no painel de cada provedor**, senão a autorização é recusada antes da tela de login.
+**Provedores disponíveis:**
+
+| Provedor | Conexão | Gera |
+|---|---|---|
+| Mercado Pago | OAuth2 | Pix |
+| Cora | OAuth2 | Pix (mín. R$ 5,00) |
+| InfinitePay | **InfiniteTag digitada** | Link de checkout (mín. R$ 1,00) |
+
+Nos dois primeiros o tenant é levado ao provedor, faz login e autoriza. O `redirect_uri` (`<NEXT_PUBLIC_APP_URL>/api/auth/gateway/<provedor>/callback`) precisa estar **registrado no painel de cada provedor**, senão a autorização é recusada antes da tela de login.
+
+**InfinitePay conecta por handle** — [[decisions/0032-integracao-infinitepay-checkout|ADR 0032]]. Não há OAuth nem chave: a credencial é a InfiniteTag, um nome de usuário **público**. O operador digita (com ou sem `$`) e o GoMoto **sonda a API criando um link de verificação de R$ 1,00** antes de gravar — é a única prova disponível de que a tag cobra, porque `payment_check` responde igual para pedido inexistente e pedido não pago.
+
+Depois de gravar, um modal mostra o link e pede conferência, com *Não é minha conta* desconectando na hora. O motivo é que **nada na API prova posse do handle**: digitar errado manda o dinheiro para a conta de um estranho, em silêncio. A conta pode precisar habilitar o **Checkout Externo** no app da InfinitePay — o erro é o mesmo de handle inexistente, então a mensagem cobre as duas leituras.
 
 Escrita: as três operações passam por RPC `SECURITY DEFINER` (`fn_connect_provider_account`, `fn_set_default_provider_account`, `fn_disconnect_provider_account`), que checam Owner **e** tenant dentro do banco. `authenticated` não tem `INSERT`/`UPDATE` em `payment_provider_accounts` — a linha aponta para uma credencial no Vault, e o guard de dinheiro não pode viver só na aplicação.
 

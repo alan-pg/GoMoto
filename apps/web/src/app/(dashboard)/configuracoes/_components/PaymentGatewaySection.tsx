@@ -13,14 +13,18 @@
  */
 
 import { useState, useTransition } from 'react'
-import { AlertTriangle, CheckCircle2, CreditCard, Link2, Link2Off, Loader2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, CreditCard, ExternalLink, Link2, Link2Off, Loader2 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { cn } from '@/lib/utils'
 import { PAYMENT_PROVIDERS, type PaymentProviderDescriptor } from '@gomoto/core'
 import type { ProviderAccountRow } from '@gomoto/data'
-import { connectGatewayAction, disconnectGatewayAction, setDefaultGatewayAction } from '../actions'
+import {
+  connectGatewayAction, connectGatewayWithHandleAction,
+  disconnectGatewayAction, setDefaultGatewayAction,
+} from '../actions'
 
 export type GatewayFeedback = { type: 'success' | 'error'; message: string }
 
@@ -62,6 +66,12 @@ export function PaymentGatewaySection({ accounts, isLoading, feedback, onFeedbac
   /** Qual linha está em ação — para o spinner não acender em todas. */
   const [busyId, setBusyId] = useState<string | null>(null)
   const [toDisconnect, setToDisconnect] = useState<Row | null>(null)
+  /** Provedor cuja credencial é digitada, não autorizada por redirecionamento. */
+  const [toType, setToType] = useState<Row | null>(null)
+  /** Conta recém-conectada por handle, à espera de conferência do operador. */
+  const [toConfirm, setToConfirm] = useState<
+    { label: string; accountId: string; handle: string; checkoutUrl: string } | null
+  >(null)
 
   const rows = buildRows(accounts)
   const billingRow = rows.find((r) => r.billing) ?? null
@@ -83,6 +93,13 @@ export function PaymentGatewaySection({ accounts, isLoading, feedback, onFeedbac
   }
 
   async function handleConnect(row: Row) {
+    // Credencial digitada não sai da aplicação: não há para onde redirecionar.
+    if (row.descriptor.connectionMode === 'handle') {
+      onFeedback(null)
+      setToType(row)
+      return
+    }
+
     setBusyId(row.descriptor.id)
     onFeedback(null)
     const result = await connectGatewayAction(row.descriptor.id)
@@ -165,6 +182,68 @@ export function PaymentGatewaySection({ accounts, isLoading, feedback, onFeedbac
         )}
       </Card>
 
+      <HandleConnectModal
+        row={toType}
+        onClose={() => setToType(null)}
+        onConnected={(data) => {
+          setToType(null)
+          setToConfirm(data)
+          onChanged()
+        }}
+      />
+
+      {/* Conferência DEPOIS de gravar, e não antes, porque a única prova que a
+          InfinitePay oferece de que o handle cobra é o link já criado. O
+          desfazer fica no mesmo modal: quem não reconhecer a loja desconecta
+          sem procurar o botão na lista. */}
+      <Modal
+        open={!!toConfirm}
+        onClose={() => setToConfirm(null)}
+        title={`Confirme que a conta é sua`}
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-[13px] text-fg-mute">
+            {toConfirm?.label} identifica a conta apenas pela InfiniteTag, e nada na
+            integração prova que <span className="text-fg font-medium">{toConfirm?.handle}</span> é
+            você. Abra o checkout de teste e confirme que ele mostra a sua loja.
+          </p>
+          <p className="text-[13px] text-critical">
+            Se for a loja de outra pessoa, todo dinheiro cobrado por aqui vai para ela.
+          </p>
+
+          {toConfirm && (
+            <a
+              href={toConfirm.checkoutUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 p-3 rounded-xl bg-surface-2 border border-border text-[13px] text-fg hover:border-fg-mute"
+            >
+              <ExternalLink className="w-4 h-4 shrink-0 text-fg-mute" />
+              <span className="truncate">Abrir checkout de verificação</span>
+            </a>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="danger"
+              size="sm"
+              loading={pending}
+              onClick={() => {
+                const c = toConfirm!
+                setToConfirm(null)
+                run(c.accountId, () => disconnectGatewayAction(c.accountId), `${c.label} desconectado.`)
+              }}
+            >
+              Não é minha conta
+            </Button>
+            <Button size="sm" onClick={() => setToConfirm(null)}>
+              Conferi, é minha
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       <Modal
         open={!!toDisconnect}
         onClose={() => setToDisconnect(null)}
@@ -174,7 +253,10 @@ export function PaymentGatewaySection({ accounts, isLoading, feedback, onFeedbac
         <div className="space-y-4">
           <p className="text-[13px] text-fg-mute">
             {toDisconnect?.billing
-              ? 'Este é o gateway que gera as cobranças. Ao desconectar, o app do cliente deixa de gerar Pix até você ativar outro.'
+              // "deixa de gerar Pix" era verdade enquanto todo gateway gerava
+              // Pix. A InfinitePay gera link de checkout, então a frase passou
+              // a prometer errado justamente na tela que decide o dinheiro.
+              ? 'Este é o gateway que gera as cobranças. Ao desconectar, o app do cliente deixa de gerar cobrança online até você ativar outro.'
               : 'Esta conta deixa de ficar disponível. Você pode reconectá-la depois.'}
           </p>
           <p className="text-[13px] text-fg-mute">
@@ -271,6 +353,88 @@ function GatewayRow({
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * Conexão de gateway cuja credencial é DIGITADA (ADR 0032).
+ *
+ * O ramo OAuth manda o operador para o provedor e volta com a identidade da
+ * conta. Aqui não há para onde ir: ele digita uma InfiniteTag pública e a única
+ * verificação possível é a própria API tentar criar um link.
+ *
+ * Por isso o texto do campo fala em conferir, e não em guardar segredo. Tratar
+ * este campo como senha — mascarar, esconder — daria ao operador a impressão
+ * errada sobre o que está em jogo: o risco não é alguém ler, é ele errar.
+ */
+function HandleConnectModal({
+  row, onClose, onConnected,
+}: {
+  row: Row | null
+  onClose: () => void
+  onConnected: (data: { label: string; accountId: string; handle: string; checkoutUrl: string }) => void
+}) {
+  const [handle, setHandle] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  function fechar() {
+    setHandle('')
+    setErro(null)
+    onClose()
+  }
+
+  async function submeter() {
+    if (!row || busy) return
+    setBusy(true)
+    setErro(null)
+
+    const result = await connectGatewayWithHandleAction(row.descriptor.id, handle)
+    setBusy(false)
+
+    if (!result.ok) {
+      setErro(result.error.message)
+      return
+    }
+
+    setHandle('')
+    onConnected({ label: row.descriptor.label, ...result.data })
+  }
+
+  return (
+    <Modal open={!!row} onClose={fechar} title={`Conectar ${row?.descriptor.label ?? ''}`} size="sm">
+      <div className="space-y-4">
+        <p className="text-[13px] text-fg-mute">
+          Informe a sua InfiniteTag — o nome de usuário do app da InfinitePay. Pode colar
+          com o <span className="text-fg">$</span>; ele é removido.
+        </p>
+
+        <Input
+          label="InfiniteTag"
+          placeholder="sua-infinitetag"
+          value={handle}
+          autoFocus
+          onChange={(e) => setHandle(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') void submeter() }}
+          error={erro ?? undefined}
+          hint="Precisa estar com o Checkout Externo habilitado na sua conta InfinitePay."
+        />
+
+        <p className="text-[12px] text-fg-mute">
+          Vamos criar um checkout de teste de R$ 1,00 para confirmar que a tag cobra.
+          Ele não é enviado a ninguém e não precisa ser pago.
+        </p>
+
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" disabled={busy} onClick={fechar}>
+            Cancelar
+          </Button>
+          <Button size="sm" loading={busy} disabled={!handle.trim()} onClick={() => void submeter()}>
+            Conectar
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 

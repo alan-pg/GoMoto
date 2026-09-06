@@ -159,7 +159,8 @@ export async function generateChargePixAction(rawChargeId: unknown): Promise<Act
     const intent = await getOrCreateIntent(ctx.supabase, {
       tenantId: ctx.tenantId,
       chargeId: rawChargeId,
-      method: 'pix',
+      // Método omitido de propósito: quem decide é o gateway eleito. Esta ação
+      // dizia `'pix'` e por isso não servia a um provedor de link de pagamento.
     })
 
     await logAction({

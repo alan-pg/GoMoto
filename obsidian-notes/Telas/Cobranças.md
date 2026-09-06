@@ -62,6 +62,30 @@ O encargo é **projetado** até o recebimento e realizado com a data escolhida
 pagamento: para receber a mais, registre o devido e conceda o resto como crédito
 na ficha do cliente.
 
+**Cobrar pelo gateway** (só na tela de detalhe, cobrança aberta ou vencida):
+
+O rótulo do botão vem do **gateway eleito**, resolvido no servidor e passado
+como `gatewayMethod` — não é fixo. O que ele gera depende do provedor:
+
+| Gateway eleito | Botão | Modal |
+|---|---|---|
+| Mercado Pago, Cora | *Gerar Pix* | QR + copia-e-cola |
+| InfinitePay | *Gerar link de pagamento* | URL copiável + abrir checkout |
+
+A InfinitePay não devolve código Pix: devolve uma **URL de checkout hospedado**,
+e quem escolhe Pix ou cartão é o cliente, na página deles
+([[decisions/0032-integracao-infinitepay-checkout|ADR 0032]]). Por isso o
+payload grava `checkout_url` e não `emv` — gravar como `emv` faria a tela
+mostrar uma URL como copia-e-cola e o cliente tentaria colá-la no app do banco.
+
+O modal **acompanha a confirmação** (`usePaymentIntentStatus`, 5s): o pagamento
+chega por webhook, fora do navegador. Ao confirmar, `router.refresh()` reexecuta
+o Server Component e os botões de ação somem junto com o status.
+
+Nenhum chamador nomeia meio de pagamento. `getOrCreateIntent` resolve a conta
+eleita primeiro e usa `descriptor.methods[0]` — antes era `'pix'` fixo, o que
+quebraria a cobrança assim que um gateway de checkout fosse eleito.
+
 **Contabilizar como Prejuízo** (aparece se `pending` ou `overdue`):
 - Modal de confirmação com aviso em vermelho
 - Salva: `status='loss'`

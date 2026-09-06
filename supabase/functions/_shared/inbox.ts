@@ -35,6 +35,22 @@ export type NormalizedPayment = {
   providerIntentId: string
   amount: number | null
   paidAt: string | null
+  /**
+   * Meio REAL do pagamento, no vocabulário de `payment_method_type`.
+   *
+   * `null` para todo provedor cujo intent já declara o meio — o PIX do Mercado
+   * Pago e o da Cora nascem sabendo. A RPC deriva do intent nesse caso, e
+   * repetir o valor aqui só criaria duas fontes para a mesma verdade.
+   *
+   * Preenchido por checkout HOSPEDADO, onde quem escolhe o meio é o cliente na
+   * página do provedor e só se descobre depois de pago: o intent nasce como
+   * `payment_link`, que não é meio de pagamento nenhum, e sem isto o razão
+   * registraria `other` para todo mundo.
+   *
+   * A tradução é do adaptador. Um valor fora do ENUM derruba a transação
+   * inteira com erro de tipo, não com falha nomeada.
+   */
+  method?: string | null
   /** Vai para o motivo do estorno e para o log. */
   detail: string
 }
@@ -165,8 +181,13 @@ export async function applyPayment(
       p_intent_id: intent.id,
       p_amount: payment.amount ?? intent.amount,
       p_paid_at: payment.paidAt ?? new Date().toISOString(),
-      // `p_method` fica de fora: a função deriva do `method` do intent. Passar
-      // 'pix' aqui foi como um pagamento de outro meio viraria PIX no razão.
+      // `null` deixa a RPC derivar do `method` do intent — o certo enquanto o
+      // intent declara o meio. Passar 'pix' fixo aqui foi como um pagamento de
+      // outro meio viraria PIX no razão.
+      //
+      // O provedor só informa quando SABE mais que o intent: checkout hospedado
+      // nasce `payment_link` e descobre `pix` ou `credit_card` na confirmação.
+      p_method: payment.method ?? null,
     })
     if (error) throw new Error(`confirmação: ${error.message}`)
 

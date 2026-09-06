@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentTenantId } from '@/lib/auth/tenant'
 import {
   calculateAmountDue, calculateAccruedCharges, toPolicyInput, DAYS_PER_MONTH,
+  findPaymentProvider,
   type LateChargePolicy, type AccruedCharges,
 } from '@gomoto/core'
 import { formatCurrency } from '@/lib/utils'
@@ -169,7 +170,7 @@ export default async function BillingDetailPage({
   // do documento são os ITENS — `late_charges` e `credit_applications` deixaram
   // de existir: encargo é calculado até ser realizado (R-06), e aplicação de
   // crédito é transação no ledger.
-  const [balanceResult, itemsResult, allocationsResult] = await Promise.all([
+  const [balanceResult, itemsResult, allocationsResult, gatewayResult] = await Promise.all([
     supabase
       .from('charge_balances')
       .select('*')
@@ -188,9 +189,25 @@ export default async function BillingDetailPage({
       .eq('charge_id', id)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false }),
+    // O gateway ELEITO, só para o botão dizer a verdade sobre o que vai gerar.
+    // Um provedor de checkout hospedado não gera Pix, e o botão rotulado "Gerar
+    // Pix" prometeria ao operador uma coisa que a tela entregaria como outra.
+    supabase
+      .from('payment_provider_accounts')
+      .select('provider')
+      .eq('tenant_id', tenantId)
+      .eq('is_default', true)
+      .eq('active', true)
+      .maybeSingle(),
   ])
 
   if (balanceResult.error || !balanceResult.data) notFound()
+
+  // Sem gateway eleito o método fica nulo e o botão volta ao rótulo genérico —
+  // gerar vai falhar de qualquer forma, com a mensagem que aponta para
+  // Configurações.
+  const electedProvider = (gatewayResult.data as { provider: string } | null)?.provider ?? null
+  const gatewayMethod = (electedProvider ? findPaymentProvider(electedProvider) : null)?.methods[0] ?? null
 
   const balance = balanceResult.data as unknown as {
     charge_id: string; customer_id: string; rental_id: string | null
@@ -918,6 +935,7 @@ export default async function BillingDetailPage({
               status:       balance.status,
             }}
             latePolicy={policy}
+            gatewayMethod={gatewayMethod}
             customerId={billing.customer_id ?? ''}
             availableCredits={availableCredits}
             creditBalance={creditBalance}
