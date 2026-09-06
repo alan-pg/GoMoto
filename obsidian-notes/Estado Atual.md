@@ -19,6 +19,7 @@ Snapshot em **2026-06-25**.
 - Processos (Q&A interno com ordenação)
 - Configurações da empresa
 - **Audit logs populados em todas as 7 telas de dashboard** (Fase 5 — gap fechado em 2026-06-12)
+- **Pagamento online por gateway (ADRs 0030/0031/0032)** — o tenant conecta quantos quiser e elege UM para cobrar. Três provedores em produção: **Mercado Pago** e **Cora** (OAuth2, geram Pix) e **InfinitePay** (InfiniteTag digitada, gera link de checkout com Pix e cartão). Ciclo completo validado ao vivo nos três: código gerado, pago, webhook confirmou, cobrança fechada e razão balanceado. Escrita da conta por RPC `SECURITY DEFINER`, credencial no Vault, confirmação por RPC transacional sobre o padrão inbox
 - **Multi-tenancy:** `tenant_id` injetado server-side em todas as escritas
 
 Ver [[Telas]] para documentação detalhada de cada rota.
@@ -40,7 +41,7 @@ Detalhes e tradeoffs registrados em [[decisions/0002-padrao-canonico-pagina-serv
 | PDF de contratos | Botão "PDF" gera via docx-preview + print dialog (commit `683a233`) |
 | Geolocalização de motos | Lat/lng simulados no mapa; GPS real comentado como "futuro" |
 | Emails transacionais | Settings preparado, mas não envia |
-| Webhooks/notificações | Não implementado |
+| Notificações ao usuário | Não implementado. **Webhooks de gateway existem e rodam em produção** — três Edge Functions (`mercadopago-webhook`, `cora-webhook`, `infinitepay-webhook`) sobre `_shared/inbox.ts` |
 | App mobile | Login CPF + listagem de manutenções + registro de conclusão + **BillingsScreen** (cobranças do cliente, filtros, modal de detalhe). Outras telas pendentes |
 | `packages/data` cobre só leituras | Mutações vivem em `actions.ts` por tela (decisão registrada na ADR 0002) |
 
@@ -142,6 +143,15 @@ do CLIENTE, porque saldo derivado não tem linha para travar) e a apuração no
 encerramento.
 
 ## 🧱 Dívida técnica registrada
+
+**Miudezas de portão e ambiente** (2026-09-06, achadas durante a ADR 0032)
+
+Nenhuma vale um ADR, mas todas custam tempo de quem tropeça:
+
+- **`apps/web/tsconfig.json` tem `exclude: ['tests']`** — as specs E2E **nunca passam pelo typecheck**. Um campo novo obrigatório num descritor diverge em silêncio entre teste e produção, e só aparece quando a suíte roda.
+- **`api-payment-intent.spec.ts` insere `is_default: true` direto**, em vez de passar por `fn_set_default_provider_account`. Qualquer dev que conecte um gateway de verdade no banco local quebra a suíte com `duplicate key ... idx_provider_accounts_one_default`.
+- **`MERCADOPAGO_CLIENT_SECRET` está Non-sensitive na Vercel** — decisão consciente enquanto se testa, precisa virar Sensitive antes de usuários reais. (`INFINITEPAY_WEBHOOK_URL` já nasceu Sensitive, porque embute o segredo do webhook no path.)
+- **Cora, homologação:** o `client_secret` passou pelo transcript de uma conversa e precisa ser rotacionado; e falta pedir a liberação de `http://localhost:3000/*` como `redirect_uri` (produção já funciona).
 
 **Dinheiro para cobrança cancelada — [[decisions/0033-dinheiro-para-cobranca-cancelada|ADR 0033]]** (2026-09-06)
 
@@ -258,6 +268,7 @@ Spec 0004 (locação e cobranças) — ✅ backend + core + mobile fechados em 2
 
 ## ✅ Recentemente entregue
 
+- **Multi-gateway de pagamento — ADRs [[decisions/0030-multiplos-gateways-de-pagamento|0030]], [[decisions/0031-integracao-cora-parceria|0031]] e [[decisions/0032-integracao-infinitepay-checkout|0032]]** (2026-09-04 a 09-06, branch `feat/multiplos-gateways-pagamento`) — A 0030 trocou "o código escolhe o gateway" por "a conta ELEITA diz o provedor", e no caminho corrigiu o G-01: `authenticated` não tinha INSERT/UPDATE em `payment_provider_accounts` desde a Spec 0014, ou seja, conectar gateway **nunca funcionou em runtime**. A 0031 somou a Cora (OAuth2, token de 24h com refresh rotativo, centavos, Pix só com EMV). A 0032 somou a InfinitePay, primeiro provedor sem código de pagamento — devolve URL de checkout, método `payment_link`, credencial é um handle público. Três ciclos fechados em produção com dinheiro real. Duas correções transversais no caminho: o método default passou a vir do gateway eleito (era `'pix'` cravado em dois chamadores) e o meio REAL do pagamento passou a chegar ao razão (`p_method`, que a RPC já esperava e ninguém preenchia). Aberto: [[decisions/0033-dinheiro-para-cobranca-cancelada|ADR 0033]].
 - **Spec 0004 — locação e cobranças (backend + core + mobile)** (2026-06-25) — Rename completo `contracts` → `rentals` em toda a codebase. 4 migrations: schema `rentals` com `cycle`/`cycle_amount`/`due_day`/`rental_type`/`minimum_months`; extensões em `billings` (`original_amount`, `discount_amount`, `billing_type`, status `prejudice`); 3 RPCs atômicos com `SELECT FOR UPDATE NOWAIT` (sem dupla locação para mesma moto); tabela `queue_entries`. `@gomoto/core` atualizado: `RentalSchema`, `generateCycleCharges` (pro-rata, mensal, semanal), `canRegisterPayment`, `canApplyDiscount`, `calculateFinalAmount` — 163 testes passando. `@gomoto/data`: hooks `useRentals`, `useRentalById`, `useBillingsForCustomer`. 8 Server Actions em `locacoes/actions.ts`. Mobile `BillingsScreen` com grupos por locação, filtros, modal de detalhe, pull-to-refresh, banner offline. E2E stubs em `locacoes.spec.ts` e `billings-rentals.spec.ts`. Tela web `/locacoes` é placeholder — UI completa é próximo passo.
 - **PRD 0003 V1 — fechada** (2026-06-20) — F1 a F5 entregues. Smoke test end-to-end no DB local confirma o bootstrap: plano default com 5 itens → moto criada → 5 maintenances `preventive`/`inspection` materializadas. F2 (planos + wizard passo 3) já estava em código quando reabrimos a auditoria — só faltava marcar como concluída nas notas.
 - **PRD 0003 F5 — manutenção mobile + aprovação web** (4 commits, 2026-06-20) — `87c84ac` cria `maintenance_records` com RLS (operador via `tenant_isolation`, cliente via `customer_self_select/insert`). `899e42a` adiciona modal de registro no mobile (KM, oficina, custo, foto de hodômetro obrigatória, foto de nota opcional) — upload via `arrayBuffer()` (`fetch().blob()` no RN gera arquivo vazio na Storage). `1764f85` adiciona rota `/aprovacoes` no web com aprovação inline preenchendo `effective_executor`/`effective_customer_payer_pct` no `maintenances` e marcando o record. `bd3b5bb` corrige warn de `MediaTypeOptions` deprecado (substituído por `mediaTypes: ['images']`). `36b4dd0` adiciona badge de pendentes na sidebar + realtime cross-tab via publication `supabase_realtime`. **F3, F4 e F5 do PRD 0003 concluídas.**
