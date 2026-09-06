@@ -10,11 +10,18 @@
  * sobrevive a no máximo 3 usos. Por isso a renovação é reivindicada no banco
  * antes de acontecer: duas requisições concorrentes renovando gastam a janela
  * de rotação à toa.
+ *
+ * ADR 0034: este módulo NÃO recebe mais um cliente Supabase do chamador. As
+ * quatro RPCs de credencial deixaram de ter grant para `authenticated` — um
+ * `viewer` conseguia ler o token da Cora em texto puro pelo navegador —, e
+ * receber o cliente por parâmetro era justamente o que fazia chamar isto com a
+ * sessão do usuário parecer natural. Agora o papel é do módulo, não da escolha
+ * de quem chama.
  */
 
-import type { SupabaseClient } from '@supabase/supabase-js'
 import type { PaymentProvider, ProviderCredentials } from './types'
 import { codedError } from './types'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 /**
  * Renova com folga, não no vencimento.
@@ -57,10 +64,20 @@ export function expiresAtFrom(expiresIn: unknown): string | undefined {
  * mantém a conexão viva.
  */
 export async function resolveCredentials(
-  supabase: SupabaseClient,
   account: { id: string; provider: string },
   provider: PaymentProvider,
 ): Promise<ProviderCredentials> {
+  // `service_role` porque as RPCs de credencial não atendem mais
+  // `authenticated` (ADR 0034 §2.1).
+  //
+  // Atenção ao que isso move: com `service_role` a checagem de tenant DENTRO
+  // das funções não roda — ela existe para barrar o outro tenant quando quem
+  // chama é um usuário. Aqui a garantia passa a ser do chamador, e ela é real:
+  // `resolveActiveAccount` só devolve conta com `tenant_id = tenantId`, e esse
+  // tenant veio de `getCurrentTenantId` no servidor. A conta chega aqui já
+  // provada; este módulo não a procura sozinho, de propósito.
+  const supabase = createAdminClient()
+
   const { data, error } = await supabase.rpc('fn_provider_credentials', { p_account_id: account.id })
 
   if (error || !data) {

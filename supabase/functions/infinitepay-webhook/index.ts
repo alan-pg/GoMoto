@@ -42,7 +42,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 // Mantém o trabalho vivo depois da resposta (runtime do Supabase Edge).
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void }
 import {
-  accountCredentials, applyPayment, log, markFailed, markProcessed,
+  accountCredentials, applyPayment, log, markEventTenant, markFailed, markProcessed,
   recordEvent, type NormalizedPayment,
 } from '../_shared/inbox.ts'
 
@@ -179,6 +179,11 @@ async function process(
   }
   const account = { id: it.provider_account_id, tenant_id: it.tenant_id }
 
+  // O dono do evento é carimbado antes da reconsulta ao `payment_check`
+  // (ADR 0034): daqui para a frente tudo pode falhar, e a linha que falha
+  // precisa ser visível ao tenant em vez de ficar com `tenant_id` NULL.
+  await markEventTenant(supabase, eventId, it.tenant_id)
+
   // ── Camada 2: a API da InfinitePay é quem diz se foi pago ─────────
   const credentials = await accountCredentials(supabase, account.id)
   const payment = await checkPayment(orderNsu, claim, credentials)
@@ -197,7 +202,7 @@ async function process(
     })
   }
 
-  await applyPayment(supabase, PROVIDER, account, payment)
+  await applyPayment(supabase, PROVIDER, account, payment, eventId)
   await markProcessed(supabase, eventId, account.tenant_id)
 }
 

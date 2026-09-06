@@ -17,7 +17,7 @@ import { z } from 'npm:zod@3'
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void }
 import { verifyWebhookSignature } from '../_shared/signature.ts'
 import {
-  accountCredentials, applyPayment, log, markFailed, markProcessed,
+  accountCredentials, applyPayment, log, markEventTenant, markFailed, markProcessed,
   recordEvent, resolveAccount, type NormalizedPayment,
 } from '../_shared/inbox.ts'
 
@@ -129,10 +129,14 @@ async function process(
     return
   }
 
+  // O dono do evento é carimbado antes da ida ao MP (ADR 0034): daqui para a
+  // frente tudo pode falhar, e a linha que falha precisa ser visível ao tenant.
+  await markEventTenant(supabase, eventId, account.tenant_id)
+
   const credentials = await accountCredentials(supabase, account.id)
   const payment = await fetchPayment(ipn.data.id, credentials)
 
-  await applyPayment(supabase, PROVIDER, account, payment)
+  await applyPayment(supabase, PROVIDER, account, payment, eventId)
   await markProcessed(supabase, eventId, account.tenant_id)
 }
 

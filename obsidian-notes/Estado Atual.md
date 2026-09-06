@@ -153,6 +153,45 @@ Nenhuma vale um ADR, mas todas custam tempo de quem tropeça:
 - **`MERCADOPAGO_CLIENT_SECRET` está Non-sensitive na Vercel** — decisão consciente enquanto se testa, precisa virar Sensitive antes de usuários reais. (`INFINITEPAY_WEBHOOK_URL` já nasceu Sensitive, porque embute o segredo do webhook no path.)
 - **Cora, homologação:** o `client_secret` passou pelo transcript de uma conversa e precisa ser rotacionado; e falta pedir a liberação de `http://localhost:3000/*` como `redirect_uri` (produção já funciona).
 
+**Auditabilidade e privilégio no caminho do dinheiro — [[decisions/0034-auditabilidade-do-caminho-do-dinheiro|ADR 0034]]** (2026-09-06)
+
+🔴 **CORREÇÃO CRÍTICA AGUARDANDO DEPLOY.** Enquanto as migrations não subirem
+para a cloud, produção segue exposta.
+
+Com a **chave anônima** — a que viaja no bundle do navegador de toda página
+publicada — e mais nada, era possível lançar no razão de **qualquer empresa**:
+
+```
+POST /rest/v1/rpc/post_financial_transaction  → HTTP 200
+```
+
+Reproduzido ao vivo e corrigido em duas camadas. A causa é um
+`ALTER DEFAULT PRIVILEGES ... GRANT ALL ... TO anon` de 2026-06-27: **toda
+tabela e toda função criada depois nasce concedida a `anon`**. Medido antes da
+correção: 67 das 71 rotinas de `public` executáveis por `anon`, 37 delas
+`SECURITY DEFINER`. As outras funções de dinheiro escaparam por acidente — elas
+consultam `get_user_tenants()`, que para `anon` é vazio;
+`post_financial_transaction` recebia o tenant por parâmetro e não perguntava
+nada.
+
+Implementado (Fases 1, 2 e 2b): o elo `gateway_events → payments → razão` virou
+FK; `received_by_system` (`gateway:<provedor>`) distingue máquina de pessoa;
+"aceito sem verificar" (ADR 0033) ganhou coluna própria; o `tenant_id` do
+evento é carimbado ANTES do trabalho arriscado, então a fila de replay deixa de
+ser invisível para quem agiria. Fechados: credencial de gateway fora do alcance
+de `authenticated`, `payment_intents` só escrevível por RPC, `INSERT` direto no
+razão revogado, e `reversed_at` só aceito depois de o estorno existir no razão.
+
+**Em aberto e não deve esperar:** `anon` ainda executa funções de outros
+domínios (fila, locação, verificação de e-mail, admin de plataforma) pelo mesmo
+default. Nenhuma é de dinheiro; a varredura exige mapear o que os fluxos
+anteriores ao login legitimamente chamam.
+
+Fases 3 a 5 planejadas na ADR: views `gateway_event_audit` e
+`financial_reconciliation`, tela de diagnóstico de integrações (que é também o
+dreno da fila da ADR 0033), `pg_cron` de vigilância e trilha em `audit_logs`
+para dinheiro.
+
 **Dinheiro para cobrança cancelada — [[decisions/0033-dinheiro-para-cobranca-cancelada|ADR 0033]]** (2026-09-06)
 
 🟡 **Proposta, nada implementado.** Vale para os três gateways, é anterior à

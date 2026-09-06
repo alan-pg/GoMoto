@@ -170,6 +170,15 @@ export async function applyPayment(
   provider: string,
   account: ProviderAccount,
   payment: NormalizedPayment,
+  /**
+   * O evento que causou isto (ADR 0034).
+   *
+   * Vai para `payments.gateway_event_id` e para
+   * `financial_transactions.source_event_id`. Antes, ir do dinheiro de volta à
+   * notificação era uma busca em JSONB montada na hora e diferente por
+   * gateway; agora é FK.
+   */
+  eventId: string,
 ): Promise<void> {
   if (payment.outcome === 'ignored') {
     log('info', 'webhook.status_ignored', {
@@ -216,12 +225,19 @@ export async function applyPayment(
       p_method: payment.method ?? null,
       // Sem `notes`, a RPC usa o default 'Confirmado pelo gateway'.
       ...(payment.notes ? { p_notes: payment.notes } : {}),
+      // ADR 0034: o elo causal e quem recebeu. A RPC monta
+      // `received_by_system` como `gateway:<provedor>` — o formato mora lá e no
+      // CHECK da coluna, não aqui, para não haver três lugares construindo a
+      // mesma string.
+      p_gateway_event_id: eventId,
+      p_provider: provider,
     })
     if (error) throw new Error(`confirmação: ${error.message}`)
 
     log('info', 'webhook.payment_confirmed', {
       provider, payment_id: paymentId, charge_id: intent.charge_id,
       tenant_id: intent.tenant_id, amount: payment.amount ?? intent.amount,
+      event_id: eventId,
     })
     return
   }
@@ -261,6 +277,27 @@ export async function applyPayment(
   })
 }
 
+/**
+ * Carimba o dono do evento assim que ele é conhecido (ADR 0034).
+ *
+ * `gateway_events.tenant_id` só era preenchido em `markProcessed` — no FIM. A
+ * RLS da tabela é `tenant_id IN (SELECT get_user_tenants())`, então um evento
+ * que falhava ficava com `tenant_id` NULL e era invisível para todo mundo
+ * exceto `service_role`.
+ *
+ * Ou seja: as linhas que representam "dinheiro sem dono a investigar" — as que
+ * a ADR 0033 passou a produzir de propósito, trocando o silêncio por exceção —
+ * eram justamente as que ninguém conseguia ver. Chamar isto ANTES do trabalho
+ * arriscado é o que faz a fila de replay existir para quem agiria sobre ela.
+ */
+export async function markEventTenant(
+  supabase: SupabaseClient,
+  eventId: string,
+  tenantId: string,
+): Promise<void> {
+  await supabase.from('gateway_events').update({ tenant_id: tenantId }).eq('id', eventId)
+}
+
 export async function markProcessed(
   supabase: SupabaseClient,
   eventId: string,
@@ -268,7 +305,13 @@ export async function markProcessed(
 ): Promise<void> {
   await supabase
     .from('gateway_events')
-    .update({ processed_at: new Date().toISOString(), tenant_id: tenantId })
+    .update({
+      processed_at: new Date().toISOString(),
+      // `tenant_id` só é escrito quando há um. Passar `null` aqui apagaria o
+      // dono que `markEventTenant` já tinha carimbado, e a linha voltaria a
+      // ser invisível para o tenant no exato momento em que vira histórico.
+      ...(tenantId ? { tenant_id: tenantId } : {}),
+    })
     .eq('id', eventId)
 }
 

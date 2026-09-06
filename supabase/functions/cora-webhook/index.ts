@@ -26,7 +26,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 // Mantém o trabalho vivo depois da resposta (runtime do Supabase Edge).
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void }
 import {
-  accountCredentials, applyPayment, log, markFailed, markProcessed,
+  accountCredentials, applyPayment, log, markEventTenant, markFailed, markProcessed,
   recordEvent, type NormalizedPayment,
 } from '../_shared/inbox.ts'
 
@@ -199,6 +199,12 @@ async function process(
   const it = intent as { id: string; tenant_id: string; provider_account_id: string; amount: number }
   const account = { id: it.provider_account_id, tenant_id: it.tenant_id }
 
+  // O dono do evento é carimbado ANTES da ida à API da Cora (ADR 0034). Tudo
+  // daqui para a frente pode falhar, e é exatamente nessas linhas que o tenant
+  // precisa enxergar — sem isto elas ficavam com `tenant_id` NULL e a RLS as
+  // escondia de quem agiria.
+  await markEventTenant(supabase, eventId, it.tenant_id)
+
   // ── Camada 2: a API da Cora é quem diz se foi pago ────────────────
   let payment: NormalizedPayment
   let semVerificacao = false
@@ -254,15 +260,19 @@ async function process(
     })
   }
 
-  await applyPayment(supabase, PROVIDER, account, payment)
+  await applyPayment(supabase, PROVIDER, account, payment, eventId)
   await markProcessed(supabase, eventId, account.tenant_id)
 
-  // Processado E com ressalva: `processed_at` preenchido junto de
-  // `processing_error` é a marca de "aceito sem conferir".
+  // "Aceito sem conferir" tem coluna própria (ADR 0034).
+  //
+  // Antes isto era um prefixo de texto dentro de `processing_error` — a mesma
+  // coluna que carrega falhas de verdade, distinguida só por `processed_at`
+  // estar preenchido. Achar todos dependia de `LIKE`, e a coluna passou a ter
+  // dois significados. Agora é booleano, com índice parcial e alvo de alerta.
   if (semVerificacao) {
     await supabase
       .from('gateway_events')
-      .update({ processing_error: 'CONFIRMADO_SEM_VERIFICACAO: credencial da Cora vencida (ADR 0033)' })
+      .update({ accepted_without_verification: true })
       .eq('id', eventId)
   }
 }

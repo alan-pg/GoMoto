@@ -1,0 +1,263 @@
+# ADR 0034 — Auditabilidade e superfície de escrita do caminho do dinheiro
+
+*(por que este dinheiro entrou, quem mandou, e quem consegue mexer)*
+
+- **Status:** 🟢 **Aceita** — Fases 1, 2 e **2b** implementadas; Fases 3 a 5 planejadas e priorizadas neste documento.
+- **🔴 Contém um achado CRÍTICO com correção que precisa chegar em produção:** ver *Problema 3 — o razão estava aberto para `anon`*. Encontrado ao **verificar** a Fase 2 no banco, não ao ler as migrations.
+- **Escopo:** o caminho inteiro do dinheiro de gateway — das três Edge Functions até o razão —, olhado por duas perguntas que nenhum ADR anterior fez: **"dá para reconstruir o que aconteceu?"** e **"quem consegue escrever aqui?"**
+- **Data:** 2026-09-06
+- **Autores:** Alan + agente IA
+- **Substitui:** —
+- **Substituída por:** —
+- **Relacionada:** [[decisions/0024-ledger-financeiro-com-contrapartida|ADR 0024]], [[decisions/0030-multiplos-gateways-de-pagamento|ADR 0030]], [[decisions/0031-integracao-cora-parceria|ADR 0031]], [[decisions/0032-integracao-infinitepay-checkout|ADR 0032]], [[decisions/0033-dinheiro-para-cobranca-cancelada|ADR 0033]]
+
+---
+
+## Contexto
+
+As ADRs 0030 a 0033 construíram a fundação multi-gateway e fecharam três ciclos em produção. Cada uma respondeu "o dinheiro entra certo?". Nenhuma respondeu as duas perguntas que só aparecem quando algo dá errado:
+
+1. **Auditoria** — apareceu um valor na conta da locadora. Por quê, e quem mandou?
+2. **Segurança** — quem, dentro da empresa, consegue escrever nessas tabelas?
+
+A revisão de 2026-09-06 encontrou uma base sólida e duas lacunas de natureza diferente. Vale separar, porque a primeira é ausência de dado e a segunda é permissão concedida a mais.
+
+### O que já estava de pé
+
+Nada disto muda nesta ADR. Está aqui para delimitar o que **não** é o problema:
+
+| Garantia | Onde |
+|---|---|
+| Razão imutável e balanceado, imposto pelo banco | `trg_entries_balanced`, `trg_ftx_immutable` |
+| Idempotência como propriedade do banco | `UNIQUE (provider, provider_event_id)` |
+| O corpo do webhook nunca vira dinheiro — a API do provedor decide | os três adapters |
+| Tenant resolvido pelo **nosso** registro, nunca pela requisição | `payment_intents.provider_intent_id` |
+| Confirmação atômica | `fn_confirm_gateway_payment` |
+| Alocação imutável; pagamento imutável em valor, método, data e cliente | `trg_payment_allocations_immutable`, `fn_protect_payment` |
+| Eleger o gateway que recebe é ato de **owner** | `fn_assert_gateway_owner` |
+| `signature_valid` nunca afirma verificação que não houve | `_shared/signature.ts` |
+
+O desenho estava certo. Faltava conseguir **contar a história depois** — e alguns `GRANT` contradiziam o resto.
+
+---
+
+## Problema 1 — a trilha quebra no salto que mais importa
+
+A pergunta de auditoria não é "o razão fecha?". O razão sempre fecha: a partida dobrada é imposta por trigger. A pergunta é:
+
+> **Apareceu R$ 1.240,00 na conta desta locadora em 12/09. Por quê, e quem mandou?**
+
+O caminho existente ia até certo ponto:
+
+```
+financial_entries → financial_transactions (source_id) → payments
+                                                            ↓ payment_intent_id
+                                                       payment_intents
+                                                            ↓ provider_intent_id
+                                           ??? gateway_events  ← o salto que não existia
+```
+
+O último salto **não era dado**. Era uma busca montada na hora, diferente para cada gateway:
+
+| Provedor | Como se achava o evento |
+|---|---|
+| Cora | `payload->>'webhook_resource_id'` |
+| InfinitePay | `payload->>'order_nsu'` |
+| Mercado Pago | `payload->'data'->>'id'` |
+
+Isso não é rastreabilidade — é arqueologia, e depende de alguém que conheça os três formatos estar disponível na hora do incidente.
+
+E no fim da corrente, três marcas de origem ficavam vazias:
+
+- `financial_transactions.created_by` → **NULL** em toda confirmação de gateway
+- `payments.received_by` → **NULL** (a coluna existe, e o caminho **manual** a preenche)
+- `audit_logs` → **nenhuma linha**
+
+**O único recebimento que ninguém digitou era também o único sem qualquer marca de origem.**
+
+### 1.1 `audit_logs` nunca via dinheiro
+
+`apps/web/src/lib/audit.ts` declarava `payment_confirmed` e `token_refreshed` no vocabulário de ações. **Nenhum dos dois tinha um único escritor.** É a forma exata do padrão já registrado em [[feedback_validated_then_discarded|"validado e descartado"]]: um vocabulário que ninguém escreve.
+
+A causa é estrutural e não é descuido: a confirmação roda em **Deno**, com `service_role`, e `logAction` vive em `apps/web`. É o mesmo motivo de `_shared/inbox.ts` existir.
+
+**Consequência:** a trilha do tenant registrava "conectou gateway" e "gerou Pix", e nunca "recebeu dinheiro" nem "estornou".
+
+### 1.2 A fila de replay era invisível justamente para quem agiria
+
+`gateway_events.tenant_id` só era preenchido no `markProcessed`. A RLS da tabela é `tenant_id IN (SELECT get_user_tenants())`.
+
+**Evento que falhou tinha `tenant_id` NULL e era invisível para todos, exceto `service_role`.** As linhas que representam "dinheiro sem dono a investigar" — exatamente as que a ADR 0033 tornou possíveis ao trocar o silêncio por exceção — eram as únicas que ninguém conseguia ver.
+
+### 1.3 `processing_error` carregava dois significados
+
+O prefixo `CONFIRMADO_SEM_VERIFICACAO:` (ADR 0033) dividia a coluna com falhas reais, distinguido só por `processed_at` estar preenchido e por um texto livre. "Aceito com ressalva" é **estado do negócio**, não mensagem de erro: achar todos dependia de um `LIKE`.
+
+### 1.4 A reconciliação existia só como teste
+
+`apps/web/tests/reconciliacao.spec.ts` faz a pergunta certa — *"existe documento que não virou lançamento?"* — e varre o banco inteiro. Mas roda em CI, contra o banco de teste. **Produção não tem equivalente.**
+
+---
+
+## Problema 2 — permissões concedidas além do necessário
+
+Todos os quatro achados exigem um **membro autenticado do tenant**. Não são acessíveis anonimamente.
+
+Isso não os torna teóricos. O "insider" aqui é o operador ou o *viewer* da locadora — precisamente quem um controle financeiro existe para limitar. E o alcance é o navegador: o PostgREST expõe tudo isto com a anon key mais o JWT do usuário, sem passar por nenhuma linha do nosso código.
+
+> **O princípio que faltava:** quem decide o que é alcançável é o `GRANT`, não o chamador. Uma Server Action rodar no servidor não protege nada se a RPC que ela chama também atende o navegador com o mesmo papel.
+
+### 2.1 🔴 A credencial do gateway saía para qualquer membro, inclusive `viewer`
+
+`fn_provider_credentials` tinha `GRANT EXECUTE ... TO authenticated` e conferia apenas **pertencimento ao tenant**. O `account_id` é legível pelos grants de coluna da tabela. Um `POST /rest/v1/rpc/fn_provider_credentials` devolvia `access_token` e `refresh_token` da Cora ou do Mercado Pago em texto puro.
+
+O contraste dizia tudo: **conectar e eleger** gateway exigiam `owner`, via `fn_assert_gateway_owner`. **Ler o token** exigia só estar na empresa.
+
+O comentário em `cobrancas/[id]/actions.ts` justificava a escolha: *"tudo que `getOrCreateIntent` toca é alcançável por `authenticated` sob RLS... contornar a RLS aqui seria trocar uma garantia do banco por uma comparação escrita à mão."*
+
+O raciocínio está certo **para linhas** — e errado para um segredo do Vault. A RLS decide *quais linhas* um papel enxerga; ela não tem gradação de papel dentro do tenant. Um segredo que movimenta dinheiro não é uma linha do tenant: é uma capacidade.
+
+### 2.2 🔴 `reversed_at` desfazia um recebimento sem tocar no razão
+
+`GRANT ALL ON TABLE payments TO authenticated`. `fn_protect_payment` blindava valor, método, data e cliente — **e não `reversed_at`**.
+
+```sql
+UPDATE payments SET reversed_at = now(), reversal_reason = 'x' WHERE id = '...';
+```
+
+`charge_balances` filtra as alocações por `p.reversed_at IS NULL`. A cobrança **reabre**, o cliente volta a dever, e o razão continua mostrando o dinheiro em `caixa_e_bancos`. Razão e recebíveis passam a discordar permanentemente, sem transação de estorno, sem `reversed_by` e sem `audit_logs`.
+
+Era o caminho mais curto entre um membro qualquer e uma divergência contábil que ninguém detecta.
+
+### 2.3 🟠 O razão aceitava `INSERT` direto
+
+`GRANT SELECT, INSERT ON financial_transactions, financial_entries TO authenticated` — enquanto `post_financial_transaction` é `SECURITY DEFINER`.
+
+**O grant era desnecessário desde sempre.** Com ele, um membro postava lançamentos balanceados forjados, escolhendo `created_by`, `event_type` e `source_module`. O trigger só exige que a transação some zero; a exigência de duas pernas mora na RPC, que o `INSERT` direto contorna.
+
+### 2.4 🟠 `payment_intents` era escrita direta do navegador
+
+`GRANT ALL` mais policy `FOR ALL`. Qualquer membro podia `UPDATE` ou `DELETE` intents do próprio tenant. Apagar um intent zera `payments.payment_intent_id` (`ON DELETE SET NULL`) e **corta a ligação entre o recebimento e a tentativa que o originou** — exatamente o histórico que o `ON DELETE RESTRICT` em `provider_account_id` foi criado para preservar.
+
+### 2.5 Adjacente: nenhum teste olha para dentro do tenant
+
+A suíte de isolamento (`tenant-isolation-financeiro.spec.ts`) é inteira **tenant 1 vs. tenant 2**, e é boa nisso. Nenhum teste pergunta o que um `viewer` consegue fazer **dentro da própria empresa** — e é aí que estavam os quatro achados acima.
+
+---
+
+## Problema 3 — o razão estava aberto para `anon` 🔴
+
+**Este achado não estava na análise.** Ele apareceu ao *verificar* a Fase 2 contra o banco em vez de confiar na leitura das migrations — e é mais grave do que tudo que a análise havia encontrado, porque não exige nem estar logado.
+
+Reproduzido ao vivo, com a chave anônima e nada mais:
+
+```
+POST /rest/v1/rpc/post_financial_transaction
+apikey: <anon key — a que viaja no bundle do navegador de toda página publicada>
+{ "p_tenant_id": "<qualquer empresa>",
+  "p_transaction": {...},
+  "p_entries": [ débito 999999, crédito 999999 ] }
+
+→ HTTP 200
+→ lançamento de R$ 999.999,00 criado no razão daquela empresa
+```
+
+Sem login. Sem pertencer à empresa. Em tenant escolhido a dedo.
+
+### A causa
+
+`20260627230859_grant_authenticated_role.sql` resolveu um problema real — o role `postgres` local não concedia `SELECT/INSERT/UPDATE/DELETE` e o projeto quebrava depois de `db:reset` — com um instrumento largo demais:
+
+```sql
+GRANT ALL ON ALL TABLES   IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES   TO anon, ...;
+ALTER DEFAULT PRIVILEGES ... GRANT ALL ON ROUTINES TO anon, ...;
+```
+
+O `ALTER DEFAULT PRIVILEGES` é o que torna isto insidioso: **toda tabela e toda função criada depois nasce concedida a `anon`.** Cada `GRANT` cuidadoso escrito nas migrations seguintes estava concedendo o que já estava concedido, e cada `REVOKE ... FROM PUBLIC` não tocava em `anon` — `anon` é um role nomeado e não faz parte de `PUBLIC`.
+
+Medido no banco antes da correção: **67 das 71 rotinas de `public` executáveis por `anon`, 37 delas `SECURITY DEFINER`** — ou seja, ignorando RLS.
+
+### Por que só uma era explorável
+
+Quase todas as funções de dinheiro conferem o tenant por dentro com `get_user_tenants()`, e para `anon` esse conjunto é **vazio** — então levantam exceção mesmo estando concedidas. A RLS cobriu as tabelas pelo mesmo motivo: as políticas são `TO authenticated`.
+
+`post_financial_transaction` era a exceção: `SECURITY DEFINER`, recebe `p_tenant_id` **como parâmetro** e nunca perguntou quem estava chamando. A checagem de tenant morava em cada chamador; a função que efetivamente escreve no razão não tinha nenhuma.
+
+> A lição não é "faltou uma checagem". É que **a defesa inteira dependia de um acidente feliz** — o fato de as outras funções precisarem consultar `get_user_tenants()` por outro motivo. Onde esse acidente não valeu, não havia nada.
+
+### Fase 2b — correção ✅ implementada
+
+Duas camadas, porque uma só já falhou aqui:
+
+1. **`post_financial_transaction` exige papel e tenant.** Lista de **permitidos**, não de proibidos: `service_role` (webhook), `none` (conexão direta — `pg_cron` da emissão diária e migrations; verificado que o GUC `role` vale `'none'` nesse contexto) e `authenticated` **apenas no razão da própria empresa**. Quem não está nomeado não escreve. Um `IF role = 'anon' THEN recusa` fecharia o buraco de hoje e deixaria aberto o de amanhã.
+2. **O grant sai de `anon`** nas 21 funções do domínio de dinheiro, e o `ALTER DEFAULT PRIVILEGES` deixa de conceder a `anon` daqui para a frente — este é o conserto da causa.
+
+### Ressalva registrada
+
+A Fase 2b fecha o **domínio de dinheiro** e o default futuro. Ela **não** varre o resto: `anon` continua com `EXECUTE` em funções de outros domínios criadas antes dela, entre elas `add_to_queue`, `create_rental_with_schedule`, `adjust_rental_schedule`, `check_user_email_conflict`, `list_platform_admins` e as de fila.
+
+Não foram tocadas de propósito: varrer `anon` do schema inteiro exige saber o que os fluxos **anteriores ao login** legitimamente chamam (convite, definição de senha, verificação de e-mail), e errar isso derruba a entrada no produto. **É um passo próprio, com a sua própria verificação, e está em aberto.**
+
+---
+
+## Decisão
+
+### Princípios
+
+1. **O elo causal é dado, não inferência.** Todo dinheiro que entra por gateway aponta para o evento que o causou, por coluna com FK — não por busca em JSONB.
+2. **Nenhum registro afirma o que não aconteceu.** Se ninguém verificou, o registro diz isso em coluna própria (extensão do princípio de `signature_valid`, ADR 0030).
+3. **Papel de sistema não se disfarça de pessoa.** A confirmação de gateway não inventa um `auth.users`; ela se identifica como `gateway:<provedor>` em campo próprio.
+4. **O `GRANT` é a fronteira.** Capacidade que movimenta dinheiro não é concedida a `authenticated` porque a aplicação "só chama pelo caminho certo".
+5. **A invariante que só existe em teste não protege produção.** Varredura de reconciliação vira view consultável.
+6. **Grant se verifica no banco, nunca por leitura de migration.** As migrations diziam `GRANT SELECT ON gateway_events TO authenticated`; o banco tinha `INSERT, UPDATE, DELETE` também, vindos de um default de três meses antes. Toda afirmação sobre permissão neste ADR foi conferida com `has_function_privilege` e `information_schema`, e as recusas foram reproduzidas por HTTP.
+
+### Fase 1 — o elo que faltava ✅ implementada
+
+1. `payments.gateway_event_id` e `financial_transactions.source_event_id`, com FK para `gateway_events`. `fn_confirm_gateway_payment` recebe `p_gateway_event_id`; `applyPayment` passa o `eventId` que já tem em mãos.
+2. `payments.received_by_system TEXT` — `'gateway:cora'`, `'gateway:mercadopago'`, `'gateway:infinitepay'`. Coluna própria em vez de um `auth.users` fictício, pelo Princípio 3.
+3. `tenant_id` resolvido no `markFailed`, não só no `markProcessed`: sem isso a fila de replay continua invisível para quem agiria.
+4. `gateway_events.accepted_without_verification BOOLEAN`, separado de `processing_error`.
+
+### Fase 2 — fechar as portas ✅ implementada
+
+| Achado | Correção | Custo |
+|---|---|---|
+| 2.3 Razão aceita `INSERT` | `REVOKE INSERT` | nenhum — a RPC é `SECURITY DEFINER` |
+| 2.2 `reversed_at` livre | trava em `fn_protect_payment` | nenhum — `fn_reverse_payment` é `SECURITY DEFINER` |
+| 2.1 Credencial para qualquer membro | `REVOKE EXECUTE FROM authenticated`; leitura passa pelo cliente admin | ajuste em `getOrCreateIntent` |
+| 2.4 `payment_intents` escrevível | `REVOKE INSERT, UPDATE, DELETE`; escrita por RPC | ajuste em `getOrCreateIntent` |
+
+### Fase 3 — tornar visível 🔜
+
+5. View `gateway_event_audit`: evento → intent → cobrança → pagamento → transação, com `signature_valid`, `accepted_without_verification` e latência de processamento.
+6. View `financial_reconciliation`: a varredura do `reconciliacao.spec.ts` promovida a produção — documento sem lançamento, transação desbalanceada, pagamento sem alocação, intent pago sem pagamento.
+7. Tela **Configurações → Integrações → Diagnóstico**: últimos eventos, não processados, aceitos sem verificação, e o botão de reprocessar — que é também a resposta à **Questão 2 da ADR 0033** (o dreno da fila).
+
+### Fase 4 — vigilância ativa 🔜
+
+8. `pg_cron` **já está no projeto** desde `20260815005737` (emissão de cobranças). Não é infraestrutura nova. Duas rotinas: drenar `idx_gateway_events_unprocessed` com backoff, e varrer a reconciliação diariamente.
+9. Alerta para o que precisa de humano: evento não processado há mais de 1h; confirmação sem verificação; `signature_valid = false` em provedor que assina.
+
+### Fase 5 — trilha confiável 🔜
+
+10. `logAction` deixa de engolir a própria falha **nos caminhos de dinheiro**. Nos demais, tolerar continua aceitável — mas a diferença passa a ser explícita, em vez de um `catch` único para tudo.
+11. `payment_confirmed` / `payment_reversed` ganham escritor: um trigger em `payments` popula `audit_logs`, o que também resolve o Deno não alcançar `apps/web`.
+12. Teste E2E de **privilégio intra-tenant** — ✅ **primeira leva entregue** em `apps/web/tests/privilegio-no-caminho-do-dinheiro.spec.ts`: `anon` não lança no razão nem lê credencial, membro logado não escreve em `payment_intents` nem no razão, `reversed_at` direto é recusado. Falta a leva por PAPEL (o que um `viewer` consegue que um `owner` deveria poder), que exige fixtures de usuário com papéis distintos.
+
+---
+
+## Consequências
+
+**Ganho.** "Por que este dinheiro entrou?" passa a ser um `JOIN`, não uma investigação. A confirmação sem verificação da ADR 0033 vira consulta booleana em vez de `LIKE` em texto livre. Quatro capacidades que não deveriam estar ao alcance do navegador saem de lá — e o razão deixa de aceitar escrita de quem não está logado.
+
+**Verificação.** Nada aqui foi aceito por leitura de código. As permissões foram conferidas com `has_function_privilege` e `information_schema`; o exploit do `anon` foi reproduzido por HTTP antes e depois da correção; a guarda interna foi testada com o grant reconcedido de propósito, para provar que ela basta sozinha; e os caminhos legítimos (`service_role`, `pg_cron` com `role = 'none'`, usuário logado na própria empresa) foram exercitados um a um. Suíte E2E completa: **255 passando, 0 falhas**.
+
+**Custo.** `getOrCreateIntent` deixa de escrever `payment_intents` com o cliente do usuário e passa por RPC — a validação de tenant, que a RLS fazia, passa a ser explícita dentro da função. É exatamente a troca que o comentário em `actions.ts` desaconselhava, e continua sendo um argumento válido em geral: escolhemos pagá-la aqui porque `payment_intents` guarda a única ligação entre dinheiro e tentativa, e essa ligação não pode depender de nenhum membro se comportar bem.
+
+**Não resolvido.** As duas questões em aberto da ADR 0033 continuam abertas: o destino do dinheiro que chega para cobrança cancelada (Questão 1) e o dreno da fila (Questão 2) — este último passa a ter endereço definido na Fase 3, item 7.
+
+**Em aberto e com prazo.** `anon` ainda executa funções de OUTROS domínios (fila, locação, verificação de e-mail, admin de plataforma) por causa do mesmo default de 2026-06-27. Nenhuma delas é de dinheiro, e a varredura completa exige mapear o que os fluxos anteriores ao login legitimamente chamam. É o próximo passo de segurança, e não deve esperar as Fases 3 a 5.
+
+**Aceito.** A ADR 0033 permite confirmar sem verificar quando a credencial da Cora vence. Isto continua valendo; a mudança é que agora fica marcado em coluna própria e será alvo de alerta na Fase 4, em vez de depender de alguém abrir o log.

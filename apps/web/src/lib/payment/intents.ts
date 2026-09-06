@@ -66,7 +66,13 @@ export async function getOrCreateIntent(
     const stillValid = !e.expires_at || new Date(e.expires_at) > new Date()
     if (stillValid) return reuse(e, registry)
 
-    await supabase.from('payment_intents').update({ status: 'expired' }).eq('id', e.id)
+    // Por RPC: `payment_intents` deixou de aceitar UPDATE de `authenticated`
+    // (ADR 0034 §2.4). A função confere o tenant por dentro e só mexe no que
+    // ainda está `pending`.
+    const { error: expireError } = await supabase.rpc('fn_expire_payment_intent', {
+      p_intent_id: e.id,
+    })
+    if (expireError) throw codedError('INTERNAL', expireError.message)
   }
 
   // ── 2. Qual gateway o tenant elegeu ───────────────────────────────
@@ -137,7 +143,7 @@ export async function getOrCreateIntent(
   // porque SECURITY DEFINER ignora RLS. E é RENOVADA aqui se estiver perto de
   // vencer — o token da Cora dura 24h, então sem isso a segunda diária de
   // cobranças já falharia (ADR 0031).
-  const credentials = await resolveCredentials(supabase, account, provider)
+  const credentials = await resolveCredentials(account, provider)
 
   const { data: customer } = await supabase
     .from('customers')
@@ -176,29 +182,28 @@ export async function getOrCreateIntent(
   const payload = await ensureQrImage(created.payload)
 
   // ── 6. Persiste ───────────────────────────────────────────────────
-  const { data: intent, error } = await supabase
-    .from('payment_intents')
-    .insert({
-      tenant_id: tenantId,
-      charge_id: chargeId,
-      provider: account.provider,
-      provider_account_id: account.id,
-      method,
-      provider_intent_id: created.providerIntentId,
-      amount: amount_due,
-      // Quanto deste QR é encargo. A confirmação precisa saber para realizá-lo
-      // antes de alocar — sem isso o cliente paga principal + encargo, a
-      // cobrança só deve o principal, e o saldo fica NEGATIVO com o encargo
-      // nunca virando receita. Guardar em vez de recalcular na confirmação:
-      // entre gerar o código e o cliente pagar passam horas, e um recálculo
-      // daria outro número, deixando a conta sem fechar.
-      accrued_amount: accrued.total,
-      status: 'pending',
-      expires_at: created.expiresAt,
-      payload,
-    })
-    .select('id')
-    .single()
+  // Por RPC, não por INSERT: a tabela deixou de aceitar escrita de
+  // `authenticated` (ADR 0034 §2.4). A função confere o tenant, e confere
+  // também que a cobrança e a conta de gateway pertencem a ele — o que a RLS
+  // não fazia, porque ela olhava só a linha sendo inserida.
+  const { data: intent, error } = await supabase.rpc('fn_open_payment_intent', {
+    p_tenant_id: tenantId,
+    p_charge_id: chargeId,
+    p_provider: account.provider,
+    p_provider_account_id: account.id,
+    p_method: method,
+    p_provider_intent_id: created.providerIntentId,
+    p_amount: amount_due,
+    // Quanto deste QR é encargo. A confirmação precisa saber para realizá-lo
+    // antes de alocar — sem isso o cliente paga principal + encargo, a
+    // cobrança só deve o principal, e o saldo fica NEGATIVO com o encargo
+    // nunca virando receita. Guardar em vez de recalcular na confirmação:
+    // entre gerar o código e o cliente pagar passam horas, e um recálculo
+    // daria outro número, deixando a conta sem fechar.
+    p_accrued_amount: accrued.total,
+    p_expires_at: created.expiresAt,
+    p_payload: payload,
+  })
 
   // 23505 = `idx_payment_intents_one_pending_per_charge`. Outra requisição para
   // a MESMA dívida chegou primeiro — dois toques no botão do app, uma
@@ -223,7 +228,8 @@ export async function getOrCreateIntent(
   if (error) throw codedError('INTERNAL', error.message)
 
   return {
-    intent_id: (intent as { id: string }).id,
+    // A RPC devolve o UUID cru, não uma linha: `RETURNS UUID`.
+    intent_id: intent as unknown as string,
     provider: account.provider,
     provider_label: provider.descriptor.label,
     method,

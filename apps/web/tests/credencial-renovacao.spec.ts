@@ -105,7 +105,7 @@ test('credencial longe do vencimento não é renovada', async () => {
   await semear(AGORA_MAIS(20 * 3600_000)) // 20h de sobra
   const { provider, renovacoes } = provedorFalso()
 
-  const creds = await resolveCredentials(admin(), conta(), provider)
+  const creds = await resolveCredentials(conta(), provider)
 
   expect(renovacoes, 'renovou sem precisar — queimaria a rotação da Cora').toHaveLength(0)
   expect(creds.access_token).toBe('tk-original')
@@ -115,7 +115,7 @@ test('credencial perto de vencer é renovada e o refresh NOVO é gravado', async
   await semear(AGORA_MAIS(60_000)) // 1 min — dentro da margem de 10 min
   const { provider, renovacoes } = provedorFalso()
 
-  const creds = await resolveCredentials(admin(), conta(), provider)
+  const creds = await resolveCredentials(conta(), provider)
 
   expect(renovacoes).toHaveLength(1)
   expect(creds.access_token).toBe('tk-renovado-1')
@@ -133,8 +133,8 @@ test('duas requisições concorrentes renovam UMA vez só', async () => {
   const { provider, renovacoes } = provedorFalso()
 
   const [a, b] = await Promise.all([
-    resolveCredentials(admin(), conta(), provider),
-    resolveCredentials(admin(), conta(), provider),
+    resolveCredentials(conta(), provider),
+    resolveCredentials(conta(), provider),
   ])
 
   expect(renovacoes, 'as duas renovaram — a rotação da Cora seria gasta em dobro').toHaveLength(1)
@@ -151,7 +151,7 @@ test('renovação que falha solta a posse em vez de travar a integração', asyn
   const falho = provedorFalso({ falhar: true })
 
   // Token ainda válido (dentro da margem): a cobrança segue com o atual.
-  const creds = await resolveCredentials(admin(), conta(), falho.provider)
+  const creds = await resolveCredentials(conta(), falho.provider)
   expect(creds.access_token).toBe('tk-original')
 
   const { data: linha } = await admin()
@@ -163,7 +163,7 @@ test('renovação que falha solta a posse em vez de travar a integração', asyn
 
   // E a tentativa seguinte, agora com o provedor são, renova de verdade.
   const bom = provedorFalso()
-  await resolveCredentials(admin(), conta(), bom.provider)
+  await resolveCredentials(conta(), bom.provider)
   expect(bom.renovacoes).toHaveLength(1)
   expect(await tokenVigente()).toBe('tk-renovado-1')
 })
@@ -172,7 +172,7 @@ test('credencial vencida com renovação falhando manda reconectar', async () =>
   await semear(AGORA_MAIS(-60_000)) // já venceu
   const { provider } = provedorFalso({ falhar: true })
 
-  await expect(resolveCredentials(admin(), conta(), provider))
+  await expect(resolveCredentials(conta(), provider))
     .rejects.toThrow(/reconecte a conta/i)
 })
 
@@ -180,7 +180,7 @@ test('provedor sem validade conhecida não é renovado', async () => {
   await semear(null) // sem expires_at — MP conectado antes da ADR 0031
   const { provider, renovacoes } = provedorFalso()
 
-  const creds = await resolveCredentials(admin(), conta(), provider)
+  const creds = await resolveCredentials(conta(), provider)
 
   expect(renovacoes).toHaveLength(0)
   expect(creds.access_token).toBe('tk-original')
