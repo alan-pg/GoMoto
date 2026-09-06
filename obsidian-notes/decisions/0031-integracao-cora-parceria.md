@@ -123,3 +123,25 @@ Como consequência do achado 1, `account_email` virou **`account_label`**: o nom
 1. Liberar `http://localhost:3000/*` como `redirect_uri` — sem isso o round trip não fecha em desenvolvimento local (em produção já fecha).
 2. Cadastrar o endpoint de webhook: `POST /endpoints/` com `resource: invoice`, `trigger: *` e a URL com o segredo no path.
 3. Rotacionar o client secret de homologação, que trafegou por canal de conversa.
+
+## Ciclo de vida da invoice, observado em produção (2026-09-06)
+
+Uma cobrança gerada dispara **três** webhooks, porque o endpoint está cadastrado com `trigger: '*'`:
+
+```
+16:09:26.0   nós → POST /v2/invoices
+16:09:27.29  Cora → invoice.DRAFTED    ← chega ANTES do nosso INSERT
+16:09:28.30  nós → INSERT payment_intents
+16:09:28.54  Cora → invoice.CREATED    (API já responde status OPEN, com emv)
+16:11:57.26  Cora → invoice.PAID
+```
+
+**O `DRAFTED` corre contra o nosso próprio INSERT — e ganha.** A Cora notifica no instante em que recebe o POST, enquanto ainda estamos esperando a resposta e desenhando o PNG do QR a partir do `emv`. A ordem "criar no provedor, depois registrar" é a certa (não dá para gravar um `provider_intent_id` que ainda não existe, e uma linha provisória envenenaria o índice único de um pendente por dívida), então a corrida é estrutural, não um defeito.
+
+A diferença entre `DRAFTED` e `CREATED` **não está documentada** em nada que eu tenha encontrado — a página de webhooks dá 404. A leitura pela linha do tempo é "o registro existe" versus "está registrada e pagável". Inferência, não fato.
+
+Consequência que virou código: `DRAFTED` e `CREATED` nunca movimentam dinheiro e agora são descartados **antes** da consulta ao banco e da ida à API. Sem esse corte, cada cobrança gerada custava uma reconsulta completa à Cora só para ouvir `OPEN (total_paid=0)` — às vezes duas, dependendo de quem ganhasse a corrida.
+
+O filtro é **denylist** de propósito: evento novo que a Cora venha a criar passa e é processado. Uma lista de permitidos o descartaria em silêncio.
+
+Pendente: a Cora aceita assinar um trigger específico em vez de `*`. Cadastrar só o que movimenta dinheiro cortaria os dois eventos na origem, em vez de descartá-los aqui.

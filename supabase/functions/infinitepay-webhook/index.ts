@@ -167,9 +167,11 @@ async function process(
     .maybeSingle()
 
   if (!intent) {
-    log('warn', 'webhook.intent_not_found', { provider: PROVIDER, order_nsu: orderNsu })
-    await markProcessed(supabase, eventId, null)
-    return
+    // A InfinitePay só dispara webhook em pagamento aprovado — não há evento
+    // de ciclo de vida a descartar aqui. Então todo evento sem tentativa
+    // correspondente é dinheiro sem dono, e marcar como processado apagaria o
+    // rastro.
+    throw new Error(`pagamento sem tentativa correspondente: order_nsu=${orderNsu}`)
   }
 
   const it = intent as {

@@ -33,6 +33,15 @@ import {
 const PROVIDER = 'cora'
 
 /**
+ * Eventos que a Cora dispara ao criar a cobrança e que nunca viram dinheiro.
+ *
+ * `DRAFTED` chega antes mesmo de a invoice ser pagável — e, na prática, antes
+ * do nosso próprio INSERT em `payment_intents`, porque a Cora notifica no
+ * instante em que recebe o POST enquanto ainda estamos desenhando o QR.
+ */
+const LIFECYCLE_ONLY = new Set(['INVOICE.DRAFTED', 'INVOICE.CREATED'])
+
+/**
  * A Cora recusou a CREDENCIAL — distinto de "a Cora está fora do ar".
  *
  * A diferença decide se a confirmação sem verificação é permitida (ADR 0033).
@@ -149,6 +158,23 @@ async function process(
     return
   }
 
+  // Eventos de CICLO DE VIDA, que nunca movimentam dinheiro. Descartados aqui,
+  // antes da consulta ao banco e antes da ida à API da Cora.
+  //
+  // O endpoint está cadastrado com `trigger: '*'`, então recebemos os três
+  // eventos de toda cobrança gerada. Sem este corte, `invoice.CREATED` fazia
+  // uma reconsulta completa à Cora só para ouvir `OPEN (total_paid=0)` — uma
+  // viagem por cobrança, às vezes duas.
+  //
+  // E é DENYLIST, não allowlist, de propósito: se a Cora criar um evento novo
+  // que movimente dinheiro, ele passa e é processado. Uma lista de permitidos
+  // o descartaria em silêncio, que é o erro caro deste domínio.
+  if (LIFECYCLE_ONLY.has(eventType.toUpperCase())) {
+    log('info', 'webhook.lifecycle_ignored', { provider: PROVIDER, event_type: eventType })
+    await markProcessed(supabase, eventId, null)
+    return
+  }
+
   // ── Camada 3: o tenant sai do NOSSO registro ──────────────────────
   // O webhook não diz de quem é a conta, e é melhor assim: casar o id da
   // invoice com uma tentativa que nós criamos é uma prova mais forte do que
@@ -161,9 +187,13 @@ async function process(
     .maybeSingle()
 
   if (!intent) {
-    log('warn', 'webhook.intent_not_found', { provider: PROVIDER, invoice_id: invoiceId })
-    await markProcessed(supabase, eventId, null)
-    return
+    // Chegamos aqui só com evento que PODE ser dinheiro — o ciclo de vida já
+    // foi descartado acima. Marcar como processado apagaria o rastro de um
+    // pagamento sem dono; o caso real é a invoice órfã, criada na Cora quando
+    // o nosso INSERT falhou depois do POST.
+    throw new Error(
+      `evento ${eventType} sem tentativa correspondente: invoice_id=${invoiceId}`,
+    )
   }
 
   const it = intent as { id: string; tenant_id: string; provider_account_id: string; amount: number }

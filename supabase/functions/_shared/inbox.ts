@@ -180,6 +180,23 @@ export async function applyPayment(
 
   const intent = await findIntent(supabase, provider, payment.providerIntentId)
   if (!intent) {
+    // Dinheiro APROVADO sem tentativa correspondente não pode sumir em
+    // silêncio. Antes isto era um `warn` e um `return`: o chamador seguia e
+    // marcava o evento como processado, então um pagamento real que não
+    // achasse a sua tentativa saía da fila sem deixar nada além de uma linha
+    // de log. É a mesma forma do defeito que a ADR 0032 corrigiu.
+    //
+    // Levantar deixa `processed_at IS NULL` com `processing_error`, que é o
+    // registro de que existe dinheiro sem dono a investigar.
+    if (payment.outcome === 'approved') {
+      throw new Error(
+        `pagamento aprovado sem tentativa correspondente: `
+        + `provider=${provider} provider_intent_id=${payment.providerIntentId}`,
+      )
+    }
+
+    // Estorno ou evento ignorado sem tentativa: não há o que desfazer, porque
+    // sem tentativa também não há pagamento nosso. Seguir é correto.
     log('warn', 'webhook.intent_not_found', { provider, provider_intent_id: payment.providerIntentId })
     return
   }

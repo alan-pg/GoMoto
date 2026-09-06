@@ -132,6 +132,24 @@ O que se perde: uma notificação forjada, por quem descubra o segredo do path *
 
 **Isto é medida de fase, não desenho final.** Cai quando o webhook puder renovar credencial — ou seja, quando o processamento sair do Deno (etapa 2 abaixo).
 
+### CORRIGIDO em 2026-09-06: pagamento sem tentativa correspondente sumia
+
+Terceira aparição da mesma forma, encontrada ao explicar por que o `invoice.DRAFTED` chega antes do nosso `INSERT`.
+
+`applyPayment` fazia isto quando não achava a tentativa:
+
+```ts
+if (!intent) { log('warn', 'webhook.intent_not_found', ...); return }
+```
+
+O chamador seguia e marcava o evento como **processado**. Ou seja: um pagamento aprovado que não encontrasse a sua tentativa saía da fila sem deixar nada além de uma linha de log — exatamente o que a ADR 0032 corrigiu no `success: false`, e o que a Questão 1 descreve para cobrança cancelada.
+
+Não era hipótese: o próprio código já reconhecia invoices órfãs. O comentário do caminho `23505` em `getOrCreateIntent` diz *"a tentativa criada no provedor fica órfã e expira sozinha"* — a Cora criou a invoice, o nosso INSERT perdeu a corrida do índice único, e a invoice ficou pagável sem dono nenhum do nosso lado.
+
+Agora, `outcome === 'approved'` sem tentativa **levanta exceção**, e a exceção deixa `processed_at IS NULL` com `processing_error`. Estorno e evento ignorado sem tentativa seguem passando: sem tentativa também não há pagamento nosso, então não há o que desfazer.
+
+Corrigido nos três provedores de uma vez, porque mora em `_shared/inbox.ts`. Os webhooks da Cora e da InfinitePay ganharam a mesma trava na resolução do intent, antes da camada 2.
+
 ### O conserto, em duas etapas
 
 **Etapa 1 — drenador da fila, em `apps/web`.** Cobre *toda* falha de processamento (token vencido, provedor fora, bug nosso), não só expiração. Rodando em `apps/web` (Vercel Cron → route handler), ele **ganha o `resolveCredentials` de graça**: renovação incluída, zero duplicação para o Deno. Resolve 2a e 2b de uma vez.
