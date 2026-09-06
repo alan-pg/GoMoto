@@ -32,6 +32,21 @@ import {
 
 const PROVIDER = 'cora'
 
+/**
+ * A Cora recusou a CREDENCIAL — distinto de "a Cora está fora do ar".
+ *
+ * A diferença decide se a confirmação sem verificação é permitida (ADR 0033).
+ * Um 500 ou uma queda de rede são transitórios e devem ser retentados; um 401
+ * não melhora com o tempo, porque o token de 24h só é renovado quando uma
+ * cobrança é gerada, e este runtime não sabe renovar.
+ */
+class CoraCredentialError extends Error {
+  constructor(readonly status: number) {
+    super(`Cora recusou a credencial (status=${status})`)
+    this.name = 'CoraCredentialError'
+  }
+}
+
 /** Comparação de tempo constante — o segredo do path não pode vazar por timing. */
 function secretMatches(given: string, expected: string): boolean {
   if (given.length !== expected.length) return false
@@ -140,7 +155,7 @@ async function process(
   // qualquer identificador que a requisição pudesse trazer.
   const { data: intent } = await supabase
     .from('payment_intents')
-    .select('id, tenant_id, provider_account_id')
+    .select('id, tenant_id, provider_account_id, amount')
     .eq('provider', PROVIDER)
     .eq('provider_intent_id', invoiceId)
     .maybeSingle()
@@ -151,15 +166,75 @@ async function process(
     return
   }
 
-  const it = intent as { id: string; tenant_id: string; provider_account_id: string }
+  const it = intent as { id: string; tenant_id: string; provider_account_id: string; amount: number }
   const account = { id: it.provider_account_id, tenant_id: it.tenant_id }
 
   // ── Camada 2: a API da Cora é quem diz se foi pago ────────────────
-  const credentials = await accountCredentials(supabase, account.id)
-  const payment = await fetchInvoice(invoiceId, credentials)
+  let payment: NormalizedPayment
+  let semVerificacao = false
+
+  try {
+    const credentials = await accountCredentials(supabase, account.id)
+    payment = await fetchInvoice(invoiceId, credentials)
+  } catch (err) {
+    // RISCO ACEITO (ADR 0033): credencial vencida não pode travar a
+    // confirmação de dinheiro que entrou de verdade.
+    //
+    // O token da Cora dura 24h e só é renovado quando uma cobrança é gerada —
+    // e este runtime (Deno) não alcança a renovação, que vive em `apps/web`.
+    // Cobranças emitidas na segunda e pagas na quinta chegavam aqui com token
+    // morto e a cobrança ficava aberta com o dinheiro na conta da locadora.
+    //
+    // Quatro travas, porque isto abre mão da camada 2:
+    //
+    //   1. SÓ credencial recusada. Um 500 ou uma queda de rede continuam
+    //      falhando — são transitórios, e confirmar por causa deles seria
+    //      inventar pagamento a partir de instabilidade.
+    //   2. SÓ `invoice.PAID`. Qualquer outro evento não vira dinheiro.
+    //   3. O VALOR É NOSSO. Vem de `payment_intents.amount`, nunca da
+    //      requisição — e no caso da Cora a requisição nem tem corpo para
+    //      afirmar valor. Uma notificação forjada não escolhe quanto creditar:
+    //      no máximo confirma exatamente o que já íamos cobrar.
+    //   4. FICA MARCADO. A ressalva vai para `payments.notes` (o operador lê
+    //      junto do recebimento) e para `gateway_events.processing_error`
+    //      (dá para achar todos por SQL).
+    if (!(err instanceof CoraCredentialError) || eventType.toUpperCase() !== 'INVOICE.PAID') {
+      throw err
+    }
+
+    semVerificacao = true
+    payment = {
+      outcome: 'approved',
+      providerIntentId: invoiceId,
+      // `Number(...)`: PostgREST devolve NUMERIC como STRING. Sem a coerção o
+      // valor chegaria como "1.00" e qualquer comparação numérica adiante
+      // mentiria.
+      amount: Number(it.amount),
+      // A Cora não diz quando liquidou e não pudemos perguntar: o razão grava
+      // o instante da confirmação.
+      paidAt: null,
+      method: null,
+      notes: 'Confirmado SEM verificação na API da Cora — credencial vencida (ADR 0033)',
+      detail: `${err.message} — confirmado pelo evento ${eventType}`,
+    }
+
+    log('warn', 'webhook.confirmado_sem_verificacao', {
+      provider: PROVIDER, invoice_id: invoiceId, intent_id: it.id,
+      tenant_id: it.tenant_id, amount: it.amount, status: err.status,
+    })
+  }
 
   await applyPayment(supabase, PROVIDER, account, payment)
   await markProcessed(supabase, eventId, account.tenant_id)
+
+  // Processado E com ressalva: `processed_at` preenchido junto de
+  // `processing_error` é a marca de "aceito sem conferir".
+  if (semVerificacao) {
+    await supabase
+      .from('gateway_events')
+      .update({ processing_error: 'CONFIRMADO_SEM_VERIFICACAO: credencial da Cora vencida (ADR 0033)' })
+      .eq('id', eventId)
+  }
 }
 
 /**
@@ -185,6 +260,9 @@ async function fetchInvoice(
   const res = await fetch(`${base}/v2/invoices/${invoiceId}`, {
     headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
   })
+  // 401/403 é credencial; o resto é instabilidade. Só o primeiro autoriza a
+  // confirmação sem verificação.
+  if (res.status === 401 || res.status === 403) throw new CoraCredentialError(res.status)
   if (!res.ok) throw new Error(`Cora fetch invoice falhou: status=${res.status}`)
 
   const inv = await res.json() as {

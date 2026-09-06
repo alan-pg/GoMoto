@@ -2,7 +2,7 @@
 
 *(cobrança cancelada, fila de replay e renovação de credencial no webhook)*
 
-- **Status:** 🟡 **Proposta — aguardando decisão do humano.** Nada implementado.
+- **Status:** 🟡 **Proposta** nas Questões 1 e 2a/2b — aguardando decisão do humano. **Uma parte já foi decidida e implementada:** a confirmação sem verificação quando a credencial da Cora vence (ver Questão 2).
 - **Escopo:** três buracos de naturezas diferentes, unidos por um sintoma só — dinheiro real que entra e não vira registro correto. Ficaram no mesmo ADR porque a Questão 1 é o buraco contábil e a Questão 2 é o que faria qualquer um deles ser **notado**; separá-los produziria dois documentos que só fazem sentido lidos juntos.
 - **Data:** 2026-09-06
 - **Autores:** Alan + agente IA
@@ -103,6 +103,34 @@ Descartado, com motivo:
 - **Não elimina o caso.** Cron que perde uma janela — deploy, rede, provedor fora — deixa o webhook chegar com token vencido do mesmo jeito. Troca "sempre falha depois de 24h" por "falha às vezes", que é pior de diagnosticar.
 - **Custa rotação à toa.** Varrer toda conta conectada a cada N horas multiplica o consumo da janela de 3 usos da Cora, inclusive para tenants que não cobram há semanas. E a Cora encerra a sessão com 60 dias de inatividade de qualquer forma: manter token vivo de conta parada não mantém a conexão viva (ADR 0031).
 - **Falha em silêncio.** A renovação preguiçosa quebra na frente de quem está tentando cobrar, com mensagem dizendo "reconecte a conta". Cron que falha às 3h falha para um log.
+
+### DECIDIDO em 2026-09-06: confirmar sem verificar, quando a credencial vencer
+
+**Implementado.** Único ponto deste ADR que saiu do papel.
+
+O humano decidiu assumir o risco: se a camada 2 não puder ser exercida **porque a credencial venceu**, o webhook confia no evento recebido e confirma o pagamento. A alternativa era manter a cobrança aberta com o dinheiro já na conta da locadora, esperando um drenador que ainda não existe.
+
+Quatro travas, porque isto abre mão de uma camada de defesa:
+
+1. **Só credencial recusada** (`401`/`403`). Um `500` ou queda de rede continuam falhando — são transitórios, e confirmar por causa deles seria inventar pagamento a partir de instabilidade. `CoraCredentialError` existe só para separar os dois casos.
+2. **Só `invoice.PAID`.** Qualquer outro evento não vira dinheiro.
+3. **O valor é NOSSO**, de `payment_intents.amount` — nunca da requisição. Aqui a Cora ajuda: o webhook dela **não tem corpo**, só três headers, então não há valor externo a confiar. Uma notificação forjada não escolhe quanto creditar; no máximo confirma exatamente o que já íamos cobrar.
+4. **Fica marcado, em dois lugares.** `payments.notes` recebe *"Confirmado SEM verificação na API da Cora — credencial vencida (ADR 0033)"* — a ressalva viaja junto do dinheiro, no registro que o operador lê. E `gateway_events.processing_error` recebe `CONFIRMADO_SEM_VERIFICACAO`, com `processed_at` preenchido: processado **e** com ressalva.
+
+Para achar todos:
+
+```sql
+select id, received_at, tenant_id, payload
+from gateway_events
+where processing_error like 'CONFIRMADO_SEM_VERIFICACAO%'
+order by received_at desc;
+```
+
+**Só a Cora.** O Mercado Pago não foi tocado — token de ~180 dias torna o caso quase hipotético, e mexer em webhook antigo sem exposição real é risco sem retorno. A InfinitePay é excluída por construção: não usa token, e o `success: false` dela significa "não consegui responder", que **não** pode virar confirmação — seria ressuscitar o defeito que a ADR 0032 corrigiu, em versão pior.
+
+O que se perde: uma notificação forjada, por quem descubra o segredo do path **e** conheça um `webhook-resource-id` válido, confirma uma cobrança que talvez não tenha sido paga — dentro da janela em que a credencial estiver vencida. O valor é limitado ao da cobrança, e a linha fica marcada.
+
+**Isto é medida de fase, não desenho final.** Cai quando o webhook puder renovar credencial — ou seja, quando o processamento sair do Deno (etapa 2 abaixo).
 
 ### O conserto, em duas etapas
 

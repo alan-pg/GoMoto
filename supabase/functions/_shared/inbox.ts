@@ -51,6 +51,15 @@ export type NormalizedPayment = {
    * inteira com erro de tipo, não com falha nomeada.
    */
   method?: string | null
+  /**
+   * Observação gravada em `payments.notes`.
+   *
+   * Existe para o caso em que a confirmação NÃO pôde ser verificada contra a
+   * API do provedor e foi aceita mesmo assim (ADR 0033): a ressalva viaja
+   * junto do dinheiro, no próprio registro que o operador lê, em vez de ficar
+   * só num log que ninguém abre.
+   */
+  notes?: string | null
   /** Vai para o motivo do estorno e para o log. */
   detail: string
 }
@@ -188,6 +197,8 @@ export async function applyPayment(
       // O provedor só informa quando SABE mais que o intent: checkout hospedado
       // nasce `payment_link` e descobre `pix` ou `credit_card` na confirmação.
       p_method: payment.method ?? null,
+      // Sem `notes`, a RPC usa o default 'Confirmado pelo gateway'.
+      ...(payment.notes ? { p_notes: payment.notes } : {}),
     })
     if (error) throw new Error(`confirmação: ${error.message}`)
 

@@ -185,10 +185,13 @@ async function process(
   // fixo. Divergência aqui significa que a consulta resolveu outro pagamento, e
   // isso precisa aparecer. Não é motivo para recusar o dinheiro (ADR 0024: o que
   // entrou tem que ser reconhecido), é motivo para alguém olhar.
-  if (payment.outcome === 'approved' && payment.amount !== null && payment.amount !== it.amount) {
+  // `Number(...)` nos dois lados: PostgREST devolve NUMERIC como STRING, e
+  // comparar 1 com "1.00" acusaria divergência em toda confirmação correta.
+  const valorDoIntent = Number(it.amount)
+  if (payment.outcome === 'approved' && payment.amount !== null && payment.amount !== valorDoIntent) {
     log('warn', 'webhook.amount_divergente', {
       provider: PROVIDER, order_nsu: orderNsu,
-      intent_amount: it.amount, api_amount: payment.amount,
+      intent_amount: valorDoIntent, api_amount: payment.amount,
     })
   }
 
