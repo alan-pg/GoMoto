@@ -182,10 +182,23 @@ ser invisível para quem agiria. Fechados: credencial de gateway fora do alcance
 de `authenticated`, `payment_intents` só escrevível por RPC, `INSERT` direto no
 razão revogado, e `reversed_at` só aceito depois de o estorno existir no razão.
 
-**Em aberto e não deve esperar:** `anon` ainda executa funções de outros
-domínios (fila, locação, verificação de e-mail, admin de plataforma) pelo mesmo
-default. Nenhuma é de dinheiro; a varredura exige mapear o que os fluxos
-anteriores ao login legitimamente chamam.
+**Segundo achado crítico, na verificação do primeiro (Fase 2c):** as três
+funções de administração da plataforma guardavam com
+`IF get_platform_role() <> 'owner'`. Para quem não é admin isso é
+`NULL <> 'owner'` = **NULL**, e `IF NULL THEN` não executa — a guarda era pulada
+exatamente para quem ela existe para barrar. Reproduzido: um `operator` comum de
+tenant promoveu uma segunda conta a `platform_admin` **owner**, que enxerga todos
+os tenants. Corrigido com `IS DISTINCT FROM` (NULL-safe, já usado no resto do
+schema) + `SET search_path`.
+
+Na mesma varredura: existiam **dois** caminhos concedendo ao `anon` — o
+`ALTER DEFAULT PRIVILEGES` e o default do próprio PostgreSQL, que concede
+`EXECUTE` a `PUBLIC` em todo `CREATE FUNCTION`. A Fase 2b fechou só o primeiro.
+Agora `anon` está fora do schema `public` inteiro, e a migration **se
+autoverifica**: falha se sobrar rotina alcançável por anon ou se `authenticated`
+perder acesso.
+
+Verificado em banco limpo: suíte E2E **257 passando, 0 falhas**.
 
 Fases 3 a 5 planejadas na ADR: views `gateway_event_audit` e
 `financial_reconciliation`, tela de diagnóstico de integrações (que é também o

@@ -2,8 +2,8 @@
 
 *(por que este dinheiro entrou, quem mandou, e quem consegue mexer)*
 
-- **Status:** 🟢 **Aceita** — Fases 1, 2 e **2b** implementadas; Fases 3 a 5 planejadas e priorizadas neste documento.
-- **🔴 Contém um achado CRÍTICO com correção que precisa chegar em produção:** ver *Problema 3 — o razão estava aberto para `anon`*. Encontrado ao **verificar** a Fase 2 no banco, não ao ler as migrations.
+- **Status:** 🟢 **Aceita** — Fases 1, 2, **2b** e **2c** implementadas; Fases 3 a 5 planejadas e priorizadas neste documento.
+- **🔴 Contém DOIS achados CRÍTICOS com correção que precisa chegar em produção:** *Problema 3* (razão aberto para `anon`) e *Problema 4* (**escalação de privilégio para administrador da plataforma, ao alcance de qualquer usuário logado**). Os dois foram encontrados **verificando o banco**, não lendo as migrations — o segundo só apareceu porque a verificação da correção do primeiro não bateu.
 - **Escopo:** o caminho inteiro do dinheiro de gateway — das três Edge Functions até o razão —, olhado por duas perguntas que nenhum ADR anterior fez: **"dá para reconstruir o que aconteceu?"** e **"quem consegue escrever aqui?"**
 - **Data:** 2026-09-06
 - **Autores:** Alan + agente IA
@@ -194,11 +194,71 @@ Duas camadas, porque uma só já falhou aqui:
 1. **`post_financial_transaction` exige papel e tenant.** Lista de **permitidos**, não de proibidos: `service_role` (webhook), `none` (conexão direta — `pg_cron` da emissão diária e migrations; verificado que o GUC `role` vale `'none'` nesse contexto) e `authenticated` **apenas no razão da própria empresa**. Quem não está nomeado não escreve. Um `IF role = 'anon' THEN recusa` fecharia o buraco de hoje e deixaria aberto o de amanhã.
 2. **O grant sai de `anon`** nas 21 funções do domínio de dinheiro, e o `ALTER DEFAULT PRIVILEGES` deixa de conceder a `anon` daqui para a frente — este é o conserto da causa.
 
-### Ressalva registrada
+### Ressalva registrada — ✅ resolvida pela Fase 2c
 
-A Fase 2b fecha o **domínio de dinheiro** e o default futuro. Ela **não** varre o resto: `anon` continua com `EXECUTE` em funções de outros domínios criadas antes dela, entre elas `add_to_queue`, `create_rental_with_schedule`, `adjust_rental_schedule`, `check_user_email_conflict`, `list_platform_admins` e as de fila.
+A Fase 2b fechou o **domínio de dinheiro** e o default futuro, e deixou registrado que `anon` continuava com `EXECUTE` em funções de outros domínios (`add_to_queue`, `create_rental_with_schedule`, `check_user_email_conflict`, `list_platform_admins`, as de fila). O passo ficou em aberto porque varrer exigia saber o que os fluxos anteriores ao login legitimamente chamam.
 
-Não foram tocadas de propósito: varrer `anon` do schema inteiro exige saber o que os fluxos **anteriores ao login** legitimamente chamam (convite, definição de senha, verificação de e-mail), e errar isso derruba a entrada no produto. **É um passo próprio, com a sua própria verificação, e está em aberto.**
+**Esse levantamento foi feito e a varredura aconteceu na Fase 2c** (ver Problema 4): nenhuma RPC de `public` é chamada antes do login, e `anon` saiu do schema inteiro. `add_to_queue`, que gravava com HTTP 200 para o anônimo, foi um dos casos reais fechados ali.
+
+---
+
+## Problema 4 — a guarda que NULL desliga 🔴
+
+Encontrado ao conferir se a Fase 2b tinha de fato fechado o que dizia ter fechado. **Não tinha** — e o caminho que faltava levou a algo pior.
+
+### 4.1 Existiam DOIS caminhos até o `anon`, e a Fase 2b fechou um
+
+A Fase 2b revogou `anon` de 21 funções de dinheiro e reportou isso. Ao reconferir, várias continuavam alcançáveis:
+
+| Caminho | Origem | Fechado na 2b? |
+|---|---|---|
+| `GRANT ... TO anon` direto | `ALTER DEFAULT PRIVILEGES` de 2026-06-27 | ✅ |
+| `EXECUTE` para **`PUBLIC`** | default do próprio PostgreSQL no `CREATE FUNCTION` | ❌ |
+
+`anon` é membro de `PUBLIC`. No ACL isso aparece como `=X/postgres` — grantee vazio. `fn_pay_payable` tinha; `fn_provider_credentials`, que fez `REVOKE ALL ... FROM PUBLIC` na própria migration, não tinha — e por isso estava de fato fechada.
+
+> É a mesma lição pela terceira vez: **`REVOKE ... FROM PUBLIC` e `REVOKE ... FROM anon` são coisas diferentes**, e precisar dos dois não é redundância.
+
+### 4.2 Escalação de privilégio para administrador da plataforma
+
+As três funções de administração da plataforma (de 2026-06-15) guardavam assim:
+
+```sql
+IF get_platform_role() <> 'owner' THEN
+    RAISE EXCEPTION 'apenas owners podem ...' USING ERRCODE='42501';
+END IF;
+```
+
+`get_platform_role()` é `SELECT role FROM platform_admins WHERE user_id = auth.uid()`. Para quem **não** é admin da plataforma — todo usuário normal, e o anônimo — devolve **NULL**.
+
+E `NULL <> 'owner'` não é `TRUE`: é **NULL**. `IF NULL THEN` não executa.
+
+**A guarda inteira era pulada exatamente para quem ela existe para barrar.**
+
+Reproduzido ao vivo com um `operator` comum de tenant (`get_platform_role()` = NULL, `is_platform_admin()` = false):
+
+```sql
+SELECT add_platform_admin_by_email('outra-conta-minha@...', 'owner');
+→ sucesso. A conta virou platform_admin OWNER.
+```
+
+Platform admin owner enxerga **todos os tenants**. Qualquer funcionário de qualquer locadora criava uma segunda conta e se promovia a administrador da plataforma inteira. Não exige nada exótico — basta ter login.
+
+### O que segurou os outros caminhos foi acidente
+
+- `remove_platform_admin` parou em *"a plataforma precisa de pelo menos um owner"* — regra de negócio, que só vale enquanto houver **um único** owner. Com dois, qualquer usuário remove qualquer um.
+- Para o `anon`, `add_platform_admin_by_email` abortou no `platform_audit_logs.actor_id NOT NULL`, porque `auth.uid()` é NULL. **A trilha de auditoria defendeu por efeito colateral** — o `INSERT` em `platform_admins` já tinha sido aceito.
+
+Duas defesas acidentais em dois achados diferentes. É o padrão que esta ADR existe para eliminar.
+
+### Fase 2c — correção ✅ implementada
+
+1. **`IS DISTINCT FROM`** nas três funções — o operador NULL-safe que o resto do schema já usa (`fn_provider_credentials`, `fn_assert_gateway_owner`). Somado no caminho: `SET search_path` nas três, que não tinham.
+2. **`REVOKE EXECUTE ON ALL ROUTINES IN SCHEMA public FROM PUBLIC, anon`** — fecha o segundo caminho, para todos os domínios de uma vez, e não só para dinheiro.
+3. **`ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON ROUTINES FROM PUBLIC`** — sem isto a próxima função nasce com `EXECUTE` para `PUBLIC` e o buraco se reabre sozinho, que é como este chegou até aqui.
+4. **A migration se autoverifica**: falha se sobrar qualquer rotina alcançável por `anon`, ou se `authenticated` perder acesso a uma função crítica. Uma migration de permissão que não confere o resultado é uma intenção, não uma garantia — e a 2b provou isso ao revogar 21 e fechar menos que 21.
+
+Verificado antes de revogar: **nenhuma** rotina depende do grant de `PUBLIC` para `authenticated` ou `service_role` (os dois têm grant explícito em todas), e **nenhuma** RPC de `public` é chamada antes do login. Verificado depois: `anon` recebe 42501 em tudo, usuário comum é barrado nas três funções de plataforma, e o **owner legítimo continua administrando** — guarda que barra todo mundo não serve.
 
 ---
 
@@ -252,12 +312,16 @@ Não foram tocadas de propósito: varrer `anon` do schema inteiro exige saber o 
 
 **Ganho.** "Por que este dinheiro entrou?" passa a ser um `JOIN`, não uma investigação. A confirmação sem verificação da ADR 0033 vira consulta booleana em vez de `LIKE` em texto livre. Quatro capacidades que não deveriam estar ao alcance do navegador saem de lá — e o razão deixa de aceitar escrita de quem não está logado.
 
-**Verificação.** Nada aqui foi aceito por leitura de código. As permissões foram conferidas com `has_function_privilege` e `information_schema`; o exploit do `anon` foi reproduzido por HTTP antes e depois da correção; a guarda interna foi testada com o grant reconcedido de propósito, para provar que ela basta sozinha; e os caminhos legítimos (`service_role`, `pg_cron` com `role = 'none'`, usuário logado na própria empresa) foram exercitados um a um. Suíte E2E completa: **255 passando, 0 falhas**.
+**Verificação.** Nada aqui foi aceito por leitura de código. As permissões foram conferidas com `has_function_privilege` e `information_schema`; os dois exploits foram reproduzidos por HTTP e por SQL antes e depois da correção; a guarda interna do razão foi testada com o grant reconcedido de propósito, para provar que basta sozinha; e os caminhos legítimos (`service_role`, `pg_cron` com `role = 'none'`, usuário logado na própria empresa, owner de plataforma administrando) foram exercitados um a um. Suíte E2E completa em banco limpo: **257 passando, 0 falhas**.
+
+E a lição de método, que custou o Problema 4: **verificar a própria correção é o que encontra o resto.** A Fase 2b reportou "21 funções revogadas" e estava certa quanto ao que fez — só não era o que bastava. Contar o que se fez não é medir o resultado.
 
 **Custo.** `getOrCreateIntent` deixa de escrever `payment_intents` com o cliente do usuário e passa por RPC — a validação de tenant, que a RLS fazia, passa a ser explícita dentro da função. É exatamente a troca que o comentário em `actions.ts` desaconselhava, e continua sendo um argumento válido em geral: escolhemos pagá-la aqui porque `payment_intents` guarda a única ligação entre dinheiro e tentativa, e essa ligação não pode depender de nenhum membro se comportar bem.
 
 **Não resolvido.** As duas questões em aberto da ADR 0033 continuam abertas: o destino do dinheiro que chega para cobrança cancelada (Questão 1) e o dreno da fila (Questão 2) — este último passa a ter endereço definido na Fase 3, item 7.
 
-**Em aberto e com prazo.** `anon` ainda executa funções de OUTROS domínios (fila, locação, verificação de e-mail, admin de plataforma) por causa do mesmo default de 2026-06-27. Nenhuma delas é de dinheiro, e a varredura completa exige mapear o que os fluxos anteriores ao login legitimamente chamam. É o próximo passo de segurança, e não deve esperar as Fases 3 a 5.
+**Em aberto.** Restam as Fases 3 a 5 — visibilidade e vigilância. Nada de segurança ficou pendente desta varredura: `anon` está fora de `public`, as guardas de papel são NULL-safe, e a migration falha sozinha se qualquer uma das duas coisas regredir.
+
+Duas miudezas anotadas, sem urgência: três policies (`billing_runs`, `fine_attachments`, `late_charge_policies`) declaram `{public}` em vez de `{authenticated}` — inofensivo hoje, porque o `USING` depende de `get_user_tenants()`/`current_customer_ids()`, vazios para o anônimo; e `payments` aceita `DELETE` de `authenticated`, na prática barrado pelo `ON DELETE RESTRICT` das alocações, que são imutáveis.
 
 **Aceito.** A ADR 0033 permite confirmar sem verificar quando a credencial da Cora vence. Isto continua valendo; a mudança é que agora fica marcado em coluna própria e será alvo de alerta na Fase 4, em vez de depender de alguém abrir o log.

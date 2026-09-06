@@ -1,10 +1,14 @@
 /**
- * Privilégio no caminho do dinheiro — ADR 0034.
+ * Privilégio — ADR 0034.
  *
  * A suíte `tenant-isolation-financeiro.spec.ts` pergunta se o tenant 1 alcança
  * o tenant 2. Este spec pergunta outra coisa, que nenhum teste perguntava: **o
- * que dá para fazer SEM ser ninguém, e o que um membro qualquer da própria
- * empresa consegue escrever?**
+ * que dá para fazer SEM ser ninguém, e o que um membro qualquer consegue fazer
+ * além do seu papel?**
+ *
+ * Começou no dinheiro e cresceu: a mesma varredura achou escalação para
+ * administrador da plataforma. Os dois vivem aqui porque a causa é comum —
+ * permissão concedida por omissão, e guarda que não guarda.
  *
  * A pergunta não era acadêmica. Antes desta ADR, com a chave anônima — a que
  * viaja no bundle do navegador de toda página publicada — e mais nada:
@@ -162,5 +166,80 @@ test.describe('Estorno não se marca sem estorno no razão (ADR 0034)', () => {
     expect((intacto as { reversed_at: string | null }).reversed_at).toBeNull()
 
     await admin().from('payments').delete().eq('id', paymentId)
+  })
+})
+
+test.describe('Guarda de papel que NULL não desliga (ADR 0034, Fase 2c)', () => {
+  /**
+   * As três funções de administração da plataforma guardavam com
+   * `IF get_platform_role() <> 'owner' THEN RAISE`.
+   *
+   * `get_platform_role()` devolve NULL para quem não é admin — e
+   * `NULL <> 'owner'` é NULL, não TRUE. `IF NULL THEN` não executa: a guarda
+   * era pulada exatamente para quem ela existe para barrar.
+   *
+   * Reproduzido antes da correção: um `operator` comum de tenant promoveu uma
+   * segunda conta sua a `platform_admin` OWNER — que enxerga todos os tenants.
+   * O que segurou os outros dois caminhos foi acidente (a regra "precisa de ao
+   * menos um owner" e o `actor_id NOT NULL` do log de auditoria).
+   *
+   * A correção é `IS DISTINCT FROM`, NULL-safe, que o resto do schema já usava.
+   */
+  test('usuário logado comum não administra a plataforma', async () => {
+    const sb = await getSupabase()
+
+    // O usuário de teste é membro de tenant e NÃO é admin de plataforma.
+    const { data: papel } = await sb.rpc('get_platform_role')
+    expect(papel ?? null, 'o usuário de teste virou admin de plataforma — refaça a fixture').toBeNull()
+
+    const { data: alvo } = await admin()
+      .from('platform_admins').select('user_id').limit(1).maybeSingle()
+
+    const { error: erroAdd } = await sb.rpc('add_platform_admin_by_email', {
+      p_email: 'ninguem-adr34@teste.com', p_role: 'owner',
+    })
+    expect(erroAdd, 'promover admin de plataforma deveria ser recusado').not.toBeNull()
+    expect(erroAdd!.code, `esperado 42501, veio: ${erroAdd!.message}`).toBe('42501')
+
+    if (alvo) {
+      const alvoId = (alvo as { user_id: string }).user_id
+
+      const { error: erroRemove } = await sb.rpc('remove_platform_admin', { p_user_id: alvoId })
+      expect(erroRemove, 'remover admin de plataforma deveria ser recusado').not.toBeNull()
+      expect(erroRemove!.code).toBe('42501')
+
+      const { error: erroRole } = await sb.rpc('set_platform_admin_role', {
+        p_user_id: alvoId, p_role: 'operator',
+      })
+      expect(erroRole, 'alterar papel de admin deveria ser recusado').not.toBeNull()
+      expect(erroRole!.code).toBe('42501')
+    }
+
+    // E o admin legítimo continua lá: a guarda barra, não quebra.
+    const { count } = await admin()
+      .from('platform_admins').select('user_id', { count: 'exact', head: true })
+    expect(count ?? 0, 'a correção não pode remover admins existentes').toBeGreaterThan(0)
+  })
+
+  test('anon não alcança rotina nenhuma do schema public', async () => {
+    // A Fase 2b revogou o grant DIRETO de anon; faltava o segundo caminho, o
+    // default do PostgreSQL (`CREATE FUNCTION` concede EXECUTE a PUBLIC, e anon
+    // é membro de PUBLIC). Uma amostra de domínios diferentes basta como
+    // sentinela — a migration confere o schema inteiro e falha sozinha.
+    const sondas: [string, Record<string, unknown>][] = [
+      // Os argumentos não importam: a recusa tem que vir do privilégio, antes
+      // de a função olhar para qualquer um deles.
+      ['add_to_queue', { p_tenant_id: await getTestTenantId(), p_customer_id: await getTestTenantId() }],
+      ['add_platform_admin_by_email', { p_email: 'x@y.com', p_role: 'owner' }],
+      ['fn_tenant_timezone', { p_tenant_id: await getTestTenantId() }],
+      ['list_platform_admins', {}],
+      ['get_user_tenants', {}],
+    ]
+
+    for (const [fn, args] of sondas) {
+      const { error } = await anonimo().rpc(fn, args)
+      expect(error, `anon executou ${fn}`).not.toBeNull()
+      expect(error!.code, `${fn}: esperado 42501, veio ${error!.message}`).toBe('42501')
+    }
   })
 })
