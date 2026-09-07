@@ -2,7 +2,7 @@
 
 *(cobrança cancelada, fila de replay e renovação de credencial no webhook)*
 
-- **Status:** 🟡 **Proposta** nas Questões 1 e 2a/2b — aguardando decisão do humano. **Uma parte já foi decidida e implementada:** a confirmação sem verificação quando a credencial da Cora vence (ver Questão 2).
+- **Status:** 🟡 **Questão 1 em aberto**, aguardando decisão do humano. **Questão 2a FECHADA** em 2026-09-07 pela [[decisions/0034-auditabilidade-do-caminho-do-dinheiro|ADR 0034]] (Fases 3b e 4): a fila de replay ganhou consumidor — `gateway-replay` chamada pelo botão da tela e por cron diário. **Questão 2b** (o webhook não renova credencial) segue aberta, mitigada pela confirmação sem verificação, que foi decidida e implementada.
 - **Escopo:** três buracos de naturezas diferentes, unidos por um sintoma só — dinheiro real que entra e não vira registro correto. Ficaram no mesmo ADR porque a Questão 1 é o buraco contábil e a Questão 2 é o que faria qualquer um deles ser **notado**; separá-los produziria dois documentos que só fazem sentido lidos juntos.
 - **Data:** 2026-09-06
 - **Autores:** Alan + agente IA
@@ -78,7 +78,10 @@ A **A** é a recomendação, mas muda a política financeira do produto — o di
 
 São duas descobertas que parecem separadas e têm o mesmo conserto.
 
-### 2a. Nada consome a fila
+### 2a. Nada consome a fila — ✅ RESOLVIDO em 2026-09-07 (ADR 0034, Fases 3b e 4)
+
+> A Edge Function `gateway-replay` é o consumidor que faltava, acionada pelo botão "Reprocessar" da tela de diagnóstico e por cron diário. Ela chama **o mesmo processador** do webhook — não uma segunda implementação —, porque cada processador lê exclusivamente do payload gravado. O texto abaixo é o diagnóstico original, preservado.
+
 
 `gateway_events` com `processed_at IS NULL` é a fila de reprocessamento, e `idx_gateway_events_unprocessed` existe para ela. **Nada a consome automaticamente.**
 

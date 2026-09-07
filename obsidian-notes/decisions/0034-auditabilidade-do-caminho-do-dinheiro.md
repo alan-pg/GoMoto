@@ -445,7 +445,7 @@ E a lição de método, que custou o Problema 4: **verificar a própria correç�
 
 **Custo.** `getOrCreateIntent` deixa de escrever `payment_intents` com o cliente do usuário e passa por RPC — a validação de tenant, que a RLS fazia, passa a ser explícita dentro da função. É exatamente a troca que o comentário em `actions.ts` desaconselhava, e continua sendo um argumento válido em geral: escolhemos pagá-la aqui porque `payment_intents` guarda a única ligação entre dinheiro e tentativa, e essa ligação não pode depender de nenhum membro se comportar bem.
 
-**Não resolvido.** As duas questões em aberto da ADR 0033 continuam abertas: o destino do dinheiro que chega para cobrança cancelada (Questão 1) e o dreno da fila (Questão 2) — este último passa a ter endereço definido na Fase 3, item 7.
+**Não resolvido.** Da ADR 0033, **a Questão 1 continua aberta** — o destino do dinheiro que chega para uma cobrança cancelada, que é decisão do humano (crédito do cliente ou recebível). A **Questão 2a** (nada drena a fila) foi **fechada** pela Fase 3b mais a Fase 4. A **2b** (o webhook não renova credencial) segue estruturalmente aberta, mitigada pela confirmação sem verificação — e agora tem uma saída limpa que não existia: a rota de drenagem roda em `apps/web`, que **alcança** `resolveCredentials`. Renovar ali antes de chamar o replay transformaria "confirmado sem conferir" em confirmação verificada de verdade.
 
 **Em aberto.** Nada de segurança ficou pendente desta varredura: `anon` está fora de `public`, as guardas de papel são NULL-safe, e a migration falha sozinha se qualquer uma das duas coisas regredir. Das Fases, resta apenas a leva de testes de privilégio POR PAPEL (item 15), que é cobertura e não correção.
 
