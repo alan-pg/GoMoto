@@ -67,6 +67,51 @@ Havia três respostas para "qual política vale": `fn_create_charge` casava por 
 
 `due_date` tinha um efeito difícil de defender: cobrança emitida hoje com vencimento em 60 dias podia pegar uma versão **agendada**, ainda não vigente.
 
+### Diagnóstico das integrações (Owner e Admin) — [[decisions/0034-auditabilidade-do-caminho-do-dinheiro|ADR 0034]]
+
+Sub-rota `/configuracoes/integracoes`, no mesmo padrão de `/configuracoes/usuarios`: card com `ChevronRight` na tela principal, guarda por `requireTenantOwnerOrAdmin()` com `redirect('/configuracoes')` — Operator e Viewer não sabem que a tela existe.
+
+**Por que Owner/Admin e não Operator:** um evento de gateway carrega valor, cliente e o erro cru do provedor. É informação de gestão, no mesmo nível de "Usuários".
+
+A tela responde duas perguntas que antes não tinham resposta **dentro do produto** — o rastro existia em `gateway_events` desde a Spec 0014, mas só era alcançável por quem tivesse acesso ao banco e soubesse montar o SQL. Numa locadora, isso é ninguém.
+
+#### Eventos recebidos — view `gateway_event_audit`
+
+Uma linha por notificação de gateway, com a corrente `evento → pagamento → razão` montada (as FKs vieram da Fase 1 da ADR 0034). Cinco situações, decididas **em SQL** e não na tela:
+
+| Situação | Quando | Cor |
+|---|---|---|
+| **Confirmado** | verificado com o provedor e lançado no razão | verde |
+| **Aceito sem conferir** | confirmado sem reconsultar o provedor — credencial vencida ([[decisions/0033-dinheiro-para-cobranca-cancelada\|ADR 0033]]) | âmbar |
+| **Sem efeito** | ciclo de vida (`INVOICE.DRAFTED`, `CREATED`) — nunca vira dinheiro | cinza |
+| **Não processado** | recebido, ainda na fila | âmbar |
+| **Falhou** | processamento falhou; o provedor **não reenvia** | vermelho |
+
+A ordem da classificação importa e está na view: **"aceito sem conferir" ganha de "confirmado"**. Um recebimento aceito sem verificação é processado *e* precisa de olho humano; se `confirmado` viesse antes, a ressalva sumiria da tela — que é o oposto do que a ADR 0033 decidiu ao aceitar aquele risco.
+
+O erro cru do provedor fica **fora da tabela**, em cartões abaixo dela: é longo, e espremê-lo numa célula obrigaria a truncar justamente o que explica a falha. Foi o que faltou quando o primeiro pagamento da InfinitePay sumiu.
+
+Filtro "Precisam de atenção" isola falhos, pendentes e aceitos sem conferir.
+
+#### Reconciliação do razão — view `financial_reconciliation`
+
+Uma linha por **problema**; vazio é o estado saudável. Seis verificações:
+
+| Problema | O que significa |
+|---|---|
+| `unbalanced_transaction` | lançamento que não fecha em zero, ou com uma perna só |
+| `charge_without_entry` | cobrança emitida sem lançamento — some do DRE e continua na tela |
+| `payable_without_entry` | despesa que não chega ao DRE |
+| `credit_without_entry` | crédito que nasce sem saldo utilizável (foi bug real) |
+| `payment_without_allocation` | dinheiro recebido que não quitou nada |
+| `paid_intent_without_payment` | tentativa marcada como paga sem pagamento |
+
+As quatro primeiras já eram feitas por `apps/web/tests/reconciliacao.spec.ts` — **contra o banco de teste, em CI**. As duas últimas são novas e vieram da ADR 0034: são as formas de a corrente do gateway quebrar sem violar invariante nenhuma do banco.
+
+Ambas as views são `security_invoker = true`: a RLS de cada tabela de origem continua valendo, e a página não filtra por tenant à mão.
+
+**Ainda não tem:** botão de reprocessar. Um evento com `processed_at IS NULL` fica visível e ninguém o retoma — a fila de replay continua sem dreno (Questão 2 da ADR 0033). O reprocessamento exige rodar a lógica do provedor, que vive nas Edge Functions em Deno; a tela mostra o problema, não o resolve.
+
 ### 1. Segurança (ícone Lock `#a880ff`)
 
 | Campo | Tipo |

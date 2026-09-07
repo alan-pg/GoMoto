@@ -2,7 +2,7 @@
 
 *(por que este dinheiro entrou, quem mandou, e quem consegue mexer)*
 
-- **Status:** 🟢 **Aceita** — Fases 1, 2, **2b** e **2c** implementadas; Fases 3 a 5 planejadas e priorizadas neste documento.
+- **Status:** 🟢 **Aceita** — Fases 1, 2, **2b**, **2c** e **3** implementadas; Fases 4 e 5 planejadas e priorizadas neste documento.
 - **🔴 Contém DOIS achados CRÍTICOS com correção que precisa chegar em produção:** *Problema 3* (razão aberto para `anon`) e *Problema 4* (**escalação de privilégio para administrador da plataforma, ao alcance de qualquer usuário logado**). Os dois foram encontrados **verificando o banco**, não lendo as migrations — o segundo só apareceu porque a verificação da correção do primeiro não bateu.
 - **Escopo:** o caminho inteiro do dinheiro de gateway — das três Edge Functions até o razão —, olhado por duas perguntas que nenhum ADR anterior fez: **"dá para reconstruir o que aconteceu?"** e **"quem consegue escrever aqui?"**
 - **Data:** 2026-09-06
@@ -289,11 +289,21 @@ Verificado antes de revogar: **nenhuma** rotina depende do grant de `PUBLIC` par
 | 2.1 Credencial para qualquer membro | `REVOKE EXECUTE FROM authenticated`; leitura passa pelo cliente admin | ajuste em `getOrCreateIntent` |
 | 2.4 `payment_intents` escrevível | `REVOKE INSERT, UPDATE, DELETE`; escrita por RPC | ajuste em `getOrCreateIntent` |
 
-### Fase 3 — tornar visível 🔜
+### Fase 3 — tornar visível ✅ implementada (exceto o dreno)
 
-5. View `gateway_event_audit`: evento → intent → cobrança → pagamento → transação, com `signature_valid`, `accepted_without_verification` e latência de processamento.
-6. View `financial_reconciliation`: a varredura do `reconciliacao.spec.ts` promovida a produção — documento sem lançamento, transação desbalanceada, pagamento sem alocação, intent pago sem pagamento.
-7. Tela **Configurações → Integrações → Diagnóstico**: últimos eventos, não processados, aceitos sem verificação, e o botão de reprocessar — que é também a resposta à **Questão 2 da ADR 0033** (o dreno da fila).
+5. **View `gateway_event_audit`** ✅ — evento → pagamento → cobrança → transação, com `signature_valid`, `accepted_without_verification` e o tempo de processamento. A classificação em cinco situações mora na view, não na tela: `confirmed`, `accepted_unverified`, `processed_no_money`, `pending`, `failed`.
+
+   A ordem da classificação é decisão, não detalhe: **`accepted_unverified` ganha de `confirmed`**. Um recebimento aceito sem verificação é processado *e* precisa de olho humano; se `confirmed` viesse antes, a ressalva que a ADR 0033 decidiu registrar sumiria justamente da tela feita para mostrá-la.
+
+6. **View `financial_reconciliation`** ✅ — uma linha por problema, vazio é saudável. As quatro verificações do `reconciliacao.spec.ts` mais duas novas: `payment_without_allocation` e `paid_intent_without_payment`, que são as formas de a corrente do gateway quebrar sem violar invariante nenhuma do banco.
+
+   Provada por injeção: cada anomalia foi criada de propósito e a view a acusou. "Zero problemas" numa view que não detecta nada seria o pior resultado possível — é a mesma armadilha de vacuidade que o spec original já nomeava.
+
+7. **Tela Configurações → Integrações → Diagnóstico** ✅ *parcial* — Owner/Admin, sub-rota no padrão de `configuracoes/usuarios`. Resumo, tabela de eventos com filtro "precisam de atenção", erros crus fora da tabela (espremê-los numa célula truncaria justamente o que explica a falha), e a reconciliação.
+
+   **O botão de reprocessar NÃO foi entregue**, e a Questão 2 da ADR 0033 continua aberta. O motivo é estrutural: reprocessar exige rodar a verificação do provedor, que vive nas Edge Functions em Deno, e cada uma tem a sua (`fetchInvoice` na Cora, `fetchPayment` no MP, `checkPayment` na InfinitePay, esta última precisando de quatro campos do payload). Fazer o dreno em `apps/web` duplicaria lógica de dinheiro — exatamente o que `_shared/inbox.ts` existe para impedir.
+
+   O caminho certo é extrair os três adaptadores para `_shared/` e criar uma função `gateway-replay` que despacha por provedor. É trabalho de tamanho próprio, sobre o caminho de dinheiro que acabou de ser validado em produção, e por isso não foi enfiado aqui. **A tela mostra o problema; ela ainda não o resolve** — e diz isso a quem olha, em vez de oferecer um botão que não faz o que promete.
 
 ### Fase 4 — vigilância ativa 🔜
 

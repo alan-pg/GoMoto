@@ -12,7 +12,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Lock, User, Save, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Palette, UsersRound, ChevronRight } from 'lucide-react'
+import { Lock, User, Save, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Palette, UsersRound, ChevronRight, Activity } from 'lucide-react'
 import { PageTitle } from '@/components/layout/PageTitle'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -538,6 +538,37 @@ export default function SettingsPage() {
                     <p className="text-[13px] font-medium text-fg">Gerenciar usuários</p>
                     <p className="text-[12px] text-fg-mute mt-0.5">
                       Convidar, alterar papel, revogar e reativar acesso de membros da empresa.
+                    </p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-fg-mute shrink-0" />
+                </div>
+              </Card>
+            </Link>
+          </section>
+        ) : null}
+
+        {/* SEÇÃO 4-bis: Diagnóstico das integrações (ADR 0034) */}
+        {canManageUsers ? (
+          <section>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 rounded-full bg-info-bg border border-info">
+                <Activity className="w-5 h-5 text-info" />
+              </div>
+              <div>
+                <h2 className="text-[28px] font-semibold text-fg">Integrações</h2>
+                <p className="text-[13px] text-fg-mute">
+                  O que os gateways enviaram e o que virou dinheiro de verdade.
+                </p>
+              </div>
+            </div>
+
+            <Link href="/configuracoes/integracoes">
+              <Card className="hover:border-fg-mute transition-colors cursor-pointer">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[13px] font-medium text-fg">Diagnóstico das integrações</p>
+                    <p className="text-[12px] text-fg-mute mt-0.5">
+                      Eventos recebidos dos gateways, o que falhou, e a reconciliação do razão.
                     </p>
                   </div>
                   <ChevronRight className="w-5 h-5 text-fg-mute shrink-0" />

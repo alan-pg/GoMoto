@@ -200,10 +200,21 @@ perder acesso.
 
 Verificado em banco limpo: suíte E2E **257 passando, 0 falhas**.
 
-Fases 3 a 5 planejadas na ADR: views `gateway_event_audit` e
-`financial_reconciliation`, tela de diagnóstico de integrações (que é também o
-dreno da fila da ADR 0033), `pg_cron` de vigilância e trilha em `audit_logs`
-para dinheiro.
+**Fase 3 entregue (visibilidade):** views `gateway_event_audit` e
+`financial_reconciliation`, e a tela **Configurações → Integrações →
+Diagnóstico** (Owner/Admin). A reconciliação — "existe documento que não virou
+lançamento?" — deixa de existir só como teste de CI e passa a ser respondível
+sobre os dados reais.
+
+**O dreno da fila NÃO saiu.** Reprocessar exige rodar a verificação do provedor,
+que vive em Deno e é diferente em cada gateway; fazê-lo em `apps/web`
+duplicaria lógica de dinheiro. O caminho é extrair os três adaptadores para
+`_shared/` e criar uma `gateway-replay`. A tela mostra o evento parado e diz que
+não o resolve. Questão 2 da ADR 0033 segue aberta.
+
+Faltam as Fases 4 e 5: `pg_cron` de vigilância com alerta, e trilha em
+`audit_logs` para dinheiro (hoje `payment_confirmed` e `token_refreshed` existem
+no vocabulário sem nenhum escritor).
 
 **Dinheiro para cobrança cancelada — [[decisions/0033-dinheiro-para-cobranca-cancelada|ADR 0033]]** (2026-09-06)
 

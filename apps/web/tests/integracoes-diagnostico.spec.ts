@@ -1,0 +1,141 @@
+/**
+ * Diagnóstico das integrações — ADR 0034, Fase 3.
+ *
+ * A tela existe porque, até ela, "o pagamento não apareceu, e agora?" não tinha
+ * resposta dentro do produto: o rastro estava no inbox `gateway_events` e só era
+ * alcançável por quem tivesse acesso ao banco.
+ *
+ * O que este spec protege não é o layout — é a CLASSIFICAÇÃO. A view
+ * `gateway_event_audit` decide, em SQL, se um evento está confirmado, falhou,
+ * está pendente ou foi aceito sem conferir; a tela só pinta. Errar essa
+ * classificação é pior que não ter tela: um evento que falhou aparecendo como
+ * "confirmado" convence o operador de que está tudo bem.
+ *
+ * Em especial: **"aceito sem conferir" não pode ser exibido como confirmado.**
+ * É dinheiro que entrou sem reconsulta ao provedor (ADR 0033) e precisa de olho
+ * humano.
+ */
+
+import { test, expect, type Page } from '@playwright/test'
+import { TEST_TAG, getSupabaseAdmin, getTestTenantId } from './helpers'
+
+const admin = () => getSupabaseAdmin()
+
+const sufixo = Date.now().toString().slice(-9)
+const evtId = (n: string) => `e2e-adr34-${sufixo}-${n}`
+
+let tenantId = ''
+const eventos: string[] = []
+
+test.beforeAll(async () => {
+  tenantId = await getTestTenantId()
+
+  // Só eventos, sem dinheiro: a classificação de `failed`/`pending` não depende
+  // de pagamento nenhum, e montar cobrança + intent + confirmação aqui faria o
+  // spec testar a confirmação, que já tem `gateway-confirmacao.spec.ts`.
+  // As TRÊS linhas declaram as MESMAS chaves de propósito. Num insert em lote o
+  // PostgREST normaliza as colunas pela união das chaves e manda NULL onde a
+  // linha não tem — o DEFAULT da coluna não entra. Sem isto,
+  // `accepted_without_verification` (NOT NULL DEFAULT false) estoura nas duas
+  // primeiras.
+  const linhas = [
+    {
+      tenant_id: tenantId, provider: 'infinitepay', provider_event_id: evtId('falhou'),
+      event_type: `payment ${TEST_TAG}`, payload: {}, signature_valid: false,
+      processed_at: null, accepted_without_verification: false,
+      processing_error: 'Error: pagamento aprovado sem tentativa correspondente',
+      attempts: 1,
+    },
+    {
+      tenant_id: tenantId, provider: 'mercadopago', provider_event_id: evtId('pendente'),
+      event_type: `payment ${TEST_TAG}`, payload: {}, signature_valid: true,
+      processed_at: null, accepted_without_verification: false,
+      processing_error: null, attempts: 0,
+    },
+    {
+      tenant_id: tenantId, provider: 'cora', provider_event_id: evtId('semverificar'),
+      event_type: `invoice.PAID ${TEST_TAG}`, payload: {}, signature_valid: false,
+      processed_at: new Date().toISOString(), accepted_without_verification: true,
+      processing_error: null, attempts: 0,
+    },
+  ]
+
+  const { data, error } = await admin().from('gateway_events').insert(linhas).select('id')
+  if (error) throw new Error(`setup falhou: ${error.message}`)
+  eventos.push(...(data as { id: string }[]).map((r) => r.id))
+})
+
+test.afterAll(async () => {
+  if (eventos.length > 0) {
+    await admin().from('gateway_events').delete().in('id', eventos)
+  }
+})
+
+async function abrir(page: Page) {
+  await page.goto('/configuracoes/integracoes')
+  await expect(page.getByRole('heading', { name: 'Diagnóstico das integrações' })).toBeVisible()
+}
+
+test.describe('Diagnóstico das integrações (ADR 0034)', () => {
+  test('a classificação de cada evento chega à tela', async ({ page }) => {
+    await abrir(page)
+
+    // Asserção por LINHA, não por contagem de rótulos na página: a tabela mostra
+    // o histórico do tenant, e contar daria falso positivo. O `TEST_TAG` viaja
+    // no `event_type` justamente para isolar as linhas desta execução.
+    const daExecucao = page.locator(`tr:has-text("${TEST_TAG}")`)
+    await expect(daExecucao).toHaveCount(3)
+
+    const linha = (provedor: string) =>
+      page.locator('tr', { hasText: provedor }).filter({ hasText: TEST_TAG })
+
+    await expect(linha('InfinitePay')).toContainText('Falhou')
+    await expect(linha('Mercado Pago')).toContainText('Não processado')
+
+    // O que mais importa: NÃO pode aparecer como confirmado. É dinheiro que
+    // entrou sem reconsulta ao provedor, e pintá-lo de verde convenceria o
+    // operador de que não há nada a conferir.
+    await expect(linha('Cora')).toContainText('Aceito sem conferir')
+    await expect(linha('Cora')).not.toContainText('Confirmado')
+  })
+
+  test('o erro cru do provedor fica legível, não truncado numa célula', async ({ page }) => {
+    await abrir(page)
+
+    // Diagnóstico sem a mensagem do provedor é diagnóstico pela metade — foi
+    // exatamente o que faltou quando o primeiro pagamento da InfinitePay sumiu.
+    await expect(page.getByText('Erros registrados')).toBeVisible()
+    await expect(
+      page.getByText('pagamento aprovado sem tentativa correspondente', { exact: false }).first(),
+    ).toBeVisible()
+  })
+
+  test('o filtro isola o que precisa de atenção', async ({ page }) => {
+    await abrir(page)
+
+    await page.getByRole('button', { name: /Precisam de atenção/ }).click()
+
+    // Os três semeados são de atenção, então continuam; o que some é o resto.
+    await expect(page.locator(`tr:has-text("${TEST_TAG}")`)).toHaveCount(3)
+    await expect(page.locator('tr', { hasText: 'Sem efeito' })).toHaveCount(0)
+  })
+
+  test('a reconciliação responde, e responde sobre o razão de verdade', async ({ page }) => {
+    await abrir(page)
+
+    await expect(page.getByRole('heading', { name: 'Reconciliação do razão' })).toBeVisible()
+
+    // Sem afirmar "está tudo certo": o banco de teste acumula resíduo de outros
+    // specs. O que se exige é que a seção RESPONDA — ou a mensagem de saudável,
+    // ou a tabela de problemas. Uma seção muda seria a falha real.
+    const saudavel = page.getByText('Nenhuma divergência', { exact: false })
+    const comProblemas = page.getByRole('columnheader', { name: 'Problema' })
+
+    await expect(saudavel.or(comProblemas).first()).toBeVisible()
+  })
+
+  // NÃO coberto aqui: que Operator/Viewer sejam barrados. A página usa
+  // `requireTenantOwnerOrAdmin` e redireciona, igual a `configuracoes/usuarios`
+  // — mas provar isso exige uma sessão de outro papel, que este spec não monta.
+  // Fica com o teste de privilégio por papel, na Fase 5 da ADR 0034.
+})
