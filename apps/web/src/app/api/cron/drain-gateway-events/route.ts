@@ -5,6 +5,12 @@
  * é o que faz a fila drenar sozinha, que é o que importa para a maioria das
  * falhas: token vencido, provedor instável, rede caindo — todas passam.
  *
+ * CADÊNCIA: diária (`0 10 * * *` = 07:00 em Brasília), porque o plano Hobby da
+ * Vercel não aceita cron mais frequente. A hora foi escolhida para o operador
+ * encontrar o quadro já drenado ao começar o dia. Para qualquer coisa urgente o
+ * caminho é o botão da tela de diagnóstico — com esta cadência ele não é
+ * conveniência, é o caminho normal.
+ *
  * POR QUE AQUI E NÃO NO `pg_cron`
  *
  * A emissão de cobranças roda no banco porque ela É SQL: `fn_run_billing_emission`
@@ -34,9 +40,15 @@ export const maxDuration = 120
  * Quantas vezes insistir antes de exigir gente.
  *
  * Não é backoff exponencial: o intervalo entre tentativas é o do próprio cron.
- * O teto existe porque falha que persiste cinco vezes não é instabilidade — é
- * um caso que precisa de decisão humana, e continuar tentando só gasta chamada
- * na API do provedor e esconde o problema numa contagem que ninguém lê.
+ * O teto existe porque falha que persiste não é instabilidade — é um caso que
+ * precisa de decisão humana, e continuar tentando só gasta chamada na API do
+ * provedor e esconde o problema numa contagem que ninguém lê.
+ *
+ * O plano Hobby da Vercel só aceita cron DIÁRIO, então cinco tentativas são
+ * cinco dias. É muito para esperar, e é por isso que o botão "Reprocessar" na
+ * tela de diagnóstico não é conveniência: com esta cadência, ele é o caminho
+ * normal para qualquer coisa urgente. O cron é a rede que pega o que ninguém
+ * viu.
  */
 const MAX_TENTATIVAS = 5
 
@@ -49,11 +61,22 @@ const MAX_TENTATIVAS = 5
  * do mesmo pagamento. A confirmação é idempotente, então não duplicaria
  * dinheiro — mas gastaria duas chamadas e poluiria o log com uma corrida que
  * não precisa existir.
+ *
+ * Com cron diário isto quase nunca morde. A guarda fica porque protege o
+ * disparo MANUAL da rota, que acontece perto de uma entrega justamente quando
+ * alguém está investigando.
  */
-const IDADE_MINIMA = '2 minutes'
+const IDADE_MINIMA_MINUTOS = 2
 
-/** Teto por execução: mantém a rota dentro do tempo e evita rajada na API do provedor. */
-const LOTE = 25
+/**
+ * Teto por execução.
+ *
+ * Dimensionado para a cadência diária: o lote precisa caber um dia inteiro de
+ * falhas, senão o excedente espera mais 24 horas. Cinquenta eventos parados num
+ * dia já seriam uma catástrofe — e mesmo assim cabem. A `maxDuration` de 120s
+ * comporta o lote com folga, porque cada evento é uma ida à API do provedor.
+ */
+const LOTE = 50
 
 function log(level: 'info' | 'warn' | 'error', action: string, fields: Record<string, unknown> = {}) {
   const out = JSON.stringify({ ts: new Date().toISOString(), level, action, ...fields })
@@ -77,7 +100,7 @@ export async function GET(req: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )
 
-  const limite = new Date(Date.now() - 2 * 60 * 1000).toISOString()
+  const limite = new Date(Date.now() - IDADE_MINIMA_MINUTOS * 60 * 1000).toISOString()
 
   const { data, error } = await supabase
     .from('gateway_events')
@@ -118,8 +141,8 @@ export async function GET(req: NextRequest) {
     }
 
     if (r.status === 'unreachable') {
-      // A função está fora: parar o lote. Insistir com os outros 24 só produz
-      // o mesmo erro 24 vezes e some com o sinal no meio do log.
+      // A função está fora: parar o lote. Insistir com o resto só produz o
+      // mesmo erro dezenas de vezes e some com o sinal no meio do log.
       resumo.inalcancavel++
       log('error', 'drain.replay_unreachable', { event_id: e.id, error: r.error })
       break

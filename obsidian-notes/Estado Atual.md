@@ -225,8 +225,12 @@ rede: ciclo com dinheiro fechou (evento parado → confirmado, R$ 250,00, razão
 somando zero). **Os quatro webhooks precisam de deploy.**
 
 **Fase 4 — vigilância ativa.** `GET /api/cron/drain-gateway-events`, cron da
-Vercel a cada 15 min, drena a fila sozinha: `attempts < 5`, evento com mais de 2
-minutos (o webhook ainda pode estar processando em `waitUntil`), lote de 25.
+Vercel **diário** (`0 10 * * *` = 07:00 BRT — o Hobby não aceita mais frequente),
+drena a fila sozinha: `attempts < 5`, evento com mais de 2 minutos (o webhook
+ainda pode estar processando em `waitUntil`), lote de 50.
+
+Com cadência diária o **botão "Reprocessar" da tela é o caminho normal** para
+urgência; o cron é a rede que pega o que ninguém viu.
 Ficou na aplicação e não no `pg_cron` porque é orquestração HTTP, não SQL — e
 assim nenhum segredo novo entra no banco; usa o `CRON_SECRET` que a emissão
 manual já usa.
@@ -242,8 +246,10 @@ destinatário no lugar do humano seria decidir por ele.
 resposta anterior do cache. A drenagem se declarava saudável sem fazer nada, e
 o botão da tela tinha o mesmo defeito num segundo clique.
 
-⚠️ O cron `*/15` exige **plano Pro** na Vercel; no Hobby degrada para uma vez ao
-dia. E `CRON_SECRET` precisa existir no ambiente de produção.
+`CRON_SECRET` **criado em produção** (Sensitive) — não existia, o que significa
+que o disparo manual da emissão de cobranças (`/api/cron/issue-charges`) também
+estava morto lá, respondendo 500. A Vercel injeta o valor no header
+`Authorization` do cron automaticamente.
 
 Falta a Fase 5: trilha em `audit_logs` para dinheiro (hoje `payment_confirmed` e
 `token_refreshed` existem no vocabulário de `lib/audit.ts` sem nenhum escritor).

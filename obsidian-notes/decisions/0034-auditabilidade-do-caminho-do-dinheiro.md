@@ -326,7 +326,13 @@ Os arquivos de webhook ficaram só com HTTP: segredo, assinatura, gravar no inbo
 
 ### Fase 4 — vigilância ativa ✅ implementada
 
-8. **Drenagem automática** — `GET /api/cron/drain-gateway-events`, cron da Vercel a cada 15 minutos.
+8. **Drenagem automática** — `GET /api/cron/drain-gateway-events`, cron da Vercel **diário** (`0 10 * * *` = 07:00 em Brasília).
+
+   A cadência não é escolha de desenho: **o plano Hobby da Vercel só aceita cron diário.** A hora foi escolhida para o operador encontrar o quadro já drenado ao começar o dia.
+
+   Isso muda o papel de cada peça. Com drenagem diária, o **botão "Reprocessar" da tela deixa de ser conveniência e passa a ser o caminho normal** para qualquer coisa urgente; o cron é a rede que pega o que ninguém viu. E `MAX_TENTATIVAS = 5` passa a significar cinco *dias* até desistir.
+
+   Se um dia isso apertar, há duas saídas sem trocar de plano: `pg_cron` + `pg_net` chamando a rota (custa guardar o `CRON_SECRET` no Vault do banco — capacidade estreita, não a chave mestra), ou um agendador externo batendo na mesma URL. Nenhuma das duas foi feita, porque a diária mais o botão cobrem o caso real.
 
    **Por que na aplicação e não no `pg_cron`.** A emissão de cobranças roda no banco porque ela *é* SQL — `fn_run_billing_emission` não sai do Postgres. Drenar a fila é o contrário: uma chamada HTTP a uma Edge Function que por sua vez chama a API do provedor. Fazer isso do banco exigiria `pg_net` (está instalado) e, com ele, **guardar uma credencial de chamada dentro do banco**. Na aplicação não entra segredo novo: usa o `CRON_SECRET` que a emissão manual já usa, e a chave de serviço já vive no ambiente.
 
@@ -335,9 +341,11 @@ Os arquivos de webhook ficaram só com HTTP: segredo, assinatura, gravar no inbo
    Três critérios de seleção, cada um por um motivo:
    - `attempts < 5` — falha que persiste cinco vezes não é instabilidade; é caso que precisa de decisão humana. Continuar tentando gasta chamada na API do provedor e esconde o problema numa contagem que ninguém lê.
    - `received_at < now() - 2 min` — o webhook responde antes de processar e segue trabalhando em `waitUntil`. Um evento recém-chegado pode estar sendo processado **agora**; drená-lo em paralelo faria duas verificações concorrentes do mesmo pagamento. A confirmação é idempotente, então não duplicaria dinheiro — mas gastaria duas chamadas e criaria uma corrida que não precisa existir.
-   - lote de 25 — mantém a rota dentro do tempo e evita rajada na API do provedor.
+   - lote de 50 — dimensionado para a cadência diária: precisa caber um dia inteiro de falhas, senão o excedente espera mais 24 horas.
 
-   `unreachable` **interrompe o lote**: se a função está fora, insistir com os outros 24 só produz o mesmo erro 24 vezes e some com o sinal no meio do log.
+   `unreachable` **interrompe o lote**: se a função está fora, insistir com o resto só produz o mesmo erro dezenas de vezes e some com o sinal no meio do log.
+
+   **Env:** `CRON_SECRET` foi criado em produção como *Sensitive* (não existia — o que também significa que o disparo manual da emissão de cobranças estava morto lá, respondendo 500). A Vercel injeta esse valor no header `Authorization` das invocações de cron automaticamente, então a rota se autentica sozinha.
 
 9. **Alerta** — no log estruturado, que é o canal que existe hoje. Três perguntas que ninguém mais faz sozinho: eventos que esgotaram as tentativas (`drain.needs_human`), confirmados sem verificação nas últimas 24h (`drain.accepted_unverified`, ADR 0033) e divergências na reconciliação (`drain.reconciliation`).
 
