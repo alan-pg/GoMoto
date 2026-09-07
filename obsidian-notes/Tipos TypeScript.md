@@ -151,7 +151,7 @@ interface Maintenance {
   completed_date?: string
   cost?: number
   completed: boolean
-  workshop: string          // default: 'Oficina do Careca'
+  workshop: string          // sem default; NULL quando não informado
   odometer_photo_url?: string
   invoice_photo_url?: string
   observations?: string
