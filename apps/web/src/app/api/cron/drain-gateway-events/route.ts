@@ -28,9 +28,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 import { replayEvent } from '@/lib/payment/replay'
+import { resolveCredentials } from '@/lib/payment/credentials'
+import { PROVIDER_REGISTRY } from '@/lib/payment/registry'
 
 export const dynamic = 'force-dynamic'
 /** A drenagem faz uma ida à API do provedor por evento; o default de 15s não cobre. */
@@ -83,6 +85,65 @@ function log(level: 'info' | 'warn' | 'error', action: string, fields: Record<st
   level === 'error' ? console.error(out) : console.log(out)
 }
 
+/**
+ * Renova a credencial das contas cujos eventos estão parados.
+ *
+ * Por CONTA e não por evento: `resolveCredentials` já decide sozinha se precisa
+ * renovar (margem de 10 minutos) e serializa concorrentes por reivindicação no
+ * banco. Chamar uma vez por par (tenant, provedor) evita gastar a janela de
+ * rotação da Cora — 3 usos do token anterior — com dez eventos do mesmo lote.
+ *
+ * Eventos sem `tenant_id` ficam de fora: eles falharam ANTES de resolver a
+ * conta, então não há credencial a renovar e renovar não os ajudaria.
+ *
+ * Falha aqui NUNCA interrompe a drenagem. Refresh token morto (a Cora encerra a
+ * sessão com 60 dias de inatividade) é caso para reconectar a conta, não para
+ * impedir que os outros eventos sejam reprocessados — e o replay ainda tem o
+ * risco aceito da ADR 0033 como último recurso.
+ */
+async function renovarCredenciais(
+  supabase: SupabaseClient,
+  pendentes: { tenant_id: string | null; provider: string }[],
+): Promise<{ renovadas: number; falhas: number }> {
+  const pares = new Map<string, { tenantId: string; provider: string }>()
+  for (const e of pendentes) {
+    if (!e.tenant_id) continue
+    pares.set(`${e.tenant_id}:${e.provider}`, { tenantId: e.tenant_id, provider: e.provider })
+  }
+
+  const resumo = { renovadas: 0, falhas: 0 }
+
+  for (const { tenantId, provider } of pares.values()) {
+    const impl = PROVIDER_REGISTRY[provider]
+    // Provedor sem implementação nesta versão, ou sem renovação (a InfinitePay
+    // usa handle, que não vence): nada a fazer, e não é erro.
+    if (!impl?.oauth?.refresh) continue
+
+    // Sem filtro por `active`: conta desconectada ainda pode ter evento parado,
+    // e reconhecer o dinheiro que entrou vale mais que o estado da conexão —
+    // mesmo motivo de `resolveAccount` não filtrar.
+    const { data: contas } = await supabase
+      .from('payment_provider_accounts')
+      .select('id, provider')
+      .eq('tenant_id', tenantId)
+      .eq('provider', provider)
+
+    for (const conta of (contas ?? []) as { id: string; provider: string }[]) {
+      try {
+        await resolveCredentials(conta, impl)
+        resumo.renovadas++
+      } catch (err) {
+        resumo.falhas++
+        log('warn', 'drain.refresh_failed', {
+          provider, account_id: conta.id, tenant_id: tenantId, error: String(err),
+        })
+      }
+    }
+  }
+
+  return resumo
+}
+
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET
   if (!secret) {
@@ -104,7 +165,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabase
     .from('gateway_events')
-    .select('id, provider, event_type, attempts, received_at')
+    .select('id, tenant_id, provider, event_type, attempts, received_at')
     .is('processed_at', null)
     .lt('attempts', MAX_TENTATIVAS)
     .lt('received_at', limite)
@@ -117,8 +178,25 @@ export async function GET(req: NextRequest) {
   }
 
   const pendentes = (data ?? []) as {
-    id: string; provider: string; event_type: string; attempts: number; received_at: string
+    id: string; tenant_id: string | null; provider: string
+    event_type: string; attempts: number; received_at: string
   }[]
+
+  // RENOVA A CREDENCIAL ANTES DE REPROCESSAR.
+  //
+  // Fecha a metade 2b da ADR 0033. O token da Cora dura 24h e só era renovado
+  // ao gerar cobrança; um evento que chegasse com token vencido caía no risco
+  // aceito — confirmar SEM verificar na API do provedor.
+  //
+  // A renovação nunca foi possível de dentro do webhook: ela vive aqui, em
+  // Node, e as Edge Functions são Deno. Copiá-la para lá seria duplicar
+  // margem, reivindicação, lease e rotação — decidindo sobre uma janela de 3
+  // usos —, que é a duplicação que `_shared/inbox.ts` existe para evitar.
+  //
+  // Esta rota, porém, JÁ roda em `apps/web`. Renovar aqui, antes de acionar o
+  // replay, faz a reconsulta ao provedor voltar a ser possível — e transforma
+  // "confirmado sem conferir" em confirmação verificada de verdade.
+  const credenciais = await renovarCredenciais(supabase, pendentes)
 
   const resumo = { drenados: 0, ainda_falhando: 0, recusados: 0, inalcancavel: 0 }
 
@@ -197,11 +275,17 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  log('info', 'drain.done', { candidatos: pendentes.length, ...resumo })
+  log('info', 'drain.done', {
+    candidatos: pendentes.length, ...resumo,
+    credenciais_renovadas: credenciais.renovadas,
+    credenciais_com_falha: credenciais.falhas,
+  })
 
   return NextResponse.json({
     ok: true,
     candidatos: pendentes.length,
+    credenciais_renovadas: credenciais.renovadas,
+    credenciais_com_falha: credenciais.falhas,
     ...resumo,
     precisam_de_humano: esgotados ?? 0,
     aceitos_sem_verificacao_24h: semVerificacao ?? 0,

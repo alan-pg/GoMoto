@@ -2,7 +2,7 @@
 
 *(cobrança cancelada, fila de replay e renovação de credencial no webhook)*
 
-- **Status:** 🟡 **Questão 1 em aberto**, aguardando decisão do humano. **Questão 2a FECHADA** em 2026-09-07 pela [[decisions/0034-auditabilidade-do-caminho-do-dinheiro|ADR 0034]] (Fases 3b e 4): a fila de replay ganhou consumidor — `gateway-replay` chamada pelo botão da tela e por cron diário. **Questão 2b** (o webhook não renova credencial) segue aberta, mitigada pela confirmação sem verificação, que foi decidida e implementada.
+- **Status:** 🟡 **Questão 1 em aberto**, aguardando decisão do humano. **Questão 2 FECHADA** em 2026-09-07 pela [[decisions/0034-auditabilidade-do-caminho-do-dinheiro|ADR 0034]]: a **2a** pelas Fases 3b e 4 (a fila ganhou consumidor), e a **2b** pela renovação de credencial na rota de drenagem — que roda em `apps/web` e portanto *alcança* `resolveCredentials`, coisa que o webhook em Deno nunca pôde. A confirmação sem verificação continua existindo, mas deixa de ser o caminho normal e volta a ser o último recurso que ela sempre deveria ter sido.
 - **Escopo:** três buracos de naturezas diferentes, unidos por um sintoma só — dinheiro real que entra e não vira registro correto. Ficaram no mesmo ADR porque a Questão 1 é o buraco contábil e a Questão 2 é o que faria qualquer um deles ser **notado**; separá-los produziria dois documentos que só fazem sentido lidos juntos.
 - **Data:** 2026-09-06
 - **Autores:** Alan + agente IA
@@ -89,7 +89,18 @@ Ficou mais relevante depois da correção da ADR 0032: falha de verificação ag
 
 Agravante: o padrão é **responder antes de processar**, então quando o processamento falha o provedor já recebeu `200` e não vai reenviar. A retentativa do provedor não cobre esse caso.
 
-### 2b. O webhook não renova credencial — e não é falta de vontade, é runtime
+### 2b. O webhook não renova credencial — ✅ RESOLVIDO em 2026-09-07 (ADR 0034)
+
+> **O diagnóstico abaixo estava certo, e a saída apareceu de onde ele não olhou.**
+>
+> O texto conclui que "o processamento está no runtime errado" e descarta copiar a renovação para o Deno. Ambas as coisas seguem verdadeiras. O que mudou é que a Fase 4 criou uma rota de drenagem **em `apps/web`** — Node, mesmo runtime de `resolveCredentials`. Renovar ali, antes de acionar o replay, não duplica orquestração nenhuma: reusa a que já existe, com margem, reivindicação, lease e rotação.
+>
+> Renovação por CONTA e não por evento, para não gastar a janela de 3 usos da Cora com dez eventos do mesmo lote. Falha de renovação nunca interrompe a drenagem — refresh token morto é caso de reconectar, não de travar os outros eventos.
+>
+> Verificado com mock que **recusa o token velho**: mesmo evento, mesmo token, a única diferença sendo a renovação ter rodado — sem ela, `accepted_unverified` com "Confirmado SEM verificação"; com ela, `confirmed` com "Confirmado pelo gateway".
+>
+> O diagnóstico original fica preservado abaixo.
+
 
 A renovação vive em `apps/web/src/lib/payment/credentials.ts` (Node, workspace pnpm). As Edge Functions são **Deno** e não alcançam `packages/core` nem `apps/web` — o mesmo motivo pelo qual `_shared/inbox.ts` existe em vez de morar no core. As functions usam `accountCredentials()`, que é leitura pura do Vault.
 

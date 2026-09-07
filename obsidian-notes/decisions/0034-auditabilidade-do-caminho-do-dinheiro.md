@@ -445,7 +445,20 @@ E a lição de método, que custou o Problema 4: **verificar a própria correç�
 
 **Custo.** `getOrCreateIntent` deixa de escrever `payment_intents` com o cliente do usuário e passa por RPC — a validação de tenant, que a RLS fazia, passa a ser explícita dentro da função. É exatamente a troca que o comentário em `actions.ts` desaconselhava, e continua sendo um argumento válido em geral: escolhemos pagá-la aqui porque `payment_intents` guarda a única ligação entre dinheiro e tentativa, e essa ligação não pode depender de nenhum membro se comportar bem.
 
-**Não resolvido.** Da ADR 0033, **a Questão 1 continua aberta** — o destino do dinheiro que chega para uma cobrança cancelada, que é decisão do humano (crédito do cliente ou recebível). A **Questão 2a** (nada drena a fila) foi **fechada** pela Fase 3b mais a Fase 4. A **2b** (o webhook não renova credencial) segue estruturalmente aberta, mitigada pela confirmação sem verificação — e agora tem uma saída limpa que não existia: a rota de drenagem roda em `apps/web`, que **alcança** `resolveCredentials`. Renovar ali antes de chamar o replay transformaria "confirmado sem conferir" em confirmação verificada de verdade.
+**Não resolvido.** Da ADR 0033, resta **a Questão 1** — o destino do dinheiro que chega para uma cobrança cancelada, decisão do humano (crédito do cliente ou recebível). A **Questão 2 está fechada por inteiro**: a 2a pelas Fases 3b e 4, e a **2b pela renovação de credencial na drenagem**.
+
+A 2b merece nota, porque o diagnóstico original estava certo e a saída veio de onde ele não olhou. Ele concluía que copiar a renovação para o Deno seria duplicar orquestração de rotação — verdade, e continua sendo. O que mudou é que a Fase 4 criou uma rota **em `apps/web`**, mesmo runtime de `resolveCredentials`. Renovar ali antes de acionar o replay não duplica nada: reusa a orquestração existente, com margem, reivindicação, lease e rotação.
+
+Renovação por **conta**, não por evento — chamar uma vez por par (tenant, provedor) evita gastar a janela de 3 usos da Cora com dez eventos do mesmo lote. E falha de renovação **nunca** interrompe a drenagem: refresh token morto é caso de reconectar a conta, não de impedir que os outros eventos sejam reprocessados.
+
+Verificado com um mock que **recusa o token velho**, para que o teste pudesse falhar: mesmo evento, mesmo token, a única diferença sendo a renovação ter rodado.
+
+| | renovação | resultado |
+|---|---|---|
+| `contra-evt` | não rodou (sem `expires_at`) | `accepted_unverified` — "Confirmado SEM verificação" |
+| `renov-evt` | rodou | `confirmed` — "Confirmado pelo gateway" |
+
+**A confirmação sem verificação da ADR 0033 continua existindo**, e deve continuar: ela cobre o caso em que a renovação também falha. O que muda é que ela deixa de ser o caminho normal para credencial vencida e volta a ser o último recurso que sempre deveria ter sido.
 
 **Em aberto.** Nada de segurança ficou pendente desta varredura: `anon` está fora de `public`, as guardas de papel são NULL-safe, e a migration falha sozinha se qualquer uma das duas coisas regredir. Das Fases, resta apenas a leva de testes de privilégio POR PAPEL (item 15), que é cobertura e não correção.
 
