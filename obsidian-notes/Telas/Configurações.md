@@ -110,7 +110,21 @@ As quatro primeiras já eram feitas por `apps/web/tests/reconciliacao.spec.ts` �
 
 Ambas as views são `security_invoker = true`: a RLS de cada tabela de origem continua valendo, e a página não filtra por tenant à mão.
 
-**Ainda não tem:** botão de reprocessar. Um evento com `processed_at IS NULL` fica visível e ninguém o retoma — a fila de replay continua sem dreno (Questão 2 da ADR 0033). O reprocessamento exige rodar a lógica do provedor, que vive nas Edge Functions em Deno; a tela mostra o problema, não o resolve.
+#### Reprocessar
+
+Botão em cada evento **falho ou não processado** — e só neles. Chama
+`replayGatewayEventAction`, que confere papel (Owner/Admin), confere que o
+evento é do tenant (leitura com o cliente do usuário, sob RLS) e então aciona a
+Edge Function `gateway-replay` com `service_role`.
+
+Não aparece em "aceito sem conferir": aquele dinheiro **já entrou**. Oferecer
+reprocessar ali convidaria a mexer num recebimento concluído para resolver uma
+ressalva que se resolve olhando o extrato.
+
+O reprocessamento roda o **mesmo** processador do webhook — os três saíram para
+`supabase/functions/_shared/` justamente para que o dreno não seja uma segunda
+implementação da confirmação de pagamento. Falha volta para a fila com o motivo
+novo, que é o que o operador precisa ler.
 
 ### 1. Segurança (ícone Lock `#a880ff`)
 

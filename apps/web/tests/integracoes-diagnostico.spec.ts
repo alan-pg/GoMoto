@@ -110,6 +110,30 @@ test.describe('Diagnóstico das integrações (ADR 0034)', () => {
     ).toBeVisible()
   })
 
+  test('o reprocessar aparece só em quem está parado na fila', async ({ page }) => {
+    await abrir(page)
+
+    const linha = (provedor: string) =>
+      page.locator('tr', { hasText: provedor }).filter({ hasText: TEST_TAG })
+
+    // Falhou e não processado continuam na fila — o provedor não reenvia,
+    // porque já recebeu 200. São os únicos que alguém precisa retomar.
+    await expect(linha('InfinitePay').getByRole('button', { name: 'Reprocessar' })).toBeVisible()
+    await expect(linha('Mercado Pago').getByRole('button', { name: 'Reprocessar' })).toBeVisible()
+
+    // "Aceito sem conferir" JÁ virou dinheiro. Oferecer reprocessar ali
+    // convidaria a mexer num recebimento concluído para resolver uma ressalva
+    // que se resolve olhando o extrato, não reprocessando.
+    await expect(linha('Cora').getByRole('button', { name: 'Reprocessar' })).toHaveCount(0)
+
+    // NÃO coberto aqui: o clique. Ele chama a Edge Function `gateway-replay`,
+    // que não roda durante a suíte — um teste do clique passaria a depender de
+    // `supabase functions serve` estar de pé e viraria intermitente. O caminho
+    // foi verificado à mão, com as funções servidas localmente e um mock da
+    // API da Cora: evento parado → confirmado, R$ 250,00 no razão, cobrança
+    // fechada.
+  })
+
   test('o filtro isola o que precisa de atenção', async ({ page }) => {
     await abrir(page)
 

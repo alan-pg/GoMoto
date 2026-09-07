@@ -206,11 +206,23 @@ Diagnóstico** (Owner/Admin). A reconciliação — "existe documento que não v
 lançamento?" — deixa de existir só como teste de CI e passa a ser respondível
 sobre os dados reais.
 
-**O dreno da fila NÃO saiu.** Reprocessar exige rodar a verificação do provedor,
-que vive em Deno e é diferente em cada gateway; fazê-lo em `apps/web`
-duplicaria lógica de dinheiro. O caminho é extrair os três adaptadores para
-`_shared/` e criar uma `gateway-replay`. A tela mostra o evento parado e diz que
-não o resolve. Questão 2 da ADR 0033 segue aberta.
+**Fase 3b: o dreno da fila (fecha a Questão 2 da ADR 0033).**
+`idx_gateway_events_unprocessed` sempre foi chamado de fila de replay e nunca
+teve consumidor — como respondemos 200 antes de processar, o provedor nunca
+reenvia. Agora tem: os processadores saíram dos webhooks para
+`_shared/{cora,mercadopago,infinitepay}.ts`, e a Edge Function `gateway-replay`
+chama **a mesma função** que a entrega original. Isso é possível porque cada
+processador lê só do payload GRAVADO — o replay não pode divergir do webhook
+porque não é outro código.
+
+Achado ao testar: `markFailed` gravava `attempts: 1` fixo. Com uma entrega só
+ninguém notava; com o dreno, reprocessar dez vezes deixava o contador em 1.
+Agora conta.
+
+⚠️ A suíte **não executa** funções Deno. O refactor foi verificado à mão com
+`supabase functions serve` + mock da API da Cora servido como função na mesma
+rede: ciclo com dinheiro fechou (evento parado → confirmado, R$ 250,00, razão
+somando zero). **Os quatro webhooks precisam de deploy.**
 
 Faltam as Fases 4 e 5: `pg_cron` de vigilância com alerta, e trilha em
 `audit_logs` para dinheiro (hoje `payment_confirmed` e `token_refreshed` existem

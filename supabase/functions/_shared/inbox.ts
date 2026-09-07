@@ -67,6 +67,22 @@ export type NormalizedPayment = {
 export type ProviderAccount = { id: string; tenant_id: string }
 
 /**
+ * O evento como ele está GRAVADO — a única entrada do processamento.
+ *
+ * Os processadores de cada provedor leem daqui e de mais nada (ADR 0034, Fase
+ * 3b). Na entrega original o payload acabou de ser montado a partir da
+ * requisição; no reprocessamento ele vem do banco. Mesmos campos, mesma função,
+ * e por isso o dreno da fila não pode divergir do webhook — não existe um
+ * segundo caminho para confirmar dinheiro.
+ */
+export type StoredEvent = {
+  id: string
+  event_type: string
+  provider_event_id: string
+  payload: Record<string, unknown>
+}
+
+/**
  * Grava o evento ANTES de processar.
  *
  * `UNIQUE (provider, provider_event_id)` faz a idempotência ser propriedade do
@@ -326,9 +342,32 @@ export async function markFailed(
   eventId: string,
   err: unknown,
 ): Promise<void> {
+  // `attempts` CONTA, não carimba.
+  //
+  // Antes isto gravava `attempts: 1` fixo. Com uma entrega só ninguém notava —
+  // a primeira falha é mesmo a primeira. Com o dreno da fila (ADR 0034 Fase 3b)
+  // virou defeito visível: reprocessar dez vezes deixava o contador em 1, e um
+  // evento que falha sempre seria retentado para sempre sem deixar sinal de
+  // quantas vezes já se tentou.
+  //
+  // Ler-e-escrever em vez de `attempts + 1` no banco porque o PostgREST não
+  // expressa incremento. A corrida é inofensiva: dois reprocessamentos
+  // simultâneos do mesmo evento perderiam uma contagem, e o contador é
+  // diagnóstico — não decide nada sobre dinheiro.
+  const { data: atual } = await supabase
+    .from('gateway_events')
+    .select('attempts')
+    .eq('id', eventId)
+    .maybeSingle()
+
+  const tentativas = ((atual as { attempts: number } | null)?.attempts ?? 0) + 1
+
   await supabase
     .from('gateway_events')
-    .update({ processing_error: String(err), attempts: 1 })
+    .update({ processing_error: String(err), attempts: tentativas })
     .eq('id', eventId)
-  log('error', 'webhook.process_failed', { event_id: eventId, error: String(err) })
+
+  log('error', 'webhook.process_failed', {
+    event_id: eventId, attempts: tentativas, error: String(err),
+  })
 }

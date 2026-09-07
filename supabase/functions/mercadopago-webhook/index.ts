@@ -2,13 +2,17 @@
 //
 // Webhook do Mercado Pago (ADR 0030, sobre ADR 0024).
 //
-// Este arquivo ficou com o que é DO MERCADO PAGO e mais nada: o formato do IPN,
-// o esquema de assinatura `x-signature`, a consulta ao pagamento e a tradução
-// do vocabulário de status dele.
+// Este arquivo ficou com o que é HTTP: o formato do IPN, o esquema de assinatura
+// `x-signature`, gravar no inbox e responder.
 //
-// Persistir no inbox, resolver a conta, confirmar ou estornar e marcar o evento
-// como processado — tudo que envolve dinheiro — vive em `_shared/inbox.ts`, uma
-// implementação só, compartilhada com o próximo gateway.
+// O PROCESSAMENTO — reconsultar o pagamento no MP, traduzir o vocabulário de
+// status e aplicar ao razão — mora em `_shared/mercadopago.ts` desde a ADR 0034,
+// Fase 3b. A razão não é organização: o dreno da fila precisa reprocessar um
+// evento gravado, e se ele reimplementasse a verificação existiriam DOIS
+// caminhos para confirmar dinheiro, que divergiriam no primeiro ajuste.
+//
+// O que é igual a todo provedor — inbox, confirmação, estorno, idempotência —
+// segue em `_shared/inbox.ts`.
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { z } from 'npm:zod@3'
@@ -16,12 +20,8 @@ import { z } from 'npm:zod@3'
 // Mantém o trabalho vivo depois da resposta (runtime do Supabase Edge).
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void }
 import { verifyWebhookSignature } from '../_shared/signature.ts'
-import {
-  accountCredentials, applyPayment, log, markEventTenant, markFailed, markProcessed,
-  recordEvent, resolveAccount, type NormalizedPayment,
-} from '../_shared/inbox.ts'
-
-const PROVIDER = 'mercadopago'
+import { log, markFailed, recordEvent } from '../_shared/inbox.ts'
+import { PROVIDER, processMercadoPagoEvent } from '../_shared/mercadopago.ts'
 
 const IPNSchema = z.object({
   type: z.enum(['payment', 'merchant_order']),
@@ -105,77 +105,15 @@ Deno.serve(async (req: Request) => {
   // Seguro porque o evento já está no inbox: falha no processamento deixa a
   // linha com `processed_at IS NULL`, que é a fila de reprocessamento.
   EdgeRuntime.waitUntil(
-    process(supabase, eventId, ipn.data)
-      .catch((err) => markFailed(supabase, eventId, err)),
+    // O MESMO processamento que o dreno da fila usa (ADR 0034, Fase 3b): ele
+    // lê do payload gravado, e é este que acabou de ser gravado.
+    processMercadoPagoEvent(supabase, {
+      id: eventId,
+      event_type: ipn.data.type,
+      provider_event_id: providerEventId,
+      payload: body as Record<string, unknown>,
+    }).catch((err) => markFailed(supabase, eventId, err)),
   )
 
   return new Response('OK', { status: 200 })
 })
-
-async function process(
-  supabase: ReturnType<typeof createClient>,
-  eventId: string,
-  ipn: z.infer<typeof IPNSchema>,
-): Promise<void> {
-  if (ipn.type !== 'payment') {
-    await markProcessed(supabase, eventId, null)
-    return
-  }
-
-  const account = await resolveAccount(supabase, PROVIDER, ipn.user_id)
-  if (!account) {
-    log('warn', 'webhook.account_not_found', { provider: PROVIDER, mp_user_id: ipn.user_id })
-    await markProcessed(supabase, eventId, null)
-    return
-  }
-
-  // O dono do evento é carimbado antes da ida ao MP (ADR 0034): daqui para a
-  // frente tudo pode falhar, e a linha que falha precisa ser visível ao tenant.
-  await markEventTenant(supabase, eventId, account.tenant_id)
-
-  const credentials = await accountCredentials(supabase, account.id)
-  const payment = await fetchPayment(ipn.data.id, credentials)
-
-  await applyPayment(supabase, PROVIDER, account, payment, eventId)
-  await markProcessed(supabase, eventId, account.tenant_id)
-}
-
-/**
- * Consulta o pagamento no Mercado Pago e traduz para o vocabulário do inbox.
- *
- * A tradução mora aqui de propósito: `approved`, `refunded` e `charged_back`
- * são nomes DESTE provedor. O núcleo só conhece `approved | refunded | ignored`,
- * e é por isso que o próximo gateway não precisa herdar este vocabulário.
- */
-async function fetchPayment(
-  mpPaymentId: string,
-  credentials: Record<string, unknown>,
-): Promise<NormalizedPayment> {
-  const accessToken = credentials.access_token
-  if (typeof accessToken !== 'string' || !accessToken) {
-    throw new Error('credencial do Mercado Pago malformada')
-  }
-
-  const res = await fetch(`https://api.mercadopago.com/v1/payments/${mpPaymentId}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  if (!res.ok) throw new Error(`MP fetch failed: status=${res.status}`)
-
-  const p = await res.json() as {
-    status: string; status_detail: string
-    transaction_amount: number; date_approved: string | null
-  }
-
-  const outcome: NormalizedPayment['outcome'] =
-    p.status === 'approved' ? 'approved'
-    : (p.status === 'refunded' || p.status === 'charged_back') ? 'refunded'
-    : 'ignored'
-
-  return {
-    outcome,
-    providerIntentId: mpPaymentId,
-    amount: p.transaction_amount ?? null,
-    paidAt: p.date_approved,
-    detail: `${p.status} (${p.status_detail})`,
-  }
-}

@@ -1,15 +1,18 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
-  Activity, AlertTriangle, ArrowLeft, CheckCircle2, Clock, ShieldAlert, ShieldCheck,
+  Activity, AlertTriangle, ArrowLeft, CheckCircle2, Clock, Loader2, RotateCw,
+  ShieldAlert, ShieldCheck,
 } from 'lucide-react'
 
 import { PageTitle } from '@/components/layout/PageTitle'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { cn } from '@/lib/utils'
+import { replayGatewayEventAction } from './actions'
 
 /** Espelha `gateway_event_audit` (ADR 0034). */
 export interface GatewayEventRow {
@@ -137,6 +140,28 @@ export function IntegracoesClient({
   loadError: string | null
 }) {
   const [filtro, setFiltro] = useState<Filtro>('todos')
+  const [reprocessando, setReprocessando] = useState<string | null>(null)
+  const [aviso, setAviso] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
+  const [, startTransition] = useTransition()
+  const router = useRouter()
+
+  /**
+   * Reprocessar é a resposta à Questão 2 da ADR 0033: o provedor não reenvia,
+   * porque já recebeu `200`. Sem este botão, um evento que falhou fica visível
+   * e ninguém volta para pegá-lo.
+   */
+  async function reprocessar(eventId: string) {
+    setReprocessando(eventId)
+    setAviso(null)
+    const r = await replayGatewayEventAction(eventId)
+    setReprocessando(null)
+    setAviso(r.ok
+      ? { tipo: 'ok', texto: 'Evento reprocessado.' }
+      : { tipo: 'erro', texto: r.message })
+    // `revalidatePath` na action invalida o cache; o refresh é o que faz esta
+    // árvore de Server Component ser buscada de novo.
+    startTransition(() => router.refresh())
+  }
 
   const contagem = useMemo(() => ({
     falhos: eventos.filter((e) => e.situation === 'failed').length,
@@ -233,6 +258,14 @@ export function IntegracoesClient({
           </div>
         </div>
 
+        {aviso ? (
+          <Card className={cn('mb-3', aviso.tipo === 'ok' ? 'border-success' : 'border-critical')}>
+            <p className={cn('text-[13px]', aviso.tipo === 'ok' ? 'text-success' : 'text-critical')}>
+              {aviso.texto}
+            </p>
+          </Card>
+        ) : null}
+
         <Card className="p-0 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -245,12 +278,13 @@ export function IntegracoesClient({
                   <th className="px-4 text-right font-medium">Valor</th>
                   <th className="px-4 text-left font-medium">Cobrança</th>
                   <th className="px-4 text-right font-medium">Processou em</th>
+                  <th className="px-4 text-right font-medium"></th>
                 </tr>
               </thead>
               <tbody>
                 {visiveis.length === 0 ? (
                   <tr>
-                    <td colSpan={7}>
+                    <td colSpan={8}>
                       <div className="flex flex-col items-center justify-center py-16 gap-3">
                         <div className="w-12 h-12 bg-surface-2 rounded-full flex items-center justify-center">
                           <CheckCircle2 className="w-6 h-6 text-fg-mute" />
@@ -290,6 +324,20 @@ export function IntegracoesClient({
                       </td>
                       <td className="px-4 text-right text-fg-mute whitespace-nowrap">
                         {duracao(e.processing_seconds)}
+                      </td>
+                      <td className="px-4 text-right">
+                        {e.situation === 'failed' || e.situation === 'pending' ? (
+                          <button
+                            onClick={() => reprocessar(e.event_id)}
+                            disabled={reprocessando !== null}
+                            className="inline-flex items-center gap-1.5 text-[13px] text-primary hover:underline disabled:opacity-50 disabled:no-underline"
+                          >
+                            {reprocessando === e.event_id
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <RotateCw className="w-3.5 h-3.5" />}
+                            Reprocessar
+                          </button>
+                        ) : null}
                       </td>
                     </tr>
                   )

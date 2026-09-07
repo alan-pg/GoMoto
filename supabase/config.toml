@@ -437,3 +437,10 @@ verify_jwt = false
 
 [functions.infinitepay-webhook]
 verify_jwt = false
+
+# Dreno da fila de replay (ADR 0034 Fase 3b). `verify_jwt` LIGADO, ao contrário
+# dos três webhooks: aqui não há provedor externo a acomodar. Quem chama é a
+# Server Action do cockpit, com a chave service_role, depois de conferir papel e
+# tenant.
+[functions.gateway-replay]
+verify_jwt = true

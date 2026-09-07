@@ -2,7 +2,8 @@
 
 *(por que este dinheiro entrou, quem mandou, e quem consegue mexer)*
 
-- **Status:** 🟢 **Aceita** — Fases 1, 2, **2b**, **2c** e **3** implementadas; Fases 4 e 5 planejadas e priorizadas neste documento.
+- **Status:** 🟢 **Aceita** — Fases 1, 2, **2b**, **2c**, **3** e **3b** implementadas; Fases 4 e 5 planejadas e priorizadas neste documento.
+- **Fecha a Questão 2 da [[decisions/0033-dinheiro-para-cobranca-cancelada|ADR 0033]]:** a fila de replay ganhou consumidor.
 - **🔴 Contém DOIS achados CRÍTICOS com correção que precisa chegar em produção:** *Problema 3* (razão aberto para `anon`) e *Problema 4* (**escalação de privilégio para administrador da plataforma, ao alcance de qualquer usuário logado**). Os dois foram encontrados **verificando o banco**, não lendo as migrations — o segundo só apareceu porque a verificação da correção do primeiro não bateu.
 - **Escopo:** o caminho inteiro do dinheiro de gateway — das três Edge Functions até o razão —, olhado por duas perguntas que nenhum ADR anterior fez: **"dá para reconstruir o que aconteceu?"** e **"quem consegue escrever aqui?"**
 - **Data:** 2026-09-06
@@ -301,9 +302,27 @@ Verificado antes de revogar: **nenhuma** rotina depende do grant de `PUBLIC` par
 
 7. **Tela Configurações → Integrações → Diagnóstico** ✅ *parcial* — Owner/Admin, sub-rota no padrão de `configuracoes/usuarios`. Resumo, tabela de eventos com filtro "precisam de atenção", erros crus fora da tabela (espremê-los numa célula truncaria justamente o que explica a falha), e a reconciliação.
 
-   **O botão de reprocessar NÃO foi entregue**, e a Questão 2 da ADR 0033 continua aberta. O motivo é estrutural: reprocessar exige rodar a verificação do provedor, que vive nas Edge Functions em Deno, e cada uma tem a sua (`fetchInvoice` na Cora, `fetchPayment` no MP, `checkPayment` na InfinitePay, esta última precisando de quatro campos do payload). Fazer o dreno em `apps/web` duplicaria lógica de dinheiro — exatamente o que `_shared/inbox.ts` existe para impedir.
+   O botão de reprocessar saiu na **Fase 3b**, logo abaixo.
 
-   O caminho certo é extrair os três adaptadores para `_shared/` e criar uma função `gateway-replay` que despacha por provedor. É trabalho de tamanho próprio, sobre o caminho de dinheiro que acabou de ser validado em produção, e por isso não foi enfiado aqui. **A tela mostra o problema; ela ainda não o resolve** — e diz isso a quem olha, em vez de oferecer um botão que não faz o que promete.
+### Fase 3b — o dreno da fila ✅ implementada
+
+`idx_gateway_events_unprocessed` sempre foi chamado de "fila de replay" e **nunca teve consumidor**. Como respondemos `200` antes de processar, o provedor considera a entrega concluída e nunca reenvia: um evento que falha depois disso fica parado para sempre. Esta fase é o consumidor.
+
+**A decisão que define o desenho: o dreno não reimplementa nada.** Reprocessar é reconsultar o provedor e aplicar ao razão — exatamente o que o webhook faz. Uma segunda implementação divergiria da primeira no primeiro ajuste, e a divergência apareceria como dinheiro confirmado de dois jeitos diferentes.
+
+Então os processadores saíram dos arquivos de webhook para `_shared/cora.ts`, `_shared/mercadopago.ts` e `_shared/infinitepay.ts`, e **os dois caminhos chamam a mesma função**. O que tornou isso possível sem duplicar nada: cada processador lê exclusivamente do **payload gravado** (`StoredEvent`). Na entrega original o payload acabou de ser montado; no replay ele vem do banco. Mesmos campos, mesma função — o replay não pode drifar do webhook porque não é outro código.
+
+É na InfinitePay que a propriedade mais se paga: `payment_check` exige quatro campos, e dois deles (`transaction_nsu`, `invoice_slug`) só existem no corpo que ela mandou. Guardar o corpo inteiro no inbox — decisão da Spec 0014, tomada por auditoria — é o que torna o reprocessamento possível anos depois.
+
+Os arquivos de webhook ficaram só com HTTP: segredo, assinatura, gravar no inbox, responder.
+
+**`gateway-replay`** (`verify_jwt = true`, ao contrário dos webhooks — aqui não há provedor externo a acomodar) recebe um `event_id`, recusa o que já foi processado (`409`), despacha por provedor e devolve o erro novo quando falha, deixando o evento na fila. Quem chama é a Server Action do cockpit, com `service_role`, **depois** de conferir papel (Owner/Admin) e de ler o evento com o cliente do usuário sob RLS — se não é do tenant dele, a consulta não devolve nada e não há o que comparar à mão.
+
+**Defeito encontrado ao testar:** `markFailed` gravava `attempts: 1` **fixo**. Com uma entrega só ninguém notava — a primeira falha é mesmo a primeira. Com o dreno virou defeito visível: reprocessar dez vezes deixava o contador em 1, e um evento que falha sempre seria retentado indefinidamente sem deixar sinal. Agora conta.
+
+**Verificação.** A suíte E2E **não executa** as funções Deno, então o refactor foi validado à mão com `supabase functions serve` e um mock da API da Cora servido como função na mesma rede: evento de ciclo de vida (processa e limpa o erro), evento órfão (falha e volta para a fila), contador subindo 1→2→3, `already_processed` e `event_not_found`, e o ciclo com dinheiro — evento parado → `confirmed`, R$ 250,00, `pix`, `gateway:cora`, `paid_at` vindo do `finalized_at` do provedor, cobrança fechada e razão somando zero.
+
+**O clique não tem teste automatizado**, e isso está dito no spec: ele depende de `supabase functions serve` estar de pé, e um teste assim viraria intermitente. O spec cobre que o botão aparece só em `failed`/`pending` — nunca em "aceito sem conferir", que já virou dinheiro e se resolve olhando o extrato, não reprocessando.
 
 ### Fase 4 — vigilância ativa 🔜
 
