@@ -2,7 +2,7 @@
 
 *(por que este dinheiro entrou, quem mandou, e quem consegue mexer)*
 
-- **Status:** 🟢 **Aceita** — Fases 1, 2, **2b**, **2c**, **3** e **3b** implementadas; Fases 4 e 5 planejadas e priorizadas neste documento.
+- **Status:** 🟢 **Aceita** — Fases 1, 2, **2b**, **2c**, **3**, **3b** e **4** implementadas; Fase 5 planejada neste documento.
 - **Fecha a Questão 2 da [[decisions/0033-dinheiro-para-cobranca-cancelada|ADR 0033]]:** a fila de replay ganhou consumidor.
 - **🔴 Contém DOIS achados CRÍTICOS com correção que precisa chegar em produção:** *Problema 3* (razão aberto para `anon`) e *Problema 4* (**escalação de privilégio para administrador da plataforma, ao alcance de qualquer usuário logado**). Os dois foram encontrados **verificando o banco**, não lendo as migrations — o segundo só apareceu porque a verificação da correção do primeiro não bateu.
 - **Escopo:** o caminho inteiro do dinheiro de gateway — das três Edge Functions até o razão —, olhado por duas perguntas que nenhum ADR anterior fez: **"dá para reconstruir o que aconteceu?"** e **"quem consegue escrever aqui?"**
@@ -324,10 +324,36 @@ Os arquivos de webhook ficaram só com HTTP: segredo, assinatura, gravar no inbo
 
 **O clique não tem teste automatizado**, e isso está dito no spec: ele depende de `supabase functions serve` estar de pé, e um teste assim viraria intermitente. O spec cobre que o botão aparece só em `failed`/`pending` — nunca em "aceito sem conferir", que já virou dinheiro e se resolve olhando o extrato, não reprocessando.
 
-### Fase 4 — vigilância ativa 🔜
+### Fase 4 — vigilância ativa ✅ implementada
 
-8. `pg_cron` **já está no projeto** desde `20260815005737` (emissão de cobranças). Não é infraestrutura nova. Duas rotinas: drenar `idx_gateway_events_unprocessed` com backoff, e varrer a reconciliação diariamente.
-9. Alerta para o que precisa de humano: evento não processado há mais de 1h; confirmação sem verificação; `signature_valid = false` em provedor que assina.
+8. **Drenagem automática** — `GET /api/cron/drain-gateway-events`, cron da Vercel a cada 15 minutos.
+
+   **Por que na aplicação e não no `pg_cron`.** A emissão de cobranças roda no banco porque ela *é* SQL — `fn_run_billing_emission` não sai do Postgres. Drenar a fila é o contrário: uma chamada HTTP a uma Edge Function que por sua vez chama a API do provedor. Fazer isso do banco exigiria `pg_net` (está instalado) e, com ele, **guardar uma credencial de chamada dentro do banco**. Na aplicação não entra segredo novo: usa o `CRON_SECRET` que a emissão manual já usa, e a chave de serviço já vive no ambiente.
+
+   A rota não decide nada sobre dinheiro. Ela escolhe **quais** eventos tentar e chama a mesma função que o botão da tela chama — que chama o mesmo processador do webhook.
+
+   Três critérios de seleção, cada um por um motivo:
+   - `attempts < 5` — falha que persiste cinco vezes não é instabilidade; é caso que precisa de decisão humana. Continuar tentando gasta chamada na API do provedor e esconde o problema numa contagem que ninguém lê.
+   - `received_at < now() - 2 min` — o webhook responde antes de processar e segue trabalhando em `waitUntil`. Um evento recém-chegado pode estar sendo processado **agora**; drená-lo em paralelo faria duas verificações concorrentes do mesmo pagamento. A confirmação é idempotente, então não duplicaria dinheiro — mas gastaria duas chamadas e criaria uma corrida que não precisa existir.
+   - lote de 25 — mantém a rota dentro do tempo e evita rajada na API do provedor.
+
+   `unreachable` **interrompe o lote**: se a função está fora, insistir com os outros 24 só produz o mesmo erro 24 vezes e some com o sinal no meio do log.
+
+9. **Alerta** — no log estruturado, que é o canal que existe hoje. Três perguntas que ninguém mais faz sozinho: eventos que esgotaram as tentativas (`drain.needs_human`), confirmados sem verificação nas últimas 24h (`drain.accepted_unverified`, ADR 0033) e divergências na reconciliação (`drain.reconciliation`).
+
+   **Não foi criado canal de notificação.** Seria infraestrutura nova, e escolher destinatário no lugar do humano seria decidir por ele. O que existe é: o log estruturado para quem observa a plataforma, e a tela de diagnóstico para quem opera a locadora.
+
+#### Defeito encontrado ao testar: `fetch` cacheado
+
+A rota relatava `ainda_falhando: 2` **sem ter chamado a função uma única vez**. O contador de tentativas não subia e nenhum `replay.start` aparecia no log da Edge Function, enquanto a resposta HTTP dizia que o trabalho tinha acontecido.
+
+Causa: o Next serve a resposta anterior do cache de dados. Faltava `cache: 'no-store'`.
+
+O efeito era pior do que "não drena": **a drenagem se declarava saudável enquanto não fazia nada**, e o botão da tela tinha o mesmo defeito — um segundo clique no mesmo evento não faria nada, em silêncio. É a forma exata do problema que esta ADR existe para eliminar, aparecendo dentro da própria correção.
+
+Reprocessar é efeito colateral, nunca leitura: a mesma chamada com a mesma entrada tem que ir de novo.
+
+**Verificação.** Com as funções servidas localmente e um mock da API da Cora: evento com dinheiro drenado (cobrança fechada, razão somando zero), órfão continuando a falhar com o contador subindo 1→2→3→4→5, evento esgotado deixando de ser selecionado, evento recém-chegado excluído pela idade e incluído na passada seguinte, e `precisam_de_humano` subindo conforme os casos esgotavam. O 401 sem `CRON_SECRET` tem teste automatizado; o caminho feliz não, porque dependeria de `supabase functions serve` estar de pé.
 
 ### Fase 5 — trilha confiável 🔜
 

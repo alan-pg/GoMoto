@@ -224,9 +224,29 @@ Agora conta.
 rede: ciclo com dinheiro fechou (evento parado → confirmado, R$ 250,00, razão
 somando zero). **Os quatro webhooks precisam de deploy.**
 
-Faltam as Fases 4 e 5: `pg_cron` de vigilância com alerta, e trilha em
-`audit_logs` para dinheiro (hoje `payment_confirmed` e `token_refreshed` existem
-no vocabulário sem nenhum escritor).
+**Fase 4 — vigilância ativa.** `GET /api/cron/drain-gateway-events`, cron da
+Vercel a cada 15 min, drena a fila sozinha: `attempts < 5`, evento com mais de 2
+minutos (o webhook ainda pode estar processando em `waitUntil`), lote de 25.
+Ficou na aplicação e não no `pg_cron` porque é orquestração HTTP, não SQL — e
+assim nenhum segredo novo entra no banco; usa o `CRON_SECRET` que a emissão
+manual já usa.
+
+Alerta vai para o log estruturado: `drain.needs_human` (esgotou as tentativas),
+`drain.accepted_unverified` (ADR 0033, últimas 24h) e `drain.reconciliation`.
+Não foi criado canal de notificação — seria infraestrutura nova, e escolher
+destinatário no lugar do humano seria decidir por ele.
+
+⚠️ **Defeito achado ao testar, que valeu a Fase inteira:** faltava
+`cache: 'no-store'` na chamada à Edge Function. A rota relatava
+`ainda_falhando: 2` **sem ter chamado a função uma vez** — o Next servia a
+resposta anterior do cache. A drenagem se declarava saudável sem fazer nada, e
+o botão da tela tinha o mesmo defeito num segundo clique.
+
+⚠️ O cron `*/15` exige **plano Pro** na Vercel; no Hobby degrada para uma vez ao
+dia. E `CRON_SECRET` precisa existir no ambiente de produção.
+
+Falta a Fase 5: trilha em `audit_logs` para dinheiro (hoje `payment_confirmed` e
+`token_refreshed` existem no vocabulário de `lib/audit.ts` sem nenhum escritor).
 
 **Dinheiro para cobrança cancelada — [[decisions/0033-dinheiro-para-cobranca-cancelada|ADR 0033]]** (2026-09-06)
 

@@ -243,3 +243,24 @@ test.describe('Guarda de papel que NULL não desliga (ADR 0034, Fase 2c)', () =>
     }
   })
 })
+
+test.describe('Rota de drenagem (ADR 0034 Fase 4)', () => {
+  /**
+   * A drenagem roda sozinha a cada 15 minutos e reprocessa evento de gateway —
+   * ou seja, mexe em dinheiro sem ninguém olhando. A porta é o `CRON_SECRET`,
+   * o mesmo esquema da emissão de cobranças.
+   *
+   * Só a RECUSA é testada aqui. O caminho feliz chama a Edge Function
+   * `gateway-replay`, que não roda durante a suíte; um teste dele viraria
+   * intermitente. Ele foi verificado à mão, com as funções servidas localmente.
+   */
+  test('sem o segredo do cron, a drenagem não roda', async ({ request }) => {
+    const semNada = await request.get('/api/cron/drain-gateway-events')
+    expect(semNada.status(), 'drenagem aberta sem autenticação').not.toBe(200)
+
+    const comSegredoErrado = await request.get('/api/cron/drain-gateway-events', {
+      headers: { Authorization: 'Bearer segredo-errado' },
+    })
+    expect(comSegredoErrado.status(), 'drenagem aceitou segredo errado').not.toBe(200)
+  })
+})

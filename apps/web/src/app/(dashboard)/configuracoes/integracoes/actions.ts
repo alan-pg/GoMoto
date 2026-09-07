@@ -16,8 +16,8 @@
 import { revalidatePath } from 'next/cache'
 
 import { requireTenantOwnerOrAdmin } from '@/lib/auth/tenant'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { logAction } from '@/lib/audit'
+import { replayEvent, replayIsConfigured } from '@/lib/payment/replay'
 
 type ReplayResult =
   | { ok: true; status: 'processed' }
@@ -55,37 +55,13 @@ export async function replayGatewayEventAction(rawEventId: unknown): Promise<Rep
     return { ok: false, message: 'Este evento já foi processado.' }
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) {
+  if (!replayIsConfigured()) {
     return { ok: false, message: 'Reprocessamento não configurado neste ambiente.' }
   }
 
-  let resposta: Response
-  try {
-    resposta = await fetch(`${url}/functions/v1/gateway-replay`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // `service_role` porque a função tem `verify_jwt = true` e quem a chama
-        // é backend, não navegador. O guarda de quem PODE reprocessar já
-        // aconteceu acima.
-        Authorization: `Bearer ${key}`,
-        apikey: key,
-      },
-      body: JSON.stringify({ event_id: e.id }),
-    })
-  } catch (err) {
-    return { ok: false, message: `Não foi possível falar com o reprocessador: ${String(err)}` }
-  }
+  const r = await replayEvent(e.id)
 
-  const corpo = await resposta.json().catch(() => ({})) as {
-    status?: string; error?: string; detail?: string
-  }
-
-  if (corpo.status === 'processed') {
-    // O evento é do tenant, e a checagem acima garante isso — então
-    // `ctx.tenantId` é o carimbo certo.
+  if (r.status === 'processed') {
     await logAction({
       action: 'update',
       table: 'gateway_events',
@@ -97,12 +73,16 @@ export async function replayGatewayEventAction(rawEventId: unknown): Promise<Rep
     return { ok: true, status: 'processed' }
   }
 
-  // `failed` é resposta 200 com o erro dentro: a função processou o pedido, e
-  // o que falhou foi a verificação no provedor. O evento continua na fila, com
-  // o motivo novo — que é exatamente o que o operador precisa ler.
-  if (corpo.status === 'failed') {
+  // A falha da verificação também revalida: o evento continua na fila, mas com
+  // o motivo NOVO — que é exatamente o que o operador precisa ler para decidir
+  // o que fazer.
+  if (r.status === 'failed') {
     revalidatePath('/configuracoes/integracoes')
-    return { ok: false, message: `Ainda não deu: ${corpo.error ?? 'erro não informado'}` }
+    return { ok: false, message: `Ainda não deu: ${r.error}` }
+  }
+
+  if (r.status === 'unreachable') {
+    return { ok: false, message: `Não foi possível falar com o reprocessador: ${r.error}` }
   }
 
   const motivos: Record<string, string> = {
@@ -111,8 +91,5 @@ export async function replayGatewayEventAction(rawEventId: unknown): Promise<Rep
     provider_not_replayable: 'Este provedor não sabe reprocessar eventos.',
   }
 
-  return {
-    ok: false,
-    message: motivos[corpo.error ?? ''] ?? `Falha ao reprocessar (${resposta.status}).`,
-  }
+  return { ok: false, message: motivos[r.reason] ?? `Falha ao reprocessar (${r.httpStatus}).` }
 }
