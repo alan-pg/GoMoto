@@ -11,7 +11,7 @@ import type { PaymentProvider, ProviderConnection, ProviderCredentials } from '.
 import { ProviderAuthError } from '../../types'
 import { expiresAtFrom } from '../../credentials'
 import {
-  buildAuthUrl, createPixInvoice, exchangeCode, refreshTokens, CoraAuthError,
+  buildAuthUrl, cancelInvoice, createPixInvoice, exchangeCode, refreshTokens, CoraAuthError,
 } from './api'
 
 const descriptor = findPaymentProvider('cora')!
@@ -112,6 +112,17 @@ export const coraProvider: PaymentProvider = {
           qr_code: emv,
         },
       }
+    } catch (err) {
+      if (err instanceof CoraAuthError) {
+        throw new ProviderAuthError('cora', err.message)
+      }
+      throw err
+    }
+  },
+
+  async cancelIntent({ providerIntentId, credentials }) {
+    try {
+      await cancelInvoice(providerIntentId, accessTokenOf(credentials))
     } catch (err) {
       if (err instanceof CoraAuthError) {
         throw new ProviderAuthError('cora', err.message)

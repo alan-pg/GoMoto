@@ -2,7 +2,7 @@
 
 *(cobrança cancelada, fila de replay e renovação de credencial no webhook)*
 
-- **Status:** 🟡 **Questão 1 em aberto**, aguardando decisão do humano. **Questão 2 FECHADA** em 2026-09-07 pela [[decisions/0034-auditabilidade-do-caminho-do-dinheiro|ADR 0034]]: a **2a** pelas Fases 3b e 4 (a fila ganhou consumidor), e a **2b** pela renovação de credencial na rota de drenagem — que roda em `apps/web` e portanto *alcança* `resolveCredentials`, coisa que o webhook em Deno nunca pôde. A confirmação sem verificação continua existindo, mas deixa de ser o caminho normal e volta a ser o último recurso que ela sempre deveria ter sido.
+- **Status:** 🟢 **Aceita e CONCLUÍDA.** **Questão 1 decidida e implementada em 2026-09-07** — dinheiro de cobrança cancelada vira **crédito do cliente**, e cancelar passa a cancelar no provedor quando ele oferece. **Questão 2 FECHADA** em 2026-09-07 pela [[decisions/0034-auditabilidade-do-caminho-do-dinheiro|ADR 0034]]: a **2a** pelas Fases 3b e 4 (a fila ganhou consumidor), e a **2b** pela renovação de credencial na rota de drenagem — que roda em `apps/web` e portanto *alcança* `resolveCredentials`, coisa que o webhook em Deno nunca pôde. A confirmação sem verificação continua existindo, mas deixa de ser o caminho normal e volta a ser o último recurso que ela sempre deveria ter sido.
 - **Escopo:** três buracos de naturezas diferentes, unidos por um sintoma só — dinheiro real que entra e não vira registro correto. Ficaram no mesmo ADR porque a Questão 1 é o buraco contábil e a Questão 2 é o que faria qualquer um deles ser **notado**; separá-los produziria dois documentos que só fazem sentido lidos juntos.
 - **Data:** 2026-09-06
 - **Autores:** Alan + agente IA
@@ -54,7 +54,27 @@ Cancelar no provedor **reduz a probabilidade** de dinheiro chegar para uma cobra
 
 Ou seja: a pergunta "o que o razão faz quando esse dinheiro chega mesmo assim" continua precisando de resposta, independentemente do cancelamento remoto.
 
-## Questão 1 — o conserto local (duas metades)
+## Questão 1 — ✅ DECIDIDA E IMPLEMENTADA em 2026-09-07
+
+> **Decisão do humano:** cancelar uma cobrança que já gerou cobrança no gateway deve **cancelar no provedor quando essa funcionalidade existe**; e o dinheiro que chegar para uma cobrança cancelada **vira crédito do cliente**.
+>
+> **Por que crédito.** Cancelar é dizer ao cliente "você não deve isto". O dinheiro que chega depois é dele, não da locadora — a contrapartida certa é a dívida com o cliente, que é o que `creditos_de_clientes` representa. Manter como recebível exigiria uma dívida que foi explicitamente extinta. Recusar nunca foi opção: a ADR 0024 exige que o que entrou seja reconhecido.
+>
+> **A metade local**, em `fn_confirm_gateway_payment`: com a cobrança `cancelled`, ela cria o pagamento (o dinheiro entrou), **não cria alocação** — alocar era exatamente o que tornava `contas_a_receber` negativo —, cria o `customer_credits` com origem `cancelled_charge` e lança débito `caixa_e_bancos` / crédito `creditos_de_clientes`. O encargo **não** é realizado: ele acompanha uma dívida que deixou de existir.
+>
+> A ressalva viaja no `payments.notes`, como a da confirmação sem verificação já fazia: *"cobrança #N estava cancelada; valor virou crédito do cliente"*. Quem lê o recebimento entende por que ele não quitou nada.
+>
+> **A metade remota**, em `cancelChargeIntents`: expira a tentativa aqui e tenta cancelar no provedor. `PaymentProvider.cancelIntent` é **opcional** — a InfinitePay não oferece cancelamento, e um método obrigatório produziria uma implementação que joga fora, indistinguível de uma que funciona.
+>
+> O cancelamento remoto **nunca bloqueia**. Ele reduz a probabilidade de o dinheiro chegar, jamais a elimina — e é por isso que a metade local existe. Verificado no teste: com a credencial ausente, a chamada ao provedor falha, é engolida, e a tentativa é expirada do mesmo jeito.
+>
+> ⚠️ **O `DELETE /v2/invoices/{id}` da Cora continua NÃO VERIFICADO ao vivo.** O token de produção estava vencido na hora de sondar, e renovar à mão exige o client secret, que está Sensitive na Vercel. O código está escrito conforme a documentação e marcado como inferência — e o desenho protege contra ela estar errada, porque falha remota não impede nada.
+>
+> **Escopo:** só `cancelled`. Uma cobrança BAIXADA (`written_off`) que recebe dinheiro é **recuperação de perda** — o cliente devia mesmo, e nós é que desistimos de cobrar. Tratar as duas igual criaria crédito para quem estava em dívida. Fica como caso separado, sem resposta ainda.
+
+O diagnóstico original segue abaixo.
+
+### O conserto local (duas metades)
 
 ### Metade mecânica: cancelar expira os intents pendentes
 

@@ -156,3 +156,35 @@ export async function createPixCharge(params: PixChargeParams): Promise<PixCharg
     expires_at:     json.date_of_expiration,
   }
 }
+
+/**
+ * Cancela o pagamento no Mercado Pago (ADR 0033, Questão 1).
+ *
+ * `PUT /v1/payments/{id}` com `{"status":"cancelled"}`. Só vale dentro de uma
+ * janela de status — `pending`, `in_process`, `authorized`. Fora dela a API
+ * recusa, e recusar é o certo: um pagamento aprovado não se cancela, se estorna.
+ *
+ * Um Pix que já expirou sozinho também sai daqui como erro. Não é problema:
+ * quem chama trata qualquer falha como informação, porque o objetivo do
+ * cancelamento é reduzir a chance de alguém pagar — e um código expirado já não
+ * pode ser pago.
+ */
+export async function cancelPayment(mpPaymentId: string, accessToken: string): Promise<void> {
+  const res = await fetch(`${MP_BASE}/v1/payments/${mpPaymentId}`, {
+    method: 'PUT',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ status: 'cancelled' }),
+  })
+
+  if (res.status === 401 || res.status === 403) {
+    throw new MercadoPagoAuthError(`Mercado Pago recusou o token ao cancelar (${res.status})`)
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`MP cancelar pagamento ${mpPaymentId} falhou: ${res.status} ${body.slice(0, 200)}`)
+  }
+}

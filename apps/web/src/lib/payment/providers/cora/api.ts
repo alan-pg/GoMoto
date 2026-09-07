@@ -260,3 +260,37 @@ export async function createPixInvoice(params: CreatePixParams): Promise<CoraInv
 export async function getInvoice(invoiceId: string, accessToken: string): Promise<CoraInvoice> {
   return await coraFetch(`/v2/invoices/${invoiceId}`, accessToken) as CoraInvoice
 }
+
+/**
+ * Cancela a invoice (ADR 0033, Questão 1).
+ *
+ * `DELETE /v2/invoices/{id}` → **204 sem corpo**, e por isso não passa por
+ * `coraFetch`: aquele faz `res.json()` e estouraria num corpo vazio.
+ *
+ * ⚠️ **Ainda não verificado contra a API viva.** A página da Cora fala em
+ * "boleto", mas na v2 boleto e Pix são a mesma entidade `invoice` — o mesmo
+ * `POST /v2/invoices` de onde lemos o `pix.emv` —, então o DELETE *deve* servir
+ * para os dois. É inferência, e nesta família de integrações toda inferência
+ * não verificada ao vivo já saiu errada ao menos uma vez (ADR 0031 e 0032).
+ *
+ * O desenho protege contra ela estar errada: quem chama trata falha como
+ * informação, nunca como impedimento, e a metade local (dinheiro de cobrança
+ * cancelada vira crédito) não depende deste cancelamento funcionar.
+ *
+ * Uma invoice já PAGA é recusada pela Cora (`REC-0006`) — e isso é correto:
+ * não se cancela o que já foi pago.
+ */
+export async function cancelInvoice(invoiceId: string, accessToken: string): Promise<void> {
+  const res = await fetch(`${apiBase()}/v2/invoices/${invoiceId}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+  })
+
+  if (res.status === 401 || res.status === 403) {
+    throw new CoraAuthError(`Cora recusou o token ao cancelar (${res.status})`)
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Cora cancelar invoice ${invoiceId} falhou: ${res.status} ${body.slice(0, 200)}`)
+  }
+}

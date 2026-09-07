@@ -15,6 +15,7 @@ import type { PaymentProvider, ProviderConnection, ProviderCredentials } from '.
 import { ProviderAuthError } from '../../types'
 import {
   buildOAuthUrl,
+  cancelPayment,
   createPixCharge,
   exchangeCodeForTokens,
   refreshAccessToken,
@@ -106,6 +107,17 @@ export const mercadoPagoProvider: PaymentProvider = {
     } catch (err) {
       // Token expirado (o do MP dura 180 dias) vira erro com nome, para a rota
       // poder dizer "reconecte a conta" em vez de "tente novamente".
+      if (err instanceof MercadoPagoAuthError) {
+        throw new ProviderAuthError('mercadopago', err.message)
+      }
+      throw err
+    }
+  },
+
+  async cancelIntent({ providerIntentId, credentials }) {
+    try {
+      await cancelPayment(providerIntentId, accessTokenOf(credentials))
+    } catch (err) {
       if (err instanceof MercadoPagoAuthError) {
         throw new ProviderAuthError('mercadopago', err.message)
       }

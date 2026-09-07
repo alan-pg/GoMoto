@@ -61,6 +61,28 @@ export type PaymentProvider = {
   }
 
   createIntent(params: CreateIntentParams): Promise<CreatedIntent>
+
+  /**
+   * Cancela a tentativa no provedor (ADR 0033, Questão 1).
+   *
+   * **Opcional de propósito.** A InfinitePay não oferece cancelamento — a API
+   * dela tem `/links` e `/payment_check`, e nada mais. Um método obrigatório
+   * obrigaria uma implementação que joga fora, e o chamador não teria como
+   * saber a diferença entre "cancelei" e "fingi que cancelei".
+   *
+   * A ausência é a resposta: o provedor não sabe cancelar, e o sistema segue
+   * protegido pela metade local — o dinheiro que chegar vira crédito do
+   * cliente.
+   *
+   * O contrato é FRACO por natureza: cancelar no provedor reduz a
+   * probabilidade de o pagamento acontecer, nunca a elimina. O cliente pode
+   * estar com o código aberto e pagar no mesmo segundo. Quem chama trata falha
+   * como informação, jamais como impedimento.
+   */
+  cancelIntent?(params: {
+    providerIntentId: string
+    credentials: ProviderCredentials
+  }): Promise<void>
 }
 
 /**

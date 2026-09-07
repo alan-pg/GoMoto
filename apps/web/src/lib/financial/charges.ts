@@ -17,6 +17,7 @@ import {
   type ChargeItemInput,
 } from '@gomoto/core'
 import { postTransaction, dimensionsOf } from './ledger'
+import { cancelChargeIntents } from '@/lib/payment/cancel'
 
 export type CreateChargeParams = {
   customerId: string
@@ -127,6 +128,31 @@ export async function cancelCharge(
     description: `Cancelamento da cobrança #${balance.charge_number}`,
     createdBy,
   })
+
+  // Encerra o que estava aberto no gateway (ADR 0033, Questão 1).
+  //
+  // Cancelar reverteu a emissão no razão e, até aqui, deixava o código de
+  // pagamento VIVO no provedor — o link abria, o QR escaneava. Este é o único
+  // ponto por onde os cinco chamadores de `cancelCharge` passam, então é aqui
+  // que a correção alcança todos.
+  //
+  // Nunca lança: o cancelamento já aconteceu e não se desfaz porque um provedor
+  // não respondeu. A proteção contra o dinheiro chegar mesmo assim é do banco —
+  // `fn_confirm_gateway_payment` transforma em crédito do cliente.
+  try {
+    const r = await cancelChargeIntents(supabase, tenantId, chargeId)
+    if (r.expiradas > 0 || r.naoCanceladasNoProvedor > 0) {
+      console.warn(JSON.stringify({
+        ts: new Date().toISOString(), level: 'info', action: 'charge.cancel.intents',
+        charge_id: chargeId, ...r,
+      }))
+    }
+  } catch (err) {
+    console.error(JSON.stringify({
+      ts: new Date().toISOString(), level: 'error', action: 'charge.cancel.intents_falhou',
+      charge_id: chargeId, error: String(err),
+    }))
+  }
 }
 
 /**
