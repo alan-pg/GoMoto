@@ -41,22 +41,31 @@ test.beforeAll(async () => {
   const linhas = [
     {
       tenant_id: tenantId, provider: 'infinitepay', provider_event_id: evtId('falhou'),
-      event_type: `payment ${TEST_TAG}`, payload: {}, signature_valid: false,
+      event_type: `payment.failed ${TEST_TAG}`, payload: {}, signature_valid: false,
       processed_at: null, accepted_without_verification: false,
       processing_error: 'Error: pagamento aprovado sem tentativa correspondente',
-      attempts: 1,
+      attempts: 1, outcome: null,
     },
     {
       tenant_id: tenantId, provider: 'mercadopago', provider_event_id: evtId('pendente'),
-      event_type: `payment ${TEST_TAG}`, payload: {}, signature_valid: true,
+      event_type: `payment.pending ${TEST_TAG}`, payload: {}, signature_valid: true,
       processed_at: null, accepted_without_verification: false,
-      processing_error: null, attempts: 0,
+      processing_error: null, attempts: 0, outcome: null,
     },
     {
       tenant_id: tenantId, provider: 'cora', provider_event_id: evtId('semverificar'),
       event_type: `invoice.PAID ${TEST_TAG}`, payload: {}, signature_valid: false,
       processed_at: new Date().toISOString(), accepted_without_verification: true,
-      processing_error: null, attempts: 0,
+      processing_error: null, attempts: 0, outcome: null,
+    },
+    {
+      // O provedor respondeu que NÃO foi pago — Pix expirado. É a maioria dos
+      // eventos numa operação real, e antes de gravar o desfecho eles viravam
+      // ruído permanente na tela.
+      tenant_id: tenantId, provider: 'infinitepay', provider_event_id: evtId('naopago'),
+      event_type: `payment.expired ${TEST_TAG}`, payload: {}, signature_valid: false,
+      processed_at: new Date().toISOString(), accepted_without_verification: false,
+      processing_error: null, attempts: 0, outcome: 'ignored',
     },
   ]
 
@@ -84,19 +93,21 @@ test.describe('Diagnóstico das integrações (ADR 0034)', () => {
     // o histórico do tenant, e contar daria falso positivo. O `TEST_TAG` viaja
     // no `event_type` justamente para isolar as linhas desta execução.
     const daExecucao = page.locator(`tr:has-text("${TEST_TAG}")`)
-    await expect(daExecucao).toHaveCount(3)
+    await expect(daExecucao).toHaveCount(4)
 
-    const linha = (provedor: string) =>
-      page.locator('tr', { hasText: provedor }).filter({ hasText: TEST_TAG })
+    // Por EVENTO e não por provedor: dois eventos desta execução são da mesma
+    // InfinitePay, e localizar pelo gateway casaria as duas linhas.
+    const linha = (tipo: string) =>
+      page.locator('tr', { hasText: tipo }).filter({ hasText: TEST_TAG })
 
-    await expect(linha('InfinitePay')).toContainText('Falhou')
-    await expect(linha('Mercado Pago')).toContainText('Não processado')
+    await expect(linha('payment.failed')).toContainText('Falhou')
+    await expect(linha('payment.pending')).toContainText('Não processado')
 
     // O que mais importa: NÃO pode aparecer como confirmado. É dinheiro que
     // entrou sem reconsulta ao provedor, e pintá-lo de verde convenceria o
     // operador de que não há nada a conferir.
-    await expect(linha('Cora')).toContainText('Aceito sem conferir')
-    await expect(linha('Cora')).not.toContainText('Confirmado')
+    await expect(linha('invoice.PAID')).toContainText('Aceito sem conferir')
+    await expect(linha('invoice.PAID')).not.toContainText('Confirmado')
 
     // E nenhuma linha desta execução pode dizer "Sem efeito": esse rótulo é só
     // para evento de ciclo de vida, descartado antes de tocar o banco. Dizê-lo
@@ -104,6 +115,12 @@ test.describe('Diagnóstico das integrações (ADR 0034)', () => {
     // que não há nada ali — foi o que a auditoria do primeiro ciclo em produção
     // encontrou, sobre confirmações reais de R$ 1,00 e R$ 10,00.
     await expect(daExecucao.filter({ hasText: 'Sem efeito' })).toHaveCount(0)
+
+    // O que o provedor recusou tem rótulo PRÓPRIO. Antes de gravar o desfecho
+    // ele caía em "Processado, sem elo" — e como todo Pix que expira gera um
+    // desses, a tela acumularia ruído permanente até ninguém mais lê-la.
+    await expect(linha('payment.expired')).toContainText('Não pago')
+    await expect(linha('payment.expired')).not.toContainText('sem elo')
   })
 
   test('o erro cru do provedor fica legível, não truncado numa célula', async ({ page }) => {
@@ -147,6 +164,8 @@ test.describe('Diagnóstico das integrações (ADR 0034)', () => {
     await page.getByRole('button', { name: /Precisam de atenção/ }).click()
 
     // Os três semeados são de atenção, então continuam; o que some é o resto.
+    // O "não pago" NÃO precisa de atenção: sai do filtro. Sobram os três que
+    // pedem ação.
     await expect(page.locator(`tr:has-text("${TEST_TAG}")`)).toHaveCount(3)
     await expect(page.locator('tr', { hasText: 'Sem efeito' })).toHaveCount(0)
   })

@@ -400,6 +400,29 @@ Cobrança #6, R$ 100,00, Cora em homologação. Pagamento de teste disparado por
 | Fila de replay (Fase 3b/4) | 0 eventos não processados |
 | Razão | débito `caixa_e_bancos` / crédito `contas_a_receber`, soma **0,00**; cobrança `paid`, saldo 0,00 |
 
+### Segundo ciclo (#7, R$ 50,00) e o que ele revelou
+
+`DRAFTED` 54ms, `CREATED` 41ms, `PAID` confirmado em **1,482s**. Razão fechando em zero, reconciliação 0, fila 0.
+
+A tela mostrou 6 eventos como "Processado, sem elo". Fui verificar **cada um**, que é o ponto de ter a tela. Quatro eram legado benigno. **Dois eram do Mercado Pago, `live_mode: true`, sem tentativa correspondente** — a forma exata do defeito que a ADR 0033 descreve. Perguntei ao provedor:
+
+```
+177501360328 → cancelled / expired, R$ 5,00,  date_approved: null
+177505599156 → cancelled / expired, R$ 10,00, date_approved: null
+```
+
+Pix gerados e nunca pagos. **Nenhum dinheiro perdido** — o webhook classificou como `ignored` e não criou pagamento, comportamento correto.
+
+Mas eles ficariam ali para sempre. E **todo Pix que expira gera um evento desses**: em operação real, com cobranças vencendo todo dia, a tela acumularia ruído permanente até ninguém mais lê-la. Dois eventos hoje é anedota; a taxa de crescimento é que era o problema.
+
+A causa: `applyPayment` **conhecia** o desfecho (`approved | refunded | ignored`), usava para decidir, e jogava fora. A forma "validado e descartado" outra vez, dentro da própria ADR que existe para eliminá-la.
+
+`gateway_events.outcome` passa a guardar o que o provedor respondeu, gravado **antes** de qualquer decisão — inclusive antes do `return` do caso `ignored`, que é justamente o que precisava ficar registrado. A view ganhou dois rótulos: `processed_ignored` ("Não pago") e `refunded` ("Estornado") — este último porque o evento de estorno não tem pagamento ligado a si (o pagamento aponta para o evento que o CONFIRMOU), e sem a linha ele cairia em "sem elo" e o estorno sumiria da tela.
+
+Verificado com as funções servidas localmente e o mock devolvendo `PAID` ou `OPEN` conforme o id: `approved` → `confirmed` com R$ 50,00; `ignored` → `processed_ignored` sem pagamento.
+
+Detalhe de Postgres que custou uma tentativa: `CREATE OR REPLACE VIEW` só aceita **apendar** colunas. `outcome` no meio da lista renomeia as seguintes e o banco recusa com *"cannot change name of view column"*.
+
 ### E um defeito que a própria auditoria encontrou
 
 A tela classificava como **"Sem efeito"** todo evento processado sem pagamento ligado. Para ciclo de vida isso é verdade. Para os pagamentos ANTERIORES à Fase 1 é mentira: eles não têm `gateway_event_id` porque a coluna não existia, e a tela passou a afirmar "sem efeito" sobre confirmações reais — R$ 1,00 da InfinitePay e R$ 10,00 da Cora.

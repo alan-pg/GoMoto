@@ -26,8 +26,8 @@ export interface GatewayEventRow {
   processing_error: string | null
   signature_valid: boolean
   accepted_without_verification: boolean
-  situation: 'failed' | 'pending' | 'accepted_unverified' | 'confirmed'
-    | 'processed_no_money' | 'processed_unlinked'
+  situation: 'failed' | 'pending' | 'accepted_unverified' | 'confirmed' | 'refunded'
+    | 'processed_ignored' | 'processed_no_money' | 'processed_unlinked'
   processing_seconds: number | null
   payment_amount: number | string | null
   payment_method: string | null
@@ -72,6 +72,17 @@ const SITUACOES: Record<GatewayEventRow['situation'], {
     variante: 'warning',
     explicacao: 'Confirmado sem reconsultar o provedor porque a credencial estava vencida. Vale conferir o extrato.',
   },
+  refunded: {
+    rotulo: 'Estornado',
+    variante: 'warning',
+    explicacao: 'O provedor devolveu o dinheiro. O razão recebeu o lançamento inverso.',
+  },
+  processed_ignored: {
+    rotulo: 'Não pago',
+    variante: 'muted',
+    explicacao: 'O provedor respondeu que não foi pago — Pix expirado, cartão recusado ou '
+      + 'pagamento ainda pendente. Não é problema e não pede ação.',
+  },
   processed_no_money: {
     rotulo: 'Sem efeito',
     variante: 'muted',
@@ -80,8 +91,9 @@ const SITUACOES: Record<GatewayEventRow['situation'], {
   processed_unlinked: {
     rotulo: 'Processado, sem elo',
     variante: 'muted',
-    explicacao: 'Passou pelo caminho do dinheiro, mas não é possível mostrar o que produziu — '
-      + 'quase sempre é evento anterior a esta tela, de quando não havia onde gravar a ligação.',
+    explicacao: 'Passou pelo caminho do dinheiro, sem desfecho gravado e sem pagamento ligado. '
+      + 'Na prática é evento anterior a estas colunas — daqui para a frente todo evento diz '
+      + 'o que o provedor respondeu.',
   },
   pending: {
     rotulo: 'Não processado',

@@ -196,6 +196,17 @@ export async function applyPayment(
    */
   eventId: string,
 ): Promise<void> {
+  // O DESFECHO É GRAVADO ANTES DE QUALQUER DECISÃO.
+  //
+  // Ele era calculado, usado para decidir, e jogado fora — a forma "validado e
+  // descartado" outra vez. Sem ele, a tela de diagnóstico não distingue "o
+  // provedor disse que não foi pago" de "produziu dinheiro e não dá para
+  // mostrar", e todo Pix que expira vira ruído permanente na tela.
+  //
+  // Antes do `return` do `ignored` de propósito: é justamente esse caso que
+  // precisa ficar registrado.
+  await recordOutcome(supabase, eventId, payment.outcome)
+
   if (payment.outcome === 'ignored') {
     log('info', 'webhook.status_ignored', {
       provider, provider_intent_id: payment.providerIntentId, detail: payment.detail,
@@ -312,6 +323,24 @@ export async function markEventTenant(
   tenantId: string,
 ): Promise<void> {
   await supabase.from('gateway_events').update({ tenant_id: tenantId }).eq('id', eventId)
+}
+
+/**
+ * O que o PROVEDOR respondeu sobre este evento (ADR 0034).
+ *
+ * `approved` credita, `refunded` estorna, `ignored` é resposta afirmativa de
+ * "não foi pago" — Pix expirado, cartão recusado, pagamento ainda pendente.
+ *
+ * Distinto de "não consegui verificar", que nunca chega aqui: aquilo vira
+ * exceção e deixa o evento na fila, sem desfecho. A diferença entre os dois é a
+ * lição que custou o primeiro pagamento real da InfinitePay.
+ */
+async function recordOutcome(
+  supabase: SupabaseClient,
+  eventId: string,
+  outcome: NormalizedPayment['outcome'],
+): Promise<void> {
+  await supabase.from('gateway_events').update({ outcome }).eq('id', eventId)
 }
 
 export async function markProcessed(
