@@ -97,6 +97,13 @@ test.describe('Diagnóstico das integrações (ADR 0034)', () => {
     // operador de que não há nada a conferir.
     await expect(linha('Cora')).toContainText('Aceito sem conferir')
     await expect(linha('Cora')).not.toContainText('Confirmado')
+
+    // E nenhuma linha desta execução pode dizer "Sem efeito": esse rótulo é só
+    // para evento de ciclo de vida, descartado antes de tocar o banco. Dizê-lo
+    // sobre um evento que passou pelo caminho do dinheiro convence quem olha de
+    // que não há nada ali — foi o que a auditoria do primeiro ciclo em produção
+    // encontrou, sobre confirmações reais de R$ 1,00 e R$ 10,00.
+    await expect(daExecucao.filter({ hasText: 'Sem efeito' })).toHaveCount(0)
   })
 
   test('o erro cru do provedor fica legível, não truncado numa célula', async ({ page }) => {

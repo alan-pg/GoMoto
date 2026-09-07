@@ -385,6 +385,33 @@ Reprocessar é efeito colateral, nunca leitura: a mesma chamada com a mesma entr
 
 ---
 
+## Auditoria do primeiro ciclo completo em produção (2026-09-07)
+
+Cobrança #6, R$ 100,00, Cora em homologação. Pagamento de teste disparado por `POST /v2/invoices/pay`.
+
+| O que a ADR construiu | O que a produção mostrou |
+|---|---|
+| Denylist de ciclo de vida (Fase 3b) | `INVOICE.DRAFTED` e `INVOICE.CREATED` cortados em **47ms e 42ms**, sem tocar o banco nem a API da Cora |
+| Confirmação verificada | `invoice.PAID` → `confirmed` em **1,104s** |
+| Elo causal (Fase 1) | `payments.gateway_event_id` e `financial_transactions.source_event_id` apontando para o evento — a corrente fecha por FK |
+| Origem sem disfarce (Fase 1) | `received_by_system = gateway:cora`, `received_by` nulo |
+| Trilha do tenant (Fase 5) | `payment_confirmed` com `actor_system = gateway:cora`, carregando o elo — **a linha que não existia antes de hoje** |
+| Reconciliação (Fase 3) | 0 divergências |
+| Fila de replay (Fase 3b/4) | 0 eventos não processados |
+| Razão | débito `caixa_e_bancos` / crédito `contas_a_receber`, soma **0,00**; cobrança `paid`, saldo 0,00 |
+
+### E um defeito que a própria auditoria encontrou
+
+A tela classificava como **"Sem efeito"** todo evento processado sem pagamento ligado. Para ciclo de vida isso é verdade. Para os pagamentos ANTERIORES à Fase 1 é mentira: eles não têm `gateway_event_id` porque a coluna não existia, e a tela passou a afirmar "sem efeito" sobre confirmações reais — R$ 1,00 da InfinitePay e R$ 10,00 da Cora.
+
+**Uma tela de diagnóstico que afirma "sem efeito" sobre dinheiro que entrou é pior que não ter tela: ela convence quem olha de que não há nada ali.**
+
+Corrigido com `processed_unlinked` ("Processado, sem elo"), discriminado pelo `tenant_id` do evento — ciclo de vida é descartado antes de resolver tenant, então tenant nulo significa mesmo "não virou dinheiro".
+
+**O passado não foi reescrito.** `payments.gateway_event_id` é imutável por `fn_protect_payment`, e isso inclui não inventar origem para registro que nasceu sem ela. O elo daqueles dois pagamentos é reconstruível por arqueologia no payload — que é exatamente a arqueologia que esta ADR existe para nunca mais ser necessária dali para a frente.
+
+---
+
 ## Consequências
 
 **Ganho.** "Por que este dinheiro entrou?" passa a ser um `JOIN`, não uma investigação. A confirmação sem verificação da ADR 0033 vira consulta booleana em vez de `LIKE` em texto livre. Quatro capacidades que não deveriam estar ao alcance do navegador saem de lá — e o razão deixa de aceitar escrita de quem não está logado.

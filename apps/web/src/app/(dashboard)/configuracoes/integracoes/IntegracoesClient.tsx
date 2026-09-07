@@ -26,7 +26,8 @@ export interface GatewayEventRow {
   processing_error: string | null
   signature_valid: boolean
   accepted_without_verification: boolean
-  situation: 'failed' | 'pending' | 'accepted_unverified' | 'confirmed' | 'processed_no_money'
+  situation: 'failed' | 'pending' | 'accepted_unverified' | 'confirmed'
+    | 'processed_no_money' | 'processed_unlinked'
   processing_seconds: number | null
   payment_amount: number | string | null
   payment_method: string | null
@@ -75,6 +76,12 @@ const SITUACOES: Record<GatewayEventRow['situation'], {
     rotulo: 'Sem efeito',
     variante: 'muted',
     explicacao: 'Evento de ciclo de vida — criação, rascunho. Nunca vira dinheiro.',
+  },
+  processed_unlinked: {
+    rotulo: 'Processado, sem elo',
+    variante: 'muted',
+    explicacao: 'Passou pelo caminho do dinheiro, mas não é possível mostrar o que produziu — '
+      + 'quase sempre é evento anterior a esta tela, de quando não havia onde gravar a ligação.',
   },
   pending: {
     rotulo: 'Não processado',
