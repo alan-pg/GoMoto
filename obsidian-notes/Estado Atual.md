@@ -251,8 +251,28 @@ que o disparo manual da emissão de cobranças (`/api/cron/issue-charges`) tamb�
 estava morto lá, respondendo 500. A Vercel injeta o valor no header
 `Authorization` do cron automaticamente.
 
-Falta a Fase 5: trilha em `audit_logs` para dinheiro (hoje `payment_confirmed` e
-`token_refreshed` existem no vocabulário de `lib/audit.ts` sem nenhum escritor).
+**Fase 5 — a trilha do tenant passa a ver dinheiro. ADR 0034 CONCLUÍDA.**
+`payment_confirmed` e `token_refreshed` estavam no vocabulário de
+`lib/audit.ts` desde sempre **sem um único escritor** — a causa era estrutural,
+não descuido: a confirmação roda em Deno com `service_role` e `logAction` vive
+em `apps/web`.
+
+A trilha do dinheiro passou a ser escrita pelo BANCO, por trigger em `payments`,
+na mesma transação. Alcança os três caminhos (webhook, recebimento manual,
+abatimento por crédito) sem que nenhum precise lembrar de chamar nada — e não
+tem como ser perdida: se o registro falhar, o pagamento não acontece.
+
+`audit_logs.user_id` deixou de ser NOT NULL e ganhou `actor_system`
+(`gateway:<provedor>`), com CHECK de exatamente um autor. Papel de máquina não
+se disfarça de pessoa. `token_refreshed` sai de `fn_store_provider_credentials`,
+sem jamais registrar a credencial.
+
+A trilha virou **imutável inclusive para `service_role`** — as policies eram
+SELECT/INSERT, mas RLS é contornada por `SECURITY DEFINER`, que é justamente
+como a trilha do dinheiro é escrita.
+
+Defeito achado no caminho: **`logAction` nunca conferia o erro do INSERT**. Uma
+gravação recusada pela RLS passava sem deixar nada, nem no log.
 
 **Dinheiro para cobrança cancelada — [[decisions/0033-dinheiro-para-cobranca-cancelada|ADR 0033]]** (2026-09-06)
 

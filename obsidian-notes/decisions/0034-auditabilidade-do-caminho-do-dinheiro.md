@@ -2,7 +2,7 @@
 
 *(por que este dinheiro entrou, quem mandou, e quem consegue mexer)*
 
-- **Status:** 🟢 **Aceita** — Fases 1, 2, **2b**, **2c**, **3**, **3b** e **4** implementadas; Fase 5 planejada neste documento.
+- **Status:** 🟢 **Aceita e CONCLUÍDA** — Fases 1, 2, 2b, 2c, 3, 3b, 4 e 5 implementadas.
 - **Fecha a Questão 2 da [[decisions/0033-dinheiro-para-cobranca-cancelada|ADR 0033]]:** a fila de replay ganhou consumidor.
 - **🔴 Contém DOIS achados CRÍTICOS com correção que precisa chegar em produção:** *Problema 3* (razão aberto para `anon`) e *Problema 4* (**escalação de privilégio para administrador da plataforma, ao alcance de qualquer usuário logado**). Os dois foram encontrados **verificando o banco**, não lendo as migrations — o segundo só apareceu porque a verificação da correção do primeiro não bateu.
 - **Escopo:** o caminho inteiro do dinheiro de gateway — das três Edge Functions até o razão —, olhado por duas perguntas que nenhum ADR anterior fez: **"dá para reconstruir o que aconteceu?"** e **"quem consegue escrever aqui?"**
@@ -363,11 +363,25 @@ Reprocessar é efeito colateral, nunca leitura: a mesma chamada com a mesma entr
 
 **Verificação.** Com as funções servidas localmente e um mock da API da Cora: evento com dinheiro drenado (cobrança fechada, razão somando zero), órfão continuando a falhar com o contador subindo 1→2→3→4→5, evento esgotado deixando de ser selecionado, evento recém-chegado excluído pela idade e incluído na passada seguinte, e `precisam_de_humano` subindo conforme os casos esgotavam. O 401 sem `CRON_SECRET` tem teste automatizado; o caminho feliz não, porque dependeria de `supabase functions serve` estar de pé.
 
-### Fase 5 — trilha confiável 🔜
+### Fase 5 — trilha confiável ✅ implementada
 
-10. `logAction` deixa de engolir a própria falha **nos caminhos de dinheiro**. Nos demais, tolerar continua aceitável — mas a diferença passa a ser explícita, em vez de um `catch` único para tudo.
-11. `payment_confirmed` / `payment_reversed` ganham escritor: um trigger em `payments` popula `audit_logs`, o que também resolve o Deno não alcançar `apps/web`.
-12. Teste E2E de **privilégio intra-tenant** — ✅ **primeira leva entregue** em `apps/web/tests/privilegio-no-caminho-do-dinheiro.spec.ts`: `anon` não lança no razão nem lê credencial, membro logado não escreve em `payment_intents` nem no razão, `reversed_at` direto é recusado. Falta a leva por PAPEL (o que um `viewer` consegue que um `owner` deveria poder), que exige fixtures de usuário com papéis distintos.
+**A trilha do dinheiro passa a ser escrita pelo BANCO**, não pela aplicação. `payment_confirmed` e `token_refreshed` estavam no vocabulário de `lib/audit.ts` desde sempre e nunca tiveram um único escritor — e a causa não era descuido: a confirmação roda em Deno com `service_role`, e `logAction` vive em `apps/web`. **Nenhuma disciplina de código alcança um caminho que não passa pela aplicação.**
+
+10. **`audit_logs` aceita quem não é gente.** `user_id` deixa de ser `NOT NULL` e entra `actor_system` (`gateway:<provedor>` ou `system:<origem>`), com CHECK de **exatamente um autor**. A saída não foi um `auth.users` de sistema: usuário fictício apareceria em listas de membros e em todo relatório por pessoa — mesmo princípio de `payments.received_by_system` na Fase 1.
+
+11. **Trigger em `payments`** grava `payment_confirmed` no INSERT e `payment_reversed` na transição de `reversed_at`, na **mesma transação**. Isso alcança os três caminhos — webhook, recebimento manual e abatimento por crédito — sem que nenhum precise lembrar de chamar nada. E torna a trilha impossível de perder: se o registro falhar, o pagamento não acontece.
+
+    A identidade é derivada na ordem em que a resposta é mais específica: `received_by` (a pessoa que registrou), `auth.uid()` (quem estava logado), `received_by_system` (o gateway). Quando há marca de gateway, ela ganha — foi ele que recebeu, mesmo que alguém estivesse logado quando o webhook chegou.
+
+    O elo causal da Fase 1 viaja no `new_data`: dá para ir da trilha ao webhook sem sair dela.
+
+12. **`token_refreshed`** passa a ser gravado em `fn_store_provider_credentials`, o ponto único por onde toda credencial nova passa. A renovação é silenciosa por desenho, e é por isso que precisa de rastro: quando uma conexão morre, a pergunta é *"quando foi a última renovação bem-sucedida?"*, e ela não tinha resposta. **A credencial nunca entra na trilha** — registra-se que houve renovação, quando, e de qual conta.
+
+13. **A trilha vira imutável de verdade.** As policies eram SELECT/INSERT apenas (RNF-005), mas RLS é contornada por `SECURITY DEFINER` — e a trilha do dinheiro passou a ser escrita exatamente assim. Agora um trigger recusa UPDATE e DELETE **inclusive para `service_role`**, como já acontece no razão. O teste que antes *limpava* a linha de fixture passou a **exigir que a limpeza falhe**.
+
+14. **`logAction` para de engolir a própria falha.** Havia um defeito não notado: **o erro do INSERT nunca era conferido** — uma gravação recusada pela RLS ou por constraint passava sem deixar nada, nem no log. Agora distingue três desfechos (`no_session`, `no_tenant`, `write_failed`) e devolve resultado, para que o chamador *possa* saber. A maioria segue ignorando com razão: perder o registro de "editou um veículo" não justifica desfazer a edição. Para dinheiro a pergunta não se coloca — aquela trilha é do banco.
+
+15. Teste E2E de **privilégio intra-tenant** — ✅ entregue em `apps/web/tests/privilegio.spec.ts`. Falta a leva por PAPEL (o que um `viewer` consegue que um `owner` deveria poder), que exige fixtures de usuário com papéis distintos; fica registrada como pendência, não como parte desta ADR.
 
 ---
 
@@ -383,7 +397,7 @@ E a lição de método, que custou o Problema 4: **verificar a própria correç�
 
 **Não resolvido.** As duas questões em aberto da ADR 0033 continuam abertas: o destino do dinheiro que chega para cobrança cancelada (Questão 1) e o dreno da fila (Questão 2) — este último passa a ter endereço definido na Fase 3, item 7.
 
-**Em aberto.** Restam as Fases 3 a 5 — visibilidade e vigilância. Nada de segurança ficou pendente desta varredura: `anon` está fora de `public`, as guardas de papel são NULL-safe, e a migration falha sozinha se qualquer uma das duas coisas regredir.
+**Em aberto.** Nada de segurança ficou pendente desta varredura: `anon` está fora de `public`, as guardas de papel são NULL-safe, e a migration falha sozinha se qualquer uma das duas coisas regredir. Das Fases, resta apenas a leva de testes de privilégio POR PAPEL (item 15), que é cobertura e não correção.
 
 Duas miudezas anotadas, sem urgência: três policies (`billing_runs`, `fine_attachments`, `late_charge_policies`) declaram `{public}` em vez de `{authenticated}` — inofensivo hoje, porque o `USING` depende de `get_user_tenants()`/`current_customer_ids()`, vazios para o anônimo; e `payments` aceita `DELETE` de `authenticated`, na prática barrado pelo `ON DELETE RESTRICT` das alocações, que são imutáveis.
 
