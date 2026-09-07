@@ -170,7 +170,7 @@ export default async function BillingDetailPage({
   // do documento são os ITENS — `late_charges` e `credit_applications` deixaram
   // de existir: encargo é calculado até ser realizado (R-06), e aplicação de
   // crédito é transação no ledger.
-  const [balanceResult, itemsResult, allocationsResult, gatewayResult] = await Promise.all([
+  const [balanceResult, itemsResult, allocationsResult, gatewayResult, membrosResult] = await Promise.all([
     supabase
       .from('charge_balances')
       .select('*')
@@ -185,7 +185,15 @@ export default async function BillingDetailPage({
       .order('created_at', { ascending: true }),
     supabase
       .from('payment_allocations')
-      .select('id, amount, created_at, payment:payments(id, amount, method, paid_at, notes, reversed_at)')
+      // `received_by_system` e o provedor do intent respondem "de onde veio este
+      // dinheiro" (ADR 0034). Os dois porque cobrem épocas diferentes: a coluna
+      // só existe a partir da Fase 1, e o intent cobre os recebimentos
+      // anteriores a ela.
+      .select(
+        'id, amount, created_at, '
+        + 'payment:payments(id, amount, method, paid_at, notes, reversed_at, '
+        + 'received_by, received_by_system, intent:payment_intents(provider))',
+      )
       .eq('charge_id', id)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false }),
@@ -199,6 +207,14 @@ export default async function BillingDetailPage({
       .eq('is_default', true)
       .eq('active', true)
       .maybeSingle(),
+    // Quem registrou o recebimento manual. `payments.received_by` é um id de
+    // `auth.users`, que `authenticated` não lê direto — `list_tenant_members` é
+    // SECURITY DEFINER e resolve o nome.
+    //
+    // Ela é owner/admin apenas, então para um Operator isto volta vazio. A tela
+    // continua dizendo que o recebimento foi manual; só não diz por quem. É
+    // degradação honesta: melhor omitir o nome do que inventar um.
+    supabase.rpc('list_tenant_members', { p_search: null }),
   ])
 
   if (balanceResult.error || !balanceResult.data) notFound()
@@ -224,12 +240,57 @@ export default async function BillingDetailPage({
     source_module: string; created_at: string
   }[]
 
+  // Nome de quem registrou o recebimento manual, por id.
+  const nomePorUsuario = new Map<string, string>(
+    ((membrosResult.data ?? []) as { user_id: string; name: string | null; email: string }[])
+      .map((m) => [m.user_id, m.name || m.email]),
+  )
+
+  type PaymentRow = {
+    id: string; amount: number; method: string; paid_at: string
+    notes: string | null; reversed_at: string | null
+    received_by: string | null; received_by_system: string | null
+    intent: { provider: string } | { provider: string }[] | null
+  }
   type AllocRow = {
     id: string; amount: number; created_at: string
-    payment: { id: string; amount: number; method: string; paid_at: string; notes: string | null; reversed_at: string | null }
-      | { id: string; amount: number; method: string; paid_at: string; notes: string | null; reversed_at: string | null }[]
-      | null
+    payment: PaymentRow | PaymentRow[] | null
   }
+
+  /**
+   * De onde veio o dinheiro.
+   *
+   * A pergunta que a tela não respondia: um recebimento de R$ 100 aparecia como
+   * "PIX" tanto se a Cora confirmou sozinha quanto se alguém digitou à mão — e
+   * são situações que exigem coisas diferentes de quem confere.
+   *
+   * Duas fontes, em ordem de confiança:
+   *
+   *   1. `received_by_system` — gravado pela RPC de confirmação (ADR 0034,
+   *      Fase 1). É o que o próprio caminho do dinheiro registrou.
+   *   2. o provedor do INTENT — cobre os recebimentos anteriores àquela coluna.
+   *      Menos direto, mas suficiente: pagamento amarrado a uma tentativa de
+   *      gateway veio de gateway.
+   *
+   * Sem nenhuma das duas, foi registrado por gente. Não é inferência frouxa:
+   * `fn_confirm_gateway_payment` SEMPRE marca a origem, então a ausência das
+   * duas só sobra para o caminho manual.
+   */
+  function origemDoPagamento(p: PaymentRow | null) {
+    const intent = Array.isArray(p?.intent) ? p?.intent[0] : p?.intent
+    const provider = p?.received_by_system?.replace(/^gateway:/, '') ?? intent?.provider ?? null
+
+    if (provider) {
+      return {
+        tipo: 'gateway' as const,
+        label: findPaymentProvider(provider)?.label ?? provider,
+      }
+    }
+
+    const quem = p?.received_by ? nomePorUsuario.get(p.received_by) ?? null : null
+    return { tipo: 'manual' as const, label: quem }
+  }
+
   const payments = ((allocationsResult.data ?? []) as unknown as AllocRow[]).map((a) => {
     const p = Array.isArray(a.payment) ? a.payment[0] : a.payment
     return {
@@ -243,6 +304,7 @@ export default async function BillingDetailPage({
       paid_at: p?.paid_at ?? a.created_at,
       notes: p?.notes ?? null,
       reversed: !!p?.reversed_at,
+      origem: origemDoPagamento(p),
     }
   })
 
@@ -804,6 +866,7 @@ export default async function BillingDetailPage({
                   <tr className="border-b border-divider bg-surface">
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Data</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Forma</th>
+                    <th className="h-9 px-4 text-left font-medium text-fg-mute">Origem</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Valor</th>
                     <th className="h-9 px-4 text-left font-medium text-fg-mute">Observação</th>
                     <th className="h-9 px-4 text-right font-medium text-fg-mute">Ações</th>
@@ -816,6 +879,22 @@ export default async function BillingDetailPage({
                           a data quebrava no meio ("24/08/2026," numa linha, "12:00" na outra). */}
                       <td className="h-9 whitespace-nowrap px-4 text-fg-soft">{fmtDatetime(p.paid_at)}</td>
                       <td className="h-9 whitespace-nowrap px-4 text-fg-mute">{PAYMENT_METHOD_LABELS[p.payment_method] ?? p.payment_method}</td>
+                      {/* Gateway e manual pedem coisas diferentes de quem confere:
+                          o primeiro tem contrapartida no extrato do provedor, o
+                          segundo depende de alguém ter digitado certo. Sem esta
+                          coluna, os dois apareciam idênticos como "PIX". */}
+                      <td className="h-9 whitespace-nowrap px-4">
+                        {p.origem.tipo === 'gateway' ? (
+                          <span className="text-fg-soft">{p.origem.label}</span>
+                        ) : (
+                          <span className="text-fg-mute">
+                            Manual
+                            {p.origem.label ? (
+                              <span className="text-fg-soft"> · {p.origem.label}</span>
+                            ) : null}
+                          </span>
+                        )}
+                      </td>
                       <td className={`h-9 px-4 text-right font-mono font-semibold ${
                         p.reversed ? 'text-fg-mute line-through' : 'text-success'
                       }`}>

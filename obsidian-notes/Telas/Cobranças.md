@@ -90,6 +90,26 @@ quebraria a cobrança assim que um gateway de checkout fosse eleito.
 - Modal de confirmação com aviso em vermelho
 - Salva: `status='loss'`
 
+## Detalhe da cobrança — origem do pagamento ([[decisions/0034-auditabilidade-do-caminho-do-dinheiro|ADR 0034]])
+
+A tabela de **Pagamentos** em `/cobrancas/[id]` tem uma coluna **Origem** entre "Forma" e "Valor".
+
+O problema que ela resolve: um recebimento de R$ 100 aparecia como "PIX" tanto se a Cora confirmou sozinha quanto se alguém digitou à mão — e são situações que exigem coisas diferentes de quem confere. A do gateway tem contrapartida no extrato do provedor; a manual depende de uma pessoa ter digitado certo.
+
+| Caso | O que aparece |
+|---|---|
+| Confirmado por gateway | o **nome do provedor** — "Cora", "Mercado Pago", "InfinitePay" |
+| Registrado à mão | **"Manual"**, e o nome de quem registrou quando ele é resolvível |
+
+A origem sai de duas fontes, em ordem de confiança:
+
+1. **`payments.received_by_system`** (`gateway:cora`) — gravado pela própria RPC de confirmação. É o que o caminho do dinheiro registrou sobre si.
+2. **o provedor do `payment_intent`** — cobre os recebimentos anteriores àquela coluna. Menos direto, mas suficiente: pagamento amarrado a uma tentativa de gateway veio de gateway.
+
+Sem nenhuma das duas, foi manual. **Não é inferência frouxa:** `fn_confirm_gateway_payment` sempre marca a origem, então a ausência das duas só sobra para o caminho manual.
+
+O nome de quem recebeu vem de `list_tenant_members` (SECURITY DEFINER — `payments.received_by` é id de `auth.users`, que `authenticated` não lê direto). Essa RPC é **owner/admin apenas**, então para um Operator a coluna diz "Manual" sem o nome. É degradação honesta: melhor omitir o nome do que inventar um.
+
 ## Formulário de Criação/Edição
 
 | Campo | Tipo | Required |
